@@ -1,0 +1,3 @@
+pandas
+requests
+pyarrow>=15.0.0

@@ -1,0 +1,35 @@
+version: '3.8'
+services:
+  db:
+    image: postgis/postgis:15-3.3-alpine
+    container_name: honest-healthcare-db
+    environment:
+      - POSTGRES_DB=honest_healthcare
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  etl:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.etl
+    container_name: honest-healthcare-etl
+    command: tail -f /dev/null
+    volumes:
+      - .:/app
+    environment:
+      - SPARK_DRIVER_MEMORY=4g
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

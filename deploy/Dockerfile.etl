@@ -1,0 +1,16 @@
+FROM python:3.10-slim-bookworm
+
+# Install Java (required for Spark)
+RUN apt-get update && \
+    apt-get install -y default-jre-headless procps && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set JAVA_HOME
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+
+# Install Python dependencies
+COPY resources/requirements.etl.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+WORKDIR /app
+CMD ["tail", "-f", "/dev/null"]
