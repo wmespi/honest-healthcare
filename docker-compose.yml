@@ -25,6 +25,8 @@ services:
     command: tail -f /dev/null
     volumes:
       - .:/app
+    ports:
+      - "8888:8888"
     environment:
       - SPARK_DRIVER_MEMORY=4g
     depends_on:

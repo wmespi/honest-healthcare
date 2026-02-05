@@ -1,3 +1,5 @@
 pandas
 requests
 pyarrow>=15.0.0
+ipython
+notebook

@@ -92,57 +92,30 @@ def preprocess_csv(filepath):
         return False
 
 def ingest_bronze_emory():
-    print(">>> [Bronze] Starting Emory Pipeline (Pandas)")
+    print(">>> [Bronze] Starting Emory Pipeline (Raw Mode)")
 
     # 1. Define Paths
-    # Use a temp directory for the raw download
-    raw_dir = "/tmp/honest_healthcare_raw"
-    os.makedirs(raw_dir, exist_ok=True)
-    
-    # Output directly to bronze
     bronze_output_dir = "/app/data/bronze"
-    bronze_output_file = os.path.join(bronze_output_dir, "emory.parquet")
+    bronze_output_file = os.path.join(bronze_output_dir, "emory_raw.csv")
     
     os.makedirs(bronze_output_dir, exist_ok=True)
     
-    # 2. Download (Transient)
-    raw_path = download_file(EMORY_URL, raw_dir)
+    # 2. Download directly to bronze
+    # We save it as emory_raw.csv to signify it is untouched.
+    raw_path = download_file(EMORY_URL, bronze_output_dir)
     if not raw_path:
         sys.exit(1)
         
-    try:
-        # 3. Preprocess
-        preprocess_csv(raw_path)
-        
-        # 4. Ingest to Parquet
-        print(f">>> [Bronze] Reading CSV for Parquet Conversion: {raw_path}")
-        
-        encodings = ['utf-8', 'cp1252', 'latin1']
-        df = None
-        
-        for encoding in encodings:
-            try:
-                df = pd.read_csv(raw_path, encoding=encoding, on_bad_lines='skip', low_memory=False)
-                break
-            except UnicodeDecodeError:
-                continue
-                
-        if df is None:
-            print("!!! [Bronze] Error: Could not read file for ingestion.")
-            sys.exit(1)
-            
-        print(f">>> [Bronze] Raw Schema (Columns): {df.columns.tolist()}")
-        print(f">>> [Bronze] Shape: {df.shape}")
+    # 3. Rename to the standard name if different (handling basename from URL)
+    downloaded_filename = os.path.basename(raw_path)
+    if downloaded_filename != "emory_raw.csv":
+        final_path = os.path.join(bronze_output_dir, "emory_raw.csv")
+        if os.path.exists(final_path):
+            os.remove(final_path)
+        os.rename(raw_path, final_path)
+        print(f">>> [Bronze] Renamed {downloaded_filename} to emory_raw.csv")
 
-        print(f">>> [Bronze] Writing Parquet to {bronze_output_file}")
-        df.to_parquet(bronze_output_file, index=False)
-        print(">>> [Bronze] Done.")
-        
-    finally:
-        # 5. Cleanup Raw Intermediate
-        if os.path.exists(raw_path):
-            print(f">>> [Cleanup] Removing transient raw file: {raw_path}")
-            os.remove(raw_path)
+    print(">>> [Bronze] Done. Raw file saved to data/bronze/emory_raw.csv")
 
 if __name__ == "__main__":
     ingest_bronze_emory()
