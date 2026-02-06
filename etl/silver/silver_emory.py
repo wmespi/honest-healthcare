@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import sys
+import json
 
 def find_header_and_read(filepath):
     """
@@ -66,104 +67,123 @@ def find_header_and_read(filepath):
     return df
 
 def process_emory():
-    print(">>> [Silver] Starting Emory Processing (Raw -> Clean Mode)")
+    print(">>> [Silver] Starting Emory Multi-Hospital Processing (Raw -> Clean Mode)")
 
     # 1. Define Paths
-    bronze_path = "/app/data/bronze/emory_raw.csv"
+    bronze_dir = "/app/data/bronze"
+    catalog_path = os.path.join(bronze_dir, "hospital_catalog.json")
     silver_output_dir = "/app/data/silver"
-    silver_output_file = os.path.join(silver_output_dir, "emory_cleaned.csv")
+    silver_output_file = os.path.join(silver_output_dir, "emory_all_cleaned.csv")
     
     # Ensure output dir exists
     os.makedirs(silver_output_dir, exist_ok=True)
     
-    print(f">>> [Silver] Reading Raw Bronze CSV: {bronze_path}")
+    # 1.5 Load Catalog
+    if not os.path.exists(catalog_path):
+        print(f"!!! [Silver] Hospital catalog not found: {catalog_path}. Run Bronze first.")
+        return
+
+    with open(catalog_path, 'r') as f:
+        hospital_mapping = json.load(f)
+
+    all_dfs = []
+
+    # Get all raw files
+    if not os.path.exists(bronze_dir):
+        print(f"!!! [Silver] Bronze directory not found: {bronze_dir}")
+        return
+
+    raw_files = [f for f in os.listdir(bronze_dir) if f.endswith("_raw.csv")]
     
     try:
-        # 2. Read Bronze (Dynamic Header Detection)
-        df = find_header_and_read(bronze_path)        
-        print(">>> [Silver] Initial Data Shape:", df.shape)
-        
-        # 3. Clean / Transform (Silver Logic)
-        
-        # Normalize column names
-        df.columns = [c.strip().lower() for c in df.columns]
-        
-        # Inject Facility Info (Hardcoded for this single-hospital pipeline)
-        # We do this because the Bronze preprocessor stripped the metadata rows where this might have been.
-        df["hospital_name"] = "Emory University Hospital"
-        df["hospital_address"] = "1364 Clifton Rd NE, Atlanta, GA 30322" 
-        
-        # Inject Effective Date (Derived from Source URL: .../2025/oct/...)
-        df["effective_date"] = "2025-10-01"
+        for filename in sorted(raw_files):
+            hospital_key = filename.replace("_raw.csv", "")
+            hospital_name = hospital_mapping.get(hospital_key, hospital_key.replace("_", " ").title())
+            bronze_path = os.path.join(bronze_dir, filename)
             
-        # COLUMN SELECTION & RENAMING
-        # We define a strict map of { "source_col": "target_col" }
-        column_map = {
-            "hospital_name": "hospital_name",
-            "hospital_address": "address",
-            "effective_date": "effective_date",
-            "code|1|type": "billing_code_type",
-            "code|1": "billing_code",
-            "description": "description",
-            "billing_class": "billing_class",
-            "setting": "setting",
-            "payer_name": "payer",
-            "plan_name": "plan",
-            "standard_charge|min": "min_negotiated_rate",
-            "standard_charge|max": "max_negotiated_rate",
-            "estimated_amount": "estimated_amount"
-        }
-
-        # Filter down to codes with inpatient/outpatient insurance information
-        df = df[df['code|1|type'].isin(['MS-DRG', 'APC'])]
-
-        final_df = pd.DataFrame()
-        
-        found_cols = []
-        for src, dst in column_map.items():
-            if src in df.columns:
-                final_df[dst] = df[src]
-                found_cols.append(src)
-            else:
-                # Try fallback for 'code|1' vs 'code_1'
-                alt_src = src.replace("|", "_")
-                if alt_src in df.columns:
-                    final_df[dst] = df[alt_src]
-                    found_cols.append(alt_src)
-        
-        print(f">>> [Silver] Selected Columns: {found_cols}")
-        
-        # Basic cleanup on the clean data
-        # Ensure description is string
-        if "description" in final_df.columns:
-            final_df["description"] = final_df["description"].fillna("").astype(str)
+            print(f"\n>>> [Silver] Processing {hospital_name} ({filename})...")
             
-            # Extract Level and Procedure Type
-            # Pattern: Look for "Level " followed by a number
-            import re
-            
-            def parse_description(desc):
-                # Default values
-                level = "1"
-                proc_type = desc
+            try:
+                # 2. Read Bronze (Dynamic Header Detection)
+                df = find_header_and_read(bronze_path)        
+                print(f">>> [Silver] {hospital_name} Init Shape: {df.shape}")
                 
-                # Regex to find "Level X"
-                match = re.search(r"Level\s+(\d+)", desc, re.IGNORECASE)
-                if match:
-                    level = match.group(1)
-                    # Remove "Level X" from description to get procedure type
-                    # Also strip " - " or similar leading separators if left over
-                    proc_type = re.sub(r"Level\s+\d+", "", desc, flags=re.IGNORECASE).strip()
-                    proc_type = re.sub(r"^[\s\-\–]+", "", proc_type).strip() # Remove leading dashes
+                # Normalize column names
+                df.columns = [c.strip().lower() for c in df.columns]
                 
-                return pd.Series([level, proc_type])
+                # Inject Facility Information
+                df["hospital_name"] = hospital_name
+                df["hospital_address"] = "" # Leave empty for now
+                df["effective_date"] = "2025-10-01"
 
-            final_df[["level", "procedure_type"]] = final_df["description"].apply(parse_description)
-            
-        # 4. Write Output
-        print(f">>> [Silver] Writing CSV to {silver_output_file}")
-        final_df.to_csv(silver_output_file, index=False)
-        print(">>> [Silver] Done.")
+                # COLUMN SELECTION & RENAMING
+                column_map = {
+                    "hospital_name": "hospital_name",
+                    "hospital_address": "address",
+                    "effective_date": "effective_date",
+                    "code|1|type": "billing_code_type",
+                    "code|1": "billing_code",
+                    "description": "description",
+                    "billing_class": "billing_class",
+                    "setting": "setting",
+                    "payer_name": "payer",
+                    "plan_name": "plan",
+                    "standard_charge|min": "min_negotiated_rate",
+                    "standard_charge|max": "max_negotiated_rate",
+                    "estimated_amount": "estimated_amount"
+                }
+
+                # Filter down to codes with inpatient/outpatient insurance information
+                if 'code|1|type' in df.columns:
+                    df = df[df['code|1|type'].isin(['MS-DRG', 'APC'])]
+                elif 'code_1_type' in df.columns:
+                    df = df[df['code_1_type'].isin(['MS-DRG', 'APC'])]
+
+                cleaned_df = pd.DataFrame()
+                for src, dst in column_map.items():
+                    if src in df.columns:
+                        cleaned_df[dst] = df[src]
+                    else:
+                        # Try fallback for 'code|1' vs 'code_1'
+                        alt_src = src.replace("|", "_")
+                        if alt_src in df.columns:
+                            cleaned_df[dst] = df[alt_src]
+
+                # Basic cleanup
+                if not cleaned_df.empty and "description" in cleaned_df.columns:
+                    cleaned_df["description"] = cleaned_df["description"].fillna("").astype(str)
+                    
+                    # Extract Level and Procedure Type
+                    import re
+                    def parse_description(desc):
+                        level = "1"
+                        proc_type = desc
+                        match = re.search(r"Level\s+(\d+)", desc, re.IGNORECASE)
+                        if match:
+                            level = match.group(1)
+                            proc_type = re.sub(r"Level\s+\d+", "", desc, flags=re.IGNORECASE).strip()
+                            proc_type = re.sub(r"^[\s\-\–]+", "", proc_type).strip()
+                        return pd.Series([level, proc_type])
+
+                    cleaned_df[["level", "procedure_type"]] = cleaned_df["description"].apply(parse_description)
+                
+                if not cleaned_df.empty:
+                    all_dfs.append(cleaned_df)
+                    print(f">>> [Silver] Finished {hospital_name}. Cleaned rows: {len(cleaned_df)}")
+                else:
+                    print(f">>> [Silver] Warning: {hospital_name} produced zero cleaned rows.")
+
+            except Exception as e:
+                print(f"!!! [Silver] Error processing {hospital_name}: {e}")
+
+        # 4. Write Combined Output
+        if all_dfs:
+            final_df = pd.concat(all_dfs, ignore_index=True)
+            print(f"\n>>> [Silver] Writing Combined CSV ({len(final_df)} rows) to {silver_output_file}")
+            final_df.to_csv(silver_output_file, index=False)
+            print(">>> [Silver] Done.")
+        else:
+            print("!!! [Silver] No data was processed.")
         
     except Exception as e:
         print(f"!!! Error in Silver Processing: {e}")
