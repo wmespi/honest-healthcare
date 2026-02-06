@@ -23,10 +23,14 @@ def create_gold_layer():
         # 2. Fill Payer for Grouping
         df['payer'] = df['payer'].fillna("Self-Pay / Not Specified")
         df['plan'] = df['plan'].fillna("Standard")
+        if 'billing_code_type' not in df.columns:
+            df['billing_code_type'] = 'Unknown'
+        else:
+            df['billing_code_type'] = df['billing_code_type'].fillna("Unknown")
 
         # 3. Aggregation
         # We group by Hospital, Code, and Payer/Plan to see the range for each insurance
-        summary = df.groupby(['hospital_name', 'billing_code', 'procedure_type', 'level', 'payer', 'plan']).agg(
+        summary = df.groupby(['hospital_name', 'billing_code', 'billing_code_type', 'procedure_type', 'setting', 'payer', 'plan']).agg(
             min_rate=('min_negotiated_rate', 'min'),
             max_rate=('max_negotiated_rate', 'max'),
             median_rate=('estimated_amount', 'median'),

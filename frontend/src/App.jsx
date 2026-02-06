@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getHospitals, getRates } from './api';
-import { Search, Hospital, ShieldCheck, Info, ChevronRight, Activity } from 'lucide-react';
+import { getHospitals, getRates, getProcedures, getPayers, getPlans } from './api';
+import { Search, Hospital, ShieldCheck, Info, ChevronRight, Activity, CreditCard, Layers, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CostRangeBar = ({ min, max, median, globalMax }) => {
@@ -9,20 +9,22 @@ const CostRangeBar = ({ min, max, median, globalMax }) => {
   const medianPercent = (median / globalMax) * 100;
 
   return (
-    <div className="relative w-full h-12 bg-slate-800/50 rounded-full mt-4 overflow-hidden border border-slate-700">
-      <div
-        className="absolute h-full bg-indigo-500/30 border-x border-indigo-400/50"
-        style={{ left: `${minPercent}%`, width: `${maxPercent - minPercent}%` }}
-      />
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-indigo-500 z-10"
-        style={{ left: `calc(${medianPercent}% - 8px)` }}
-      />
-      <div className="absolute top-0 bottom-0 left-0 right-0 flex justify-between items-center px-4 pointer-events-none">
-        <span className="text-[10px] text-slate-400 font-mono">${min.toLocaleString()}</span>
-        <span className="text-[10px] text-slate-400 font-mono">${max.toLocaleString()}</span>
+    <div className="relative w-full">
+      <div className="relative w-full h-12 bg-slate-800/50 rounded-full overflow-hidden border border-slate-700">
+        <div
+          className="absolute h-full bg-indigo-500/30 border-x border-indigo-400/50"
+          style={{ left: `${minPercent}%`, width: `${maxPercent - minPercent}%` }}
+        />
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-indigo-500 z-10"
+          style={{ left: `calc(${medianPercent}% - 8px)` }}
+        />
+      </div>
+      <div className="flex justify-between mt-2 px-1">
+        <span className="text-[10px] text-slate-500 font-bold">$0</span>
+        <span className="text-[10px] text-slate-500 font-bold">${max.toLocaleString()} MAX</span>
       </div>
     </div>
   );
@@ -31,42 +33,65 @@ const CostRangeBar = ({ min, max, median, globalMax }) => {
 const RateCard = ({ rate, globalMax }) => (
   <motion.div
     layout
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, scale: 0.95 }}
-    className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-indigo-500/50 transition-all shadow-xl group"
+    initial={{ opacity: 0, scale: 0.9 }}
+    animate={{ opacity: 1, scale: 1 }}
+    exit={{ opacity: 0, scale: 0.9 }}
+    className="bg-slate-900 border border-slate-800 rounded-3xl p-8 hover:border-indigo-500/50 transition-all shadow-2xl group flex flex-col justify-between"
   >
-    <div className="flex justify-between items-start mb-4">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white transition-colors">
-          <Hospital size={20} />
+    <div className="flex justify-between items-start mb-8">
+      <div className="flex-1">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+            <Hospital size={16} />
+          </div>
+          <h3 className="text-white font-bold text-xl leading-tight">{rate.hospital_name}</h3>
         </div>
-        <div>
-          <h3 className="text-white font-semibold text-lg leading-tight">{rate.hospital_name}</h3>
-          <p className="text-slate-400 text-sm mt-1">{rate.payer} • {rate.plan}</p>
+        <div className="space-y-1.5 ml-11">
+          <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
+            <ShieldCheck size={14} />
+            <span>{rate.payer}</span>
+          </div>
+          <div className="text-slate-400 text-xs font-medium ml-5">{rate.plan}</div>
         </div>
       </div>
       <div className="text-right">
-        <div className="text-2xl font-bold text-white tracking-tight">${rate.median_rate.toLocaleString()}</div>
-        <div className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest mt-1">Estimated Cost</div>
+        <div className="text-3xl font-black text-white tracking-tighter">${rate.median_rate.toLocaleString()}</div>
+        <div className="text-[10px] text-indigo-400 font-bold uppercase tracking-[0.2em] mt-1 text-right">Estimated Cost</div>
+        <div className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-wider">
+          Range: ${rate.min_rate.toLocaleString()} - ${rate.max_rate.toLocaleString()}
+        </div>
       </div>
     </div>
 
-    <CostRangeBar
-      min={rate.min_rate}
-      max={rate.max_rate}
-      median={rate.median_rate}
-      globalMax={globalMax}
-    />
-
-    <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-800">
-      <div className="flex items-center gap-2">
-        <Activity size={14} className="text-slate-500" />
-        <span className="text-xs text-slate-400">Code: <span className="text-slate-200 font-mono">{rate.billing_code}</span></span>
+    <div className="mb-8 px-2">
+      <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-2 flex justify-between">
+        <span>Cost Variance Range</span>
       </div>
-      <div className="flex items-center gap-2 justify-end">
-        <ShieldCheck size={14} className="text-indigo-400" />
-        <span className="text-xs text-slate-400">{rate.record_count} Records</span>
+      <CostRangeBar
+        min={rate.min_rate}
+        max={rate.max_rate}
+        median={rate.median_rate}
+        globalMax={globalMax}
+      />
+    </div>
+
+    <div className="flex items-center justify-between pt-6 border-t border-slate-800/50">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400">
+          <Activity size={16} />
+        </div>
+        <div>
+          <div className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">Procedure Type</div>
+          <div className="text-xs text-white font-semibold truncate max-w-[200px]">{rate.procedure_type}</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-0">
+        <div className="bg-slate-800/50 px-3 py-1.5 rounded-l-full border border-slate-700 border-r-0">
+          <span className="text-[9px] text-indigo-400 font-bold uppercase tracking-tighter">{rate.billing_code_type}</span>
+        </div>
+        <div className="bg-slate-800/50 px-3 py-1.5 rounded-r-full border border-slate-700">
+          <span className="text-[10px] text-slate-400 font-mono">{rate.billing_code}</span>
+        </div>
       </div>
     </div>
   </motion.div>
@@ -75,29 +100,84 @@ const RateCard = ({ rate, globalMax }) => (
 function App() {
   const [hospitals, setHospitals] = useState([]);
   const [selectedHospital, setSelectedHospital] = useState('');
-  const [searchCode, setSearchCode] = useState('001'); // Standardize on a common DRG
+  const [searchTerm, setSearchTerm] = useState('');
+  const [setting, setSetting] = useState('inpatient');
+  const [comparisonMode, setComparisonMode] = useState('hospital'); // 'hospital' or 'insurer'
+
+  const [payers, setPayers] = useState([]);
+  const [selectedPayer, setSelectedPayer] = useState('');
+  const [plans, setPlans] = useState([]);
+  const [selectedPlan, setSelectedPlan] = useState('');
+
   const [rates, setRates] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchingSuggestions, setSearchingSuggestions] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+
   useEffect(() => {
     getHospitals().then(res => setHospitals(res.data));
+    getPayers().then(res => setPayers(res.data));
   }, []);
 
   useEffect(() => {
-    fetchRates();
-  }, [selectedHospital]);
+    if (selectedPayer) {
+      getPlans(selectedPayer).then(res => setPlans(res.data));
+    } else {
+      setPlans([]);
+    }
+    setSelectedPlan('');
+  }, [selectedPayer]);
+
+  // Debounced suggestions
+  useEffect(() => {
+    if (!isFocused) {
+      setShowSuggestions(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setSearchingSuggestions(true);
+      setShowSuggestions(true);
+      getProcedures(searchTerm, selectedHospital, setting, selectedPayer, selectedPlan)
+        .then(res => {
+          setSuggestions(res.data);
+        })
+        .finally(() => setSearchingSuggestions(false));
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm, selectedHospital, setting, isFocused, selectedPayer, selectedPlan]);
 
   const fetchRates = async () => {
+    // Requirements: For 'hospital' mode, need payer/plan/search. For 'insurer' mode, need hospital/search.
+    if (!searchTerm) return;
+
     setLoading(true);
     try {
-      const res = await getRates(searchCode, selectedHospital);
+      const res = await getRates(searchTerm, selectedHospital, setting, selectedPayer, selectedPlan);
       setRates(res.data);
+      setShowSuggestions(false);
     } finally {
       setLoading(false);
     }
   };
 
-  const globalMax = Math.max(...rates.map(r => r.max_rate), 100000);
+  const handleSuggestionClick = (sug) => {
+    setSearchTerm(sug);
+    setShowSuggestions(false);
+    // Explicitly fetch results for this suggestion
+    setLoading(true);
+    getRates(sug, selectedHospital, setting, selectedPayer, selectedPlan)
+      .then(res => setRates(res.data))
+      .finally(() => setLoading(false));
+  };
+
+  const globalMax = rates.length > 0 ? Math.max(...rates.map(r => r.max_rate)) : 100000;
+  const sortedRates = [...rates].sort((a, b) => a.median_rate - b.median_rate);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 w-full font-sans selection:bg-indigo-500/30">
@@ -106,7 +186,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
-              <ShieldCheck size={24} weight="bold" />
+              <ShieldCheck size={24} strokeWidth={3} />
             </div>
             <span className="text-xl font-bold tracking-tight text-white italic">Honest Healthcare</span>
           </div>
@@ -127,43 +207,152 @@ function App() {
             Compare <span className="text-indigo-500">Negotiated Rates</span> <br />
             Across the Emory Health System.
           </h1>
-          <p className="text-slate-400 text-lg max-w-2xl leading-relaxed mb-10">
+          <p className="text-slate-400 text-lg max-w-2xl leading-relaxed mb-6">
             Transparency is healthcare's new standard. We process raw hospital MRFs to help you
             discover price variances for the same procedure across different locations.
           </p>
 
-          <div className="flex flex-col md:flex-row gap-4 p-2 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl">
-            <div className="flex-1 relative">
-              <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
-              <input
-                type="text"
-                placeholder="Search Billing Code (e.g. 001, 874, APC)"
-                className="w-full bg-transparent h-16 pl-16 pr-6 outline-none text-white placeholder:text-slate-600 font-medium"
-                value={searchCode}
-                onChange={(e) => setSearchCode(e.target.value)}
-              />
-            </div>
-            <div className="h-16 w-px bg-slate-800 hidden md:block" />
-            <div className="flex-1 relative">
-              <Hospital className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
-              <select
-                className="w-full bg-transparent h-16 pl-16 pr-6 outline-none text-white appearance-none cursor-pointer font-medium"
-                value={selectedHospital}
-                onChange={(e) => setSelectedHospital(e.target.value)}
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 mb-8">
+            <div className="flex items-center gap-2 bg-slate-900 w-fit p-1 rounded-2xl border border-slate-800 shrink-0">
+              <button
+                onClick={() => setSetting('inpatient')}
+                className={`px-6 py-3 rounded-xl font-bold transition-all text-sm ${setting === 'inpatient' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}
               >
-                <option value="" className="bg-slate-900">All Emory Hospitals</option>
-                {hospitals.map(h => (
-                  <option key={h} value={h} className="bg-slate-900">{h}</option>
-                ))}
-              </select>
+                Inpatient
+              </button>
+              <button
+                onClick={() => setSetting('outpatient')}
+                className={`px-6 py-3 rounded-xl font-bold transition-all text-sm ${setting === 'outpatient' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}
+              >
+                Outpatient
+              </button>
             </div>
-            <button
-              onClick={fetchRates}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white px-10 h-16 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 group shadow-lg shadow-indigo-600/30"
-            >
-              Analyze Rates
-              <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
-            </button>
+
+            <div className="flex items-center gap-2 bg-slate-900 w-fit p-1 rounded-2xl border border-slate-800 shrink-0">
+              <button
+                onClick={() => { setComparisonMode('hospital'); setSelectedHospital(''); }}
+                className={`px-6 py-3 rounded-xl font-bold transition-all text-sm flex items-center gap-2 ${comparisonMode === 'hospital' ? 'bg-white text-slate-950 shadow-xl' : 'text-slate-500 hover:text-white'}`}
+              >
+                <Hospital size={16} />
+                Compare Hospitals
+              </button>
+              <button
+                onClick={() => { setComparisonMode('insurer'); setSelectedPayer(''); setSelectedPlan(''); }}
+                className={`px-6 py-3 rounded-xl font-bold transition-all text-sm flex items-center gap-2 ${comparisonMode === 'insurer' ? 'bg-white text-slate-950 shadow-xl' : 'text-slate-500 hover:text-white'}`}
+              >
+                <ArrowRightLeft size={16} />
+                Compare Insurers
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Dynamic Comparison Selection */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {comparisonMode === 'hospital' ? (
+                <>
+                  <div className="relative bg-slate-900 border border-slate-800 rounded-3xl p-2 flex items-center group focus-within:border-indigo-500/50 transition-all">
+                    <CreditCard className="ml-4 text-slate-500" size={20} />
+                    <select
+                      className="w-full bg-transparent h-14 pl-4 pr-6 outline-none text-white appearance-none cursor-pointer font-medium text-sm"
+                      value={selectedPayer}
+                      onChange={(e) => setSelectedPayer(e.target.value)}
+                    >
+                      <option value="" className="bg-slate-900">1. Select Insurance Provider</option>
+                      {payers.map(p => <option key={p} value={p} className="bg-slate-900">{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="relative bg-slate-900 border border-slate-800 rounded-3xl p-2 flex items-center group focus-within:border-indigo-500/50 transition-all">
+                    <Layers className="ml-4 text-slate-500" size={20} />
+                    <select
+                      className="w-full bg-transparent h-14 pl-4 pr-6 outline-none text-white appearance-none cursor-pointer font-medium text-sm disabled:opacity-50"
+                      value={selectedPlan}
+                      onChange={(e) => setSelectedPlan(e.target.value)}
+                      disabled={!selectedPayer}
+                    >
+                      <option value="" className="bg-slate-900">2. Select Specific Plan</option>
+                      {plans.map(p => <option key={p} value={p} className="bg-slate-900">{p}</option>)}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="md:col-span-2 relative bg-slate-900 border border-slate-800 rounded-3xl p-2 flex items-center group focus-within:border-indigo-500/50 transition-all">
+                  <Hospital className="ml-4 text-slate-500" size={20} />
+                  <select
+                    className="w-full bg-transparent h-14 pl-4 pr-6 outline-none text-white appearance-none cursor-pointer font-medium text-sm"
+                    value={selectedHospital}
+                    onChange={(e) => setSelectedHospital(e.target.value)}
+                  >
+                    <option value="" className="bg-slate-900">Select Hospital to Compare Insurers</option>
+                    {hospitals.map(h => <option key={h} value={h} className="bg-slate-900">{h}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Final Step: Procedure Search */}
+            <div className="flex flex-col md:flex-row gap-4 p-2 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl relative">
+              <div className="flex-1 relative">
+                <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
+                <input
+                  type="text"
+                  placeholder="3. Search Procedure (e.g. knee, heart, bypass)"
+                  className="w-full bg-transparent h-16 pl-16 pr-6 outline-none text-white placeholder:text-slate-600 font-medium"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && fetchRates()}
+                  onFocus={() => {
+                    setIsFocused(true);
+                    setShowSuggestions(true);
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      setIsFocused(false);
+                      setShowSuggestions(false);
+                    }, 200);
+                  }}
+                />
+
+                <AnimatePresence>
+                  {showSuggestions && (searchingSuggestions || suggestions.length > 0) && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="absolute top-full left-0 right-0 mt-3 bg-slate-900 border border-white/10 rounded-3xl overflow-hidden z-[999] shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl max-h-96 overflow-y-auto"
+                    >
+                      {searchingSuggestions ? (
+                        <div className="px-6 py-6 text-slate-500 flex items-center gap-3 italic">
+                          <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                          Analyzing procedure database...
+                        </div>
+                      ) : (
+                        suggestions.map((sug, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => handleSuggestionClick(sug)}
+                            className="w-full px-6 py-4 text-left hover:bg-white/5 text-slate-300 hover:text-white transition-colors flex items-center gap-4 group border-b border-white/5 last:border-0"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-500 group-hover:text-indigo-400 group-hover:bg-indigo-500/10 shrink-0">
+                              <Activity size={16} />
+                            </div>
+                            <span className="truncate font-medium">{sug}</span>
+                          </button>
+                        ))
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <button
+                onClick={fetchRates}
+                disabled={!searchTerm}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-10 h-16 rounded-22xl font-bold transition-all flex items-center justify-center gap-2 group shadow-lg shadow-indigo-600/30 min-w-[200px]"
+              >
+                Analyze Rates
+                <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -181,9 +370,9 @@ function App() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 gap-8">
           <AnimatePresence mode="popLayout">
-            {rates.map((rate, idx) => (
+            {sortedRates.map((rate, idx) => (
               <RateCard key={`${rate.hospital_name}-${idx}`} rate={rate} globalMax={globalMax} />
             ))}
           </AnimatePresence>
@@ -195,7 +384,7 @@ function App() {
               <Search size={40} />
             </div>
             <h3 className="text-xl font-bold text-white mb-2">No Results Found</h3>
-            <p className="text-slate-500">Try a different billing code or select a specific hospital.</p>
+            <p className="text-slate-500">Try a different procedure name or select a specific hospital.</p>
           </div>
         )}
       </main>

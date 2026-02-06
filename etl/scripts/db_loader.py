@@ -35,8 +35,14 @@ def load_gold_to_db():
             conn.execute(text(f"ALTER TABLE {table_name} ADD PRIMARY KEY (id)"))
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_billing_code ON {table_name} (billing_code)"))
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_hospital_name ON {table_name} (hospital_name)"))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_setting ON {table_name} (setting)"))
+            
+            # GIN Trigram index for fast ILIKE '%search%' queries
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_procedure_trgm ON {table_name} USING gin (procedure_type gin_trgm_ops)"))
+            
             conn.commit()
-            print(">>> [DB Loader] Created primary key and performance indexes.")
+            print(">>> [DB Loader] Created primary key and performance indexes (including Trigram).")
             
     except Exception as e:
         print(f"!!! [DB Loader] Sync failed: {e}")
