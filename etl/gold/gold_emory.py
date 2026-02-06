@@ -5,7 +5,7 @@ import sys
 def create_gold_layer():
     print(">>> [Gold] Starting Gold Layer Aggregation...")
     
-    silver_path = "/app/data/silver/emory_cleaned.csv"
+    silver_path = "/app/data/silver/emory_all_cleaned.csv"
     gold_output_dir = "/app/data/gold"
     gold_output_file = os.path.join(gold_output_dir, "emory_gold.csv")
     
@@ -13,6 +13,10 @@ def create_gold_layer():
     
     try:
         # 1. Read Silver Data
+        if not os.path.exists(silver_path):
+            print(f"!!! [Gold] Silver file not found: {silver_path}")
+            return
+
         df = pd.read_csv(silver_path, low_memory=False)
         print(f">>> [Gold] Read {len(df)} rows from {silver_path}")
         
