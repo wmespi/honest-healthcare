@@ -156,14 +156,17 @@ def process_emory():
                     # Extract Level and Procedure Type
                     import re
                     def parse_description(desc):
-                        level = "1"
+                        level = None
                         proc_type = desc
                         match = re.search(r"Level\s+(\d+)", desc, re.IGNORECASE)
                         if match:
                             level = match.group(1)
-                            proc_type = re.sub(r"Level\s+\d+", "", desc, flags=re.IGNORECASE).strip()
-                            proc_type = re.sub(r"^[\s\-\–]+", "", proc_type).strip()
-                        return pd.Series([level, proc_type])
+                            # Remove "Level X" and any leading/trailing separators
+                            clean_name = re.sub(r"Level\s+\d+", "", desc, flags=re.IGNORECASE).strip()
+                            clean_name = re.sub(r"^[\s\-\–:|,]+|[\s\-\–:|,]+$", "", clean_name).strip()
+                            proc_type = f"{clean_name} Level {level}"
+                        
+                        return pd.Series([level or "1", proc_type])
 
                     cleaned_df[["level", "procedure_type"]] = cleaned_df["description"].apply(parse_description)
                 

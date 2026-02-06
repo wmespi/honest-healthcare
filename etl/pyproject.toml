@@ -11,6 +11,8 @@ dependencies = [
     "pandas",
     "requests",
     "pyarrow>=15.0.0",
+    "sqlalchemy",
+    "psycopg2-binary",
 ]
 
 [project.optional-dependencies]
