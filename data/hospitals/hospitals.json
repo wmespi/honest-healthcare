@@ -1,0 +1,202 @@
+[
+  {
+    "npi": "1881766749",
+    "name": "ARTHUR M. BLANK HOSPITAL, INC.",
+    "type": "Clinic/Center, End-Stage Renal Disease (ESRD) Treatment",
+    "address": "2220 N DRUID HILLS RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303293117",
+    "last_updated": "2025-02-04"
+  },
+  {
+    "npi": "1730251695",
+    "name": "CHILDREN'S HEALTHCARE OF ATLANTA AT SCOTTISH RITE",
+    "type": "Rehabilitation Unit",
+    "address": "5445 MERIDIAN MARKS RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303424763",
+    "last_updated": "2023-03-24"
+  },
+  {
+    "npi": "1437136918",
+    "name": "EMORY UNIVERSITY",
+    "type": "Psychiatric Hospital",
+    "address": "1364 CLIFTON RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303221064",
+    "last_updated": "2024-02-23"
+  },
+  {
+    "npi": "1588640692",
+    "name": "EMORY UNIVERSITY",
+    "type": "General Acute Care Hospital",
+    "address": "1364 CLIFTON RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303221064",
+    "last_updated": "2024-02-26"
+  },
+  {
+    "npi": "1396923710",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "1364 CLIFTON RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303221064",
+    "last_updated": "2008-02-07"
+  },
+  {
+    "npi": "1871771923",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "1364 CLIFTON RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303221064",
+    "last_updated": "2008-01-31"
+  },
+  {
+    "npi": "1992101695",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "5665 PEACHTREE DUNWOODY RD",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303421764",
+    "last_updated": "2014-11-07"
+  },
+  {
+    "npi": "1417194184",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "1364 CLIFTON RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303221059",
+    "last_updated": "2009-01-16"
+  },
+  {
+    "npi": "1700219045",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "550 PEACHTREE ST NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303082208",
+    "last_updated": "2013-08-09"
+  },
+  {
+    "npi": "1366867830",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "1364 CLIFTON RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303221059",
+    "last_updated": "2014-02-20"
+  },
+  {
+    "npi": "1073937892",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "5207 PEACHTREE CREEK CIR",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303415364",
+    "last_updated": "2014-02-13"
+  },
+  {
+    "npi": "1053869578",
+    "name": "EMORY UNIVERSITY HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "1364 CLIFTON RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303221064",
+    "last_updated": "2016-09-13"
+  },
+  {
+    "npi": "1972056364",
+    "name": "EMORY UNIVERSITY HOSPITAL MIDTOWN",
+    "type": "General Acute Care Hospital",
+    "address": "550 PEACHTREE ST NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303082212",
+    "last_updated": "2016-08-02"
+  },
+  {
+    "npi": "1992799050",
+    "name": "GRADY MEMORIAL HOSPITAL CORPORATION",
+    "type": "General Acute Care Hospital",
+    "address": "80 JESSE HILL JR DR, SE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303033050",
+    "last_updated": "2025-01-21"
+  },
+  {
+    "npi": "1457396079",
+    "name": "NORTHSIDE HOSPITAL, INC.",
+    "type": "General Acute Care Hospital",
+    "address": "1000 JOHNSON FY RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303421606",
+    "last_updated": "2025-05-07"
+  },
+  {
+    "npi": "1003058728",
+    "name": "PIEDMONT HOSPITAL",
+    "type": "General Acute Care Hospital",
+    "address": "95 COLLIER RD",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "30309",
+    "last_updated": "2009-03-26"
+  },
+  {
+    "npi": "1962461681",
+    "name": "PIEDMONT HOSPITAL, INC",
+    "type": "General Acute Care Hospital",
+    "address": "1968 PEACHTREE RD NW",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303091281",
+    "last_updated": "2024-02-26"
+  },
+  {
+    "npi": "1679664395",
+    "name": "SAINT JOSEPHS HOSPITAL OF ATLANTA INC",
+    "type": "General Acute Care Hospital",
+    "address": "5665 PEACHTREE DUNWOODY RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303421764",
+    "last_updated": "2025-07-16"
+  },
+  {
+    "npi": "1922178789",
+    "name": "SCOTTISH RITE CHILDRENS MEDICAL CTR",
+    "type": "General Acute Care Hospital, Children",
+    "address": "1001 JOHNSON FERRY RD NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303421605",
+    "last_updated": "2023-02-23"
+  },
+  {
+    "npi": "1598795585",
+    "name": "WELLSTAR ATLANTA MEDICAL CENTER, INC",
+    "type": "General Acute Care Hospital",
+    "address": "303 PARKWAY DR NE",
+    "city": "ATLANTA",
+    "state": "GA",
+    "zip": "303121212",
+    "last_updated": "2024-10-31"
+  }
+]
