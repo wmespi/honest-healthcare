@@ -20,4 +20,5 @@ dev = [
     "ipython",
     "notebook",
     "matplotlib",
+    "ijson",
 ]

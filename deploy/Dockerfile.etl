@@ -10,10 +10,12 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java
 
 ARG INSTALL_DEV=false
 
+WORKDIR /app
+
 # Copy the ETL configuration
-COPY etl/pyproject.toml /app/etl/pyproject.toml
+COPY etl/pyproject.toml etl/pyproject.toml
 # Create a dummy README to satisfy setuptools if needed (optional but good practice)
-RUN touch /app/etl/README.md
+RUN touch etl/README.md
 
 # Install Python dependencies
 # We install with -e (editable) to keep things flexible, or just directly.
@@ -25,5 +27,4 @@ RUN if [ "$INSTALL_DEV" = "true" ] ; then \
     pip install --no-cache-dir "./etl[dev]" ; \
     fi
 
-WORKDIR /app
 CMD ["tail", "-f", "/dev/null"]
