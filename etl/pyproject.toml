@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "honest-healthcare-etl"
+version = "0.1.0"
+description = "ETL pipeline for Honest Healthcare"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "requests",
+    "pyarrow>=15.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ipython",
+    "notebook",
+    "matplotlib",
+]

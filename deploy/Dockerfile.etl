@@ -1,0 +1,29 @@
+FROM python:3.10-slim-bookworm
+
+# Install Java (required for Spark)
+RUN apt-get update && \
+    apt-get install -y default-jre-headless procps && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set JAVA_HOME
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+
+ARG INSTALL_DEV=false
+
+# Copy the ETL configuration
+COPY etl/pyproject.toml /app/etl/pyproject.toml
+# Create a dummy README to satisfy setuptools if needed (optional but good practice)
+RUN touch /app/etl/README.md
+
+# Install Python dependencies
+# We install with -e (editable) to keep things flexible, or just directly.
+# Using 'pip install ./etl' installs the project defined in etl/pyproject.toml
+RUN pip install --no-cache-dir ./etl
+
+# Conditionally install dev dependencies
+RUN if [ "$INSTALL_DEV" = "true" ] ; then \
+    pip install --no-cache-dir "./etl[dev]" ; \
+    fi
+
+WORKDIR /app
+CMD ["tail", "-f", "/dev/null"]
