@@ -80,8 +80,7 @@ def process_emory():
     
     try:
         # 2. Read Bronze (Dynamic Header Detection)
-        df = find_header_and_read(bronze_path)
-        
+        df = find_header_and_read(bronze_path)        
         print(">>> [Silver] Initial Data Shape:", df.shape)
         
         # 3. Clean / Transform (Silver Logic)
@@ -92,39 +91,32 @@ def process_emory():
         # Inject Facility Info (Hardcoded for this single-hospital pipeline)
         # We do this because the Bronze preprocessor stripped the metadata rows where this might have been.
         df["hospital_name"] = "Emory University Hospital"
-        df["hospital_location"] = "1364 Clifton Rd NE, Atlanta, GA 30322" 
         df["hospital_address"] = "1364 Clifton Rd NE, Atlanta, GA 30322" 
         
         # Inject Effective Date (Derived from Source URL: .../2025/oct/...)
         df["effective_date"] = "2025-10-01"
-
-        # FILTER: Outpatient Only (and 'both' which applies to outpatient)
-        if "setting" in df.columns:
-            print(">>> [Silver] Filtering for 'outpatient' and 'both' settings...")
-            df = df[df["setting"].isin(["outpatient", "both"])]
-            print(">>> [Silver] Post-Filter Shape:", df.shape)
             
         # COLUMN SELECTION & RENAMING
         # We define a strict map of { "source_col": "target_col" }
         column_map = {
             "hospital_name": "hospital_name",
-            "hospital_location": "location",
             "hospital_address": "address",
             "effective_date": "effective_date",
+            "code|1|type": "billing_code_type",
             "code|1": "billing_code",
             "description": "description",
             "billing_class": "billing_class",
             "setting": "setting",
             "payer_name": "payer",
             "plan_name": "plan",
-            "standard_charge|negotiated_dollar": "negotiated_rate",
-            "standard_charge|gross": "gross_charge",
-            "standard_charge|discounted_cash": "cash_price",
             "standard_charge|min": "min_negotiated_rate",
             "standard_charge|max": "max_negotiated_rate",
             "estimated_amount": "estimated_amount"
         }
-        
+
+        # Filter down to codes with inpatient/outpatient insurance information
+        df = df[df['code|1|type'].isin(['MS-DRG', 'APC'])]
+
         final_df = pd.DataFrame()
         
         found_cols = []

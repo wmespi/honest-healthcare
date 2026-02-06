@@ -21,6 +21,8 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.etl
+      args:
+        INSTALL_DEV: "true"
     container_name: honest-healthcare-etl
     command: tail -f /dev/null
     volumes:
