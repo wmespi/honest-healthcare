@@ -3,6 +3,7 @@ import csv
 import json
 import os
 import io
+from etl.utils.logger import log
 
 PUF_URL = "https://georgiaaccess.gov/wp-content/uploads/2025/12/PLAN-PUF_20251216063410_2026.csv"
 OUTPUT_PATH = "data/hospitals/ga_issuers.json"

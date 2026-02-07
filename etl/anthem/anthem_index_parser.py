@@ -3,15 +3,12 @@ import ijson
 import gzip
 import json
 import os
-from datetime import datetime
+from etl.utils.logger import log
 
 # Files
 INDEX_URL = "https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/2026-02-01_anthem_index.json.gz"
 ISSUER_FILE = "data/hospitals/ga_issuers.json"
 OUTPUT_PATH = "data/anthem/ga_anthem_urls.json"
-
-def log(msg):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def find_ga_rate_files():
     log(f"🚀 Surgical Discovery: Starting Anthem Georgia Index Scan...")
