@@ -45,6 +45,7 @@ etl/
 ├── scripts/          # Database loading utilities
 │   └── db_loader.py
 ├── anthem/           # Planned: Anthem data source
+├── debug/            # Debug scripts using # %% cell format (not Jupyter)
 ├── archive/          # Archived pipeline versions
 ├── tests/            # Tests (empty, recommend pytest)
 ├── utils/            # Shared utilities (empty)
@@ -73,5 +74,6 @@ The `/data` directory is gitignored.
 - File naming: `{stage}_{source}.py` (e.g., `bronze_emory.py`)
 - Pipeline stages are independent scripts, no orchestration framework (Airflow, etc.)
 - Silver layer handles encoding quirks (cp1252, latin1, iso-8859-1)
+- Use `# %%` cell-format `.py` files for interactive/debug work — not Jupyter notebooks (`.ipynb` is gitignored)
 - No linter/formatter configured yet (recommend Ruff)
 - No tests yet

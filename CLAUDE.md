@@ -40,11 +40,16 @@ docker-compose exec etl python /app/etl/scripts/db_loader.py
 - `DATABASE_URL` (backend/etl): `postgresql://postgres:postgres@db:5432/honest_healthcare`
 - `VITE_API_URL` (frontend): `http://localhost:8000`
 
+## Development Rules
+
+- **No global dependency installs.** All dependencies must be handled inside Docker containers. Never run `pip install`, `npm install -g`, or similar on the host machine.
+
 ## Git Conventions
 
 - Branch naming: `username/feat/description` or `username/fix/description`
 - Do not commit files in `/data` (gitignored)
 - No `.env` files should be committed
+- Jupyter notebooks (`.ipynb`) are gitignored — use `# %%` cell-format `.py` files for interactive work instead
 
 ## Project Status
 
