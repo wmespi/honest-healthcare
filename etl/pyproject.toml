@@ -17,7 +17,5 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ipython",
-    "notebook",
     "matplotlib",
 ]
