@@ -13,6 +13,7 @@ dependencies = [
     "pyarrow>=15.0.0",
     "sqlalchemy",
     "psycopg2-binary",
+    "ijson",
 ]
 
 [project.optional-dependencies]
@@ -20,5 +21,4 @@ dev = [
     "ipython",
     "notebook",
     "matplotlib",
-    "ijson",
 ]
