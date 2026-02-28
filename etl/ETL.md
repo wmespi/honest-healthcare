@@ -188,23 +188,63 @@ No plan ID or NPI filtering. We collect every rate file URL the index references
 
 ---
 
-### Step 3: Silver — Stream rate files, write Parquet, bulk load to DB
+### Step 3: Silver — Stream, Filter, and Bulk Load to DB
 
-**File:** `etl/anthem/silver.py`
+**File:** `etl/anthem/extract_mrf_data.py` (formerly `silver.py`)
 
 For each URL in `index_urls.json` (with checkpoint resume):
 
-1. **Stream** the gzipped rate file with ijson
-2. **Extract** all `in_network` items — flatten each into rows matching the standard silver schema
-3. **Buffer** rows (10K batch) → write Parquet shard to `data/anthem/shards/`
-4. **Bulk load** each shard into `mrf_rates` table via PostgreSQL `COPY`
-5. **Checkpoint** after each batch commit: update `items_processed` count
+1. **Stream** the gzipped rate file with `ijson`.
+2. **Filter** at the token level for target billing code types (Outpatient CPT/HCPCS).
+3. **Buffer** valid rows in memory (e.g., 20,000 rows).
+4. **Bulk Load** directly into the `mrf_rates` table via PostgreSQL `COPY FROM STDIN`.
+5. **Stop Condition**: Processing automatically halts once the database size reaches **5GB** total, allowing for a phased evaluation of the data.
+6. **Checkpoint** after each successful bulk load to track the URL and item count.
 
-No NPI filtering, no two-pass architecture. We extract every rate from every file. The extraction logic (how to traverse from `in_network` item → individual rate rows) will be determined after running `inspect_keys.py` in Step 3.
+#### Anthem Silver Layer Strategy
 
-**Output:** `data/anthem/shards/*.parquet` (local cache) + rows in `mrf_rates` table + `data/anthem/checkpoint.json`
+Based on the [mrf_structure.json](../data/anthem/mrf_structure.json), we will use the following logic:
 
-**Memory strategy:** Stream → 10K-row buffer → flush to Parquet + DB. Never accumulate more than one buffer in memory.
+**1. Field Mapping**
+- **npi**: `provider_references.item.provider_groups.item.npi` (resolved via `provider_reference` ID).
+- **billing_code**: `in_network.item.billing_code`.
+- **billing_code_type**: `in_network.item.billing_code_type`.
+- **negotiated_rate**: `negotiated_prices.item.negotiated_rate`.
+- **network_name**: `provider_references.item.network_name` (resolved via ID).
+
+**2. Filtering & Performance**
+- **Target Codes**: We will focus exclusively on the **Outpatient** setting for this initial phase.
+    - **CPT (Current Procedural Terminology)**: This is our primary target. It covers the vast majority of outpatient medical procedures, office visits, and surgeries.
+    - **HCPCS (Healthcare Common Procedure Coding System)**: We will include clinical HCPCS codes (like J-codes for injections or P-codes for lab tests) but explicitly **exclude non-procedural categories** including:
+        - **A-Codes**: Transportation, Med/Surg Supplies, Administrative.
+        - **B-Codes**: Enteral and Parenteral Therapy (Feeding/Nutrition).
+        - **E-Codes / K-Codes**: Durable Medical Equipment (DME).
+        - **L-Codes**: Orthotic and Prosthetic Procedures.
+        - **V-Codes**: Vision and Hearing Services.
+    - **Rationale**: This narrowing allows us to capture the "encounter-based" clinical costs that are most useful for price comparison, while shielding our database from the noise of thousands of rates for bandages, wheelchairs, and ambulance miles.
+- **Computational Benefit**: We filter for these types at the **token level** using `ijson`. This allows the parser to skip the heavy work of object materialization for millions of irrelevant rates.
+
+**3. Reference Resolution**
+- **Phase A**: Fast scan of `provider_references` array to build an in-memory map of `{ id: { network_name, npis } }`.
+- **Phase B**: Main scan of `in_network` rates to resolve metadata from the map and emit flattened rows.
+
+**4. Error Handling**
+- **Dead Letter Log**: Failures are categorized and logged to `data/anthem/failed_normalizations.json`:
+    - `STRUCTURAL_MISMATCH`: The file layout differs from our map (requires review for new schema mapping).
+    - `ENVIRONMENTAL_FAILURE`: Memory overload, network timeout, or process exit (retry-safe).
+- **Structural Guarding**: Critical missing fields in individual items trigger a skip and a warning rather than a process crash.
+
+#### Reliability & Persistence
+
+To ensure we never lose data or duplicate work during container restarts:
+
+1.  **Database Durability**: The PostgreSQL container uses a named Docker volume (`postgres_data`). This means all ingested rates are saved to your physical disk, not the container's ephemeral memory. Stopping or removing the container will NOT lose your data.
+2.  **Progress Tracking**: The `CheckpointManager` saves a `checkpoint.json` file directly to the project's `data/anthem/` directory. Since this directory is mounted from your host machine into the container, the progress is never lost.
+3.  **Resumption Logic**:
+    *   **Skip Successful**: If `checkpoint.json` marks a URL as `completed`, it is skipped entirely on restart.
+    *   **Partial Resume**: If the container shuts down mid-file (marks `in_progress`), it re-opens the stream and skips the previously processed items to avoid duplicating rows in the DB.
+4.  **Sorting Logic**: Files are processed in **Smallest-to-Largest** order (based on `file_size_bytes` from `index_urls.json`) to maximize early feedback and schema verification on smaller, faster-loading files.
+5.  **Auditability**: Every row in the `mrf_rates` table includes a `source_file` column. This allows us to verify exactly which records came from which Anthem URL.
 
 ---
 
@@ -276,8 +316,8 @@ deploy:
 3. etl/anthem/__init__.py             (empty)
 4. etl/anthem/bronze.py               (uses streaming utils)
    → RUN: collect all rate file URLs
-5. etl/anthem/silver.py               (uses streaming + checkpoint)
-   → RUN: extract all rates to Parquet + DB
+5. etl/anthem/extract_mrf_data.py          (uses streaming + checkpoint)
+   → RUN: extract clinical rates directly to DB
 6. etl/gold.py                        (creates materialized views)
    → RUN: create/refresh summary views
 7. backend/models.py                  (add MRFRate model)
@@ -294,6 +334,6 @@ Steps 1-3 are parallel. Steps 4-6 are sequential (each depends on prior output).
 ## Verification
 
 1. **Bronze:** Run `bronze.py` → confirm `data/anthem/index_urls.json` has URLs
-2. **Silver:** Run `silver.py` with `limit=1` → confirm Parquet shard written and rows loaded to `mrf_rates` table
+2. **Silver:** Run `extract_mrf_data.py` with `limit=1` → confirm rows loaded to `mrf_rates` table
 3. **Gold:** Run `gold.py` → confirm materialized views exist: `SELECT COUNT(*) FROM mrf_rates_summary`
 4. **API:** `curl http://localhost:8000/mrf/rates?payor=anthem` returns data
