@@ -80,12 +80,13 @@ negotiated_type     STRING    # negotiated, fee schedule, derived, etc.
 billing_class       STRING    # professional or institutional
 service_codes       STRING    # Place of service codes (comma-separated)
 expiration_date     STRING    # Rate expiration (YYYY-MM-DD)
-network_name        STRING    # Network/plan name
+network_name        STRING    # Network name
+plan_name           STRING    # Plan name (from reporting_plans)
 source_file         STRING    # URL of the rate file this came from
 payor               STRING    # e.g. "anthem", "aetna"
 ```
 
-> **Note:** This schema is our best guess based on the CMS standard and the archived Anthem extractor. The exact columns may be adjusted after running `inspect_keys.py` against actual Anthem rate files. Fields like `network_name` and `service_codes` depend on how the payor structures their `provider_references` and `negotiated_prices`.
+> **Note:** This schema is our best guess based on the CMS standard and the archived Anthem extractor. The exact columns may be adjusted after running `inspect_keys.py` against actual Anthem rate files. Fields like `network_name`, `plan_name`, and `service_codes` depend on how the payor structures their `provider_references` and `negotiated_prices`.
 
 ### Relationship to existing data
 
@@ -236,7 +237,7 @@ Gold can also create additional views as the frontend needs evolve (e.g., by-hos
 ```
 id, payor, npi, billing_code, billing_code_type,
 procedure_name, negotiated_rate, negotiated_type, billing_class,
-service_codes, expiration_date, network_name, source_file
+service_codes, expiration_date, network_name, plan_name, source_file
 ```
 
 This is separate from the existing `NegotiatedRate` model (chargemaster data). Silver loads directly into this table.
