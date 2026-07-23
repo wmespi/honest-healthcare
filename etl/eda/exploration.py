@@ -28,12 +28,23 @@ q("SELECT * FROM mrf_rates LIMIT 10")
 
 
 # %%
-top_procedures = q("""
+q("""
     SELECT DISTINCT source_file
     FROM mrf_rates
-    LIMIT 15
 """)
-top_procedures
+
+# %%
+q("""
+    SELECT DISTINCT network_name
+    FROM mrf_rates
+""")
+
+# %%
+q("""
+    SELECT DISTINCT procedure_name
+    FROM mrf_rates
+    WHERE billing_code_type = 'CPT'
+""")
 
 # %% [markdown]
 # ### 2. Health Check: Billing Code Types
@@ -52,15 +63,13 @@ q("""
 # What are the most frequently reported clinical procedures?
 
 # %%
-top_procedures = q("""
-    SELECT procedure_name, billing_code, COUNT(*) as count
+q("""
+    SELECT plan_name, count(*) as count,max(negotiated_rate) as max,min(negotiated_rate) as min,avg(negotiated_rate) as avg,stddev_samp(negotiated_rate) as std
     FROM mrf_rates
-    WHERE procedure_name IS NOT NULL
-    GROUP BY procedure_name, billing_code
-    ORDER BY count DESC
-    LIMIT 15
+    WHERE billing_code = 'S9480'
+    GROUP BY plan_name
+    ORDER BY count(npi) DESC
 """)
-top_procedures
 
 # %% [markdown]
 # ### 4. Rate Distribution for a Specific Code
@@ -85,3 +94,5 @@ else:
 
 # %%
 q("SELECT plan_name, COUNT(*) as record_count FROM mrf_rates GROUP BY plan_name ORDER BY record_count DESC LIMIT 20")
+
+# %%

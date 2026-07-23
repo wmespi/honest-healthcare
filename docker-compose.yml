@@ -55,8 +55,14 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.frontend
     container_name: honest-healthcare-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    # Uncomment the command below for Live Development (Vite HMR)
+    # command: sh -c "cd /app && npm run dev -- --host 0.0.0.0"
     ports:
       - "3000:80"
+      - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:8000
     depends_on:

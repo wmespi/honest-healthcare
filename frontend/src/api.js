@@ -10,23 +10,25 @@ export const getHospitals = () => api.get('/hospitals');
 export const getPayers = () => api.get('/payers');
 export const getPlans = (payer) => api.get('/plans', { params: { payer } });
 
-export const getRates = (search, hospital, setting, payer, plan) => {
+export const getRates = (search, network, setting, payer = 'anthem', plan, test = false) => {
     const params = {};
     if (search) params.search = search;
-    if (hospital) params.hospital = hospital;
+    if (network) params.network = network;
     if (setting) params.setting = setting;
-    if (payer) params.payer = payer;
+    if (payer) params.payor = payer;
     if (plan) params.plan = plan;
+    if (test) params.test = true;
     return api.get('/rates', { params });
 };
 
-export const getProcedures = (search, hospital, setting, payer, plan) => {
+export const getProcedures = (search, network, setting, payer = 'anthem', plan, test = false) => {
     const params = {};
     if (search) params.search = search;
-    if (hospital) params.hospital = hospital;
+    if (network) params.network = network;
     if (setting) params.setting = setting;
-    if (payer) params.payer = payer;
+    if (payer) params.payor = payer;
     if (plan) params.plan = plan;
+    if (test) params.test = true;
     return api.get('/procedures', { params });
 };
 
