@@ -3,6 +3,12 @@ services:
   db:
     image: postgis/postgis:15-3.3-alpine
     container_name: honest-healthcare-db
+    command: >
+      postgres
+      -c max_wal_size=4GB
+      -c checkpoint_timeout=15min
+      -c log_min_messages=warning
+      -c log_checkpoints=off
     environment:
       - POSTGRES_DB=honest_healthcare
       - POSTGRES_USER=postgres
@@ -11,6 +17,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./data-test:/data-test
+      - ./data:/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
