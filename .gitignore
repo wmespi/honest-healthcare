@@ -208,6 +208,8 @@ __marimo__/
 
 # Project Specific Ignored Data & Artifacts
 data/
+data-archive/
+data-test/
 spark-warehouse/
 metastore_db/
 derby.log
