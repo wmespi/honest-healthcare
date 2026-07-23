@@ -1,0 +1,9 @@
+FROM golang:1.22-alpine
+
+# Install git and other utilities if needed
+RUN apk update && apk add --no-cache git bash
+
+WORKDIR /app/etl-go
+
+# We will mount the whole directory via docker-compose so we just need a command that keeps the container alive
+CMD ["tail", "-f", "/dev/null"]
