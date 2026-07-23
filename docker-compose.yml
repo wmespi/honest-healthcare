@@ -40,7 +40,21 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.etl_go
     container_name: honest-healthcare-etl-go
-    command: go run main.go -discover -limit 10 -index-url "https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/2026-07-01_anthem_index.json.gz"
+    command: go run . -discover -index-url "https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/2026-07-01_anthem_index.json.gz"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
+  etl_go_parse:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.etl_go
+    container_name: honest-healthcare-etl-go-parse
+    command: go run . -parse -test
     volumes:
       - .:/app
     environment:
