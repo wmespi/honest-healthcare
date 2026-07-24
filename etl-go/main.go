@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -14,6 +16,8 @@ func main() {
 	limitFlag := flag.Int("limit", 0, "Override the default limits for discovery or parsing")
 	indexUrlFlag := flag.String("index-url", "", "Override the Master Index URL")
 	testFlag := flag.Bool("test", false, "Run in isolated test mode (writes to test schema, not production)")
+	fileIDsFlag := flag.String("file-ids", "", "Comma-separated list of index_files IDs to parse (skips normal queue ordering)")
+	dryRunFlag := flag.Bool("dry-run", false, "Stream and capture schema but skip all DB writes")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -61,11 +65,28 @@ func main() {
 			parseLimit = *limitFlag
 		}
 
-		query := `SELECT id, location, COALESCE(array_to_string(plan_names, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
-		args := []any{}
-		if parseLimit > 0 {
-			query += ` LIMIT $1`
-			args = append(args, parseLimit)
+		var query string
+		var args []any
+		if *fileIDsFlag != "" {
+			// Parse comma-separated IDs
+			parts := strings.Split(*fileIDsFlag, ",")
+			ids := make([]int, 0, len(parts))
+			for _, p := range parts {
+				id, err := strconv.Atoi(strings.TrimSpace(p))
+				if err != nil {
+					log.Fatalf("❌ Invalid file ID %q: %v", p, err)
+				}
+				ids = append(ids, id)
+			}
+			query = `SELECT id, location, COALESCE(array_to_string(plan_names, ' | '), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
+			args = []any{ids}
+		} else {
+			query = `SELECT id, location, COALESCE(array_to_string(plan_names, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
+			args = []any{}
+			if parseLimit > 0 {
+				query += ` LIMIT $1`
+				args = append(args, parseLimit)
+			}
 		}
 
 		rows, err := conn.Query(ctx, query, args...)
@@ -97,9 +118,13 @@ func main() {
 
 		log.Printf("Found %d pending file(s). Processing...", len(files))
 
+		if *dryRunFlag {
+			log.Println("🔍 Dry-run mode — streaming only, no DB writes.")
+		}
+
 		seenBillingCodes := make(map[string]bool)
 		for i, f := range files {
-			parseRates(ctx, conn, f.ID, f.Location, f.PlanName, i == 0, seenBillingCodes)
+			parseRates(ctx, conn, f.ID, f.Location, f.PlanName, i == 0, seenBillingCodes, *dryRunFlag)
 		}
 		return
 	}

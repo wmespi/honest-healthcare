@@ -49,8 +49,8 @@ func getDBSize(ctx context.Context, conn *pgx.Conn) string {
 	return size
 }
 
-func flushProviders(ctx context.Context, conn *pgx.Conn, rows [][]any) {
-	if len(rows) == 0 {
+func flushProviders(ctx context.Context, conn *pgx.Conn, rows [][]any, dryRun bool) {
+	if len(rows) == 0 || dryRun {
 		return
 	}
 	if _, err := conn.CopyFrom(ctx,
@@ -62,8 +62,8 @@ func flushProviders(ctx context.Context, conn *pgx.Conn, rows [][]any) {
 	}
 }
 
-func flushRates(ctx context.Context, conn *pgx.Conn, rows [][]any) {
-	if len(rows) == 0 {
+func flushRates(ctx context.Context, conn *pgx.Conn, rows [][]any, dryRun bool) {
+	if len(rows) == 0 || dryRun {
 		return
 	}
 	if _, err := conn.CopyFrom(ctx,
@@ -76,7 +76,10 @@ func flushRates(ctx context.Context, conn *pgx.Conn, rows [][]any) {
 	}
 }
 
-func upsertBillingCode(ctx context.Context, conn *pgx.Conn, bcType, bc, name, desc string) {
+func upsertBillingCode(ctx context.Context, conn *pgx.Conn, bcType, bc, name, desc string, dryRun bool) {
+	if dryRun {
+		return
+	}
 	if _, err := conn.Exec(ctx,
 		`INSERT INTO billing_codes (billing_code_type, billing_code, name, description)
 		 VALUES ($1, $2, $3, $4)
@@ -87,47 +90,48 @@ func upsertBillingCode(ctx context.Context, conn *pgx.Conn, bcType, bc, name, de
 	}
 }
 
-func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error) {
+func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error, dryRun bool) {
 	log.Printf("❌ File %d failed: %v", fileID, reason)
-	conn.Exec(ctx, "UPDATE index_files SET status = 'failed' WHERE id = $1", fileID)
+	if !dryRun {
+		conn.Exec(ctx, "UPDATE index_files SET status = 'failed' WHERE id = $1", fileID)
+	}
 }
 
-func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, planName string, isFirstFile bool, seenBillingCodes map[string]bool) {
+func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, planName string, isFirstFile bool, seenBillingCodes map[string]bool, dryRun bool) {
 	log.Printf("⚙️ Processing Rate File [id=%d]: %s", fileID, url)
 
-	if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'processing' WHERE id = $1", fileID); err != nil {
-		log.Printf("⚠️ Failed to mark file %d as processing: %v", fileID, err)
+	if !dryRun {
+		if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'processing' WHERE id = $1", fileID); err != nil {
+			log.Printf("⚠️ Failed to mark file %d as processing: %v", fileID, err)
+		}
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		markFailed(ctx, conn, fileID, err)
+		markFailed(ctx, conn, fileID, err, dryRun)
 		return
 	}
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		markFailed(ctx, conn, fileID, err)
+		markFailed(ctx, conn, fileID, err, dryRun)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		markFailed(ctx, conn, fileID, fmt.Errorf("HTTP %d", resp.StatusCode))
+		markFailed(ctx, conn, fileID, fmt.Errorf("HTTP %d", resp.StatusCode), dryRun)
 		return
 	}
 
 	pr := NewProgressReader(resp.Body, resp.ContentLength)
 
-	// Capture file size from the GET response — no extra network request needed.
-	// file_size_bytes stays NULL until a file is first parsed; ORDER BY NULLS LAST
-	// in the parse queue lets completed files inform scheduling on future runs.
-	if resp.ContentLength > 0 {
+	if !dryRun && resp.ContentLength > 0 {
 		conn.Exec(ctx, "UPDATE index_files SET file_size_bytes = $1 WHERE id = $2", resp.ContentLength, fileID)
 	}
 
 	gz, err := gzip.NewReader(pr)
 	if err != nil {
-		markFailed(ctx, conn, fileID, err)
+		markFailed(ctx, conn, fileID, err, dryRun)
 		return
 	}
 	defer gz.Close()
@@ -139,11 +143,11 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 
 	t, err := decoder.Token()
 	if err != nil {
-		markFailed(ctx, conn, fileID, fmt.Errorf("failed to read root token: %w", err))
+		markFailed(ctx, conn, fileID, fmt.Errorf("failed to read root token: %w", err), dryRun)
 		return
 	}
 	if delim, ok := t.(json.Delim); !ok || delim != '{' {
-		markFailed(ctx, conn, fileID, fmt.Errorf("expected root '{', got %v", t))
+		markFailed(ctx, conn, fileID, fmt.Errorf("expected root '{', got %v", t), dryRun)
 		return
 	}
 
@@ -190,7 +194,7 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 				}
 
 				if len(providerBuf) >= copyBatchSize {
-					flushProviders(ctx, conn, providerBuf)
+					flushProviders(ctx, conn, providerBuf, dryRun)
 					totalProviders += len(providerBuf)
 					providerBuf = providerBuf[:0]
 					log.Printf("    ⚙️  Loaded %d provider rows... | DB Size: %s | %s", totalProviders, getDBSize(ctx, conn), pr.GetProgressString())
@@ -198,7 +202,7 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 			}
 			decoder.Token() // ']'
 
-			flushProviders(ctx, conn, providerBuf)
+			flushProviders(ctx, conn, providerBuf, dryRun)
 			totalProviders += len(providerBuf)
 			providerBuf = providerBuf[:0]
 			log.Printf("    ✅ Streamed %d provider rows. %s", totalProviders, pr.GetProgressString())
@@ -226,7 +230,7 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 
 				if !seenBillingCodes[item.BillingCode] {
 					seenBillingCodes[item.BillingCode] = true
-					upsertBillingCode(ctx, conn, item.BillingCodeType, item.BillingCode, item.Name, item.Description)
+					upsertBillingCode(ctx, conn, item.BillingCodeType, item.BillingCode, item.Name, item.Description, dryRun)
 				}
 
 				for _, rate := range item.NegotiatedRates {
@@ -244,7 +248,7 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 				}
 
 				if len(rateBuf) >= copyBatchSize {
-					flushRates(ctx, conn, rateBuf)
+					flushRates(ctx, conn, rateBuf, dryRun)
 					totalRates += len(rateBuf)
 					rateBuf = rateBuf[:0]
 					log.Printf("    ⚙️  Loaded %d rate rows... | DB Size: %s | %s", totalRates, getDBSize(ctx, conn), pr.GetProgressString())
@@ -252,7 +256,7 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 			}
 			decoder.Token() // ']'
 
-			flushRates(ctx, conn, rateBuf)
+			flushRates(ctx, conn, rateBuf, dryRun)
 			totalRates += len(rateBuf)
 			rateBuf = rateBuf[:0]
 			log.Printf("    ✅ Streamed %d total rate rows. %s", totalRates, pr.GetProgressString())
@@ -297,8 +301,10 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 		}
 	}
 
-	if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'completed', completed_at = NOW() WHERE id = $1", fileID); err != nil {
-		log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
+	if !dryRun {
+		if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'completed', completed_at = NOW() WHERE id = $1", fileID); err != nil {
+			log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
+		}
 	}
 
 	log.Printf("  ✅ Completed. %d provider rows | %d rate rows | DB Size: %s", totalProviders, totalRates, getDBSize(ctx, conn))
