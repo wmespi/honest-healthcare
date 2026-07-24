@@ -78,10 +78,10 @@ func main() {
 				}
 				ids = append(ids, id)
 			}
-			query = `SELECT id, location, COALESCE(array_to_string(plan_names, ' | '), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
+			query = `SELECT id, location, COALESCE((SELECT string_agg(DISTINCT p, ' | ' ORDER BY p) FROM unnest(plan_names) p), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
 			args = []any{ids}
 		} else {
-			query = `SELECT id, location, COALESCE(array_to_string(plan_names, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
+			query = `SELECT id, location, COALESCE((SELECT string_agg(DISTINCT p, ' | ' ORDER BY p) FROM unnest(plan_names) p), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
 			args = []any{}
 			if parseLimit > 0 {
 				query += ` LIMIT $1`
@@ -123,8 +123,12 @@ func main() {
 		}
 
 		seenBillingCodes := make(map[string]bool)
+		seenNPIs := make(map[int64]string)
 		for i, f := range files {
-			parseRates(ctx, conn, f.ID, f.Location, f.PlanName, i == 0, seenBillingCodes, *dryRunFlag)
+			parseRates(ctx, conn, f.ID, f.Location, f.PlanName, i == 0, seenBillingCodes, seenNPIs, *dryRunFlag)
+		}
+		if !*dryRunFlag {
+			writeNPILookup(seenNPIs)
 		}
 		return
 	}

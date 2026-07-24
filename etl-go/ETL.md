@@ -1,5 +1,156 @@
 # ETL Pipeline — Anthem Machine-Readable Files
 
+## CMS Specification
+
+These files are federally mandated under the Transparency in Coverage rule (45 CFR § 147.210). CMS publishes the full technical schema, valid field values, and file format requirements on GitHub:
+
+- **Schema reference:** https://github.com/CMSgov/price-transparency-guide
+- **In-network rates schema:** https://github.com/CMSgov/price-transparency-guide/tree/master/schemas/in-network-rates
+- **Table of contents schema:** https://github.com/CMSgov/price-transparency-guide/tree/master/schemas/table-of-contents
+
+This is the authoritative source for questions like "what are all valid `negotiated_type` values?" and "is `setting` always present?"
+
+---
+
+## MRF Data Model
+
+### How Plan, Network, File, and Provider Relate
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  ANTHEM MASTER INDEX (TOC)                      │
+│          2026-07-01_anthem_index.json.gz                        │
+└─────────────────────────────────────────────────────────────────┘
+         │ reporting_structure[]
+         │ Each entry = one PLAN
+         ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  PLAN                                                       │
+  │  plan_name: "BLUE VALUE IND NETWORK HMO - ANTHEM"          │
+  │  plan_id:   "..."    plan_market_type: "individual"         │
+  └─────────────────────────────────────────────────────────────┘
+         │ in_network_files[]
+         │ A plan may link to MANY rate files
+         ├──────────────────────────────────────────┐
+         ▼                                          ▼
+  ┌──────────────────────┐              ┌──────────────────────────┐
+  │ PLAN-SPECIFIC FILE   │              │   SHARED NETWORK FILE    │
+  │ GA_JBKEMED0001.gz    │              │   ~244 other files       │
+  │ 1 plan only          │              │   Up to 144k plans each  │
+  └──────────────────────┘              └──────────────────────────┘
+         │                                          │
+         │ Both files share the same internal schema│
+         └──────────────────┬───────────────────────┘
+                            ▼
+
+┌─────────────────────────────────────────────────────────────────┐
+│  RATE FILE (in-network JSON)                                    │
+│                                                                 │
+│  in_network[]          ◄── one entry per billing code          │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  BILLING CODE ITEM                                      │   │
+│  │  billing_code:      "99213"                             │   │
+│  │  billing_code_type: "CPT"                               │   │
+│  │  name:              "Office or other outpatient visit"  │   │
+│  │                                                         │   │
+│  │  negotiated_rates[]  ◄── one entry per rate/group combo │   │
+│  │  ┌───────────────────────────────────────────────────┐ │   │
+│  │  │  provider_references: [1020000797660]  ◄── ID ref │ │   │
+│  │  │                                                   │ │   │
+│  │  │  negotiated_prices[]                              │ │   │
+│  │  │  ┌─────────────────────────────────────────────┐ │ │   │
+│  │  │  │  negotiated_rate:  89.45                    │ │ │   │
+│  │  │  │  negotiated_type: "fee schedule"            │ │ │   │
+│  │  │  │  billing_class:   "professional"            │ │ │   │
+│  │  │  │  setting:         "outpatient"              │ │ │   │
+│  │  │  │  expiration_date: "9999-12-31"              │ │ │   │
+│  │  │  └─────────────────────────────────────────────┘ │ │   │
+│  │  └───────────────────────────────────────────────────┘ │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  provider_references[] ◄── NPI lookup table (separate section) │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  PROVIDER REFERENCE                                     │   │
+│  │  provider_group_id: 1020000797660    ◄── matches above  │   │
+│  │  network_name: ["Blue Value Individual Commercially..."] │   │
+│  │                                                         │   │
+│  │  provider_groups[]                                      │   │
+│  │  ┌───────────────────────────────────────────────────┐ │   │
+│  │  │  PROVIDER GROUP (= billing entity / TIN)          │ │   │
+│  │  │  tin: { type: "npi", value: "1902943590" }        │ │   │
+│  │  │  npi: [1841337524, 1902943590]  ◄── individual    │ │   │
+│  │  │                                     providers      │ │   │
+│  │  └───────────────────────────────────────────────────┘ │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+
+
+ENTITY RELATIONSHIPS
+════════════════════
+
+PLAN (from index)
+  │  1 plan links to N rate files
+  ▼
+RATE FILE
+  │  1 file has N billing codes
+  ▼
+BILLING CODE  (billing_code + billing_code_type = unique procedure)
+  │  1 code has N negotiated_rates entries
+  ├───────────────────────────────────────────────────────┐
+  ▼                                                       ▼
+NEGOTIATED PRICE                             PROVIDER_REFERENCE (by ID)
+  negotiated_rate                                │
+  negotiated_type ("fee schedule", "derived"...) │ resolves via provider_references[]
+  billing_class ("professional", "institutional")▼
+  setting ("outpatient", "inpatient")         PROVIDER GROUP (TIN)
+                                              tin_type | tin_value
+                                                 │
+                                                 │ 1 group has N NPIs
+                                                 ▼
+                                               NPI[]
+                                            (individual clinicians or
+                                             locations under same TIN)
+
+
+OUR PARQUET SCHEMA
+══════════════════
+
+  rates/{fileID}.parquet
+    provider_group_id | plan_name | billing_code | billing_code_type
+    negotiated_rate   | negotiated_type | expiration_date | service_code
+
+  providers/{fileID}.parquet
+    provider_group_id | npi | tin_type | tin_value
+
+  codes/{fileID}.parquet
+    billing_code | billing_code_type | name | description
+```
+
+### Why the Same Rate Can Appear in Multiple Files for the Same Plan
+
+The CMS rule requires insurers to publish **all** rate files that a plan participates in. Anthem structures its provider relationships in layers:
+
+- **Network-level rates** (shared files): Anthem negotiates a base contract for an entire network — e.g., "all providers in the GA Blue Value network get fee schedule X." That one contract applies across thousands of plans, so the rates live in a shared file that all those plans link to.
+- **Plan-level rates** (plan-specific files): For certain plans, Anthem negotiates an additional discount or a custom tier on top of the network rate. Those rates live in a plan-specific file.
+
+The result: the same `(billing_code + provider_group + plan)` combination can legitimately appear in both a plan-specific file and one or more shared files, with potentially different rates.
+
+**The CMS spec provides no deduplication mechanism** — it defines the file schema but leaves conflict resolution entirely to the consumer. This means a patient or researcher trying to find their actual rate must download terabytes of files, join them all, and infer the right rate without any official guidance on precedence. The complexity is a consequence of a regulation written for policy goals rather than data engineering reality, but the practical effect is significant obfuscation of the real rate.
+
+### Conflict Resolution Strategy
+
+When parsing multiple files for the same plan:
+
+| Scenario | What to do |
+|---|---|
+| Same code + provider group in plan-specific AND shared file | **Plan-specific wins** — it represents the most directly negotiated rate for that plan |
+| Code exists in shared file but NOT in plan-specific file | **Include it** — plan members can access those providers/codes through the shared network |
+| Same code + provider group in two shared files | **Take the lower rate** — both are network-level rates; lower is what a member should be charged |
+
+**Practical implementation:** stamp `source_file_id` and `plan_count` (number of plans that file serves) on every rate row. When querying for a specific plan, rank rows from single-plan files above rows from multi-plan files on tie-break.
+
+---
+
 ## Overview
 
 This Go service ingests Anthem's CMS-mandated Machine-Readable Files (MRFs) — multi-gigabyte gzipped JSON files listing every in-network negotiated rate — and loads them into Postgres. It runs as a Docker container (`etl_go`) alongside the database.

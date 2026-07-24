@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	parquet "github.com/parquet-go/parquet-go"
 	"github.com/jackc/pgx/v5"
 )
 
-const copyBatchSize = 50_000
+const copyBatchSize = 1_000_000
 
 func skipValue(decoder *json.Decoder) {
 	t, err := decoder.Token()
@@ -41,38 +43,29 @@ func skipValue(decoder *json.Decoder) {
 	}
 }
 
-func getDBSize(ctx context.Context, conn *pgx.Conn) string {
-	var size string
-	if err := conn.QueryRow(ctx, "SELECT pg_size_pretty(pg_database_size(current_database()))").Scan(&size); err != nil {
-		return "unknown"
-	}
-	return size
-}
-
-func flushProviders(ctx context.Context, conn *pgx.Conn, rows [][]any, dryRun bool) {
-	if len(rows) == 0 || dryRun {
+func flushProviders(w *parquet.GenericWriter[ProviderRow], rows []ProviderRow, dryRun bool) {
+	if len(rows) == 0 || dryRun || w == nil {
 		return
 	}
-	if _, err := conn.CopyFrom(ctx,
-		pgx.Identifier{"provider_mappings"},
-		[]string{"provider_group_id", "npi", "tin_type", "tin_value"},
-		pgx.CopyFromRows(rows),
-	); err != nil {
-		log.Printf("⚠️ Failed to flush provider_mappings: %v", err)
+	if _, err := w.Write(rows); err != nil {
+		log.Printf("⚠️ Failed to write providers to parquet: %v", err)
+		return
+	}
+	if err := w.Flush(); err != nil {
+		log.Printf("⚠️ Failed to flush providers parquet: %v", err)
 	}
 }
 
-func flushRates(ctx context.Context, conn *pgx.Conn, rows [][]any, dryRun bool) {
-	if len(rows) == 0 || dryRun {
+func flushRates(w *parquet.GenericWriter[RateRow], rows []RateRow, dryRun bool) {
+	if len(rows) == 0 || dryRun || w == nil {
 		return
 	}
-	if _, err := conn.CopyFrom(ctx,
-		pgx.Identifier{"negotiated_rates"},
-		[]string{"provider_group_id", "plan_name", "billing_code_type", "billing_code",
-			"negotiation_arrangement", "negotiated_type", "negotiated_rate", "expiration_date", "service_code"},
-		pgx.CopyFromRows(rows),
-	); err != nil {
-		log.Printf("⚠️ Failed to flush negotiated_rates: %v", err)
+	if _, err := w.Write(rows); err != nil {
+		log.Printf("⚠️ Failed to write rates to parquet: %v", err)
+		return
+	}
+	if err := w.Flush(); err != nil {
+		log.Printf("⚠️ Failed to flush rates parquet: %v", err)
 	}
 }
 
@@ -97,7 +90,37 @@ func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error, d
 	}
 }
 
-func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, planName string, isFirstFile bool, seenBillingCodes map[string]bool, dryRun bool) {
+func writeNPILookup(seenNPIs map[int64]string) {
+	if len(seenNPIs) == 0 {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(NPILookupPath), os.ModePerm); err != nil {
+		log.Printf("⚠️ Failed to create dir for npi_lookup: %v", err)
+		return
+	}
+	f, err := os.Create(NPILookupPath)
+	if err != nil {
+		log.Printf("⚠️ Failed to create npi_lookup.parquet: %v", err)
+		return
+	}
+	defer f.Close()
+	w := parquet.NewGenericWriter[NPILookupRow](f, parquet.Compression(&parquet.Zstd))
+	defer w.Close()
+
+	rows := make([]NPILookupRow, 0, len(seenNPIs))
+	for npi, tin := range seenNPIs {
+		rows = append(rows, NPILookupRow{NPI: npi, TINValue: tin})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].NPI < rows[j].NPI })
+
+	if _, err := w.Write(rows); err != nil {
+		log.Printf("⚠️ Failed to write npi_lookup.parquet: %v", err)
+		return
+	}
+	log.Printf("✅ Wrote npi_lookup.parquet — %d unique NPIs", len(rows))
+}
+
+func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, planName string, isFirstFile bool, seenBillingCodes map[string]bool, seenNPIs map[int64]string, dryRun bool) {
 	log.Printf("⚙️ Processing Rate File [id=%d]: %s", fileID, url)
 
 	if !dryRun {
@@ -125,8 +148,61 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 
 	pr := NewProgressReader(resp.Body, resp.ContentLength)
 
+	if resp.ContentLength > 0 {
+		compressedGB := float64(resp.ContentLength) / 1e9
+		log.Printf("  📦 %.2f GB compressed | ~%.1f GB uncompressed (est. ×12) | ~%.1f GB Parquet (est. ×4, rough)",
+			compressedGB, compressedGB*12, compressedGB*4)
+	}
 	if !dryRun && resp.ContentLength > 0 {
 		conn.Exec(ctx, "UPDATE index_files SET file_size_bytes = $1 WHERE id = $2", resp.ContentLength, fileID)
+	}
+
+	// Create parquet writers (skipped in dry-run)
+	var ratesWriter *parquet.GenericWriter[RateRow]
+	var providersWriter *parquet.GenericWriter[ProviderRow]
+	var codesWriter *parquet.GenericWriter[BillingCodeRow]
+
+	if !dryRun {
+		ratesPath := filepath.Join(RatesOutputDir, fmt.Sprintf("%d.parquet", fileID))
+		providersPath := filepath.Join(ProvidersOutputDir, fmt.Sprintf("%d.parquet", fileID))
+		codesPath := filepath.Join(CodesOutputDir, fmt.Sprintf("%d.parquet", fileID))
+
+		for _, dir := range []string{RatesOutputDir, ProvidersOutputDir, CodesOutputDir} {
+			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+				markFailed(ctx, conn, fileID, fmt.Errorf("create dir %s: %w", dir, err), dryRun)
+				return
+			}
+		}
+
+		// defer file.Close registered before defer writer.Close so writer flushes first (LIFO)
+		ratesFile, err := os.Create(ratesPath)
+		if err != nil {
+			markFailed(ctx, conn, fileID, fmt.Errorf("create rates parquet: %w", err), dryRun)
+			return
+		}
+		defer ratesFile.Close()
+		ratesWriter = parquet.NewGenericWriter[RateRow](ratesFile, parquet.Compression(&parquet.Zstd))
+		defer ratesWriter.Close()
+
+		providersFile, err := os.Create(providersPath)
+		if err != nil {
+			markFailed(ctx, conn, fileID, fmt.Errorf("create providers parquet: %w", err), dryRun)
+			return
+		}
+		defer providersFile.Close()
+		providersWriter = parquet.NewGenericWriter[ProviderRow](providersFile, parquet.Compression(&parquet.Zstd))
+		defer providersWriter.Close()
+
+		codesFile, err := os.Create(codesPath)
+		if err != nil {
+			markFailed(ctx, conn, fileID, fmt.Errorf("create codes parquet: %w", err), dryRun)
+			return
+		}
+		defer codesFile.Close()
+		codesWriter = parquet.NewGenericWriter[BillingCodeRow](codesFile, parquet.Compression(&parquet.Zstd))
+		defer codesWriter.Close()
+
+		log.Printf("  📂 Writing to %s, %s, and %s", ratesPath, providersPath, codesPath)
 	}
 
 	gz, err := gzip.NewReader(pr)
@@ -151,10 +227,13 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 		return
 	}
 
-	var providerBuf [][]any
-	var rateBuf [][]any
+	var providerBuf []ProviderRow
+	var rateBuf []RateRow
 	totalProviders := 0
 	totalRates := 0
+	providerBatches := 0
+	rateBatches := 0
+	const logEveryNBatches = 10 // log every 10M rows
 
 	for decoder.More() {
 		t, err := decoder.Token()
@@ -167,7 +246,7 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 		}
 
 		if key == "provider_references" {
-			log.Println("    🎯 Found 'provider_references'. Streaming to provider_mappings...")
+			log.Println("    🎯 Found 'provider_references'. Streaming to providers parquet...")
 			decoder.Token() // '['
 
 			for decoder.More() {
@@ -189,26 +268,38 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 
 				for _, pg := range ref.ProviderGroups {
 					for _, npi := range pg.NPIs {
-						providerBuf = append(providerBuf, []any{ref.ProviderGroupID, npi, pg.TIN.Type, pg.TIN.Value})
+						npi64 := int64(npi)
+						if _, seen := seenNPIs[npi64]; !seen {
+							seenNPIs[npi64] = pg.TIN.Value
+						}
+						providerBuf = append(providerBuf, ProviderRow{
+							ProviderGroupID: int64(ref.ProviderGroupID),
+							NPI:             npi64,
+							TINType:         pg.TIN.Type,
+							TINValue:        pg.TIN.Value,
+						})
 					}
 				}
 
 				if len(providerBuf) >= copyBatchSize {
-					flushProviders(ctx, conn, providerBuf, dryRun)
+					flushProviders(providersWriter, providerBuf, dryRun)
 					totalProviders += len(providerBuf)
 					providerBuf = providerBuf[:0]
-					log.Printf("    ⚙️  Loaded %d provider rows... | DB Size: %s | %s", totalProviders, getDBSize(ctx, conn), pr.GetProgressString())
+					providerBatches++
+					if providerBatches%logEveryNBatches == 0 {
+						log.Printf("    ⚙️  Loaded %d provider rows... | %s", totalProviders, pr.GetProgressString())
+					}
 				}
 			}
 			decoder.Token() // ']'
 
-			flushProviders(ctx, conn, providerBuf, dryRun)
+			flushProviders(providersWriter, providerBuf, dryRun)
 			totalProviders += len(providerBuf)
 			providerBuf = providerBuf[:0]
 			log.Printf("    ✅ Streamed %d provider rows. %s", totalProviders, pr.GetProgressString())
 
 		} else if key == "in_network" {
-			log.Println("    🎯 Found 'in_network'. Streaming to negotiated_rates...")
+			log.Println("    🎯 Found 'in_network'. Streaming to rates parquet...")
 			decoder.Token() // '['
 
 			for decoder.More() {
@@ -231,32 +322,49 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 				if !seenBillingCodes[item.BillingCode] {
 					seenBillingCodes[item.BillingCode] = true
 					upsertBillingCode(ctx, conn, item.BillingCodeType, item.BillingCode, item.Name, item.Description, dryRun)
+					if !dryRun && codesWriter != nil {
+						codesWriter.Write([]BillingCodeRow{{
+							BillingCodeType: item.BillingCodeType,
+							BillingCode:     item.BillingCode,
+							Name:            item.Name,
+							Description:     item.Description,
+						}})
+					}
 				}
 
 				for _, rate := range item.NegotiatedRates {
 					for _, refID := range rate.ProviderReferences {
 						for _, price := range rate.NegotiatedPrices {
-							rateBuf = append(rateBuf, []any{
-								refID, planName,
-								item.BillingCodeType, item.BillingCode,
-								item.NegotiationArrangement, price.NegotiatedType,
-								price.NegotiatedRate, price.ExpirationDate,
-								strings.Join(price.ServiceCode, "|"),
+							rateBuf = append(rateBuf, RateRow{
+								ProviderGroupID:        int64(refID),
+								PlanName:               planName,
+								BillingCodeType:        item.BillingCodeType,
+								BillingCode:            item.BillingCode,
+								NegotiationArrangement: item.NegotiationArrangement,
+								NegotiatedType:         price.NegotiatedType,
+								NegotiatedRate:         price.NegotiatedRate,
+								ExpirationDate:         price.ExpirationDate,
+								ServiceCode:            strings.Join(price.ServiceCode, "|"),
+								BillingClass:           price.BillingClass,
+								Setting:                price.Setting,
 							})
 						}
 					}
 				}
 
 				if len(rateBuf) >= copyBatchSize {
-					flushRates(ctx, conn, rateBuf, dryRun)
+					flushRates(ratesWriter, rateBuf, dryRun)
 					totalRates += len(rateBuf)
 					rateBuf = rateBuf[:0]
-					log.Printf("    ⚙️  Loaded %d rate rows... | DB Size: %s | %s", totalRates, getDBSize(ctx, conn), pr.GetProgressString())
+					rateBatches++
+					if rateBatches%logEveryNBatches == 0 {
+						log.Printf("    ⚙️  Loaded %d rate rows... | %s", totalRates, pr.GetProgressString())
+					}
 				}
 			}
 			decoder.Token() // ']'
 
-			flushRates(ctx, conn, rateBuf, dryRun)
+			flushRates(ratesWriter, rateBuf, dryRun)
 			totalRates += len(rateBuf)
 			rateBuf = rateBuf[:0]
 			log.Printf("    ✅ Streamed %d total rate rows. %s", totalRates, pr.GetProgressString())
@@ -307,5 +415,5 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 		}
 	}
 
-	log.Printf("  ✅ Completed. %d provider rows | %d rate rows | DB Size: %s", totalProviders, totalRates, getDBSize(ctx, conn))
+	log.Printf("  ✅ Completed. %d provider rows | %d rate rows", totalProviders, totalRates)
 }

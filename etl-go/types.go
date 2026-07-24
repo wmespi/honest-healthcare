@@ -7,10 +7,14 @@ import (
 )
 
 var (
-	DatabaseURL     = "postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable"
-	TestDatabaseURL = "postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test"
-	IndexURL        = ""
-	ExampleOutputPath = "../data/anthem/mrf_example.json"
+	DatabaseURL        = "postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable"
+	TestDatabaseURL    = "postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test"
+	IndexURL           = ""
+	ExampleOutputPath  = "../data/anthem/mrf_example.json"
+	RatesOutputDir     = "../data/anthem/rates"
+	ProvidersOutputDir = "../data/anthem/providers"
+	CodesOutputDir     = "../data/anthem/codes"
+	NPILookupPath      = "../data/anthem/npi_lookup.parquet"
 )
 
 func init() {
@@ -65,6 +69,8 @@ type NegotiatedPrice struct {
 	NegotiatedRate float64  `json:"negotiated_rate"`
 	ExpirationDate string   `json:"expiration_date"`
 	ServiceCode    []string `json:"service_code"`
+	BillingClass   string   `json:"billing_class"`
+	Setting        string   `json:"setting"`
 }
 
 type NegotiatedRate struct {
@@ -79,4 +85,37 @@ type InNetworkItem struct {
 	BillingCode            string           `json:"billing_code"`
 	Description            string           `json:"description"`
 	NegotiatedRates        []NegotiatedRate `json:"negotiated_rates"`
+}
+
+type RateRow struct {
+	ProviderGroupID        int64   `parquet:"provider_group_id"`
+	PlanName               string  `parquet:"plan_name"`
+	BillingCodeType        string  `parquet:"billing_code_type"`
+	BillingCode            string  `parquet:"billing_code"`
+	NegotiationArrangement string  `parquet:"negotiation_arrangement"`
+	NegotiatedType         string  `parquet:"negotiated_type"`
+	NegotiatedRate         float64 `parquet:"negotiated_rate"`
+	ExpirationDate         string  `parquet:"expiration_date"`
+	ServiceCode            string  `parquet:"service_code"`
+	BillingClass           string  `parquet:"billing_class"`
+	Setting                string  `parquet:"setting"`
+}
+
+type ProviderRow struct {
+	ProviderGroupID int64  `parquet:"provider_group_id"`
+	NPI             int64  `parquet:"npi"`
+	TINType         string `parquet:"tin_type"`
+	TINValue        string `parquet:"tin_value"`
+}
+
+type BillingCodeRow struct {
+	BillingCodeType string `parquet:"billing_code_type"`
+	BillingCode     string `parquet:"billing_code"`
+	Name            string `parquet:"name"`
+	Description     string `parquet:"description"`
+}
+
+type NPILookupRow struct {
+	NPI      int64  `parquet:"npi"`
+	TINValue string `parquet:"tin_value"`
 }

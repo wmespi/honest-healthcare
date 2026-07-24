@@ -68,91 +68,129 @@ A mapping layer is needed so users can select their plan name and get routed to 
 
 ---
 
+## Source File Structure
+
+Every in-network rate file has these root-level keys (confirmed from `mrf_example.json`):
+```
+in_network            → rates per billing code, referencing provider_group_ids
+last_updated_on       → "2026-07-01"
+provider_references   → maps provider_group_id → NPI list
+reporting_entity_name → "Anthem Blue Cross and Blue Shield Georgia"
+reporting_entity_type → "Health Insurance Network"
+version               → "2.0.0"
+```
+
+**Key join:** `in_network[].negotiated_rates[].provider_references[]` contains raw `provider_group_id`
+integers — NOT NPIs. The root `provider_references[]` section maps those IDs to actual NPIs:
+
+```
+rates.provider_group_id
+  ──► providers.provider_group_id
+        ──► providers.npi
+              ──► (Phase 2) NPPES lookup: name, address, city, state, zip, lat/lng
+```
+
+**File ordering note:** `in_network` appears before `provider_references` in the file. A single
+streaming pass cannot produce a fully joined row. Strategy: write both tables separately during
+the single pass, join at query time. DuckDB handles this efficiently.
+
+---
+
 ## Proposed Schema
 
-### Design Principle: Denormalize at ETL Time
+Four Parquet files for rate data + one DuckDB file for ETL state.
 
-In Postgres we normalize (provider_mappings + negotiated_rates joined at query time). For DuckDB/Parquet, joining across large files at query time is expensive. Instead, the ETL should produce a single denormalized rates table that contains everything needed for the user query in one scan.
+### Table 1: `rates` (large Parquet — one file per source rate file)
 
-The columnar compression makes this efficient — repeated NPI values, billing codes, and plan names compress extremely well even in a wide, denormalized table.
-
-### Core Table: `rates` (Parquet, partitioned by state)
+One row per `(provider_group_id, billing_code, billing_class, setting)` combination.
+Sourced entirely from `in_network[]` during streaming.
 
 ```sql
 CREATE TABLE rates (
-    -- Provider identity
-    npi               BIGINT,
-    provider_name     VARCHAR,      -- from NPPES
-    provider_type     VARCHAR,      -- from NPPES (e.g., "General Acute Care Hospital")
-    
-    -- Provider location (from NPPES, enables geographic queries)
-    address           VARCHAR,
-    city              VARCHAR,
-    state             VARCHAR(2),
-    zip               VARCHAR(10),
-    lat               DOUBLE,       -- geocoded from NPPES address
-    lng               DOUBLE,
+    source_file_id             INTEGER,  -- links to index_files
 
-    -- Plan / network identity
-    network_name      VARCHAR,      -- internal (e.g., "BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM")
-    plan_name         VARCHAR,      -- consumer-facing (e.g., "Anthem Bronze Blue Value HMO 5000") — requires mapping layer
+    provider_group_id          BIGINT,   -- joins to providers and network_providers
 
     -- Procedure
-    billing_code_type VARCHAR(20),  -- CPT, HCPCS, DRG, etc.
-    billing_code      VARCHAR(20),
-    procedure_name    VARCHAR,      -- from billing_codes reference table
+    billing_code               VARCHAR,
+    billing_code_type          VARCHAR,  -- CPT, HCPCS, DRG, RC, etc.
+    billing_code_type_version  VARCHAR,  -- e.g. "2025"
+    negotiation_arrangement    VARCHAR,  -- "ffs" | "bundle" | "capitation"
 
     -- Rate
-    negotiated_rate   DOUBLE,
-    negotiated_type   VARCHAR(20),  -- "negotiated" | "derived" | "fee schedule" | "per diem" | "case rate"
-    expiration_date   DATE,
-    service_code      VARCHAR       -- pipe-separated place-of-service codes
+    negotiated_rate            DOUBLE,
+    negotiated_type            VARCHAR,  -- "fee schedule" | "derived" | "per diem" | "case rate" | "percentage"
+    billing_class              VARCHAR,  -- "professional" | "institutional"
+    setting                    VARCHAR,  -- "outpatient" | "inpatient"
+    expiration_date            DATE,
+    service_codes              VARCHAR   -- pipe-separated place-of-service codes e.g. "11|22"
 );
 ```
 
-### Supporting Tables: `plans` and `providers` (DuckDB native, small)
+### Table 2: `providers` (large Parquet — one file per source rate file)
+
+Maps `provider_group_id` → individual NPIs. Sourced from root `provider_references[]`.
+TIN deferred — not needed for NPI-based NPPES lookup.
 
 ```sql
--- Maps consumer plan names to internal network names / rate file IDs
-CREATE TABLE plans (
-    plan_id           VARCHAR PRIMARY KEY,
-    plan_name         VARCHAR,      -- consumer-facing
-    network_name      VARCHAR,      -- matches rates.network_name
-    insurer           VARCHAR,
-    state             VARCHAR(2),
-    metal_tier        VARCHAR(10),  -- Bronze / Silver / Gold / Platinum
-    plan_type         VARCHAR(10),  -- HMO / PPO / EPO / POS
-    source_file_id    INTEGER       -- FK to index_files
-);
-
--- NPI reference enriched from NPPES (for lookups not in rates)
 CREATE TABLE providers (
-    npi               BIGINT PRIMARY KEY,
-    provider_name     VARCHAR,
-    provider_type     VARCHAR,
-    address           VARCHAR,
-    city              VARCHAR,
-    state             VARCHAR(2),
-    zip               VARCHAR(10),
-    lat               DOUBLE,
-    lng               DOUBLE,
-    taxonomy_code     VARCHAR,
-    specialty         VARCHAR
+    source_file_id    INTEGER,
+    provider_group_id BIGINT,   -- joins back to rates.provider_group_id
+    npi               BIGINT    -- used to look up provider identity in NPPES (Phase 2)
+    -- tin_type / tin_value: deferred, not needed for current use case
 );
 ```
 
-### ETL State Table: `index_files` (DuckDB native, replaces Postgres)
+### Table 3: `network_providers` (medium Parquet — bridge table)
+
+One row per `(network_name, provider_group_id)`. A single provider group can belong to
+multiple networks (e.g. `["Blue Value Individual Commercially Priced", "GA Blue Value HIX
+Individual Network"]`). Sourced from `provider_references[].network_name[]`.
+
+```sql
+CREATE TABLE network_providers (
+    source_file_id        INTEGER,
+    network_name          VARCHAR,  -- "GA Blue Value HIX Individual Network"
+    provider_group_id     BIGINT,   -- joins to rates and providers
+    reporting_entity_name VARCHAR   -- "Anthem Blue Cross and Blue Shield Georgia"
+);
+```
+
+### Table 4: `billing_codes` (small DuckDB table — reference/dim)
+
+Low-cardinality fields (`billing_class`, `setting`, `negotiated_type`) stay inline in `rates` —
+DuckDB's dictionary encoding compresses repeated strings to near-nothing. `billing_codes` is
+worth separating only because `name` and `description` are long text that would bloat `rates`.
+
+```sql
+CREATE TABLE billing_codes (
+    billing_code               VARCHAR PRIMARY KEY,
+    billing_code_type          VARCHAR,
+    billing_code_type_version  VARCHAR,
+    name                       VARCHAR,
+    description                VARCHAR
+);
+```
+
+### Table 5: `index_files` (DuckDB native — ETL queue + source provenance)
+
+Replaces Postgres `index_files`. Extended with metadata captured from each file's root keys.
 
 ```sql
 CREATE TABLE index_files (
-    id               INTEGER PRIMARY KEY,
-    plan_names       VARCHAR[],
-    description      VARCHAR,
-    location         VARCHAR UNIQUE,
-    file_size_bytes  BIGINT,
-    status           VARCHAR DEFAULT 'pending',  -- pending / processing / completed / failed
-    created_at       TIMESTAMP DEFAULT now(),
-    completed_at     TIMESTAMP
+    id                     INTEGER PRIMARY KEY,
+    plan_names             VARCHAR[],
+    description            VARCHAR,
+    location               VARCHAR UNIQUE,
+    file_size_bytes        BIGINT,
+    status                 VARCHAR DEFAULT 'pending',
+    created_at             TIMESTAMP DEFAULT now(),
+    completed_at           TIMESTAMP,
+    -- Populated after parse (from file root metadata):
+    reporting_entity_name  VARCHAR,  -- "Anthem Blue Cross and Blue Shield Georgia"
+    reporting_entity_type  VARCHAR,  -- "Health Insurance Network"
+    last_updated_on        DATE,     -- "2026-07-01"
+    schema_version         VARCHAR   -- "2.0.0"
 );
 ```
 
