@@ -49,6 +49,7 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 		location    string
 	}
 	urlToCand := make(map[string]*candidate)
+	seenPlans := make(map[string]bool)
 
 	schemaExample := map[string]interface{}{}
 	count := 0
@@ -66,6 +67,9 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 		planName := ""
 		if len(rs.ReportingPlans) > 0 {
 			planName = rs.ReportingPlans[0].PlanName
+		}
+		if planName != "" {
+			seenPlans[planName] = true
 		}
 		for _, f := range rs.InNetworkFiles {
 			if f.Location == "" {
@@ -126,7 +130,7 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 				}
 
 				if count%1000 == 0 {
-					log.Printf("  Scanned %d reporting structures... %d unique URLs. %s", count, len(urlToCand), pr.GetProgressString())
+					log.Printf("  Scanned %d reporting structures... %d unique URLs, %d unique plans. %s", count, len(urlToCand), len(seenPlans), pr.GetProgressString())
 				}
 				if limit > 0 && count >= limit {
 					log.Printf("🛑 Limit of %d reached.", limit)
@@ -137,7 +141,7 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 				}
 			}
 			decoder.Token() // ']'
-			log.Printf("  ✅ Done with 'reporting_structure'. %d unique URLs. %s", len(urlToCand), pr.GetProgressString())
+			log.Printf("  ✅ Done with 'reporting_structure'. %d unique URLs across %d unique plans. %s", len(urlToCand), len(seenPlans), pr.GetProgressString())
 
 		} else {
 			log.Printf("  🔍 Root key '%s' — capturing for schema. %s", key, pr.GetProgressString())
