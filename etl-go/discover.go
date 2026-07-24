@@ -163,29 +163,41 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 		}
 	}
 
-	// Upsert via pgx.Batch — one TCP exchange for all rows.
-	// ON CONFLICT merges plan_names arrays so re-running discovery accumulates
-	// new plan names without duplicating URLs.
-	log.Printf("📥 Upserting %d unique URLs into index_files...", len(urlToCand))
-	batch := &pgx.Batch{}
+	// Upsert in chunks of 500 to avoid OOM from a single giant batch.
+	// ON CONFLICT merges plan_names arrays; COALESCE handles NULL on first insert.
+	const upsertChunk = 500
+	candidates := make([]*candidate, 0, len(urlToCand))
 	for _, c := range urlToCand {
-		batch.Queue(
-			`INSERT INTO index_files (plan_names, description, location)
-			 VALUES ($1, $2, $3)
-			 ON CONFLICT ON CONSTRAINT uq_index_files_location DO UPDATE
-			 SET plan_names = (
-			     SELECT array_agg(DISTINCT n)
-			     FROM unnest(index_files.plan_names || $1::text[]) AS t(n)
-			 )`,
-			c.planNames, c.description, c.location,
-		)
+		candidates = append(candidates, c)
 	}
-	br := conn.SendBatch(ctx, batch)
-	if err := br.Close(); err != nil {
-		log.Printf("⚠️ Failed to upsert index_files: %v", err)
-	} else {
-		log.Printf("✅ Discovery complete! Upserted %d unique file URLs into index_files.", len(urlToCand))
+
+	log.Printf("📥 Upserting %d unique URLs into index_files...", len(candidates))
+	for i := 0; i < len(candidates); i += upsertChunk {
+		end := i + upsertChunk
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		batch := &pgx.Batch{}
+		for _, c := range candidates[i:end] {
+			batch.Queue(
+				`INSERT INTO index_files (plan_names, description, location)
+				 VALUES ($1, $2, $3)
+				 ON CONFLICT ON CONSTRAINT uq_index_files_location DO UPDATE
+				 SET plan_names = (
+				     SELECT array_agg(DISTINCT n)
+				     FROM unnest(COALESCE(index_files.plan_names, '{}') || $1::text[]) AS t(n)
+				 )`,
+				c.planNames, c.description, c.location,
+			)
+		}
+		br := conn.SendBatch(ctx, batch)
+		if err := br.Close(); err != nil {
+			log.Printf("⚠️ Batch upsert error (chunk %d-%d): %v", i, end, err)
+		} else {
+			log.Printf("  Upserted %d / %d URLs...", end, len(candidates))
+		}
 	}
+	log.Printf("✅ Discovery complete! Upserted %d unique file URLs into index_files.", len(candidates))
 }
 
 // captureSchemaValue recursively reads one JSON value from dec,
