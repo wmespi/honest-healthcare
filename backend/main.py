@@ -1,107 +1,290 @@
-from fastapi import FastAPI, Depends, HTTPException
+import os
+import duckdb
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from . import models, database
-from pydantic import BaseModel
+from typing import Optional
+
+DATA_DIR        = os.getenv("DATA_DIR", "/app/data")
+RATES_GLOB      = f"{DATA_DIR}/anthem/rates/*.parquet"
+PROVIDERS_GLOB  = f"{DATA_DIR}/anthem/providers/*.parquet"
+CODES_GLOB      = f"{DATA_DIR}/anthem/codes/*.parquet"
+NPI_LOOKUP_PATH = f"{DATA_DIR}/anthem/npi_lookup.parquet"
 
 app = FastAPI(title="Honest Healthcare API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For dev, we can allow all. For prod, we'd specify localhost:3000
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Pydantic schemas
-class RateResponse(BaseModel):
-    hospital_name: str
-    billing_code: str
-    billing_code_type: str
-    procedure_type: str
-    setting: str
-    payer: str
-    plan: str
-    min_rate: float
-    max_rate: float
-    median_rate: float
-    record_count: int
 
-    class Config:
-        from_attributes = True
+def db():
+    return duckdb.connect()
+
 
 @app.get("/")
-def read_root():
-    return {"message": "Welcome to Honest Healthcare API"}
+def health():
+    conn = db()
+    try:
+        rates     = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{RATES_GLOB}')").fetchone()[0]
+        providers = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{PROVIDERS_GLOB}')").fetchone()[0]
+        return {"status": "ok", "total_rates": rates, "total_providers": providers}
+    except Exception as e:
+        return {"status": "ok", "note": str(e)}
 
-@app.get("/rates", response_model=List[RateResponse])
-def get_rates(
-    code: Optional[str] = None, 
-    search: Optional[str] = None,
-    hospital: Optional[str] = None, 
+
+@app.get("/rates/distribution")
+def rate_distribution(
+    billing_code: Optional[str] = None,
+    billing_code_type: str = "CPT",
+    plan_name: Optional[str] = None,
     setting: Optional[str] = None,
-    payer: Optional[str] = None,
-    plan: Optional[str] = None,
-    db: Session = Depends(database.get_db)
+    npi: Optional[int] = None,
 ):
-    query = db.query(models.NegotiatedRate)
-    
-    if code:
-        query = query.filter(models.NegotiatedRate.billing_code == code)
-    if search:
-        query = query.filter(models.NegotiatedRate.procedure_type.ilike(f"%{search}%"))
-    if hospital:
-        query = query.filter(models.NegotiatedRate.hospital_name == hospital)
+    """
+    Rate distribution. When billing_code is omitted, returns a network-wide overview
+    (pre-bucketed at the SQL level to keep the response size manageable).
+    """
+    conn = db()
+
+    conditions = ["1=1"]
+    params: list = []
+
+    if billing_code:
+        conditions += ["billing_code = ?", "billing_code_type = ?"]
+        params += [billing_code, billing_code_type]
+    if plan_name:
+        conditions.append("plan_name = ?")
+        params.append(plan_name)
     if setting:
-        query = query.filter(models.NegotiatedRate.setting == setting.lower())
-    if payer:
-        query = query.filter(models.NegotiatedRate.payer == payer)
-    if plan:
-        query = query.filter(models.NegotiatedRate.plan == plan)
-        
-    return query.limit(400).all() # Increased limit for better comparisons
+        conditions.append("setting = ?")
+        params.append(setting)
+    if npi:
+        conditions.append(f"provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}') WHERE npi = ?)")
+        params.append(npi)
 
-@app.get("/hospitals")
-def get_hospitals(db: Session = Depends(database.get_db)):
-    results = db.query(models.NegotiatedRate.hospital_name).distinct().order_by(models.NegotiatedRate.hospital_name).all()
-    return [r[0] for r in results]
+    where = " AND ".join(conditions)
 
-@app.get("/payers")
-def get_payers(db: Session = Depends(database.get_db)):
-    results = db.query(models.NegotiatedRate.payer).distinct().order_by(models.NegotiatedRate.payer).all()
-    return [r[0] for r in results]
+    if not billing_code:
+        # Network overview: pre-bucket into $50 intervals up to $2000, then one overflow bucket.
+        # Avoids returning hundreds of thousands of distinct rate values.
+        dist = conn.execute(f"""
+            SELECT
+                FLOOR(LEAST(negotiated_rate, 2000) / 50) * 50 AS rate,
+                'fee schedule' AS negotiated_type,
+                COUNT(DISTINCT provider_group_id) AS provider_groups
+            FROM read_parquet('{RATES_GLOB}')
+            WHERE {where}
+            GROUP BY 1, 2
+            ORDER BY 1
+        """, params).fetchall()
+    else:
+        dist = conn.execute(f"""
+            SELECT
+                negotiated_rate,
+                negotiated_type,
+                COUNT(DISTINCT provider_group_id) AS provider_groups
+            FROM read_parquet('{RATES_GLOB}')
+            WHERE {where}
+            GROUP BY negotiated_rate, negotiated_type
+            ORDER BY negotiated_rate
+        """, params).fetchall()
+
+    if not dist:
+        label = f"{billing_code_type}:{billing_code}" if billing_code else "network"
+        raise HTTPException(404, detail=f"No rates found for {label}")
+
+    stats = conn.execute(f"""
+        SELECT
+            MIN(negotiated_rate),
+            MAX(negotiated_rate),
+            AVG(negotiated_rate),
+            MEDIAN(negotiated_rate),
+            COUNT(DISTINCT provider_group_id),
+            COUNT(*)
+        FROM read_parquet('{RATES_GLOB}')
+        WHERE {where}
+    """, params).fetchone()
+
+    return {
+        "billing_code":      billing_code or "ALL",
+        "billing_code_type": billing_code_type if billing_code else "NETWORK",
+        "summary": {
+            "min":             round(stats[0], 2),
+            "max":             round(stats[1], 2),
+            "avg":             round(stats[2], 2),
+            "median":          round(stats[3], 2),
+            "provider_groups": stats[4],
+            "total_entries":   stats[5],
+        },
+        "distribution": [
+            {"rate": r[0], "type": r[1], "provider_groups": r[2]}
+            for r in dist
+        ],
+    }
+
+
+@app.get("/rates/providers")
+def rates_by_provider(
+    billing_code: str,
+    billing_code_type: str = "CPT",
+    plan_name: Optional[str] = None,
+    setting: Optional[str] = None,
+    npi: Optional[int] = None,
+    limit: int = Query(default=100, le=1000),
+):
+    """
+    Rates joined to provider groups with NPI count per group.
+    Phase 1 identifier is provider_group_id; Phase 2 will add NPPES name + location.
+    """
+    conn = db()
+
+    conditions = ["r.billing_code = ?", "r.billing_code_type = ?"]
+    params: list = [billing_code, billing_code_type]
+
+    if plan_name:
+        conditions.append("r.plan_name = ?")
+        params.append(plan_name)
+    if setting:
+        conditions.append("r.setting = ?")
+        params.append(setting)
+    if npi:
+        conditions.append(f"r.provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}') WHERE npi = ?)")
+        params.append(npi)
+
+    where = " AND ".join(conditions)
+
+    rows = conn.execute(f"""
+        SELECT
+            r.provider_group_id,
+            r.negotiated_rate,
+            r.negotiated_type,
+            r.plan_name,
+            r.expiration_date,
+            COUNT(DISTINCT p.npi) AS npi_count
+        FROM read_parquet('{RATES_GLOB}') r
+        LEFT JOIN read_parquet('{PROVIDERS_GLOB}') p
+            ON r.provider_group_id = p.provider_group_id
+        WHERE {where}
+        GROUP BY r.provider_group_id, r.negotiated_rate, r.negotiated_type,
+                 r.plan_name, r.expiration_date
+        ORDER BY r.negotiated_rate
+        LIMIT {limit}
+    """, params).fetchall()
+
+    return {
+        "billing_code":      billing_code,
+        "billing_code_type": billing_code_type,
+        "results": [
+            {
+                "provider_group_id": r[0],
+                "negotiated_rate":   r[1],
+                "negotiated_type":   r[2],
+                "plan_name":         r[3],
+                "expiration_date":   r[4],
+                "npi_count":         r[5],
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.get("/providers/search")
+def search_providers(
+    q: str = Query(default=""),
+    limit: int = Query(default=20, le=100),
+):
+    """Search providers by NPI prefix. ETL writes npi_lookup.parquet after each parse run."""
+    if not q:
+        return []
+    conn = db()
+    if os.path.exists(NPI_LOOKUP_PATH):
+        rows = conn.execute(f"""
+            SELECT npi, tin_value
+            FROM read_parquet('{NPI_LOOKUP_PATH}')
+            WHERE CAST(npi AS VARCHAR) LIKE ?
+            ORDER BY npi
+            LIMIT {limit}
+        """, [f"{q}%"]).fetchall()
+        return [{"npi": r[0], "tin_value": r[1]} for r in rows]
+    # Fallback: scan raw providers parquet (slow, only before first ETL run)
+    rows = conn.execute(f"""
+        SELECT npi, MAX(tin_value) AS tin_value
+        FROM read_parquet('{PROVIDERS_GLOB}')
+        WHERE CAST(npi AS VARCHAR) LIKE ?
+        GROUP BY npi ORDER BY npi LIMIT {limit}
+    """, [f"{q}%"]).fetchall()
+    return [{"npi": r[0], "tin_value": r[1]} for r in rows]
+
 
 @app.get("/plans")
-def get_plans(payer: Optional[str] = None, db: Session = Depends(database.get_db)):
-    query = db.query(models.NegotiatedRate.plan).distinct()
-    if payer:
-        query = query.filter(models.NegotiatedRate.payer == payer)
-    results = query.order_by(models.NegotiatedRate.plan).all()
-    return [r[0] for r in results]
+def get_plans():
+    """Distinct plan names in the rate files."""
+    conn = db()
+    rows = conn.execute(f"""
+        SELECT DISTINCT plan_name
+        FROM read_parquet('{RATES_GLOB}')
+        WHERE plan_name IS NOT NULL AND plan_name != ''
+        ORDER BY plan_name
+    """).fetchall()
+    return [r[0] for r in rows]
 
-@app.get("/procedures")
-def get_procedures(
-    search: Optional[str] = None,
-    hospital: Optional[str] = None,
-    setting: Optional[str] = None,
-    payer: Optional[str] = None,
-    plan: Optional[str] = None,
-    db: Session = Depends(database.get_db)
+
+@app.get("/billing_codes")
+def search_billing_codes(
+    q: str = Query(default=""),
+    billing_code_type: Optional[str] = None,
+    limit: int = Query(default=20, le=100),
 ):
-    query = db.query(models.NegotiatedRate.procedure_type).distinct()
-    
-    if search:
-        query = query.filter(models.NegotiatedRate.procedure_type.ilike(f"%{search}%"))
-    if hospital:
-        query = query.filter(models.NegotiatedRate.hospital_name == hospital)
-    if setting:
-        query = query.filter(models.NegotiatedRate.setting == setting.lower())
-    if payer:
-        query = query.filter(models.NegotiatedRate.payer == payer)
-    if plan:
-        query = query.filter(models.NegotiatedRate.plan == plan)
-        
-    results = query.order_by(models.NegotiatedRate.procedure_type).limit(10).all()
-    return [r[0] for r in results]
+    """Search billing codes — empty q returns top results by provider volume."""
+    conn = db()
+
+    text_filter = "AND (c.billing_code ILIKE ? OR c.name ILIKE ?)" if q else ""
+    type_filter  = "AND c.billing_code_type = ?" if billing_code_type else ""
+    params_base: list = ([f"%{q}%", f"%{q}%"] if q else []) + ([billing_code_type] if billing_code_type else [])
+
+    try:
+        rows = conn.execute(f"""
+            SELECT c.billing_code, c.billing_code_type, c.name,
+                   COALESCE(r.provider_groups, 0) AS provider_groups
+            FROM read_parquet('{CODES_GLOB}') c
+            LEFT JOIN (
+                SELECT billing_code, billing_code_type,
+                       COUNT(DISTINCT provider_group_id) AS provider_groups
+                FROM read_parquet('{RATES_GLOB}')
+                GROUP BY billing_code, billing_code_type
+            ) r ON c.billing_code = r.billing_code AND c.billing_code_type = r.billing_code_type
+            WHERE 1=1 {text_filter} {type_filter}
+            ORDER BY provider_groups DESC
+            LIMIT {limit}
+        """, params_base).fetchall()
+        return [
+            {"billing_code": r[0], "billing_code_type": r[1], "name": r[2], "provider_groups": r[3]}
+            for r in rows
+        ]
+    except Exception:
+        # codes parquet not yet generated — fall back to rates-only search (no names)
+        conditions = ["1=1"]
+        params_fb: list = []
+        if q:
+            conditions.append("billing_code ILIKE ?")
+            params_fb.append(f"%{q}%")
+        if billing_code_type:
+            conditions.append("billing_code_type = ?")
+            params_fb.append(billing_code_type)
+        rows = conn.execute(f"""
+            SELECT billing_code, billing_code_type,
+                   COUNT(DISTINCT provider_group_id) AS provider_groups
+            FROM read_parquet('{RATES_GLOB}')
+            WHERE {" AND ".join(conditions)}
+            GROUP BY billing_code, billing_code_type
+            ORDER BY provider_groups DESC
+            LIMIT {limit}
+        """, params_fb).fetchall()
+        return [
+            {"billing_code": r[0], "billing_code_type": r[1], "name": None, "provider_groups": r[2]}
+            for r in rows
+        ]

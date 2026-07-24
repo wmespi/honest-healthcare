@@ -3,6 +3,12 @@ services:
   db:
     image: postgis/postgis:15-3.3-alpine
     container_name: honest-healthcare-db
+    command: >
+      postgres
+      -c max_wal_size=4GB
+      -c checkpoint_timeout=15min
+      -c log_min_messages=warning
+      -c log_checkpoints=off
     environment:
       - POSTGRES_DB=honest_healthcare
       - POSTGRES_USER=postgres
@@ -11,26 +17,26 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./data-test:/data-test
+      - ./data:/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  etl:
+  etl_go:
     build:
       context: .
-      dockerfile: deploy/Dockerfile.etl
-      args:
-        INSTALL_DEV: "true"
-    container_name: honest-healthcare-etl
+      dockerfile: deploy/Dockerfile.etl_go
+    container_name: honest-healthcare-etl-go
     command: tail -f /dev/null
     volumes:
       - .:/app
-    ports:
-      - "8888:8888"
     environment:
-      - SPARK_DRIVER_MEMORY=4g
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
+      - TEST_DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test
     depends_on:
       db:
         condition: service_healthy
@@ -45,18 +51,19 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/honest_healthcare
-    depends_on:
-      db:
-        condition: service_healthy
+      - DATA_DIR=/app/data
 
   frontend:
     build:
       context: .
       dockerfile: deploy/Dockerfile.frontend
+      target: dev
     container_name: honest-healthcare-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     ports:
-      - "3000:80"
+      - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:8000
     depends_on:

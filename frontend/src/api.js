@@ -2,32 +2,33 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const api = axios.create({
-    baseURL: API_BASE_URL,
-});
+const api = axios.create({ baseURL: API_BASE_URL });
 
-export const getHospitals = () => api.get('/hospitals');
-export const getPayers = () => api.get('/payers');
-export const getPlans = (payer) => api.get('/plans', { params: { payer } });
+export const getPlans = () => api.get('/plans');
 
-export const getRates = (search, hospital, setting, payer, plan) => {
-    const params = {};
-    if (search) params.search = search;
-    if (hospital) params.hospital = hospital;
-    if (setting) params.setting = setting;
-    if (payer) params.payer = payer;
-    if (plan) params.plan = plan;
-    return api.get('/rates', { params });
+export const searchProviders = (q) => api.get('/providers/search', { params: { q } });
+
+export const searchBillingCodes = (q = '', billing_code_type) => {
+    const params = { q };
+    if (billing_code_type) params.billing_code_type = billing_code_type;
+    return api.get('/billing_codes', { params });
 };
 
-export const getProcedures = (search, hospital, setting, payer, plan) => {
+export const getRateDistribution = (billing_code, billing_code_type = 'CPT', plan_name, setting, npi) => {
     const params = {};
-    if (search) params.search = search;
-    if (hospital) params.hospital = hospital;
+    if (billing_code) { params.billing_code = billing_code; params.billing_code_type = billing_code_type; }
+    if (plan_name) params.plan_name = plan_name;
     if (setting) params.setting = setting;
-    if (payer) params.payer = payer;
-    if (plan) params.plan = plan;
-    return api.get('/procedures', { params });
+    if (npi) params.npi = npi;
+    return api.get('/rates/distribution', { params });
+};
+
+export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', plan_name, setting, npi, limit = 100) => {
+    const params = { billing_code, billing_code_type, limit };
+    if (plan_name) params.plan_name = plan_name;
+    if (setting) params.setting = setting;
+    if (npi) params.npi = npi;
+    return api.get('/rates/providers', { params });
 };
 
 export default api;
