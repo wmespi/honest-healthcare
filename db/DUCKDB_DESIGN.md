@@ -18,11 +18,29 @@ Since the backend only reads and the backend needs a full rewrite anyway, the mi
 
 ---
 
-## Target Query Pattern
+## Delivery Phases
+
+### Phase 1 — Rate Distribution (no NPPES required)
+> "I have **Anthem Bronze Blue Value HMO 5000**. For **knee replacement (CPT 27447)**, what is the distribution of negotiated rates across all providers in my network?"
+
+Show min / max / median / percentile spread. No provider names or locations needed — just the rates themselves. Unblocks real user value immediately and validates the full ETL pipeline before adding geographic complexity.
+
+**Data required:** rate files (already have) + plan-name mapping layer
+
+### Phase 2 — Geographic Provider Lookup (end goal)
+> "For the same procedure and plan, which specific hospitals are within 20 miles of my zip code, and what does each one get paid?"
+
+Adds provider identity and location from NPPES. The Phase 1 schema is a direct subset — NPPES enrichment adds columns to existing rows rather than restructuring anything.
+
+**Additional data required:** NPPES NPI registry (~9 GB CSV from CMS, updated monthly)
+
+---
+
+## Target Query Pattern (Phase 2)
 
 > "I have **Anthem Bronze Blue Value HMO 5000**. For **knee replacement (CPT 27447)**, what are the negotiated rates at hospitals within 20 miles of my zip code?"
 
-This drives every schema decision below.
+This drives the final schema decisions below.
 
 ---
 
