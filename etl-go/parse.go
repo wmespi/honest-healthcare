@@ -2,7 +2,7 @@ package main
 
 import (
 	"compress/gzip"
-	"encoding/csv"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
-// skipValue safely skips a massive JSON value without allocating it into memory.
+const copyBatchSize = 50_000
+
 func skipValue(decoder *json.Decoder) {
 	t, err := decoder.Token()
 	if err != nil {
@@ -38,119 +41,140 @@ func skipValue(decoder *json.Decoder) {
 	}
 }
 
-func parseRates(url string, planName string, isFirstFile bool, seenBillingCodes map[string]bool) {
-	log.Printf("⚙️ Processing Rate File: %s", url)
+func getDBSize(ctx context.Context, conn *pgx.Conn) string {
+	var size string
+	if err := conn.QueryRow(ctx, "SELECT pg_size_pretty(pg_database_size(current_database()))").Scan(&size); err != nil {
+		return "unknown"
+	}
+	return size
+}
+
+func flushProviders(ctx context.Context, conn *pgx.Conn, rows [][]any) {
+	if len(rows) == 0 {
+		return
+	}
+	if _, err := conn.CopyFrom(ctx,
+		pgx.Identifier{"provider_mappings"},
+		[]string{"provider_group_id", "npi", "tin_type", "tin_value"},
+		pgx.CopyFromRows(rows),
+	); err != nil {
+		log.Printf("⚠️ Failed to flush provider_mappings: %v", err)
+	}
+}
+
+func flushRates(ctx context.Context, conn *pgx.Conn, rows [][]any) {
+	if len(rows) == 0 {
+		return
+	}
+	if _, err := conn.CopyFrom(ctx,
+		pgx.Identifier{"negotiated_rates"},
+		[]string{"provider_group_id", "plan_name", "billing_code_type", "billing_code",
+			"negotiation_arrangement", "negotiated_type", "negotiated_rate", "expiration_date", "service_code"},
+		pgx.CopyFromRows(rows),
+	); err != nil {
+		log.Printf("⚠️ Failed to flush negotiated_rates: %v", err)
+	}
+}
+
+func upsertBillingCode(ctx context.Context, conn *pgx.Conn, bcType, bc, name, desc string) {
+	if _, err := conn.Exec(ctx,
+		`INSERT INTO billing_codes (billing_code_type, billing_code, name, description)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (billing_code) DO NOTHING`,
+		bcType, bc, name, desc,
+	); err != nil {
+		log.Printf("⚠️ Failed to upsert billing code %s: %v", bc, err)
+	}
+}
+
+func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error) {
+	log.Printf("❌ File %d failed: %v", fileID, reason)
+	conn.Exec(ctx, "UPDATE index_files SET status = 'failed' WHERE id = $1", fileID)
+}
+
+func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, planName string, isFirstFile bool, seenBillingCodes map[string]bool) {
+	log.Printf("⚙️ Processing Rate File [id=%d]: %s", fileID, url)
+
+	if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'processing' WHERE id = $1", fileID); err != nil {
+		log.Printf("⚠️ Failed to mark file %d as processing: %v", fileID, err)
+	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Fatalf("❌ Failed to create request: %v", err)
+		markFailed(ctx, conn, fileID, err)
+		return
 	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		log.Printf("❌ Failed to fetch rate file: %v", err)
+		markFailed(ctx, conn, fileID, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		log.Printf("❌ Failed to fetch rate file, status: %d", resp.StatusCode)
+		markFailed(ctx, conn, fileID, fmt.Errorf("HTTP %d", resp.StatusCode))
 		return
 	}
 
 	pr := NewProgressReader(resp.Body, resp.ContentLength)
 
+	// Capture file size from the GET response — no extra network request needed.
+	// file_size_bytes stays NULL until a file is first parsed; ORDER BY NULLS LAST
+	// in the parse queue lets completed files inform scheduling on future runs.
+	if resp.ContentLength > 0 {
+		conn.Exec(ctx, "UPDATE index_files SET file_size_bytes = $1 WHERE id = $2", resp.ContentLength, fileID)
+	}
+
 	gz, err := gzip.NewReader(pr)
 	if err != nil {
-		log.Printf("❌ Failed to unzip: %v", err)
+		markFailed(ctx, conn, fileID, err)
 		return
 	}
 	defer gz.Close()
 
 	decoder := json.NewDecoder(gz)
-	
-	os.MkdirAll(filepath.Dir(ParseOutputPath), os.ModePerm)
-	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
-	
-	ratesFile, err := os.OpenFile(ParseOutputPath, flags, os.ModePerm)
-	if err != nil {
-		log.Fatalf("❌ Failed to open rates CSV file: %v", err)
-	}
-	defer ratesFile.Close()
-	ratesWriter := csv.NewWriter(ratesFile)
-	defer ratesWriter.Flush()
-
-	providersFile, err := os.OpenFile(ParseProvidersOutputPath, flags, os.ModePerm)
-	if err != nil {
-		log.Fatalf("❌ Failed to open providers CSV file: %v", err)
-	}
-	defer providersFile.Close()
-	providersWriter := csv.NewWriter(providersFile)
-	defer providersWriter.Flush()
-
-	billingCodesFile, err := os.OpenFile(ParseBillingCodesOutputPath, flags, os.ModePerm)
-	if err != nil {
-		log.Fatalf("❌ Failed to open billing codes CSV file: %v", err)
-	}
-	defer billingCodesFile.Close()
-	billingCodesWriter := csv.NewWriter(billingCodesFile)
-	defer billingCodesWriter.Flush()
-
-	// 1. Write Headers (Added Name and Description to rates)
-	if isFirstFile {
-		ratesWriter.Write([]string{"provider_group_id", "plan_name", "billing_code_type", "billing_code", "negotiation_arrangement", "negotiated_type", "negotiated_rate", "expiration_date", "service_code"})
-		ratesWriter.Flush()
-		
-		providersWriter.Write([]string{"provider_group_id", "npi", "tin_type", "tin_value"})
-		providersWriter.Flush()
-
-		billingCodesWriter.Write([]string{"billing_code_type", "billing_code", "name", "description"})
-		billingCodesWriter.Flush()
-	}
-	
-	// ERD Snippet Generator Map
 	schemaExample := make(map[string]interface{})
 
 	log.Println("  🔄 Starting Single-Pass Extract...")
-	
+
 	t, err := decoder.Token()
 	if err != nil {
-		log.Printf("❌ Failed to read root token: %v", err)
+		markFailed(ctx, conn, fileID, fmt.Errorf("failed to read root token: %w", err))
 		return
 	}
 	if delim, ok := t.(json.Delim); !ok || delim != '{' {
-		log.Printf("❌ Expected root JSON object '{', got %v", t)
+		markFailed(ctx, conn, fileID, fmt.Errorf("expected root '{', got %v", t))
 		return
 	}
+
+	var providerBuf [][]any
+	var rateBuf [][]any
+	totalProviders := 0
+	totalRates := 0
 
 	for decoder.More() {
 		t, err := decoder.Token()
 		if err != nil {
 			break
 		}
-		
 		key, ok := t.(string)
 		if !ok {
-			log.Printf("⚠️ Expected string key, got %v", t)
 			continue
 		}
 
 		if key == "provider_references" {
-			log.Println("    🎯 Found 'provider_references' array. Extracting to providers.csv...")
-			decoder.Token() // Read '['
-			
-			count := 0
+			log.Println("    🎯 Found 'provider_references'. Streaming to provider_mappings...")
+			decoder.Token() // '['
+
 			for decoder.More() {
 				var ref ProviderReference
-				
-				// Snippet Generator: Capture the very first raw object exactly as it is in the JSON!
+
 				if isFirstFile && schemaExample["provider_references"] == nil {
 					var raw map[string]interface{}
 					if err := decoder.Decode(&raw); err == nil {
-						schemaExample["provider_references"] = []interface{}{raw} // Store exactly 1 item in the array for the example
+						schemaExample["provider_references"] = []interface{}{raw}
 						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &ref) // Convert back to struct so CSV pipeline continues
+						json.Unmarshal(b, &ref)
 					}
 				} else {
 					if err := decoder.Decode(&ref); err != nil {
@@ -158,45 +182,40 @@ func parseRates(url string, planName string, isFirstFile bool, seenBillingCodes 
 						continue
 					}
 				}
-				
+
 				for _, pg := range ref.ProviderGroups {
-					tinType := pg.TIN.Type
-					tinVal := pg.TIN.Value
 					for _, npi := range pg.NPIs {
-						providersWriter.Write([]string{
-							fmt.Sprintf("%d", ref.ProviderGroupID),
-							fmt.Sprintf("%d", npi),
-							tinType,
-							tinVal,
-						})
+						providerBuf = append(providerBuf, []any{ref.ProviderGroupID, npi, pg.TIN.Type, pg.TIN.Value})
 					}
 				}
-				count++
-				if count > 0 && count%100000 == 0 {
-					providersWriter.Flush()
-					log.Printf("    Extracted %d provider groups... %s", count, pr.GetProgressString())
+
+				if len(providerBuf) >= copyBatchSize {
+					flushProviders(ctx, conn, providerBuf)
+					totalProviders += len(providerBuf)
+					providerBuf = providerBuf[:0]
+					log.Printf("    ⚙️  Loaded %d provider rows... | DB Size: %s | %s", totalProviders, getDBSize(ctx, conn), pr.GetProgressString())
 				}
 			}
-			decoder.Token() // Consume ']'
-			providersWriter.Flush()
-			log.Printf("    ✅ Extracted %d provider reference groups. %s", count, pr.GetProgressString())
-			
+			decoder.Token() // ']'
+
+			flushProviders(ctx, conn, providerBuf)
+			totalProviders += len(providerBuf)
+			providerBuf = providerBuf[:0]
+			log.Printf("    ✅ Streamed %d provider rows. %s", totalProviders, pr.GetProgressString())
+
 		} else if key == "in_network" {
-			log.Println("    🎯 Found 'in_network' array. Extracting to rates.csv...")
-			decoder.Token() // Read '['
-			
-			rowCount := 0
-			itemCount := 0
+			log.Println("    🎯 Found 'in_network'. Streaming to negotiated_rates...")
+			decoder.Token() // '['
+
 			for decoder.More() {
 				var item InNetworkItem
-				
-				// Snippet Generator: Capture the very first raw object exactly as it is in the JSON!
+
 				if isFirstFile && schemaExample["in_network"] == nil {
 					var raw map[string]interface{}
 					if err := decoder.Decode(&raw); err == nil {
-						schemaExample["in_network"] = []interface{}{raw} // Store exactly 1 item in the array for the example
+						schemaExample["in_network"] = []interface{}{raw}
 						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &item) // Convert back to struct so CSV pipeline continues
+						json.Unmarshal(b, &item)
 					}
 				} else {
 					if err := decoder.Decode(&item); err != nil {
@@ -204,58 +223,45 @@ func parseRates(url string, planName string, isFirstFile bool, seenBillingCodes 
 						continue
 					}
 				}
-				itemCount++
-				
-				// Track unique billing codes to normalize descriptions
+
 				if !seenBillingCodes[item.BillingCode] {
 					seenBillingCodes[item.BillingCode] = true
-					billingCodesWriter.Write([]string{
-						item.BillingCodeType,
-						item.BillingCode,
-						item.Name,
-						item.Description,
-					})
+					upsertBillingCode(ctx, conn, item.BillingCodeType, item.BillingCode, item.Name, item.Description)
 				}
-				
+
 				for _, rate := range item.NegotiatedRates {
 					for _, refID := range rate.ProviderReferences {
-						refIDStr := fmt.Sprintf("%d", refID)
-						
 						for _, price := range rate.NegotiatedPrices {
-							serviceCodeStr := strings.Join(price.ServiceCode, "|")
-							record := []string{
-								refIDStr,
-								planName,
-								item.BillingCodeType,
-								item.BillingCode,
-								item.NegotiationArrangement,
-								price.NegotiatedType,
-								fmt.Sprintf("%.2f", price.NegotiatedRate),
-								price.ExpirationDate,
-								serviceCodeStr,
-							}
-							ratesWriter.Write(record)
-							rowCount++
+							rateBuf = append(rateBuf, []any{
+								refID, planName,
+								item.BillingCodeType, item.BillingCode,
+								item.NegotiationArrangement, price.NegotiatedType,
+								price.NegotiatedRate, price.ExpirationDate,
+								strings.Join(price.ServiceCode, "|"),
+							})
 						}
 					}
 				}
-				
-				if rowCount > 0 && rowCount%10000 == 0 {
-					ratesWriter.Flush()
-					log.Printf("    Extracted %d flattened rate rows... %s", rowCount, pr.GetProgressString())
+
+				if len(rateBuf) >= copyBatchSize {
+					flushRates(ctx, conn, rateBuf)
+					totalRates += len(rateBuf)
+					rateBuf = rateBuf[:0]
+					log.Printf("    ⚙️  Loaded %d rate rows... | DB Size: %s | %s", totalRates, getDBSize(ctx, conn), pr.GetProgressString())
 				}
 			}
-			decoder.Token() // Consume ']'
-			ratesWriter.Flush()
-			log.Printf("    ✅ Extracted %d total rate rows. %s", rowCount, pr.GetProgressString())
-			
+			decoder.Token() // ']'
+
+			flushRates(ctx, conn, rateBuf)
+			totalRates += len(rateBuf)
+			rateBuf = rateBuf[:0]
+			log.Printf("    ✅ Streamed %d total rate rows. %s", totalRates, pr.GetProgressString())
+
 		} else {
 			if isFirstFile {
-				// We peek at the next token to see if it's an array or object
 				tPeek, _ := decoder.Token()
 				if delim, ok := tPeek.(json.Delim); ok && (delim == '[' || delim == '{') {
-					log.Printf("    🔍 Schema Discovery: Found unexpected root structure: '%s' (skipping value) %s", key, pr.GetProgressString())
-					// Re-inject the opening bracket into the skip depth count
+					log.Printf("    🔍 Schema Discovery: Found unexpected root structure: '%s' (skipping) %s", key, pr.GetProgressString())
 					depth := 1
 					for depth > 0 {
 						tSkip, _ := decoder.Token()
@@ -268,33 +274,32 @@ func parseRates(url string, planName string, isFirstFile bool, seenBillingCodes 
 						}
 					}
 				} else {
-					// It's a primitive value (string, number, bool)! Let's save it directly to the example!
 					schemaExample[key] = tPeek
 					log.Printf("    🔍 Schema Discovery: Captured root key '%s' = %v", key, tPeek)
 				}
 			} else {
-				log.Printf("    🔍 Schema Discovery: Found unexpected root key: '%s' (skipping value) %s", key, pr.GetProgressString())
+				log.Printf("    🔍 Schema Discovery: Found unexpected root key: '%s' (skipping) %s", key, pr.GetProgressString())
 				skipValue(decoder)
 			}
 		}
 	}
-	
+
 	decoder.Token() // '}'
-	
-	// Write the collected schema snippet to mrf_example.json
+
 	if isFirstFile {
 		os.MkdirAll(filepath.Dir(ExampleOutputPath), os.ModePerm)
-		out, err := os.Create(ExampleOutputPath)
-		if err == nil {
+		if out, err := os.Create(ExampleOutputPath); err == nil {
 			enc := json.NewEncoder(out)
 			enc.SetIndent("", "  ")
 			enc.Encode(schemaExample)
 			out.Close()
-			log.Println("    ✅ Successfully wrote complete ERD Snippet to mrf_example.json")
-		} else {
-			log.Printf("    ⚠️ Failed to write mrf_example.json: %v", err)
+			log.Println("    ✅ Wrote ERD snippet to mrf_example.json")
 		}
 	}
-	
-	log.Println("  ✅ Completed Rate Parsing.")
+
+	if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'completed', completed_at = NOW() WHERE id = $1", fileID); err != nil {
+		log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
+	}
+
+	log.Printf("  ✅ Completed. %d provider rows | %d rate rows | DB Size: %s", totalProviders, totalRates, getDBSize(ctx, conn))
 }

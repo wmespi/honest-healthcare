@@ -26,48 +26,17 @@ services:
       timeout: 5s
       retries: 5
 
-  etl:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.etl
-      args:
-        INSTALL_DEV: "true"
-    container_name: honest-healthcare-etl
-    command: tail -f /dev/null
-    volumes:
-      - .:/app
-    ports:
-      - "8888:8888"
-    environment:
-      - SPARK_DRIVER_MEMORY=4g
-    depends_on:
-      db:
-        condition: service_healthy
-
   etl_go:
     build:
       context: .
       dockerfile: deploy/Dockerfile.etl_go
     container_name: honest-healthcare-etl-go
-    command: go run . -discover -index-url "https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/2026-07-01_anthem_index.json.gz"
+    command: tail -f /dev/null
     volumes:
       - .:/app
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
-    depends_on:
-      db:
-        condition: service_healthy
-
-  etl_go_parse:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.etl_go
-    container_name: honest-healthcare-etl-go-parse
-    command: go run . -parse -test
-    volumes:
-      - .:/app
-    environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
+      - TEST_DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test
     depends_on:
       db:
         condition: service_healthy

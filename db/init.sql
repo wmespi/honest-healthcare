@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS billing_codes (
 -- Table 3: Negotiated Rates
 CREATE TABLE IF NOT EXISTS negotiated_rates (
     provider_group_id BIGINT,
-    plan_name VARCHAR(255),
+    plan_name TEXT,
     billing_code_type VARCHAR(50),
     billing_code VARCHAR(100),
     negotiation_arrangement VARCHAR(50),
@@ -95,23 +95,29 @@ INSERT INTO place_of_service_codes (service_code, name, description) VALUES
 ON CONFLICT (service_code) DO NOTHING;
 
 -- Table 5: Index Files (tracks all discovered rate file URLs for prioritized processing)
+-- plan_names is an array because a single rate file is shared across many plans —
+-- storing only the first plan name seen would silently drop individual market plans
+-- that reference the same network file as employer groups.
 CREATE TABLE IF NOT EXISTS index_files (
     id SERIAL PRIMARY KEY,
     reporting_entity_name TEXT,
     reporting_entity_type TEXT,
-    plan_name TEXT,
+    plan_names TEXT[],
     description TEXT,
     location TEXT NOT NULL,
+    file_size_bytes BIGINT,
     status VARCHAR(20) DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    CONSTRAINT uq_index_files_location UNIQUE (location)
 );
 
-CREATE INDEX IF NOT EXISTS idx_index_files_plan ON index_files(plan_name);
+CREATE INDEX IF NOT EXISTS idx_index_files_plan ON index_files USING GIN(plan_names);
 CREATE INDEX IF NOT EXISTS idx_index_files_status ON index_files(status);
 
 -- Create View for Convenience
 CREATE OR REPLACE VIEW vw_rates_detailed AS
-SELECT 
+SELECT
     r.provider_group_id,
     r.plan_name,
     r.billing_code_type,
@@ -127,3 +133,14 @@ SELECT
 FROM negotiated_rates r
 LEFT JOIN billing_codes b ON r.billing_code = b.billing_code
 LEFT JOIN place_of_service_codes s ON r.service_code = s.service_code;
+
+-- Test Schema: mirrors production table structure for isolated ETL test runs.
+-- Connected via search_path=test in the TEST_DATABASE_URL connection string.
+-- Safe to TRUNCATE or DROP without affecting production data.
+CREATE SCHEMA IF NOT EXISTS test;
+
+CREATE TABLE IF NOT EXISTS test.provider_mappings      (LIKE public.provider_mappings      INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS test.billing_codes          (LIKE public.billing_codes          INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS test.negotiated_rates       (LIKE public.negotiated_rates       INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS test.place_of_service_codes (LIKE public.place_of_service_codes INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS test.index_files            (LIKE public.index_files            INCLUDING ALL);
