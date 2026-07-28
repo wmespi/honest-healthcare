@@ -13,6 +13,7 @@ import (
 func main() {
 	discoverFlag := flag.Bool("discover", false, "Run index discovery logic")
 	parseFlag := flag.Bool("parse", false, "Run rate parsing logic")
+	sizeFlag := flag.Bool("size", false, "Fetch file sizes (HEAD requests) for all unsized index_files entries")
 	limitFlag := flag.Int("limit", 0, "Override the default limits for discovery or parsing")
 	indexUrlFlag := flag.String("index-url", "", "Override the Master Index URL")
 	testFlag := flag.Bool("test", false, "Run in isolated test mode (writes to test schema, not production)")
@@ -50,6 +51,11 @@ func main() {
 	// 4. Routing
 	if *discoverFlag {
 		discoverLinks(ctx, conn, *limitFlag)
+		return
+	}
+
+	if *sizeFlag {
+		fetchFileSizes(ctx, conn, *limitFlag)
 		return
 	}
 
@@ -133,5 +139,5 @@ func main() {
 		return
 	}
 
-	log.Println("⚠️ Please specify an action: -discover or -parse (and optionally -test)")
+	log.Println("⚠️ Please specify an action: -discover, -size, or -parse (and optionally -test)")
 }
