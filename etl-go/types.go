@@ -32,7 +32,12 @@ func getDefaultIndexURL() string {
 }
 
 type ReportingPlan struct {
-	PlanName string `json:"plan_name"`
+	PlanName        string `json:"plan_name"`
+	PlanID          string `json:"plan_id"`
+	PlanIDType      string `json:"plan_id_type"`
+	PlanMarketType  string `json:"plan_market_type"`
+	PlanSponsorName string `json:"plan_sponsor_name"`
+	IssuerName      string `json:"issuer_name"`
 }
 
 type InNetworkFile struct {

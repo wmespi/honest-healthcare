@@ -83,10 +83,11 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-// Searchable plan dropdown — shows all plans immediately on open, filters as you type
-function PlanDropdown({ plans, selectedPlan, onSelect }) {
+// Searchable plan dropdown — fetches server-side on open and debounces search
+function PlanDropdown({ selectedPlan, onSelect }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const [plans, setPlans] = useState([]);
   const ref = useRef(null);
   const inputRef = useRef(null);
 
@@ -100,11 +101,18 @@ function PlanDropdown({ plans, selectedPlan, onSelect }) {
 
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
-  }, [open]);
+    if (open && plans.length === 0) getPlans('').then(r => setPlans(r.data)).catch(() => {});
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = plans.filter(p =>
-    !query || p.toLowerCase().includes(query.toLowerCase())
-  );
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => {
+      getPlans(query).then(r => setPlans(r.data)).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, open]);
+
+  const filtered = plans;
 
   const handleSelect = (plan) => {
     onSelect(plan);
@@ -262,7 +270,6 @@ function NpiSearch({ selectedNpi, onSelect }) {
 }
 
 function App() {
-  const [plans, setPlans] = useState([]);
   const [selectedPlan, setSelectedPlan] = useState('');
 
   const [query, setQuery] = useState('');
@@ -279,7 +286,6 @@ function App() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    getPlans().then(res => setPlans(res.data)).catch(() => {});
     // Load network-wide overview immediately on mount
     fetchDistribution(null, null, '', '', '');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -382,7 +388,7 @@ function App() {
 
         {/* Search row */}
         <div className="flex flex-col sm:flex-row gap-3 mb-10">
-          <PlanDropdown plans={plans} selectedPlan={selectedPlan} onSelect={handlePlanSelect} />
+          <PlanDropdown selectedPlan={selectedPlan} onSelect={handlePlanSelect} />
 
           {/* Billing code / procedure search */}
           <div className="flex-1 relative bg-slate-900 border border-slate-800 rounded-2xl px-4 flex items-center focus-within:border-indigo-500/50 transition-all">

@@ -4,52 +4,240 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
-func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
-	log.Println("🚀 Starting Anthem Bronze Layer: Index Discovery (Go)...")
+// ensureIndexCached downloads the master index to disk if not already cached,
+// then returns the local path. Subsequent calls with the same monthly URL are
+// instant — no network involved.
+func ensureIndexCached(noCache bool) string {
+	cacheDir := filepath.Dir(ExampleOutputPath)
+	cachePath := filepath.Join(cacheDir, "index_cache.json.gz")
+	cacheURLPath := filepath.Join(cacheDir, "index_cache_url.txt")
 
-	req, err := http.NewRequest("GET", IndexURL, nil)
-	if err != nil {
-		log.Fatalf("❌ Failed to create request: %v", err)
+	if !noCache {
+		if data, err := os.ReadFile(cacheURLPath); err == nil && strings.TrimSpace(string(data)) == IndexURL {
+			if _, err := os.Stat(cachePath); err == nil {
+				log.Printf("📦 Cache hit — skipping download, reading from disk")
+				return cachePath
+			}
+		}
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	os.MkdirAll(cacheDir, os.ModePerm)
+	tmpPath := cachePath + ".tmp"
+
+	if err := downloadParallel(IndexURL, tmpPath, 8); err != nil {
+		log.Fatalf("❌ Download failed: %v", err)
+	}
+
+	if err := os.Rename(tmpPath, cachePath); err != nil {
+		log.Fatalf("❌ Failed to finalize cache: %v", err)
+	}
+	os.WriteFile(cacheURLPath, []byte(IndexURL), 0644)
+	log.Printf("💾 Cached to %s — future runs will skip the download", filepath.Base(cachePath))
+	return cachePath
+}
+
+// downloadParallel fetches url into destPath using n concurrent Range requests.
+// Falls back to a single stream if the server doesn't advertise Range support.
+func downloadParallel(url, destPath string, workers int) error {
+	// HEAD first: get total size and confirm Range support.
+	head, err := (&http.Client{Timeout: 30 * time.Second}).Head(url)
 	if err != nil {
-		log.Fatalf("❌ Failed to fetch index: %v", err)
+		return fmt.Errorf("HEAD failed: %w", err)
+	}
+	head.Body.Close()
+
+	totalSize := head.ContentLength
+	if totalSize <= 0 || head.Header.Get("Accept-Ranges") != "bytes" {
+		log.Printf("⬇️  Range not supported, falling back to single stream...")
+		return downloadSingle(url, destPath)
+	}
+
+	log.Printf("⬇️  Parallel download: %d workers, %.1f MB", workers, float64(totalSize)/1024/1024)
+
+	// Pre-allocate the full file so concurrent WriteAt calls are safe.
+	f, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	if err := f.Truncate(totalSize); err != nil {
+		f.Close()
+		os.Remove(destPath)
+		return err
+	}
+
+	chunkSize := totalSize / int64(workers)
+	byteDone := make([]atomic.Int64, workers)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, workers)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			start := int64(i) * chunkSize
+			end := start + chunkSize - 1
+			if i == workers-1 {
+				end = totalSize - 1
+			}
+			req, _ := http.NewRequest("GET", url, nil)
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+			resp, err := (&http.Client{}).Do(req)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			defer resp.Body.Close()
+
+			buf := make([]byte, 256*1024)
+			offset := start
+			for {
+				n, readErr := resp.Body.Read(buf)
+				if n > 0 {
+					if _, writeErr := f.WriteAt(buf[:n], offset); writeErr != nil {
+						errCh <- writeErr
+						return
+					}
+					offset += int64(n)
+					byteDone[i].Add(int64(n))
+				}
+				if readErr == io.EOF {
+					break
+				}
+				if readErr != nil {
+					errCh <- readErr
+					return
+				}
+			}
+		}(i)
+	}
+
+	// Progress ticker while workers run.
+	dlStart := time.Now()
+	quit := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				var done int64
+				for i := range byteDone {
+					done += byteDone[i].Load()
+				}
+				if done > 0 {
+					pct := float64(done) / float64(totalSize) * 100
+					elapsed := time.Since(dlStart).Seconds()
+					eta := time.Duration(float64(totalSize-done)/float64(done)*elapsed) * time.Second
+					filled := int(pct / 100 * 15)
+					bar := strings.Repeat("█", filled) + strings.Repeat("░", 15-filled)
+					log.Printf("  ⬇️  [%s] %5.1f%% (%.0f/%.0f MB) | ETA: %v",
+						bar, pct, float64(done)/1024/1024, float64(totalSize)/1024/1024, eta.Round(time.Second))
+				}
+			case <-quit:
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(quit)
+	f.Close()
+
+	select {
+	case err := <-errCh:
+		os.Remove(destPath)
+		return err
+	default:
+		return nil
+	}
+}
+
+func downloadSingle(url, destPath string) error {
+	resp, err := (&http.Client{}).Get(url)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != 200 {
-		log.Fatalf("❌ Failed to fetch index, status code: %d", resp.StatusCode)
+		return fmt.Errorf("status %d", resp.StatusCode)
 	}
-
+	f, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
 	pr := NewProgressReader(resp.Body, resp.ContentLength)
+	quit := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if s := pr.GetProgressString(); s != "" {
+					log.Printf("  ⬇️  %s", s)
+				}
+			case <-quit:
+				return
+			}
+		}
+	}()
+	_, copyErr := io.Copy(f, pr)
+	close(quit)
+	f.Close()
+	if copyErr != nil {
+		os.Remove(destPath)
+	}
+	return copyErr
+}
+
+func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int, noCache bool) {
+	log.Println("🚀 Starting Anthem Bronze Layer: Index Discovery (Go)...")
+
+	cachePath := ensureIndexCached(noCache)
+
+	f, err := os.Open(cachePath)
+	if err != nil {
+		log.Fatalf("❌ Failed to open cached index: %v", err)
+	}
+	defer f.Close()
+	fi, _ := f.Stat()
+
+	pr := NewProgressReader(f, fi.Size())
 	gz, err := gzip.NewReader(pr)
 	if err != nil {
 		log.Fatalf("❌ Failed to unzip: %v", err)
 	}
-	defer gz.Close()
 
 	decoder := json.NewDecoder(gz)
 
-	// urlToCand accumulates ALL plan names per URL.
-	// A single rate file is shared across many plans — the map key deduplicates
-	// the URL while the planNames slice captures every plan that references it.
+	// urlToCand accumulates metadata per unique file URL.
+	// planNames are intentionally excluded — with 400k+ unique plans × 10k files
+	// the cross-product blows heap. market_types + hios_issuer_ids + network_entity
+	// are sufficient for all filtering (individual vs group, GA vs BlueCard).
 	type candidate struct {
-		planNames   []string
-		description string
-		location    string
+		marketTypes   map[string]struct{} // set: auto-deduplicates "individual"/"group"
+		hiosIssuerIDs map[string]struct{} // set: 5-digit issuer IDs, maps to state via CMS
+		description   string
+		networkEntity string
+		location      string
 	}
 	urlToCand := make(map[string]*candidate)
-	seenPlans := make(map[string]bool)
+	rsCount := 0
 
 	schemaExample := map[string]interface{}{}
 	count := 0
@@ -64,30 +252,38 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 	}
 
 	processRS := func(rs ReportingStructure) {
-		planName := ""
-		if len(rs.ReportingPlans) > 0 {
-			planName = rs.ReportingPlans[0].PlanName
-		}
-		if planName != "" {
-			seenPlans[planName] = true
-		}
+		rsCount++
 		for _, f := range rs.InNetworkFiles {
 			if f.Location == "" {
 				continue
 			}
-			if c, exists := urlToCand[f.Location]; exists {
-				if planName != "" {
-					c.planNames = append(c.planNames, planName)
+
+			// BlueCard files have " : " in the description: "BCBS Minnesota : Aware".
+			// Home-plan files have no separator — networkEntity stays "" (stored as NULL).
+			networkEntity := ""
+			if idx := strings.Index(f.Description, " : "); idx != -1 {
+				networkEntity = f.Description[:idx]
+			}
+
+			c, exists := urlToCand[f.Location]
+			if !exists {
+				c = &candidate{
+					marketTypes:   make(map[string]struct{}),
+					hiosIssuerIDs: make(map[string]struct{}),
+					description:   f.Description,
+					networkEntity: networkEntity,
+					location:      f.Location,
 				}
-			} else {
-				pn := []string{}
-				if planName != "" {
-					pn = []string{planName}
+				urlToCand[f.Location] = c
+			}
+
+			for _, plan := range rs.ReportingPlans {
+				if plan.PlanMarketType != "" {
+					c.marketTypes[plan.PlanMarketType] = struct{}{}
 				}
-				urlToCand[f.Location] = &candidate{
-					planNames:   pn,
-					description: f.Description,
-					location:    f.Location,
+				// First 5 digits of a HIOS plan ID are the issuer ID (maps to state via CMS registry)
+				if plan.PlanIDType == "HIOS" && len(plan.PlanID) >= 5 {
+					c.hiosIssuerIDs[plan.PlanID[:5]] = struct{}{}
 				}
 			}
 		}
@@ -130,7 +326,7 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 				}
 
 				if count%1000 == 0 {
-					log.Printf("  Scanned %d reporting structures... %d unique URLs, %d unique plans. %s", count, len(urlToCand), len(seenPlans), pr.GetProgressString())
+					log.Printf("  Scanned %d reporting structures... %d unique URLs. %s", count, len(urlToCand), pr.GetProgressString())
 				}
 				if limit > 0 && count >= limit {
 					log.Printf("🛑 Limit of %d reached.", limit)
@@ -141,7 +337,7 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 				}
 			}
 			decoder.Token() // ']'
-			log.Printf("  ✅ Done with 'reporting_structure'. %d unique URLs across %d unique plans. %s", len(urlToCand), len(seenPlans), pr.GetProgressString())
+			log.Printf("  ✅ Done with 'reporting_structure'. %d unique URLs from %d reporting structures. %s", len(urlToCand), rsCount, pr.GetProgressString())
 
 		} else {
 			log.Printf("  🔍 Root key '%s' — capturing for schema. %s", key, pr.GetProgressString())
@@ -151,7 +347,9 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 	}
 	decoder.Token() // '}'
 
-	// Write schema alongside the rate file example
+	gz.Close()
+
+	// Write schema alongside the rate file example.
 	schemaPath := filepath.Join(filepath.Dir(ExampleOutputPath), "index_schema.json")
 	if err := os.MkdirAll(filepath.Dir(schemaPath), os.ModePerm); err == nil {
 		if f, err := os.Create(schemaPath); err == nil {
@@ -163,41 +361,97 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int) {
 		}
 	}
 
-	// Upsert in chunks of 500 to avoid OOM from a single giant batch.
-	// ON CONFLICT merges plan_names arrays; COALESCE handles NULL on first insert.
-	const upsertChunk = 500
+	// Build candidate list from the deduplicated map.
 	candidates := make([]*candidate, 0, len(urlToCand))
 	for _, c := range urlToCand {
 		candidates = append(candidates, c)
 	}
+	log.Printf("📥 Upserting %d unique URLs into index_files via COPY...", len(candidates))
 
-	log.Printf("📥 Upserting %d unique URLs into index_files...", len(candidates))
-	for i := 0; i < len(candidates); i += upsertChunk {
-		end := i + upsertChunk
-		if end > len(candidates) {
-			end = len(candidates)
+	// COPY into a temp staging table, then a single INSERT...SELECT...ON CONFLICT.
+	if _, err := conn.Exec(ctx, `
+		CREATE TEMP TABLE _idx_stage (
+			market_types    TEXT[],
+			hios_issuer_ids TEXT[],
+			network_entity  TEXT,
+			description     TEXT,
+			location        TEXT NOT NULL
+		)
+	`); err != nil {
+		log.Fatalf("❌ Failed to create staging table: %v", err)
+	}
+
+	copyRows := make([][]any, len(candidates))
+	for i, c := range candidates {
+		marketTypes := make([]string, 0, len(c.marketTypes))
+		for k := range c.marketTypes {
+			marketTypes = append(marketTypes, k)
 		}
-		batch := &pgx.Batch{}
-		for _, c := range candidates[i:end] {
-			batch.Queue(
-				`INSERT INTO index_files (plan_names, description, location)
-				 VALUES ($1, $2, $3)
-				 ON CONFLICT ON CONSTRAINT uq_index_files_location DO UPDATE
-				 SET plan_names = (
-				     SELECT array_agg(DISTINCT n)
-				     FROM unnest(COALESCE(index_files.plan_names, '{}') || $1::text[]) AS t(n)
-				 )`,
-				c.planNames, c.description, c.location,
-			)
+		hiosIDs := make([]string, 0, len(c.hiosIssuerIDs))
+		for k := range c.hiosIssuerIDs {
+			hiosIDs = append(hiosIDs, k)
 		}
-		br := conn.SendBatch(ctx, batch)
-		if err := br.Close(); err != nil {
-			log.Printf("⚠️ Batch upsert error (chunk %d-%d): %v", i, end, err)
-		} else {
-			log.Printf("  Upserted %d / %d URLs...", end, len(candidates))
+		var networkEntity interface{}
+		if c.networkEntity != "" {
+			networkEntity = c.networkEntity
+		}
+		copyRows[i] = []any{marketTypes, hiosIDs, networkEntity, c.description, c.location}
+	}
+
+	cols := []string{"market_types", "hios_issuer_ids", "network_entity", "description", "location"}
+	n, err := conn.CopyFrom(ctx, pgx.Identifier{"_idx_stage"}, cols, pgx.CopyFromRows(copyRows))
+	if err != nil {
+		log.Fatalf("❌ COPY to staging failed: %v", err)
+	}
+	log.Printf("  COPY loaded %d rows into staging", n)
+
+	// Drop GIN indexes before writing — maintaining them row-by-row during a bulk
+	// update is far slower than dropping and rebuilding once over all rows.
+	for _, idx := range []string{"idx_index_files_market", "idx_index_files_hios"} {
+		if _, err := conn.Exec(ctx, "DROP INDEX IF EXISTS "+idx); err != nil {
+			log.Printf("⚠️ Could not drop index %s: %v", idx, err)
 		}
 	}
-	log.Printf("✅ Discovery complete! Upserted %d unique file URLs into index_files.", len(candidates))
+
+	// UPDATE existing rows via a join — single hash join over all rows.
+	updateTag, err := conn.Exec(ctx, `
+		UPDATE index_files t
+		SET
+		    market_types    = s.market_types,
+		    hios_issuer_ids = s.hios_issuer_ids,
+		    network_entity  = s.network_entity
+		FROM _idx_stage s
+		WHERE t.location = s.location
+	`)
+	if err != nil {
+		log.Fatalf("❌ Bulk UPDATE failed: %v", err)
+	}
+
+	// INSERT any genuinely new URLs (first run, or monthly index additions).
+	insertTag, err := conn.Exec(ctx, `
+		INSERT INTO index_files (market_types, hios_issuer_ids, network_entity, description, location)
+		SELECT s.market_types, s.hios_issuer_ids, s.network_entity, s.description, s.location
+		FROM _idx_stage s
+		LEFT JOIN index_files t ON t.location = s.location
+		WHERE t.id IS NULL
+	`)
+	if err != nil {
+		log.Fatalf("❌ INSERT new rows failed: %v", err)
+	}
+
+	// Rebuild GIN indexes once over all data — one scan is orders of magnitude
+	// faster than 10k incremental updates would have been.
+	log.Printf("  Rebuilding GIN indexes...")
+	for _, ddl := range []string{
+		`CREATE INDEX idx_index_files_market ON index_files USING GIN(market_types)`,
+		`CREATE INDEX idx_index_files_hios   ON index_files USING GIN(hios_issuer_ids)`,
+	} {
+		if _, err := conn.Exec(ctx, ddl); err != nil {
+			log.Printf("⚠️ Index rebuild: %v", err)
+		}
+	}
+
+	log.Printf("✅ Discovery complete! Updated %s rows, inserted %s new rows.", updateTag, insertTag)
 }
 
 // captureSchemaValue recursively reads one JSON value from dec,

@@ -19,6 +19,7 @@ func main() {
 	testFlag := flag.Bool("test", false, "Run in isolated test mode (writes to test schema, not production)")
 	fileIDsFlag := flag.String("file-ids", "", "Comma-separated list of index_files IDs to parse (skips normal queue ordering)")
 	dryRunFlag := flag.Bool("dry-run", false, "Stream and capture schema but skip all DB writes")
+	noCacheFlag := flag.Bool("no-cache", false, "Force re-download of the master index even if a local cache exists")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -50,7 +51,7 @@ func main() {
 
 	// 4. Routing
 	if *discoverFlag {
-		discoverLinks(ctx, conn, *limitFlag)
+		discoverLinks(ctx, conn, *limitFlag, *noCacheFlag)
 		return
 	}
 
@@ -84,10 +85,10 @@ func main() {
 				}
 				ids = append(ids, id)
 			}
-			query = `SELECT id, location, COALESCE((SELECT string_agg(DISTINCT p, ' | ' ORDER BY p) FROM unnest(plan_names) p), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
+			query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
 			args = []any{ids}
 		} else {
-			query = `SELECT id, location, COALESCE((SELECT string_agg(DISTINCT p, ' | ' ORDER BY p) FROM unnest(plan_names) p), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
+			query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
 			args = []any{}
 			if parseLimit > 0 {
 				query += ` LIMIT $1`
@@ -139,5 +140,5 @@ func main() {
 		return
 	}
 
-	log.Println("⚠️ Please specify an action: -discover, -size, or -parse (and optionally -test)")
+	log.Println("⚠️ Please specify an action: -discover, -size, or -parse (and optionally -test, -no-cache)")
 }
