@@ -15,6 +15,7 @@ var (
 	ProvidersOutputDir = "../data/anthem/providers"
 	CodesOutputDir     = "../data/anthem/codes"
 	NPILookupPath      = "../data/anthem/npi_lookup.parquet"
+	GAProvidersPath    = "../data/nppes/ga_providers.parquet"
 )
 
 func init() {
@@ -66,6 +67,7 @@ type ProviderGroup struct {
 
 type ProviderReference struct {
 	ProviderGroupID int             `json:"provider_group_id"`
+	NetworkName     []string        `json:"network_name"`
 	ProviderGroups  []ProviderGroup `json:"provider_groups"`
 }
 
@@ -95,6 +97,7 @@ type InNetworkItem struct {
 type RateRow struct {
 	ProviderGroupID        int64   `parquet:"provider_group_id"`
 	PlanName               string  `parquet:"plan_name"`
+	NetworkName            string  `parquet:"network_name"`
 	BillingCodeType        string  `parquet:"billing_code_type"`
 	BillingCode            string  `parquet:"billing_code"`
 	NegotiationArrangement string  `parquet:"negotiation_arrangement"`
@@ -108,6 +111,7 @@ type RateRow struct {
 
 type ProviderRow struct {
 	ProviderGroupID int64  `parquet:"provider_group_id"`
+	NetworkName     string `parquet:"network_name"`
 	NPI             int64  `parquet:"npi"`
 	TINType         string `parquet:"tin_type"`
 	TINValue        string `parquet:"tin_value"`
@@ -123,4 +127,21 @@ type BillingCodeRow struct {
 type NPILookupRow struct {
 	NPI      int64  `parquet:"npi"`
 	TINValue string `parquet:"tin_value"`
+}
+
+// NPPESRow is one Georgia provider from the NPPES national dissemination file,
+// filtered to practice-location state == "GA".
+type NPPESRow struct {
+	NPI           int64  `parquet:"npi"`
+	EntityType    string `parquet:"entity_type"` // "individual" | "organization"
+	OrgName       string `parquet:"org_name"`
+	LastName      string `parquet:"last_name"`
+	FirstName     string `parquet:"first_name"`
+	TaxonomyCode  string `parquet:"taxonomy_code"`
+	TaxonomyGroup string `parquet:"taxonomy_group"`
+	IsHospital    bool   `parquet:"is_hospital"`
+	IsClinic      bool   `parquet:"is_clinic"`
+	City          string `parquet:"city"`
+	State         string `parquet:"state"`
+	PostalCode    string `parquet:"postal_code"`
 }

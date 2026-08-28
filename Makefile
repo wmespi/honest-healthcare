@@ -8,8 +8,10 @@
         start up down logs \
         etl-discover etl-discover-test etl-index-schema \
         etl-parse etl-parse-test etl-parse-file etl-size \
-        etl-fmt etl-vet etl-build etl-check etl-test \
-        db-psql db-reset-processing db-reset-failed \
+        etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
+        nppes nppes-test \
+        db-psql db-migrate db-reset-processing db-reset-failed \
+        backend-test coverage-probe coverage-report frontend-smoke \
         sh-etl sh-backend \
         check \
         _require-etl-running
@@ -76,25 +78,60 @@ etl-vet: _require-etl-running ## Run go vet static analysis on etl-go
 etl-build: _require-etl-running ## Verify etl-go compiles cleanly
 	docker compose exec etl_go go build ./...
 
-etl-check: _require-etl-running etl-fmt etl-vet etl-build ## Run all ETL static checks (fmt + vet + build)
+etl-unit: _require-etl-running ## Run Go unit tests (hermetic — fixture-driven, no network/DB)
+	docker compose exec etl_go go test ./...
 
-etl-test: _require-etl-running ## Full e2e pipeline in test isolation (discover → parse → verify output)
-	docker compose exec etl_go go run . -discover -test
-	docker compose exec etl_go go run . -parse -test
-	docker compose exec etl_go test -d ../data-test/anthem/rates || (echo "etl-test: no Parquet output found" && exit 1)
+etl-check: _require-etl-running etl-fmt etl-vet etl-build etl-unit ## Run all ETL static checks (fmt + vet + build + unit)
+
+etl-test: _require-etl-running ## Hermetic e2e: parse a committed fixture in test isolation, with teardown
+	bash scripts/etl_e2e_test.sh
+
+etl-fixture: _require-etl-running ## Build a fixture from a file id — usage: make etl-fixture ID=5043 NAME=ga_small
+	docker compose exec etl_go go run . -make-fixture -file-ids $(ID) $(if $(NAME),-fixture-name $(NAME),)
+
+## ── NPPES (Georgia provider subset) ──────────────────────────────────────────
+
+nppes: _require-etl-running ## Download NPPES national file, write data/nppes/ga_providers.parquet (GA subset). URL= to override.
+	docker compose exec etl_go go run . -nppes $(if $(URL),-nppes-url "$(URL)",) $(if $(FILE),-nppes-file "$(FILE)",)
+
+nppes-test: _require-etl-running ## Hermetic NPPES test: extract GA rows from the committed CSV fixture, with teardown
+	bash scripts/nppes_test.sh
+
+## ── Backend ──────────────────────────────────────────────────────────────────
+
+backend-test: ## Backend contract + coverage tests (pytest, against the running API)
+	docker compose exec -T backend sh -c "pip install -q pytest httpx && cd /app/backend && python -m pytest tests/ -q"
+
+coverage-probe: ## Run the coverage scorecard — usage: make coverage-probe LABEL=before
+	python3 scripts/coverage_probe.py --label $(or $(LABEL),probe)
+
+coverage-report: ## Aggregate coverage_log — what we've ingested so far, per file
+	python3 scripts/coverage_report.py --schema $(or $(SCHEMA),public)
+
+frontend-smoke: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
+	python3 scripts/frontend_smoke.py
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 
 db-psql: ## Open a psql shell on honest_healthcare
 	docker compose exec db psql -U postgres -d honest_healthcare
 
+db-migrate: ## Apply db/migrations/*.sql to the running database (idempotent)
+	@for f in db/migrations/*.sql; do \
+	  echo "→ $$f"; \
+	  docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 < "$$f" || exit 1; \
+	done
+
 db-reset-processing: ## Reset stale 'processing' rows → 'pending'
 	docker compose exec db psql -U postgres -d honest_healthcare \
 	  -c "UPDATE index_files SET status = 'pending' WHERE status = 'processing';"
 
-db-reset-failed: ## Reset 'failed' rows → 'pending' for retry
+db-reset-failed: ## Reset transiently-failed rows → 'pending' (keeps bad-gzip/EOF/HTTP 4xx failures failed)
 	docker compose exec db psql -U postgres -d honest_healthcare \
-	  -c "UPDATE index_files SET status = 'pending' WHERE status = 'failed';"
+	  -c "UPDATE index_files SET status = 'pending', failure_reason = NULL \
+	      WHERE status = 'failed' \
+	        AND (failure_reason IS NULL \
+	          OR failure_reason NOT SIMILAR TO '%(gzip|unexpected EOF|invalid header|HTTP 4%)%');"
 
 ## ── Shells ────────────────────────────────────────────────────────────────────
 
