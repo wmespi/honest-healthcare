@@ -95,25 +95,51 @@ def _provider_card(conn, npi: int) -> Optional[dict]:
     """, [npi]).fetchone()
     if not r:
         return None
-    street = ", ".join(x for x in (r[5], r[6]) if x)
+    # cols: name0 city1 postal2 is_hospital3 specialty4 grouping5 classification6 addr1_7 addr2_8
+    street = ", ".join(x for x in (r[7], r[8]) if x)
     return {
         "npi": npi, "name": r[0], "city": r[1], "postal_code": r[2],
         "is_hospital": bool(r[3]), "specialty": r[4],
+        "_grouping": r[5], "_classification": r[6],
         "street": street or None,
         "address": ", ".join(x for x in (street, r[1]) if x) or None,
     }
 
 
 def _nucc_bits():
-    """(select-fragment, join-fragment) adding a `specialty` column off nx, or
-    ("NULL AS specialty", "") when the NUCC reference isn't built yet. Assumes the
-    provider row exposes `taxonomy_code` as `g.taxonomy_code`."""
+    """(select-fragment, join-fragment) adding `specialty` + `grouping` +
+    `classification` columns off nx, or NULLs when the NUCC reference isn't built
+    yet. Assumes the provider row exposes `taxonomy_code` as `g.taxonomy_code`."""
     if os.path.exists(NUCC_PATH):
         return (
-            "COALESCE(nx.specialty, NULLIF(g.taxonomy_group, 'Other')) AS specialty",
+            "COALESCE(nx.specialty, NULLIF(g.taxonomy_group, 'Other')) AS specialty, "
+            "nx.grouping AS nucc_grouping, nx.classification AS nucc_classification",
             f"LEFT JOIN read_parquet('{NUCC_PATH}') nx ON nx.taxonomy_code = g.taxonomy_code",
         )
-    return ("NULLIF(g.taxonomy_group, 'Other') AS specialty", "")
+    return ("NULLIF(g.taxonomy_group, 'Other') AS specialty, NULL AS nucc_grouping, "
+            "NULL AS nucc_classification", "")
+
+
+_BEHAVIORAL = ("social worker", "counselor", "psychologist", "behavior analyst",
+               "psychiatric", "mental health", "behavioral health")
+_PROCEDURAL_CATS = {"Procedure", "Imaging", "Test", "Anesthesia"}
+
+
+def _plausibility(grouping, classification, specialty, rbcs_category, rbcs_family):
+    """Rough "would this provider actually perform this?" check. Catches the
+    egregious cross-specialty noise from big rollup contract groups (a social
+    worker "having" a surgical rate). Returns "unlikely" | "typical" | None."""
+    who = " ".join(x for x in (grouping, classification, specialty) if x).lower()
+    fam = (rbcs_family or "").lower()
+    is_behavioral = any(t in who for t in _BEHAVIORAL)
+    is_psych_code = "psychotherapy" in fam or "psychiatr" in fam or "mental health" in fam
+    if is_behavioral and rbcs_category in _PROCEDURAL_CATS and not is_psych_code:
+        return "unlikely"
+    if not is_behavioral and who and is_psych_code:
+        return "unlikely"
+    if not who or not rbcs_category:
+        return None
+    return "typical"
 
 
 def network_slug(name: str) -> str:
@@ -601,12 +627,30 @@ def rate_quote(
                     "basis": "component", "pos_label": None}
 
     split = "26" in comps and "TC" in comps
+    card = _provider_card(conn, npi)
+
+    plausibility = None
+    if card and os.path.exists(CODE_LABELS_PATH):
+        lab = conn.execute(f"""
+            SELECT rbcs_category, rbcs_family
+            FROM read_parquet('{CODE_LABELS_PATH}')
+            WHERE billing_code = ? AND billing_code_type = ? LIMIT 1
+        """, [billing_code, billing_code_type]).fetchone()
+        if lab:
+            plausibility = _plausibility(card.get("_grouping"), card.get("_classification"),
+                                         card.get("specialty"), lab[0], lab[1])
+
+    if card:
+        card.pop("_grouping", None)
+        card.pop("_classification", None)
+
     return {
         "billing_code": billing_code,
         "billing_code_type": billing_code_type,
         "npi": npi,
         "network_name": network_name,
-        "provider": _provider_card(conn, npi),
+        "provider": card,
+        "plausibility": plausibility,
         "headline": headline,
         "components": components,
         "is_component_split": split,
@@ -694,9 +738,13 @@ def provider_procedures(
         LIMIT {limit}
     """, params + ([f"%{q}%", f"%{q}%"] if q and has_labels else ([f"%{q}%"] if q else []))).fetchall()
 
+    pcard = _provider_card(conn, npi)
+    if pcard:
+        pcard.pop("_grouping", None)
+        pcard.pop("_classification", None)
     return {
         "npi": npi,
-        "provider": _provider_card(conn, npi),
+        "provider": pcard,
         "count": len(rows),
         "results": [
             {

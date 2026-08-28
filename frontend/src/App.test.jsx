@@ -72,8 +72,7 @@ describe('provider selected without a procedure', () => {
 
     await selectProvider(user);
 
-    // The menu view loads (no network selected in this scenario — matches the
-    // "All Networks" repro).
+    // The menu view loads.
     expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
     expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined);
 
@@ -109,6 +108,31 @@ describe('provider selected without a procedure', () => {
     await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', undefined));
     expect(api.getRatesByProvider).not.toHaveBeenCalled();
     expect(await screen.findByText(/negotiated cost/i)).toBeInTheDocument();
+  });
+});
+
+describe('cross-specialty rollup caveat', () => {
+  it('warns when the procedure is unlikely for the provider\'s specialty', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '99213', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'ABBOTT, ASHLEY', specialty: 'Social Worker', city: 'RIVERDALE' },
+      plausibility: 'unlikely',
+      headline: { rate: 90, max_rate: 14029, basis: 'global', pos_label: null },
+      components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+        { pos_bucket: 'any', pos_label: 'Any setting', min_rate: 90, max_rate: 14029, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    expect(await screen.findByText(/wouldn.t typically perform this procedure/i)).toBeInTheDocument();
   });
 });
 

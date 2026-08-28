@@ -490,7 +490,7 @@ function ProviderCostCard({ data, loading, providerName }) {
     );
   }
   if (!data?.headline) return null;
-  const { headline, components, is_component_split, provider } = data;
+  const { headline, components, is_component_split, provider, plausibility } = data;
   const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
   const name = provider?.name || providerName;
   const sub = [provider?.specialty, provider?.address || provider?.city].filter(Boolean).join(' · ');
@@ -501,6 +501,17 @@ function ProviderCostCard({ data, loading, providerName }) {
         Negotiated cost{name ? <> at <span className="text-indigo-300">{name}</span></> : ''}
       </h2>
       {sub && <p className="text-slate-500 text-xs mt-1">{sub}</p>}
+
+      {plausibility === 'unlikely' && (
+        <div className="mt-4 flex items-start gap-2.5 text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-amber-200/90">
+          <Info size={14} className="shrink-0 mt-0.5 text-amber-400" />
+          <span>
+            This rate is contracted to {name}&rsquo;s <span className="font-semibold">provider group</span>, but a{' '}
+            {provider?.specialty || 'provider'} wouldn&rsquo;t typically perform this procedure — it&rsquo;s a
+            cross-specialty group. The number below is the group&rsquo;s rate, not a service {name} offers.
+          </span>
+        </div>
+      )}
 
       <div className="mt-4 mb-2">
         <div className="text-4xl sm:text-5xl font-black text-white tracking-tight">
@@ -683,7 +694,7 @@ function App() {
   const [providerQuoteLoading, setProviderQuoteLoading] = useState(false);
 
   useEffect(() => {
-    // Load network-wide overview immediately on mount
+    // Load the network-wide overview immediately on mount.
     fetchDistribution(null, null, '', '', '');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
