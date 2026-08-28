@@ -91,7 +91,7 @@ def main():
     health, _ = get(args.api, "/")
     nets, _ = get(args.api, "/networks")
     net_names = [n["network_name"] for n in (nets or [])]
-    print(f"backend: {health.get('total_rates'):,} rates")
+    print(f"backend: {health.get('total_prices', 0):,} price rows")
     print(f"target network present in /networks: {NETWORK in net_names}")
     if NETWORK not in net_names:
         print("  !! the mother's-plan network is not in the data — UI filter will be empty", file=sys.stderr)
