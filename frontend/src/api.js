@@ -55,6 +55,14 @@ export const getRateQuote = (billing_code, billing_code_type, npi, network_name)
     return api.get('/rates/quote', { params });
 };
 
+// Job 2 — same procedure across every network. Returns { networks: [{ network_name,
+// median, min, max, typical_low, typical_high, spread, n_groups }] }, sorted by median.
+export const getRatesByNetwork = (billing_code, billing_code_type = 'CPT', setting) => {
+    const params = { billing_code, billing_code_type };
+    if (setting) params.setting = setting;
+    return api.get('/rates/by_network', { params });
+};
+
 export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, { component = 'global' } = {}) => {
     const params = { billing_code, billing_code_type, component };
     if (network_name) params.network_name = network_name;

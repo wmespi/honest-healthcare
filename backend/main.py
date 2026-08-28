@@ -339,6 +339,64 @@ def rate_distribution(
     }
 
 
+@app.get("/rates/by_network")
+def rates_by_network(
+    billing_code: str,
+    billing_code_type: str = "CPT",
+    setting: Optional[str] = None,
+):
+    """Job 2 — same procedure, every network side by side. One row per network
+    that carries the code: the global (unmodified) rate's spread + how much it
+    varies by provider (n_distinct_rates). Answers "does my plan choice matter
+    for this procedure" — a tight fee-schedule HMO vs. a wide-spread PPO."""
+    conn = db()
+    conds = ["pg.billing_code = ?", "pg.billing_code_type = ?", "COALESCE(pg.modifier,'') = ''"]
+    params: list = [billing_code, billing_code_type]
+    if setting:
+        conds.append("pg.setting = ?")
+        params.append(setting)
+
+    rows = conn.execute(f"""
+        WITH per_group AS (
+            SELECT pg.network_name, pg.file_id, pg.provider_group_id,
+                   MIN(pg.negotiated_rate) AS lo, MAX(pg.negotiated_rate) AS hi,
+                   MEDIAN(pg.negotiated_rate) AS med
+            FROM {PRICE_GROUPS_SRC} pg
+            WHERE {" AND ".join(conds)}
+            GROUP BY 1, 2, 3
+        )
+        SELECT network_name,
+               MIN(lo), MAX(hi), MEDIAN(med),
+               -- 10th/90th percentile of per-group medians: the spread a patient
+               -- realistically sees, ignoring a handful of $0.09 / $19k outliers
+               QUANTILE_CONT(med, 0.1), QUANTILE_CONT(med, 0.9),
+               COUNT(*) AS n_groups
+        FROM per_group
+        GROUP BY 1
+        ORDER BY MEDIAN(med)
+    """, params).fetchall()
+
+    if not rows:
+        raise HTTPException(404, detail=f"No rates for {billing_code_type}:{billing_code} in any network")
+
+    def block(r):
+        p10, p90 = r[4], r[5]
+        spread = round(p90 / p10, 1) if p10 and p10 > 0 else None
+        return {
+            "network_name": r[0],
+            "min": round(r[1], 2), "max": round(r[2], 2), "median": round(r[3], 2),
+            "typical_low": round(p10, 2), "typical_high": round(p90, 2),
+            "n_groups": r[6],
+            "spread": spread,  # p90/p10 of per-group medians; ~1 = flat, >3 = provider matters a lot
+        }
+
+    return {
+        "billing_code": billing_code,
+        "billing_code_type": billing_code_type,
+        "networks": [block(r) for r in rows],
+    }
+
+
 @app.get("/rates/providers")
 def rates_by_provider(
     billing_code: str,

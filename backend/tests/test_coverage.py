@@ -147,6 +147,19 @@ def test_distribution_rejects_npi_without_code(client, npi_with_rates):
     assert r.status_code == 400
 
 
+def test_rates_by_network(client):
+    r = client.get("/rates/by_network", params={"billing_code": "99213", "billing_code_type": "CPT"})
+    assert r.status_code == 200
+    nets = r.json()["networks"]
+    assert nets
+    for n in nets:
+        assert {"network_name", "median", "min", "max", "typical_low", "typical_high", "spread", "n_groups"} <= n.keys()
+        assert n["min"] <= n["median"] <= n["max"]
+        assert n["typical_low"] <= n["typical_high"]
+    # sorted cheapest median first
+    assert nets == sorted(nets, key=lambda x: x["median"])
+
+
 def test_networks_endpoint(client):
     r = client.get("/networks")
     assert r.status_code == 200

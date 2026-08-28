@@ -39,6 +39,7 @@ beforeEach(() => {
   api.searchBillingCodes.mockResolvedValue({ data: [] });
   api.getRateDistribution.mockResolvedValue({ data: OVERVIEW });
   api.getRatesByProvider.mockResolvedValue({ data: { billing_code: '99213', summary: { min: 40, max: 120, n_groups: 3, n_providers: 900 }, results: [] } });
+  api.getRatesByNetwork.mockResolvedValue({ data: { billing_code: '99213', networks: [] } });
   api.getRateQuote.mockResolvedValue({ data: {
     billing_code: '99213', billing_code_type: 'CPT', npi: 123,
     headline: { rate: 82.05, max_rate: 82.05, basis: 'global', pos_label: 'Office / telehealth' },
@@ -108,6 +109,36 @@ describe('provider selected without a procedure', () => {
     await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', undefined));
     expect(api.getRatesByProvider).not.toHaveBeenCalled();
     expect(await screen.findByText(/negotiated cost/i)).toBeInTheDocument();
+  });
+});
+
+describe('network comparison (job 2)', () => {
+  it('shows "Does your plan matter?" with a per-network breakdown', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.searchBillingCodes.mockResolvedValue({ data: [
+      { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', provider_groups: 12 },
+    ] });
+    api.getRatesByNetwork.mockResolvedValue({ data: {
+      billing_code: '99213', billing_code_type: 'CPT',
+      networks: [
+        { network_name: 'GA Blue Value HIX Individual Network', median: 253, min: 162, max: 353, typical_low: 253, typical_high: 258, spread: 1.0, n_groups: 31 },
+        { network_name: 'TRADITIONAL HEALTH PLAN', median: 363, min: 11, max: 10379, typical_low: 225, typical_high: 535, spread: 2.4, n_groups: 6286 },
+      ],
+    } });
+
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    const search = screen.getByPlaceholderText(/search procedure or billing code/i);
+    await user.click(search);
+    await user.type(search, 'office');
+    await user.click(await screen.findByText('Office Visit'));
+
+    expect(await screen.findByText(/does your plan matter/i)).toBeInTheDocument();
+    expect(screen.getAllByText('Blue Value (HMO)').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Traditional (PPO)').length).toBeGreaterThan(0);
+    expect(screen.getByText(/flat rate/i)).toBeInTheDocument();
+    expect(screen.getByText(/2\.4× provider spread/i)).toBeInTheDocument();
   });
 });
 

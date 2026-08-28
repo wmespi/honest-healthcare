@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRateQuote, getProviderMenu, searchProviders, getProcedureCategories } from './api';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getProcedureCategories } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -478,6 +478,92 @@ function ProviderRateTable({ data, loading }) {
   );
 }
 
+// Short, plan-type-aware label for the long MRF network names.
+function shortNetwork(name) {
+  if (!name) return name;
+  if (/blue value/i.test(name)) return 'Blue Value (HMO)';
+  if (/traditional/i.test(name)) return 'Traditional (PPO)';
+  if (/\bHBP\b/i.test(name)) return 'HBP Specialties';
+  return name.replace(/^GA\s+/, '');
+}
+
+// Job 2 — the same procedure priced across every network we hold. The headline
+// finding is usually "the HMO is cheaper and far more predictable than the PPO".
+function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork }) {
+  if (loading) {
+    return (
+      <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Comparing plans…
+      </div>
+    );
+  }
+  const nets = data?.networks || [];
+  if (nets.length < 2) return null;
+
+  const cheapest = nets[0];
+  const others = nets.slice(1);
+  const maxMed = Math.max(...nets.map(n => n.median || 0));
+
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+      <h2 className="text-white font-black text-xl tracking-tight">Does your plan matter?</h2>
+      <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
+        {(() => {
+          const dear = others[others.length - 1];
+          const mult = cheapest.median > 0 ? (dear.median / cheapest.median) : 1;
+          if (mult >= 1.25)
+            return <>On <span className="text-white font-semibold">{shortNetwork(cheapest.network_name)}</span> this
+              runs about {fmt(cheapest.median)} — roughly {mult.toFixed(1)}× less than {shortNetwork(dear.network_name)}.</>;
+          return <>Priced similarly across plans (~{fmt(cheapest.median)}).</>;
+        })()}
+        {' '}
+        {cheapest.spread != null && others.some(n => n.spread >= 1.8) && (
+          <>It&rsquo;s also steadier — {shortNetwork(cheapest.network_name)} varies {cheapest.spread}× by provider vs.{' '}
+          {Math.max(...others.map(n => n.spread || 0))}× on the PPO plans.</>
+        )}
+      </p>
+
+      <div className="mt-5 space-y-2.5">
+        {nets.map((n, i) => {
+          const active = n.network_name === selectedNetwork;
+          return (
+            <button
+              key={i}
+              onClick={() => onPickNetwork?.(active ? '' : n.network_name)}
+              className={`w-full text-left rounded-2xl border p-4 transition-colors ${
+                active ? 'border-indigo-500/60 bg-indigo-500/[0.06]' : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-slate-200">
+                  {shortNetwork(n.network_name)}
+                  {active && <span className="ml-2 text-[10px] font-black uppercase tracking-wide text-indigo-400">your filter</span>}
+                </span>
+                <span className="text-lg font-black text-white tabular-nums shrink-0">{fmt(n.median)}</span>
+              </div>
+              <div className="mt-2 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="h-full bg-indigo-500/70 rounded-full" style={{ width: `${maxMed ? (n.median / maxMed) * 100 : 0}%` }} />
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500 flex items-center gap-x-3 flex-wrap">
+                <span>typically {fmt(n.typical_low)}–{fmt(n.typical_high)}</span>
+                {n.spread != null && (
+                  <span className={n.spread >= 2 ? 'text-amber-500/80' : 'text-slate-600'}>
+                    {n.spread <= 1.15 ? 'flat rate' : `${n.spread}× provider spread`}
+                  </span>
+                )}
+                <span className="text-slate-600">{n.n_groups.toLocaleString()} groups</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-slate-600 text-[11px] mt-4">
+        All Anthem networks. Tap a plan to filter the rest of the page to it.
+      </p>
+    </div>
+  );
+}
+
 // Job 1 — the cost answer for one procedure at one provider. Shows a headline
 // rate (a range when it varies by setting) and the breakdown by component
 // (full procedure / professional fee / technical fee) and place of service.
@@ -706,6 +792,9 @@ function App() {
   const [providerQuote, setProviderQuote] = useState(null);
   const [providerQuoteLoading, setProviderQuoteLoading] = useState(false);
 
+  const [networkCompare, setNetworkCompare] = useState(null);
+  const [networkCompareLoading, setNetworkCompareLoading] = useState(false);
+
   useEffect(() => {
     // Load the network-wide overview immediately on mount.
     fetchDistribution(null, null, '', '', '');
@@ -724,6 +813,19 @@ function App() {
       .finally(() => { if (!cancelled) setProviderRatesLoading(false); });
     return () => { cancelled = true; };
   }, [selectedCode, selectedPlan, setting, npi]);
+
+  // Job 2 — compare the selected procedure across every network.
+  useEffect(() => {
+    const code = selectedCode?.code;
+    if (!code) { setNetworkCompare(null); return; }
+    let cancelled = false;
+    setNetworkCompareLoading(true);
+    getRatesByNetwork(code, selectedCode.type, setting || undefined)
+      .then(res => { if (!cancelled) setNetworkCompare(res.data); })
+      .catch(() => { if (!cancelled) setNetworkCompare(null); })
+      .finally(() => { if (!cancelled) setNetworkCompareLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedCode, setting]);
 
   // Job 1 cost card — a provider AND a specific procedure are both selected.
   useEffect(() => {
@@ -1103,6 +1205,16 @@ function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Job 2 — the same procedure across every network */}
+              {selectedCode?.code && (
+                <NetworkCompare
+                  data={networkCompare}
+                  loading={networkCompareLoading}
+                  selectedNetwork={selectedPlan}
+                  onPickNetwork={handlePlanSelect}
+                />
+              )}
 
               {/* Provider + procedure both chosen → the cost answer (job 1).
                   Procedure only → the compare-across-providers table (job 3). */}
