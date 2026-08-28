@@ -231,7 +231,11 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file (override 
     `streamMRF` over it (hermetic — no network, no DB).
   - `nppes_sample.csv` — ~14 rows for the NPPES GA extractor.
   - `fixtures/*.json.gz` — real, heavily-truncated MRFs from `-make-fixture` (first 25 provider refs,
-    first 25 in-network items that touch a kept group, prices capped). Used by `-parse -fixture`.
+    NPI lists capped at 10, first 25 in-network items that touch a kept group, rates/prices capped).
+    `synthetic.json.gz` drives `make etl-test`; the rest are regression guards run by
+    `TestFixtures_Parse`. **Add a fixture only when a file has a genuinely new shape** (a GA plan
+    file, a vision/dental file, a file that failed) — not one per file; near-duplicate BlueCard
+    shards add nothing.
 - **`make etl-test`** (`scripts/etl_e2e_test.sh`) — parses `fixtures/synthetic.json.gz` in the `test`
   schema, asserts row counts + `network_name` + a `coverage_log` row, then **tears everything down**
   on exit (`TRUNCATE test.*`, `rm -rf data-test/anthem`). Leaves zero residue.

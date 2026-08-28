@@ -1,9 +1,48 @@
 package main
 
 import (
+	"compress/gzip"
 	"os"
+	"path/filepath"
 	"testing"
 )
+
+// TestFixtures_Parse runs the real streamMRF over every committed *.json.gz
+// fixture — a regression guard that the parser still handles each distinct MRF
+// shape (a GA plan file, a vision/dental file, the file that failed in July).
+// Add a fixture only when a file has a genuinely new shape, not one per file.
+func TestFixtures_Parse(t *testing.T) {
+	matches, _ := filepath.Glob("testdata/fixtures/*.json.gz")
+	if len(matches) == 0 {
+		t.Fatal("no fixtures found")
+	}
+	for _, path := range matches {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			gz, err := gzip.NewReader(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer gz.Close()
+
+			res, err := streamMRF(gz, "individual | group", true,
+				map[string]bool{}, map[int64]string{}, map[string]bool{}, nil,
+				mrfWriters{}, nil)
+			if err != nil {
+				t.Fatalf("streamMRF: %v", err)
+			}
+			if res.ProviderRows == 0 && res.RateRows == 0 {
+				t.Errorf("fixture produced no rows")
+			}
+			t.Logf("%d provider rows, %d rate rows, %d codes, networks=%v",
+				res.ProviderRows, res.RateRows, res.NewBillingCodes, sortedKeys(res.NetworkNames))
+		})
+	}
+}
 
 // collect runs streamMRF over a decompressed JSON reader and gathers every row.
 func collect(t *testing.T, path string) (*mrfResult, []RateRow, []ProviderRow, []BillingCodeRow) {
