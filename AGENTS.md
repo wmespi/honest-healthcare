@@ -61,6 +61,7 @@ make nppes-test              # hermetic GA-extraction test on the committed CSV 
 
 # Reference data
 make code-labels             # build data/reference/code_labels.parquet (RBCS categories + synonyms per parsed code)
+make taxonomy-labels         # build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
 
 # ETL — Quality (stack must be running)
 make etl-fmt                 # gofmt -w on etl-go source
@@ -282,12 +283,17 @@ data/anthem/
 data/nppes/
   ga_providers.parquet    npi | entity_type | org_name | last_name | first_name
                           taxonomy_code | taxonomy_group | is_hospital | is_clinic
-                          city | state | postal_code
+                          address_line1 | address_line2 | city | state | postal_code
+                          ← taxonomy_group is a coarse bucket; join taxonomy_code to
+                            nucc_taxonomy.parquet for the real specialty label
 data/reference/
   rbcs_taxonomy_ry26.csv  raw CMS RBCS download (cache)
   code_labels.parquet     billing_code_type | billing_code | short_name
                           rbcs_category | rbcs_subcategory | rbcs_family | rbcs_is_major
                           label | search_text     ← consumer label + search blob
+  nucc_taxonomy.csv       raw NUCC taxonomy download (cache)
+  nucc_taxonomy.parquet   taxonomy_code | grouping | classification | specialization
+                          display_name | specialty | is_individual   ← `make taxonomy-labels`
 ```
 
 `{id}` is `index_files.id`, and `file_id` on every row carries it — `provider_group_id` is the
@@ -440,6 +446,7 @@ Config in `frontend/vite.config.js` (`test:` block) + `frontend/src/test/setup.j
 | `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs. Job endpoints: `/rates/quote` (one procedure × one provider → headline + component/POS breakdown), `/providers/{npi}/procedures` (the provider "menu"), `/rates/providers` (compare-across-providers table), `/rates/distribution` (histogram; 400s on npi-without-code). Plus `/networks`, `/providers/search`, `/procedure_categories`. `_pos_bucket` / `_MODIFIER_LABELS` turn raw `service_code` / `modifier` into consumer labels. |
 | `backend/tests/test_coverage.py` | Contract + coverage pytest (run via `make backend-test`) |
 | `scripts/build_code_labels.py` | Build `data/reference/code_labels.parquet` (RBCS + synonyms) — `make code-labels` |
+| `scripts/build_taxonomy_labels.py` | Build `data/reference/nucc_taxonomy.parquet` (NUCC specialty labels) — `make taxonomy-labels` |
 | `scripts/coverage_probe.py` | ~40-code scorecard for the target plan |
 | `scripts/coverage_report.py` | Aggregate `coverage_log` |
 | `scripts/etl_e2e_test.sh`, `scripts/nppes_test.sh` | Hermetic e2e tests with teardown |

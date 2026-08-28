@@ -51,6 +51,13 @@ func TestExtractNPPESGeorgia(t *testing.T) {
 	if r := byNPI[1000000006]; !r.IsHospital || r.TaxonomyCode != "282N00000X" {
 		t.Errorf("primary-switch row = %+v, want hospital/282N00000X", r)
 	}
+	// practice street address is captured; line 2 only when present
+	if r := byNPI[1000000001]; r.AddressLine1 != "1968 PEACHTREE RD NW" || r.AddressLine2 != "" {
+		t.Errorf("addr row 1 = (%q,%q), want (\"1968 PEACHTREE RD NW\",\"\")", r.AddressLine1, r.AddressLine2)
+	}
+	if r := byNPI[1000000003]; r.AddressLine1 != "310 EISENHOWER DR" || r.AddressLine2 != "STE 12" {
+		t.Errorf("addr row 3 = (%q,%q), want (\"310 EISENHOWER DR\",\"STE 12\")", r.AddressLine1, r.AddressLine2)
+	}
 	// row 11: lowercase "ga" state still matches
 	if _, ok := byNPI[1000000011]; !ok {
 		t.Errorf("lowercase 'ga' row was dropped")

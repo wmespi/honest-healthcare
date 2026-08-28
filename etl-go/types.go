@@ -164,6 +164,8 @@ type NPPESRow struct {
 	TaxonomyGroup string `parquet:"taxonomy_group"`
 	IsHospital    bool   `parquet:"is_hospital"`
 	IsClinic      bool   `parquet:"is_clinic"`
+	AddressLine1  string `parquet:"address_line1"` // practice-location street address
+	AddressLine2  string `parquet:"address_line2"` // suite / floor, often empty
 	City          string `parquet:"city"`
 	State         string `parquet:"state"`
 	PostalCode    string `parquet:"postal_code"`

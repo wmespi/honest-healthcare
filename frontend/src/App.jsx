@@ -493,7 +493,7 @@ function ProviderCostCard({ data, loading, providerName }) {
   const { headline, components, is_component_split, provider } = data;
   const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
   const name = provider?.name || providerName;
-  const sub = [provider?.specialty, provider?.city].filter(Boolean).join(' · ');
+  const sub = [provider?.specialty, provider?.address || provider?.city].filter(Boolean).join(' · ');
 
   return (
     <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
@@ -598,7 +598,7 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
           {data?.provider?.name ? `${data.provider.name} — procedure menu` : 'Procedure menu'}
         </h2>
         <p className="text-slate-500 text-xs mt-1">
-          {[data?.provider?.specialty, data?.provider?.city].filter(Boolean).join(' · ')}
+          {[data?.provider?.specialty, data?.provider?.address || data?.provider?.city].filter(Boolean).join(' · ')}
           {(data?.provider?.specialty || data?.provider?.city) ? ' · ' : ''}
           {rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.
         </p>

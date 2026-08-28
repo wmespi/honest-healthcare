@@ -59,15 +59,35 @@ CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
 NUCC_PATH        = f"{DATA_DIR}/reference/nucc_taxonomy.parquet"
 
 
+_NPPES_COLS: Optional[set] = None
+
+
+def _nppes_cols(conn) -> set:
+    """Column names in the NPPES GA parquet (cached) — lets endpoints reference
+    address_line1/2 only after a re-extract that added them."""
+    global _NPPES_COLS
+    if _NPPES_COLS is None:
+        try:
+            _NPPES_COLS = {
+                r[0] for r in conn.execute(
+                    f"DESCRIBE SELECT * FROM read_parquet('{GA_NPPES_PATH}')").fetchall()
+            }
+        except Exception:
+            _NPPES_COLS = set()
+    return _NPPES_COLS
+
+
 def _provider_card(conn, npi: int) -> Optional[dict]:
-    """Name / specialty / city for one NPI from the NPPES GA subset, or None."""
+    """Name / specialty / practice address for one NPI from the NPPES GA subset."""
     if not os.path.exists(GA_NPPES_PATH):
         return None
     spec_sel, spec_join = _nucc_bits()
+    have_addr = {"address_line1", "address_line2"} <= _nppes_cols(conn)
+    addr_sel = "g.address_line1, g.address_line2" if have_addr else "NULL AS address_line1, NULL AS address_line2"
     r = conn.execute(f"""
         SELECT COALESCE(NULLIF(g.org_name, ''),
                         NULLIF(TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name), '')) AS name,
-               g.city, g.is_hospital, {spec_sel}
+               g.city, g.postal_code, g.is_hospital, {spec_sel}, {addr_sel}
         FROM read_parquet('{GA_NPPES_PATH}') g
         {spec_join}
         WHERE g.npi = ?
@@ -75,7 +95,13 @@ def _provider_card(conn, npi: int) -> Optional[dict]:
     """, [npi]).fetchone()
     if not r:
         return None
-    return {"npi": npi, "name": r[0], "city": r[1], "is_hospital": bool(r[2]), "specialty": r[3]}
+    street = ", ".join(x for x in (r[5], r[6]) if x)
+    return {
+        "npi": npi, "name": r[0], "city": r[1], "postal_code": r[2],
+        "is_hospital": bool(r[3]), "specialty": r[4],
+        "street": street or None,
+        "address": ", ".join(x for x in (street, r[1]) if x) or None,
+    }
 
 
 def _nucc_bits():
