@@ -1,10 +1,10 @@
 {
-  "label": "after_ga_batch",
-  "generated_at": "2026-08-28T02:28:24.860424+00:00",
+  "label": "after_ga_npi_filter",
+  "generated_at": "2026-08-28T02:57:35.985146+00:00",
   "api": "http://localhost:8000",
   "backend_totals": {
-    "total_rates": 20478386,
-    "total_providers": 1770691782
+    "total_rates": 20132385,
+    "total_providers": 1770615130
   },
   "target_plan_name": "BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM",
   "target_network_name": "GA Blue Value HIX Individual Network",
@@ -14,19 +14,15 @@
       {
         "billing_code": "99213",
         "has_rates": true,
-        "n_provider_groups": 650,
-        "n_rates": 808,
-        "rate_min": 13.23,
-        "rate_median": 44.21,
-        "rate_max": 374.43,
-        "n_rows_with_npi": 720,
+        "n_provider_groups": 549,
+        "n_rates": 692,
+        "rate_min": 30.13,
+        "rate_median": 41.09,
+        "rate_max": 314.77,
+        "n_rows_with_npi": 617,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 140,
@@ -36,19 +32,15 @@
       {
         "billing_code": "99214",
         "has_rates": true,
-        "n_provider_groups": 330,
-        "n_rates": 443,
-        "rate_min": 13.23,
+        "n_provider_groups": 239,
+        "n_rates": 332,
+        "rate_min": 30.38,
         "rate_median": 115.71,
-        "rate_max": 490.33,
-        "n_rows_with_npi": 358,
+        "rate_max": 445.14,
+        "n_rows_with_npi": 266,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 132,
@@ -58,18 +50,15 @@
       {
         "billing_code": "99204",
         "has_rates": true,
-        "n_provider_groups": 275,
-        "n_rates": 439,
+        "n_provider_groups": 227,
+        "n_rates": 382,
         "rate_min": 79.29,
-        "rate_median": 167.09,
-        "rate_max": 784.52,
-        "n_rows_with_npi": 345,
+        "rate_median": 165.77,
+        "rate_max": 580.32,
+        "n_rows_with_npi": 297,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 170,
@@ -79,15 +68,14 @@
       {
         "billing_code": "99396",
         "has_rates": true,
-        "n_provider_groups": 178,
-        "n_rates": 258,
+        "n_provider_groups": 129,
+        "n_rates": 202,
         "rate_min": 55.12,
-        "rate_median": 122.01,
+        "rate_median": 97.81,
         "rate_max": 429.81,
-        "n_rows_with_npi": 195,
+        "n_rows_with_npi": 145,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -98,16 +86,14 @@
       {
         "billing_code": "99385",
         "has_rates": true,
-        "n_provider_groups": 185,
-        "n_rates": 298,
+        "n_provider_groups": 168,
+        "n_rates": 281,
         "rate_min": 55.52,
-        "rate_median": 129.03,
+        "rate_median": 128.2,
         "rate_max": 449.78,
-        "n_rows_with_npi": 230,
+        "n_rows_with_npi": 213,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -120,18 +106,15 @@
       {
         "billing_code": "80053",
         "has_rates": true,
-        "n_provider_groups": 141,
-        "n_rates": 201,
+        "n_provider_groups": 107,
+        "n_rates": 163,
         "rate_min": 3.91,
         "rate_median": 13.95,
-        "rate_max": 269.56,
-        "n_rows_with_npi": 152,
+        "rate_max": 64.26,
+        "n_rows_with_npi": 117,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 90,
@@ -141,18 +124,15 @@
       {
         "billing_code": "85025",
         "has_rates": true,
-        "n_provider_groups": 136,
-        "n_rates": 198,
+        "n_provider_groups": 99,
+        "n_rates": 156,
         "rate_min": 2.88,
         "rate_median": 10.26,
-        "rate_max": 115.2,
-        "n_rows_with_npi": 149,
+        "rate_max": 61.41,
+        "n_rows_with_npi": 109,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 92,
@@ -162,19 +142,15 @@
       {
         "billing_code": "80061",
         "has_rates": true,
-        "n_provider_groups": 130,
-        "n_rates": 191,
+        "n_provider_groups": 99,
+        "n_rates": 156,
         "rate_min": 5.22,
         "rate_median": 17.69,
-        "rate_max": 250.51,
-        "n_rows_with_npi": 141,
+        "rate_max": 81.48,
+        "n_rows_with_npi": 109,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 92,
@@ -184,19 +160,15 @@
       {
         "billing_code": "83036",
         "has_rates": true,
-        "n_provider_groups": 141,
-        "n_rates": 202,
+        "n_provider_groups": 108,
+        "n_rates": 165,
         "rate_min": 3.6,
         "rate_median": 12.81,
-        "rate_max": 241.6,
-        "n_rows_with_npi": 153,
+        "rate_max": 61.41,
+        "n_rows_with_npi": 118,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 92,
@@ -206,18 +178,15 @@
       {
         "billing_code": "84443",
         "has_rates": true,
-        "n_provider_groups": 136,
-        "n_rates": 197,
-        "rate_min": 2.03,
-        "rate_median": 12.67,
-        "rate_max": 213.51,
-        "n_rows_with_npi": 148,
+        "n_provider_groups": 105,
+        "n_rates": 161,
+        "rate_min": 6.22,
+        "rate_median": 11.68,
+        "rate_max": 102.23,
+        "n_rows_with_npi": 115,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 90,
@@ -227,18 +196,15 @@
       {
         "billing_code": "87086",
         "has_rates": true,
-        "n_provider_groups": 116,
-        "n_rates": 173,
+        "n_provider_groups": 96,
+        "n_rates": 151,
         "rate_min": 2.98,
-        "rate_median": 5.37,
-        "rate_max": 111.22,
-        "n_rows_with_npi": 127,
+        "rate_median": 3.98,
+        "rate_max": 61.41,
+        "n_rows_with_npi": 106,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 88,
@@ -250,16 +216,14 @@
       {
         "billing_code": "71046",
         "has_rates": true,
-        "n_provider_groups": 1650,
-        "n_rates": 2324,
+        "n_provider_groups": 1509,
+        "n_rates": 1795,
         "rate_min": 6.19,
-        "rate_median": 36.59,
+        "rate_median": 34.34,
         "rate_max": 410.25,
         "n_rows_with_npi": 1000,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "PAR Network",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
@@ -271,14 +235,13 @@
       {
         "billing_code": "70450",
         "has_rates": true,
-        "n_provider_groups": 5067,
-        "n_rates": 5299,
-        "rate_min": 9.79,
+        "n_provider_groups": 5034,
+        "n_rates": 5258,
+        "rate_min": 23.77,
         "rate_median": 35.59,
         "rate_max": 2027.29,
         "n_rows_with_npi": 1000,
         "networks_seen": [
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -289,16 +252,14 @@
       {
         "billing_code": "72148",
         "has_rates": true,
-        "n_provider_groups": 1048,
-        "n_rates": 1348,
+        "n_provider_groups": 1035,
+        "n_rates": 1332,
         "rate_min": 36.82,
         "rate_median": 422.87,
-        "rate_max": 2617.68,
+        "rate_max": 1239.85,
         "n_rows_with_npi": 1000,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -309,16 +270,14 @@
       {
         "billing_code": "73721",
         "has_rates": true,
-        "n_provider_groups": 955,
-        "n_rates": 1328,
+        "n_provider_groups": 942,
+        "n_rates": 1312,
         "rate_min": 33.76,
         "rate_median": 403.17,
-        "rate_max": 2763.75,
+        "rate_max": 1312.49,
         "n_rows_with_npi": 1000,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -329,11 +288,11 @@
       {
         "billing_code": "76700",
         "has_rates": true,
-        "n_provider_groups": 4960,
-        "n_rates": 5185,
+        "n_provider_groups": 4953,
+        "n_rates": 5176,
         "rate_min": 22.57,
         "rate_median": 33.8,
-        "rate_max": 757.79,
+        "rate_max": 730.09,
         "n_rows_with_npi": 1000,
         "networks_seen": [
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
@@ -346,8 +305,8 @@
       {
         "billing_code": "77067",
         "has_rates": true,
-        "n_provider_groups": 5032,
-        "n_rates": 5255,
+        "n_provider_groups": 4987,
+        "n_rates": 5205,
         "rate_min": 21.37,
         "rate_median": 32.49,
         "rate_max": 800.77,
@@ -365,18 +324,15 @@
       {
         "billing_code": "45378",
         "has_rates": true,
-        "n_provider_groups": 834,
-        "n_rates": 1034,
+        "n_provider_groups": 823,
+        "n_rates": 1020,
         "rate_min": 36.04,
         "rate_median": 436.43,
         "rate_max": 4562.98,
-        "n_rows_with_npi": 922,
+        "n_rows_with_npi": 908,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 224,
@@ -386,16 +342,14 @@
       {
         "billing_code": "43239",
         "has_rates": true,
-        "n_provider_groups": 1179,
-        "n_rates": 1374,
+        "n_provider_groups": 1154,
+        "n_rates": 1345,
         "rate_min": 51.59,
         "rate_median": 414.12,
-        "rate_max": 4764.0,
+        "rate_max": 4368.31,
         "n_rows_with_npi": 1000,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -406,8 +360,8 @@
       {
         "billing_code": "29881",
         "has_rates": true,
-        "n_provider_groups": 1929,
-        "n_rates": 2027,
+        "n_provider_groups": 1925,
+        "n_rates": 2021,
         "rate_min": 207.62,
         "rate_median": 472.21,
         "rate_max": 16054.72,
@@ -421,19 +375,15 @@
       {
         "billing_code": "27447",
         "has_rates": true,
-        "n_provider_groups": 191,
-        "n_rates": 326,
+        "n_provider_groups": 167,
+        "n_rates": 288,
         "rate_min": 107.85,
         "rate_median": 1403.35,
         "rate_max": 59949.36,
-        "n_rows_with_npi": 211,
+        "n_rows_with_npi": 173,
         "networks_seen": [
-          "Aware",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 230,
@@ -443,8 +393,8 @@
       {
         "billing_code": "66984",
         "has_rates": true,
-        "n_provider_groups": 2136,
-        "n_rates": 2269,
+        "n_provider_groups": 2124,
+        "n_rates": 2256,
         "rate_min": 128.87,
         "rate_median": 435.59,
         "rate_max": 4242.1,
@@ -460,18 +410,15 @@
       {
         "billing_code": "47562",
         "has_rates": true,
-        "n_provider_groups": 362,
-        "n_rates": 489,
+        "n_provider_groups": 355,
+        "n_rates": 481,
         "rate_min": 55.7,
         "rate_median": 489.86,
         "rate_max": 27183.57,
-        "n_rows_with_npi": 368,
+        "n_rows_with_npi": 360,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 236,
@@ -481,8 +428,8 @@
       {
         "billing_code": "49505",
         "has_rates": true,
-        "n_provider_groups": 2216,
-        "n_rates": 2342,
+        "n_provider_groups": 2214,
+        "n_rates": 2340,
         "rate_min": 44.23,
         "rate_median": 459.91,
         "rate_max": 4174.98,
@@ -498,15 +445,14 @@
       {
         "billing_code": "63030",
         "has_rates": true,
-        "n_provider_groups": 968,
-        "n_rates": 2344,
+        "n_provider_groups": 966,
+        "n_rates": 2342,
         "rate_min": 77.87,
         "rate_median": 1065.98,
         "rate_max": 7316.79,
-        "n_rows_with_npi": 992,
+        "n_rows_with_npi": 990,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -519,15 +465,14 @@
       {
         "billing_code": "59400",
         "has_rates": true,
-        "n_provider_groups": 965,
-        "n_rates": 1329,
+        "n_provider_groups": 964,
+        "n_rates": 1328,
         "rate_min": 659.6,
         "rate_median": 2638.34,
         "rate_max": 19106.43,
         "n_rows_with_npi": 1000,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -558,17 +503,14 @@
       {
         "billing_code": "93000",
         "has_rates": true,
-        "n_provider_groups": 284,
-        "n_rates": 331,
+        "n_provider_groups": 266,
+        "n_rates": 309,
         "rate_min": 8.58,
         "rate_median": 32.0,
-        "rate_max": 440.41,
-        "n_rows_with_npi": 290,
+        "rate_max": 70.0,
+        "n_rows_with_npi": 271,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -579,19 +521,15 @@
       {
         "billing_code": "93306",
         "has_rates": true,
-        "n_provider_groups": 372,
-        "n_rates": 572,
+        "n_provider_groups": 337,
+        "n_rates": 533,
         "rate_min": 40.34,
         "rate_median": 227.48,
         "rate_max": 2681.07,
-        "n_rows_with_npi": 459,
+        "n_rows_with_npi": 421,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 206,
@@ -621,16 +559,14 @@
       {
         "billing_code": "97110",
         "has_rates": true,
-        "n_provider_groups": 1053,
-        "n_rates": 1109,
+        "n_provider_groups": 1029,
+        "n_rates": 1080,
         "rate_min": 17.57,
         "rate_median": 32.92,
-        "rate_max": 148.5,
+        "rate_max": 145.92,
         "n_rows_with_npi": 1000,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -641,18 +577,15 @@
       {
         "billing_code": "97140",
         "has_rates": true,
-        "n_provider_groups": 722,
-        "n_rates": 810,
-        "rate_min": 7.29,
+        "n_provider_groups": 707,
+        "n_rates": 793,
+        "rate_min": 16.17,
         "rate_median": 31.75,
         "rate_max": 121.22,
-        "n_rows_with_npi": 757,
+        "n_rows_with_npi": 740,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 100,
@@ -664,16 +597,14 @@
       {
         "billing_code": "90837",
         "has_rates": true,
-        "n_provider_groups": 293,
-        "n_rates": 429,
+        "n_provider_groups": 242,
+        "n_rates": 371,
         "rate_min": 74.0,
-        "rate_median": 129.75,
+        "rate_median": 119.41,
         "rate_max": 602.52,
-        "n_rows_with_npi": 352,
+        "n_rows_with_npi": 300,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -684,16 +615,14 @@
       {
         "billing_code": "90834",
         "has_rates": true,
-        "n_provider_groups": 225,
-        "n_rates": 310,
+        "n_provider_groups": 203,
+        "n_rates": 284,
         "rate_min": 31.71,
-        "rate_median": 90.17,
-        "rate_max": 613.28,
-        "n_rows_with_npi": 249,
+        "rate_median": 90.03,
+        "rate_max": 409.57,
+        "n_rows_with_npi": 224,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -704,17 +633,14 @@
       {
         "billing_code": "90791",
         "has_rates": true,
-        "n_provider_groups": 286,
-        "n_rates": 419,
-        "rate_min": 65.0,
-        "rate_median": 136.25,
-        "rate_max": 2258.74,
-        "n_rows_with_npi": 344,
+        "n_provider_groups": 246,
+        "n_rates": 375,
+        "rate_min": 80.0,
+        "rate_median": 128.24,
+        "rate_max": 716.34,
+        "n_rows_with_npi": 304,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
           "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
@@ -727,18 +653,15 @@
       {
         "billing_code": "96372",
         "has_rates": true,
-        "n_provider_groups": 411,
-        "n_rates": 463,
+        "n_provider_groups": 404,
+        "n_rates": 453,
         "rate_min": 8.58,
         "rate_median": 32.98,
         "rate_max": 331.58,
-        "n_rows_with_npi": 422,
+        "n_rows_with_npi": 412,
         "networks_seen": [
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
-          "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 78,
@@ -768,19 +691,16 @@
       {
         "billing_code": "99283",
         "has_rates": true,
-        "n_provider_groups": 334,
-        "n_rates": 399,
+        "n_provider_groups": 286,
+        "n_rates": 333,
         "rate_min": 34.17,
-        "rate_median": 54.8,
-        "rate_max": 2465.0,
-        "n_rows_with_npi": 357,
+        "rate_median": 43.51,
+        "rate_max": 1311.32,
+        "n_rows_with_npi": 294,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
           "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 72,
@@ -790,19 +710,16 @@
       {
         "billing_code": "99284",
         "has_rates": true,
-        "n_provider_groups": 158,
-        "n_rates": 217,
+        "n_provider_groups": 101,
+        "n_rates": 147,
         "rate_min": 71.7,
-        "rate_median": 140.1,
-        "rate_max": 2884.8,
-        "n_rows_with_npi": 171,
+        "rate_median": 106.83,
+        "rate_max": 1984.0,
+        "n_rows_with_npi": 108,
         "networks_seen": [
-          "Blue Classic",
           "GA Blue Value HIX Individual Network",
-          "Highmark Blue Cross Blue Shield of Western New York-Traditional",
           "Highmark Blue Shield of Northeastern New York Traditional",
-          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance",
-          "West Virginia PAR Providers"
+          "Preferred Care|PAR Network|Hospital Tiered Network|Blue High Performance"
         ],
         "target_plan_has_rates": true,
         "target_plan_n_rates": 72,

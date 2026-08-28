@@ -24,6 +24,7 @@ func main() {
 	fixtureNameFlag := flag.String("fixture-name", "", "Output name for -make-fixture (default: the file id)")
 	fixtureFlag := flag.String("fixture", "", "Parse a local *.json.gz fixture instead of downloading (use with -parse -file-ids N)")
 	priorityFlag := flag.Bool("priority", false, "Parse GA/individual priority files first (see gaPriorityOrder)")
+	allNPIsFlag := flag.Bool("all-npis", false, "Keep every NPI/rate (default: drop providers/rates that don't touch a GA NPPES NPI, when data/nppes/ga_providers.parquet exists)")
 	nppesFlag := flag.Bool("nppes", false, "Download NPPES national file, write the GA subset to data/nppes/ga_providers.parquet")
 	nppesURLFlag := flag.String("nppes-url", "", "Override the NPPES dissemination zip URL")
 	nppesFileFlag := flag.String("nppes-file", "", "Use a local NPPES zip (or plain CSV via -nppes) instead of downloading")
@@ -42,6 +43,7 @@ func main() {
 		CodesOutputDir = "../data-test/anthem/codes"
 		NPILookupPath = "../data-test/anthem/npi_lookup.parquet"
 		NPPESOutputPath = "../data-test/nppes/ga_providers.parquet"
+		GAProvidersPath = "../data-test/nppes/ga_providers.parquet"
 		if *limitFlag == 0 {
 			*limitFlag = 100
 		}
@@ -185,6 +187,16 @@ func main() {
 		seenNPIs := make(map[int64]string)
 		seenTINs := make(map[string]bool)
 
+		var gaNPIs map[int64]struct{}
+		if *allNPIsFlag {
+			log.Println("⚠️ -all-npis — keeping every NPI/rate (GA filter disabled)")
+		} else {
+			gaNPIs = loadGANPISet(GAProvidersPath)
+			if gaNPIs == nil {
+				log.Printf("ℹ️  no %s — keeping all NPIs (run -nppes first to enable the GA filter)", GAProvidersPath)
+			}
+		}
+
 		totalCodes := 0
 		if !*dryRunFlag {
 			conn.QueryRow(ctx, "SELECT count(*) FROM billing_codes").Scan(&totalCodes)
@@ -192,7 +204,7 @@ func main() {
 
 		for i, f := range files {
 			res := parseRates(ctx, conn, f.ID, f.Location, f.PlanName, *fixtureFlag,
-				i == 0, seenBillingCodes, seenNPIs, seenTINs, totalCodes, *dryRunFlag)
+				i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, totalCodes, *dryRunFlag)
 			if res != nil {
 				totalCodes += res.NewBillingCodes
 			}

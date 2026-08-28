@@ -15,6 +15,7 @@ var (
 	ProvidersOutputDir = "../data/anthem/providers"
 	CodesOutputDir     = "../data/anthem/codes"
 	NPILookupPath      = "../data/anthem/npi_lookup.parquet"
+	GAProvidersPath    = "../data/nppes/ga_providers.parquet"
 )
 
 func init() {

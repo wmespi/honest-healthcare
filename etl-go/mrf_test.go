@@ -7,6 +7,10 @@ import (
 
 // collect runs streamMRF over a decompressed JSON reader and gathers every row.
 func collect(t *testing.T, path string) (*mrfResult, []RateRow, []ProviderRow, []BillingCodeRow) {
+	return collectFiltered(t, path, nil)
+}
+
+func collectFiltered(t *testing.T, path string, gaNPIs map[int64]struct{}) (*mrfResult, []RateRow, []ProviderRow, []BillingCodeRow) {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {
@@ -24,7 +28,7 @@ func collect(t *testing.T, path string) (*mrfResult, []RateRow, []ProviderRow, [
 	}
 
 	res, err := streamMRF(f, "individual | group", true,
-		map[string]bool{}, map[int64]string{}, map[string]bool{}, w, nil)
+		map[string]bool{}, map[int64]string{}, map[string]bool{}, gaNPIs, w, nil)
 	if err != nil {
 		t.Fatalf("streamMRF: %v", err)
 	}
@@ -139,6 +143,49 @@ func TestHiosStateCode(t *testing.T) {
 		if got != c.want {
 			t.Errorf("hiosStateCode(%q,%q) = %q, want %q", c.id, c.idType, got, c.want)
 		}
+	}
+}
+
+func TestStreamMRF_GANPIFilter(t *testing.T) {
+	// Keep NPI 2222222222 (in group 1001) and 4444444444 (in group 1002).
+	// Group 1003 (NPI 5555555555) has no GA NPI → dropped, and its rate row too.
+	gaNPIs := map[int64]struct{}{2222222222: {}, 4444444444: {}}
+	res, rates, provs, _ := collectFiltered(t, "testdata/synthetic_mrf.json", gaNPIs)
+
+	if len(provs) != 2 {
+		t.Errorf("provider rows = %d, want 2 (only the GA NPIs)", len(provs))
+	}
+	if res.ProviderRowsDropped != 3 {
+		t.Errorf("ProviderRowsDropped = %d, want 3", res.ProviderRowsDropped)
+	}
+	if res.GroupsDropped != 1 {
+		t.Errorf("GroupsDropped = %d, want 1 (group 1003)", res.GroupsDropped)
+	}
+	if len(rates) != 5 {
+		t.Errorf("rate rows = %d, want 5 (group 1003's rate dropped)", len(rates))
+	}
+	if res.RateRowsDropped != 1 {
+		t.Errorf("RateRowsDropped = %d, want 1", res.RateRowsDropped)
+	}
+	for _, r := range rates {
+		if r.ProviderGroupID == 1003 {
+			t.Errorf("rate row for dropped group 1003 leaked through")
+		}
+	}
+	for _, p := range provs {
+		if _, ok := gaNPIs[p.NPI]; !ok {
+			t.Errorf("provider row for non-GA NPI %d leaked through", p.NPI)
+		}
+	}
+}
+
+func TestStreamMRF_NilFilterKeepsEverything(t *testing.T) {
+	res, rates, provs, _ := collectFiltered(t, "testdata/synthetic_mrf.json", nil)
+	if len(provs) != 5 || len(rates) != 6 {
+		t.Errorf("nil filter changed output: provs=%d rates=%d", len(provs), len(rates))
+	}
+	if res.ProviderRowsDropped != 0 || res.RateRowsDropped != 0 {
+		t.Errorf("nil filter reported drops: %+v", res)
 	}
 }
 

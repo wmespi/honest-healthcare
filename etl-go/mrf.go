@@ -32,6 +32,11 @@ type mrfResult struct {
 	ReportingEntityName string
 	ReportingEntityType string
 	SchemaExample       map[string]interface{}
+
+	// GA NPI filter accounting (0 when the filter is off).
+	ProviderRowsDropped int64
+	RateRowsDropped     int64
+	GroupsDropped       int
 }
 
 func newStringSet() map[string]struct{} { return map[string]struct{}{} }
@@ -110,6 +115,7 @@ func streamMRF(
 	seenBillingCodes map[string]bool,
 	seenNPIs map[int64]string,
 	seenTINs map[string]bool,
+	gaNPIs map[int64]struct{}, // nil = keep everything; non-nil = drop providers/rates with no GA NPI
 	w mrfWriters,
 	pr *ProgressReader,
 ) (*mrfResult, error) {
@@ -129,6 +135,9 @@ func streamMRF(
 		SchemaExample:    map[string]interface{}{},
 	}
 	networkByGroup := make(map[int64]string)
+	// When the GA filter is on, keptGroups holds every provider_group_id that had
+	// at least one GA NPPES NPI — rate rows for any other group are dropped.
+	keptGroups := make(map[int64]struct{})
 
 	t, err := decoder.Token()
 	if err != nil {
@@ -193,6 +202,28 @@ func streamMRF(
 				}
 
 				rows, networkName := buildProviderRows(ref)
+
+				// GA NPI filter: keep only rows whose NPI is a Georgia NPPES NPI.
+				// A group with none is dropped entirely (its rates go too).
+				if gaNPIs != nil {
+					dropped := int64(0)
+					kept := rows[:0]
+					for _, row := range rows {
+						if _, ok := gaNPIs[row.NPI]; ok {
+							kept = append(kept, row)
+						} else {
+							dropped++
+						}
+					}
+					res.ProviderRowsDropped += dropped
+					rows = kept
+					if len(rows) == 0 {
+						res.GroupsDropped++
+						continue
+					}
+					keptGroups[int64(ref.ProviderGroupID)] = struct{}{}
+				}
+
 				if networkName != "" {
 					networkByGroup[int64(ref.ProviderGroupID)] = networkName
 					res.NetworkNames[networkName] = struct{}{}
@@ -253,6 +284,17 @@ func streamMRF(
 				}
 
 				rows := buildRateRows(item, networkByGroup, planName)
+				if gaNPIs != nil {
+					kept := rows[:0]
+					for _, row := range rows {
+						if _, ok := keptGroups[row.ProviderGroupID]; ok {
+							kept = append(kept, row)
+						} else {
+							res.RateRowsDropped++
+						}
+					}
+					rows = kept
+				}
 				for _, row := range rows {
 					if row.Setting != "" {
 						res.Settings[row.Setting] = struct{}{}

@@ -101,6 +101,7 @@ docker compose exec db psql -U postgres -d honest_healthcare
 | `-index-schema` | Stream the index, write a truncated schema example to `data/anthem/index_schema.json`, no DB |
 | `-parse` | Phase 2 — stream `pending` files into Parquet |
 | `-priority` | With `-parse`: order the queue by `gaPriorityExpr` (GA/individual first) then size |
+| `-all-npis` | Disable the GA NPI filter — keep every provider/rate (default filters when `ga_providers.parquet` exists) |
 | `-size` | HEAD every `index_files` row with a NULL `file_size_bytes`, fill it in (concurrent) |
 | `-file-ids 1,2,3` | Parse specific IDs, bypassing the queue order |
 | `-make-fixture` | Stream one MRF, write a truncated `*.json.gz` to `etl-go/testdata/fixtures/` (with `-file-ids N` or `-fixture-url`, `-fixture-name`) |
@@ -165,6 +166,12 @@ or `gaPriorityExpr DESC, …` with `-priority`):
 2. Builds a `provider_group_id → network_name` map from `provider_references[].network_name`
    (a structured array, e.g. `["GA Blue Value HIX Individual Network"]`) and stamps `network_name`
    onto every provider row and rate row — structured attribution, no string matching.
+   **GA NPI filter (default on when `data/nppes/ga_providers.parquet` exists):** a provider row is
+   kept only if its NPI is a Georgia NPPES NPI; a provider group with no GA NPI is dropped entirely,
+   and every rate row referencing it goes too. `-all-npis` disables this. For GA-plan-specific files
+   the loss is small (~0.4% of rates, ~23% of provider rows for `GA_JBNKMED0001`); for
+   BlueCard-mirror / out-of-state files it drops 85–100% (many parse to zero rows). The
+   `coverage_log.notes` column records the drop counts.
 3. Writes three Parquet files keyed by `index_files.id`:
    `rates/{id}.parquet`, `providers/{id}.parquet`, `codes/{id}.parquet` (all ZSTD).
 4. Upserts each new billing code into the Postgres `billing_codes` table

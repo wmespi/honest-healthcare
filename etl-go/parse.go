@@ -137,6 +137,7 @@ func parseRates(
 	seenBillingCodes map[string]bool,
 	seenNPIs map[int64]string,
 	seenTINs map[string]bool,
+	gaNPIs map[int64]struct{},
 	totalBillingCodesBefore int,
 	dryRun bool,
 ) *mrfResult {
@@ -220,7 +221,7 @@ func parseRates(
 	defer gz.Close()
 
 	log.Println("  🔄 Starting single-pass extract...")
-	res, err := streamMRF(gz, planName, isFirstFile, seenBillingCodes, seenNPIs, seenTINs, w, pr)
+	res, err := streamMRF(gz, planName, isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, w, pr)
 	// Parquet writers must be closed (flushed) before we read the files back or
 	// mark the row completed — close in LIFO order (writer before its file).
 	closeAll(closers)
@@ -251,10 +252,18 @@ func parseRates(
 			fileID, res.ReportingEntityName, res.ReportingEntityType); err != nil {
 			log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
 		}
+		note := ""
+		if gaNPIs != nil {
+			note = "ga-npi-filtered"
+		}
 		writeCoverageLog(ctx, conn, fileID, orFixture(url, fixturePath), contentLength,
-			totalBillingCodesBefore, res)
+			totalBillingCodesBefore, note, res)
 	}
 
+	if gaNPIs != nil && (res.RateRowsDropped > 0 || res.ProviderRowsDropped > 0) {
+		log.Printf("  🗺️  GA filter dropped %d provider rows, %d rate rows, %d groups (kept %d / %d rate rows)",
+			res.ProviderRowsDropped, res.RateRowsDropped, res.GroupsDropped, res.RateRows, res.RateRows+res.RateRowsDropped)
+	}
 	log.Printf("  ✅ Completed. %d provider rows | %d rate rows | %d new codes | %d new NPIs | networks=%v",
 		res.ProviderRows, res.RateRows, res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))
 	return res
@@ -288,7 +297,14 @@ func newParquetWriter[T any](path string) (*parquet.GenericWriter[T], io.Closer,
 
 // writeCoverageLog records one row summarizing what this file contributed. The
 // index_files metadata (market_types etc.) is joined in from the row itself.
-func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location string, compressedBytes int64, totalCodesBefore int, res *mrfResult) {
+func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location string, compressedBytes int64, totalCodesBefore int, note string, res *mrfResult) {
+	if note == "" {
+		note = "unfiltered"
+	}
+	if res.RateRowsDropped > 0 || res.ProviderRowsDropped > 0 {
+		note = fmt.Sprintf("%s; dropped %d rate + %d provider rows, %d groups",
+			note, res.RateRowsDropped, res.ProviderRowsDropped, res.GroupsDropped)
+	}
 	_, err := conn.Exec(ctx, `
 		INSERT INTO coverage_log (
 			file_id, location, compressed_bytes,
@@ -296,13 +312,13 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 			n_new_billing_codes, n_total_billing_codes_after,
 			n_new_npis, n_new_tins,
 			network_names, plan_states, hios_issuer_ids, market_types,
-			distinct_settings, distinct_billing_classes, billing_code_types
+			distinct_settings, distinct_billing_classes, billing_code_types, notes
 		)
 		SELECT
 			$1, $2, NULLIF($3, 0)::bigint,
 			$4, $5, $6, $7, $8, $9,
 			$10::text[], i.plan_states, i.hios_issuer_ids, i.market_types,
-			$11::text[], $12::text[], $13::text[]
+			$11::text[], $12::text[], $13::text[], $14
 		FROM index_files i WHERE i.id = $1`,
 		fileID, location, compressedBytes,
 		res.RateRows, res.ProviderRows,
@@ -310,6 +326,7 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 		res.NewNPIs, res.NewTINs,
 		sortedKeys(res.NetworkNames),
 		sortedKeys(res.Settings), sortedKeys(res.BillingClasses), sortedKeys(res.BillingCodeTypes),
+		note,
 	)
 	if err != nil {
 		log.Printf("⚠️ Failed to write coverage_log for file %d: %v", fileID, err)
