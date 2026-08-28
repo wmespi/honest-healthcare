@@ -18,17 +18,21 @@ code.
 
 ## Architecture
 
-| Layer | Tech | Purpose |
-|---|---|---|
-| Discovery | Go + Postgres | Monthly metadata sync of MRF URLs into the `index_files` queue |
-| Extraction | Go (streaming JSON) | Parses gzipped MRFs in one pass → Parquet |
-| Storage | Parquet + ZSTD | `data/anthem/{prices,group_sets,providers,codes}/`, `npi_lookup.parquet`; `data/nppes/`, `data/reference/` |
-| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC) | External public datasets → dimension Parquet |
-| Serving | Python + DuckDB | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
-| Frontend | React + Vite | Rate explorer — `localhost:5173` |
-| Queue DB | Postgres 15 + PostGIS | `index_files` + `billing_codes` + `coverage_log` |
+| Layer | Tech | Dir | Purpose |
+|---|---|---|---|
+| Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue |
+| Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → Parquet |
+| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
+| Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
+| Frontend | React + Vite | `frontend/` | Rate explorer — `localhost:5173` |
+| Storage | Parquet + ZSTD | `data/` | `data/anthem/{prices,group_sets,providers,codes}/`, `npi_lookup.parquet`; `data/nppes/`, `data/reference/` |
+| Queue DB | Postgres 15 + PostGIS | `db/` | `index_files` + `billing_codes` + `coverage_log` |
 
-Docker services: `db`, `etl_go`, `serving`, `frontend`. Full on-disk layout:
+The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
+`extraction` / `nppes` / `fixture` packages; shared structs, config, and the
+progress reader live in `etl/core/`.
+
+Docker services: `db`, `etl`, `serving`, `frontend`. Full on-disk layout:
 [docs/schema.md](docs/schema.md).
 
 ---
@@ -63,7 +67,7 @@ because the work is the stream. RBCS/NUCC are Python even though they're
 5. **Plan-specific file wins on rate conflict** *(target design, not yet in code)* —
    a single-plan file's rate overrides a shared-network file's for the same
    `(billing_code + provider_group)`; the lower rate wins between two shared files.
-   [etl-go/mrf-model.md](etl-go/mrf-model.md#conflict-resolution-strategy).
+   [etl/mrf-model.md](etl/mrf-model.md#conflict-resolution-strategy).
 6. **Give regular status updates.** On any multi-step task, post a short progress
    note as each step lands — what's done, what's next, anything that changed — not
    just a summary at the end.
@@ -73,7 +77,7 @@ because the work is the stream. RBCS/NUCC are Python even though they're
 ## Development commands
 
 `make help` lists everything. One name per workflow — the `make` target, the
-`etl-go` subcommand, and the helper doc all share it. Test isolation and
+`etl` subcommand, and the helper doc all share it. Test isolation and
 single-item selection are variables:
 
 ```bash
@@ -109,11 +113,11 @@ make sh S=serving          # shell into a container
 
 | Working on… | Read |
 |---|---|
-| The source-file shape, plan/network/file/provider model, conflict resolution | [etl-go/mrf-model.md](etl-go/mrf-model.md) |
-| Discovery — monthly index sync, the queue, monthly churn | [etl-go/discover.md](etl-go/discover.md) |
-| Extraction — the parser, network attribution, GA NPI filter, Parquet writers | [etl-go/parse.md](etl-go/parse.md) |
-| Queue ordering, GA prioritization, recovering stuck rows | [etl-go/queue.md](etl-go/queue.md) |
-| NPPES Georgia provider subset | [etl-go/nppes.md](etl-go/nppes.md) |
+| The source-file shape, plan/network/file/provider model, conflict resolution | [etl/mrf-model.md](etl/mrf-model.md) |
+| Discovery — monthly index sync, the queue, monthly churn | [etl/discover.md](etl/discover.md) |
+| Extraction — the parser, network attribution, GA NPI filter, Parquet writers | [etl/parse.md](etl/parse.md) |
+| Queue ordering, GA prioritization, recovering stuck rows | [etl/queue.md](etl/queue.md) |
+| NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
@@ -126,5 +130,5 @@ authoritative on-disk schema.
 
 **Doc naming.** ALL-CAPS is reserved for repo-meta files (`README.md`, `AGENTS.md`,
 `LICENSE`). Topic and helper docs are lowercase and — where a workflow exists —
-share the name of its `make` target / `etl-go` subcommand (`parse` → `parse.md`),
+share the name of its `make` target / `etl` subcommand (`parse` → `parse.md`),
 so an agent that ran `make help` can guess the filename.

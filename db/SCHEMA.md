@@ -22,8 +22,8 @@ Test isolation uses the same database with `search_path=test` (`TEST_DATABASE_UR
 | `billing_codes` | `make parse` | Reference upsert — `billing_code` PK, `billing_code_type`, `name`, `description`. `ON CONFLICT DO NOTHING` (first occurrence wins). |
 | `coverage_log` | `make parse` | One observational row per parsed file — rate/provider row counts, new codes/NPIs/TINs, distinct networks/settings/billing-classes, `notes` (GA-filter drop counts). Never read by the ETL. |
 
-Status lifecycle and recovery: [../etl-go/queue.md](../etl-go/queue.md).
-Discovery upsert strategy: [../etl-go/discover.md](../etl-go/discover.md).
+Status lifecycle and recovery: [../etl/queue.md](../etl/queue.md).
+Discovery upsert strategy: [../etl/discover.md](../etl/discover.md).
 
 ## Legacy — present in `init.sql`, neither written nor read
 

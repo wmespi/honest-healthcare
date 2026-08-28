@@ -4,7 +4,7 @@
 # Usage: make <target>
 #        make help   ← list all available targets
 #
-# One name per workflow: the make target, the etl-go subcommand, and the
+# One name per workflow: the make target, the etl subcommand, and the
 # helper doc next to the code all share it. Test isolation and single-item
 # selection are variables, not separate targets:
 #
@@ -55,7 +55,7 @@ logs: ## Follow logs from all services
 ## ── Pipeline: discover → parse ───────────────────────────────────────────────
 
 discover: ## Phase 1 — sync the Anthem master index into index_files. TEST=1 · SCHEMA=1 (index_schema.json only, no DB)
-	docker compose exec etl_go go run . discover \
+	docker compose exec etl go run . discover \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
@@ -63,7 +63,7 @@ discover: ## Phase 1 — sync the Anthem master index into index_files. TEST=1 �
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
 parse: ## Phase 2 — stream pending files into Parquet. ID=<index_files.id> · GA=1 (priority) · TEST=1 · LIMIT=n
-	docker compose exec etl_go go run . parse \
+	docker compose exec etl go run . parse \
 	  $(if $(ID),-file-ids $(ID),) \
 	  $(if $(filter 1,$(GA)),-priority,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
@@ -71,15 +71,15 @@ parse: ## Phase 2 — stream pending files into Parquet. ID=<index_files.id> · 
 	  $(if $(FIXTURE),-fixture "$(FIXTURE)",)
 
 size: ## Backfill index_files.file_size_bytes via concurrent HEAD requests
-	docker compose exec etl_go go run . size
+	docker compose exec etl go run . size
 
 fixture: ## Build a truncated *.json.gz fixture from a file id — usage: make fixture ID=5043 NAME=ga_small
-	docker compose exec etl_go go run . fixture -file-ids $(ID) $(if $(NAME),-name $(NAME),)
+	docker compose exec etl go run . fixture -file-ids $(ID) $(if $(NAME),-name $(NAME),)
 
 ## ── Reference data ──────────────────────────────────────────────────────────
 
 nppes: _require-etl-running ## Download the NPPES national file, write data/nppes/ga_providers.parquet (GA subset). URL= / FILE= to override.
-	docker compose exec etl_go go run . nppes $(if $(URL),-url "$(URL)",) $(if $(FILE),-file "$(FILE)",)
+	docker compose exec etl go run . nppes $(if $(URL),-url "$(URL)",) $(if $(FILE),-file "$(FILE)",)
 
 code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
 	docker compose exec -T -w /app serving python3 -m reference.code_labels --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
@@ -90,14 +90,14 @@ taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty l
 ## ── Quality gate ────────────────────────────────────────────────────────────
 
 fmt: _require-etl-running ## Format all Go source (gofmt -w)
-	docker compose exec etl_go gofmt -w .
+	docker compose exec etl gofmt -w .
 
 lint: _require-etl-running ## Static checks — go vet + go build (non-mutating)
-	docker compose exec etl_go go vet ./...
-	docker compose exec etl_go go build ./...
+	docker compose exec etl go vet ./...
+	docker compose exec etl go build ./...
 
 test: _require-etl-running ## Go unit tests (hermetic — fixture-driven, no network/DB)
-	docker compose exec etl_go go test ./...
+	docker compose exec etl go test ./...
 
 test-e2e: _require-etl-running ## Hermetic end-to-end: parse + NPPES fixtures in test isolation, with teardown
 	bash scripts/etl_e2e_test.sh
@@ -153,7 +153,7 @@ db-reset: ## Reset index_files rows → pending. WHAT=processing (stale) | faile
 
 sh: ## Open a shell inside a container — usage: make sh S=etl|serving|frontend|db
 	@case "$(S)" in \
-	  etl)      svc=etl_go ;; \
+	  etl)      svc=etl ;; \
 	  serving)  svc=serving ;; \
 	  frontend) svc=frontend ;; \
 	  db)       svc=db ;; \
@@ -165,5 +165,5 @@ sh: ## Open a shell inside a container — usage: make sh S=etl|serving|frontend
 ## ── Internal ─────────────────────────────────────────────────────────────────
 
 _require-etl-running:
-	@docker compose ps etl_go | grep -q "Up" || \
-	  (echo "Error: etl_go is not running — run 'make up' first" && exit 1)
+	@docker compose ps etl | grep -q "Up" || \
+	  (echo "Error: the etl container is not running — run 'make up' first" && exit 1)

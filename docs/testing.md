@@ -4,8 +4,8 @@
 
 | Command | Scope | Stack? |
 |---|---|---|
-| `make check` | Pre-commit gate — `fmt` + `lint` (vet + build) + Go unit tests | etl_go up |
-| `make test` | Go unit slice only — hermetic, fixture-driven | etl_go up |
+| `make check` | Pre-commit gate — `fmt` + `lint` (vet + build) + Go unit tests | etl up |
+| `make test` | Go unit slice only — hermetic, fixture-driven | etl up |
 | `make test-e2e` | Hermetic end-to-end: parse + NPPES fixtures in test isolation, with teardown | full stack |
 | `make test-api` | Backend contract + coverage (pytest, against the running API) | full stack |
 | `make test-web` | Rate-explorer component tests (vitest + Testing Library, mocks the API) | frontend up |
@@ -36,12 +36,13 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
 
 ---
 
-## Fixtures — `etl-go/testdata/` (committed)
+## Fixtures (committed)
 
-- `synthetic_mrf.json` — hand-written MRF exercising every parser branch;
-  `mrf_test.go` runs `streamMRF` over it (hermetic — no network, no DB).
-- `nppes_sample.csv` — ~14 rows for the NPPES GA extractor.
-- `fixtures/*.json.gz` — real, heavily-truncated MRFs from `make fixture` (first 25
+- `etl/extraction/testdata/synthetic_mrf.json` — hand-written MRF exercising every
+  parser branch; `extraction/stream_test.go` runs `streamMRF` over it (hermetic —
+  no network, no DB).
+- `etl/nppes/testdata/nppes_sample.csv` — ~14 rows for the NPPES GA extractor.
+- `etl/extraction/testdata/fixtures/*.json.gz` — real, heavily-truncated MRFs from `make fixture` (first 25
   provider refs, NPI lists capped at 10, first 25 in-network items that touch a
   kept group, rates/prices capped). `synthetic.json.gz` drives `make test-e2e`;
   the rest are regression guards run by `TestFixtures_Parse`.

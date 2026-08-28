@@ -40,7 +40,7 @@ would full-scan), `/networks`, `/providers/search` (+ `specialty=`),
 ## Key helpers
 
 - `network_slug()` (`data_sources.py`) — must stay identical to
-  `etl-go/partition.go:slugifyNetwork` (partition pruning depends on it).
+  `etl/extraction/partition.go:slugifyNetwork` (partition pruning depends on it).
 - `pos_bucket(service_code)` → office / asc / er / inpatient / hosp_outpatient /
   any / unspecified / facility. `MODIFIER_LABELS` labels raw `modifier`.
 - `nucc_bits()` / `provider_card(conn, npi)` — LEFT JOIN NUCC specialty + NPPES

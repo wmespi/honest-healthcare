@@ -14,14 +14,14 @@ description: >
 
 | Changed | Run | Needs |
 |---|---|---|
-| Go (`etl-go/*.go`) | `make check` | `etl_go` container up |
+| Go (`etl/**`) | `make check` | `etl` container up |
 | Go parser behaviour / MRF handling | `make check` **and** `make test-e2e` | full stack |
 | NPPES extraction (`nppes.go`) | `make check` **and** `make test-e2e` | full stack |
 | Serving layer (`serving/**`) | `make test-api` | serving container running the new code (see restart note) |
 | Frontend (`frontend/src/**`) | `make test-web` | `frontend` container up |
 | SQL migrations (`db/migrations/*.sql`) | `make migrate` then re-run it (must be idempotent) | `db` up |
 | `db/init.sql` | apply it to a scratch database and diff `\dt` | `db` up |
-| Docs / Makefile / scripts only | `make check` is enough | `etl_go` up |
+| Docs / Makefile / scripts only | `make check` is enough | `etl` up |
 | Anything non-trivial before a PR | `make test-all` | full stack |
 
 `make check` = `fmt` + `lint` (vet + build) + Go unit tests. It's the pre-commit
