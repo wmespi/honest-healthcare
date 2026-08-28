@@ -10,6 +10,7 @@
         etl-parse etl-parse-test etl-parse-file etl-size \
         etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
         db-psql db-migrate db-reset-processing db-reset-failed \
+        backend-test coverage-probe \
         sh-etl sh-backend \
         check \
         _require-etl-running
@@ -86,6 +87,14 @@ etl-test: _require-etl-running ## Hermetic e2e: parse a committed fixture in tes
 
 etl-fixture: _require-etl-running ## Build a fixture from a file id — usage: make etl-fixture ID=5043 NAME=ga_small
 	docker compose exec etl_go go run . -make-fixture -file-ids $(ID) $(if $(NAME),-fixture-name $(NAME),)
+
+## ── Backend ──────────────────────────────────────────────────────────────────
+
+backend-test: ## Backend contract + coverage tests (pytest, against the running API)
+	docker compose exec -T backend sh -c "pip install -q pytest httpx && cd /app/backend && python -m pytest tests/ -q"
+
+coverage-probe: ## Run the coverage scorecard — usage: make coverage-probe LABEL=before
+	python3 scripts/coverage_probe.py --label $(or $(LABEL),probe)
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 

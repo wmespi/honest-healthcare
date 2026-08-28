@@ -26,12 +26,25 @@ def db():
     return duckdb.connect()
 
 
+def rates_has_column(conn, name: str) -> bool:
+    """True if `name` is present in the unioned rates schema. network_name only
+    appears once at least one new-format parquet (post structured-attribution)
+    has been written, so filters/endpoints that use it must degrade gracefully."""
+    try:
+        cols = conn.execute(
+            f"DESCRIBE SELECT * FROM read_parquet('{RATES_GLOB}', union_by_name=true)"
+        ).fetchall()
+        return any(c[0] == name for c in cols)
+    except Exception:
+        return False
+
+
 @app.get("/")
 def health():
     conn = db()
     try:
-        rates     = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{RATES_GLOB}')").fetchone()[0]
-        providers = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{PROVIDERS_GLOB}')").fetchone()[0]
+        rates     = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{RATES_GLOB}', union_by_name=true)").fetchone()[0]
+        providers = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true)").fetchone()[0]
         return {"status": "ok", "total_rates": rates, "total_providers": providers}
     except Exception as e:
         return {"status": "ok", "note": str(e)}
@@ -42,6 +55,7 @@ def rate_distribution(
     billing_code: Optional[str] = None,
     billing_code_type: str = "CPT",
     plan_name: Optional[str] = None,
+    network_name: Optional[str] = None,
     setting: Optional[str] = None,
     npi: Optional[int] = None,
 ):
@@ -60,11 +74,14 @@ def rate_distribution(
     if plan_name:
         conditions.append("plan_name = ?")
         params.append(plan_name)
+    if network_name and rates_has_column(conn, "network_name"):
+        conditions.append("network_name = ?")
+        params.append(network_name)
     if setting:
         conditions.append("setting = ?")
         params.append(setting)
     if npi:
-        conditions.append(f"provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}') WHERE npi = ?)")
+        conditions.append(f"provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true) WHERE npi = ?)")
         params.append(npi)
 
     where = " AND ".join(conditions)
@@ -77,7 +94,7 @@ def rate_distribution(
                 FLOOR(LEAST(negotiated_rate, 2000) / 50) * 50 AS rate,
                 'fee schedule' AS negotiated_type,
                 COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}')
+            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
             WHERE {where}
             GROUP BY 1, 2
             ORDER BY 1
@@ -88,7 +105,7 @@ def rate_distribution(
                 negotiated_rate,
                 negotiated_type,
                 COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}')
+            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
             WHERE {where}
             GROUP BY negotiated_rate, negotiated_type
             ORDER BY negotiated_rate
@@ -106,7 +123,7 @@ def rate_distribution(
             MEDIAN(negotiated_rate),
             COUNT(DISTINCT provider_group_id),
             COUNT(*)
-        FROM read_parquet('{RATES_GLOB}')
+        FROM read_parquet('{RATES_GLOB}', union_by_name=true)
         WHERE {where}
     """, params).fetchone()
 
@@ -133,6 +150,7 @@ def rates_by_provider(
     billing_code: str,
     billing_code_type: str = "CPT",
     plan_name: Optional[str] = None,
+    network_name: Optional[str] = None,
     setting: Optional[str] = None,
     npi: Optional[int] = None,
     limit: int = Query(default=100, le=1000),
@@ -149,11 +167,15 @@ def rates_by_provider(
     if plan_name:
         conditions.append("r.plan_name = ?")
         params.append(plan_name)
+    has_network = rates_has_column(conn, "network_name")
+    if network_name and has_network:
+        conditions.append("r.network_name = ?")
+        params.append(network_name)
     if setting:
         conditions.append("r.setting = ?")
         params.append(setting)
     if npi:
-        conditions.append(f"r.provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}') WHERE npi = ?)")
+        conditions.append(f"r.provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true) WHERE npi = ?)")
         params.append(npi)
 
     where = " AND ".join(conditions)
@@ -164,10 +186,11 @@ def rates_by_provider(
             r.negotiated_rate,
             r.negotiated_type,
             r.plan_name,
+            {"ANY_VALUE(r.network_name)" if has_network else "NULL"} AS network_name,
             r.expiration_date,
             COUNT(DISTINCT p.npi) AS npi_count
-        FROM read_parquet('{RATES_GLOB}') r
-        LEFT JOIN read_parquet('{PROVIDERS_GLOB}') p
+        FROM read_parquet('{RATES_GLOB}', union_by_name=true) r
+        LEFT JOIN read_parquet('{PROVIDERS_GLOB}', union_by_name=true) p
             ON r.provider_group_id = p.provider_group_id
         WHERE {where}
         GROUP BY r.provider_group_id, r.negotiated_rate, r.negotiated_type,
@@ -185,8 +208,9 @@ def rates_by_provider(
                 "negotiated_rate":   r[1],
                 "negotiated_type":   r[2],
                 "plan_name":         r[3],
-                "expiration_date":   r[4],
-                "npi_count":         r[5],
+                "network_name":      r[4],
+                "expiration_date":   r[5],
+                "npi_count":         r[6],
             }
             for r in rows
         ],
@@ -205,7 +229,7 @@ def search_providers(
     if os.path.exists(NPI_LOOKUP_PATH):
         rows = conn.execute(f"""
             SELECT npi, tin_value
-            FROM read_parquet('{NPI_LOOKUP_PATH}')
+            FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true)
             WHERE CAST(npi AS VARCHAR) LIKE ?
             ORDER BY npi
             LIMIT {limit}
@@ -214,7 +238,7 @@ def search_providers(
     # Fallback: scan raw providers parquet (slow, only before first ETL run)
     rows = conn.execute(f"""
         SELECT npi, MAX(tin_value) AS tin_value
-        FROM read_parquet('{PROVIDERS_GLOB}')
+        FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true)
         WHERE CAST(npi AS VARCHAR) LIKE ?
         GROUP BY npi ORDER BY npi LIMIT {limit}
     """, [f"{q}%"]).fetchall()
@@ -231,7 +255,7 @@ def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)
         SELECT DISTINCT TRIM(plan) AS plan_name
         FROM (
             SELECT UNNEST(string_split(plan_name, ' | ')) AS plan
-            FROM read_parquet('{RATES_GLOB}')
+            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
             WHERE plan_name IS NOT NULL AND plan_name != ''
         )
         WHERE plan IS NOT NULL AND TRIM(plan) != ''
@@ -240,6 +264,26 @@ def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)
         LIMIT {limit}
     """, params).fetchall()
     return [r[0] for r in rows]
+
+
+@app.get("/networks")
+def get_networks(q: str = Query(default=""), limit: int = Query(default=100, le=500)):
+    """Distinct network_name values (structured attribution from provider_references)."""
+    conn = db()
+    if not rates_has_column(conn, "network_name"):
+        return []  # no new-format parquet yet — nothing to list
+    search_filter = "AND network_name ILIKE ?" if q else ""
+    params = [f"%{q}%"] if q else []
+    rows = conn.execute(f"""
+        SELECT network_name, COUNT(*) AS n_rates
+        FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+        WHERE network_name IS NOT NULL AND network_name != ''
+        {search_filter}
+        GROUP BY network_name
+        ORDER BY n_rates DESC
+        LIMIT {limit}
+    """, params).fetchall()
+    return [{"network_name": r[0], "n_rates": r[1]} for r in rows]
 
 
 @app.get("/billing_codes")
@@ -259,11 +303,11 @@ def search_billing_codes(
         rows = conn.execute(f"""
             SELECT c.billing_code, c.billing_code_type, c.name,
                    COALESCE(r.provider_groups, 0) AS provider_groups
-            FROM read_parquet('{CODES_GLOB}') c
+            FROM read_parquet('{CODES_GLOB}', union_by_name=true) c
             LEFT JOIN (
                 SELECT billing_code, billing_code_type,
                        COUNT(DISTINCT provider_group_id) AS provider_groups
-                FROM read_parquet('{RATES_GLOB}')
+                FROM read_parquet('{RATES_GLOB}', union_by_name=true)
                 GROUP BY billing_code, billing_code_type
             ) r ON c.billing_code = r.billing_code AND c.billing_code_type = r.billing_code_type
             WHERE 1=1 {text_filter} {type_filter}
@@ -287,7 +331,7 @@ def search_billing_codes(
         rows = conn.execute(f"""
             SELECT billing_code, billing_code_type,
                    COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}')
+            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
             WHERE {" AND ".join(conditions)}
             GROUP BY billing_code, billing_code_type
             ORDER BY provider_groups DESC
