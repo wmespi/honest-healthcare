@@ -8,7 +8,7 @@
         start up down logs \
         etl-discover etl-discover-test etl-index-schema \
         etl-parse etl-parse-test etl-parse-file etl-size \
-        etl-fmt etl-vet etl-build etl-check etl-test \
+        etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
         db-psql db-migrate db-reset-processing db-reset-failed \
         sh-etl sh-backend \
         check \
@@ -76,12 +76,16 @@ etl-vet: _require-etl-running ## Run go vet static analysis on etl-go
 etl-build: _require-etl-running ## Verify etl-go compiles cleanly
 	docker compose exec etl_go go build ./...
 
-etl-check: _require-etl-running etl-fmt etl-vet etl-build ## Run all ETL static checks (fmt + vet + build)
+etl-unit: _require-etl-running ## Run Go unit tests (hermetic — fixture-driven, no network/DB)
+	docker compose exec etl_go go test ./...
 
-etl-test: _require-etl-running ## Full e2e pipeline in test isolation (discover → parse → verify output)
-	docker compose exec etl_go go run . -discover -test
-	docker compose exec etl_go go run . -parse -test
-	docker compose exec etl_go test -d ../data-test/anthem/rates || (echo "etl-test: no Parquet output found" && exit 1)
+etl-check: _require-etl-running etl-fmt etl-vet etl-build etl-unit ## Run all ETL static checks (fmt + vet + build + unit)
+
+etl-test: _require-etl-running ## Hermetic e2e: parse a committed fixture in test isolation, with teardown
+	bash scripts/etl_e2e_test.sh
+
+etl-fixture: _require-etl-running ## Build a fixture from a file id — usage: make etl-fixture ID=5043 NAME=ga_small
+	docker compose exec etl_go go run . -make-fixture -file-ids $(ID) $(if $(NAME),-fixture-name $(NAME),)
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 

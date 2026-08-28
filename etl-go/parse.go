@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	parquet "github.com/parquet-go/parquet-go"
@@ -18,6 +18,7 @@ import (
 
 const copyBatchSize = 1_000_000
 
+// skipValue consumes and discards one JSON value (scalar, object, or array).
 func skipValue(decoder *json.Decoder) {
 	t, err := decoder.Token()
 	if err != nil {
@@ -43,49 +44,23 @@ func skipValue(decoder *json.Decoder) {
 	}
 }
 
-func flushProviders(w *parquet.GenericWriter[ProviderRow], rows []ProviderRow, dryRun bool) {
-	if len(rows) == 0 || dryRun || w == nil {
-		return
-	}
-	if _, err := w.Write(rows); err != nil {
-		log.Printf("⚠️ Failed to write providers to parquet: %v", err)
-		return
-	}
-	if err := w.Flush(); err != nil {
-		log.Printf("⚠️ Failed to flush providers parquet: %v", err)
-	}
-}
-
-func flushRates(w *parquet.GenericWriter[RateRow], rows []RateRow, dryRun bool) {
-	if len(rows) == 0 || dryRun || w == nil {
-		return
-	}
-	if _, err := w.Write(rows); err != nil {
-		log.Printf("⚠️ Failed to write rates to parquet: %v", err)
-		return
-	}
-	if err := w.Flush(); err != nil {
-		log.Printf("⚠️ Failed to flush rates parquet: %v", err)
-	}
-}
-
-func upsertBillingCode(ctx context.Context, conn *pgx.Conn, bcType, bc, name, desc string, dryRun bool) {
-	if dryRun {
+func upsertBillingCode(ctx context.Context, conn *pgx.Conn, row BillingCodeRow) {
+	if conn == nil {
 		return
 	}
 	if _, err := conn.Exec(ctx,
 		`INSERT INTO billing_codes (billing_code_type, billing_code, name, description)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (billing_code) DO NOTHING`,
-		bcType, bc, name, desc,
+		row.BillingCodeType, row.BillingCode, row.Name, row.Description,
 	); err != nil {
-		log.Printf("⚠️ Failed to upsert billing code %s: %v", bc, err)
+		log.Printf("⚠️ Failed to upsert billing code %s: %v", row.BillingCode, err)
 	}
 }
 
 func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error, dryRun bool) {
 	log.Printf("❌ File %d failed: %v", fileID, reason)
-	if !dryRun {
+	if !dryRun && conn != nil {
 		conn.Exec(ctx, "UPDATE index_files SET status = 'failed' WHERE id = $1", fileID)
 	}
 }
@@ -120,324 +95,148 @@ func writeNPILookup(seenNPIs map[int64]string) {
 	log.Printf("✅ Wrote npi_lookup.parquet — %d unique NPIs", len(rows))
 }
 
-func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, planName string, isFirstFile bool, seenBillingCodes map[string]bool, seenNPIs map[int64]string, dryRun bool) {
-	log.Printf("⚙️ Processing Rate File [id=%d]: %s", fileID, url)
+// openMRF returns a reader for the raw (still gzipped) MRF bytes, its size, and a
+// cleanup func. A fixturePath reads from disk (offline); otherwise it GETs url.
+func openMRF(url, fixturePath string) (io.ReadCloser, int64, error) {
+	if fixturePath != "" {
+		f, err := os.Open(fixturePath)
+		if err != nil {
+			return nil, 0, err
+		}
+		fi, _ := f.Stat()
+		return f, fi.Size(), nil
+	}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	if resp.StatusCode != 200 {
+		resp.Body.Close()
+		return nil, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return resp.Body, resp.ContentLength, nil
+}
 
-	if !dryRun {
+// parseRates streams one MRF (by URL, or from fixturePath when set) into
+// rates/providers/codes Parquet keyed by fileID, upserts billing codes, updates
+// index_files status, and writes a coverage_log row describing what the file gave.
+func parseRates(
+	ctx context.Context,
+	conn *pgx.Conn,
+	fileID int,
+	url, planName, fixturePath string,
+	isFirstFile bool,
+	seenBillingCodes map[string]bool,
+	seenNPIs map[int64]string,
+	seenTINs map[string]bool,
+	totalBillingCodesBefore int,
+	dryRun bool,
+) *mrfResult {
+	log.Printf("⚙️ Processing Rate File [id=%d]: %s", fileID, orFixture(url, fixturePath))
+
+	if !dryRun && conn != nil {
 		if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'processing' WHERE id = $1", fileID); err != nil {
 			log.Printf("⚠️ Failed to mark file %d as processing: %v", fileID, err)
 		}
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	body, contentLength, err := openMRF(url, fixturePath)
 	if err != nil {
 		markFailed(ctx, conn, fileID, err, dryRun)
-		return
+		return nil
 	}
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		markFailed(ctx, conn, fileID, err, dryRun)
-		return
-	}
-	defer resp.Body.Close()
+	defer body.Close()
 
-	if resp.StatusCode != 200 {
-		markFailed(ctx, conn, fileID, fmt.Errorf("HTTP %d", resp.StatusCode), dryRun)
-		return
-	}
+	pr := NewProgressReader(body, contentLength)
 
-	pr := NewProgressReader(resp.Body, resp.ContentLength)
-
-	if resp.ContentLength > 0 {
-		compressedGB := float64(resp.ContentLength) / 1e9
-		log.Printf("  📦 %.2f GB compressed | ~%.1f GB uncompressed (est. ×12) | ~%.1f GB Parquet (est. ×4, rough)",
-			compressedGB, compressedGB*12, compressedGB*4)
-	}
-	if !dryRun && resp.ContentLength > 0 {
-		conn.Exec(ctx, "UPDATE index_files SET file_size_bytes = $1 WHERE id = $2", resp.ContentLength, fileID)
+	if contentLength > 0 && fixturePath == "" {
+		gb := float64(contentLength) / 1e9
+		log.Printf("  📦 %.2f GB compressed | ~%.1f GB uncompressed (est. ×12)", gb, gb*12)
+		if !dryRun && conn != nil {
+			conn.Exec(ctx, "UPDATE index_files SET file_size_bytes = $1 WHERE id = $2", contentLength, fileID)
+		}
 	}
 
-	// Create parquet writers (skipped in dry-run)
-	var ratesWriter *parquet.GenericWriter[RateRow]
-	var providersWriter *parquet.GenericWriter[ProviderRow]
-	var codesWriter *parquet.GenericWriter[BillingCodeRow]
-
+	// Parquet writers (skipped in dry-run).
+	var w mrfWriters
+	var closers []io.Closer
 	if !dryRun {
-		ratesPath := filepath.Join(RatesOutputDir, fmt.Sprintf("%d.parquet", fileID))
-		providersPath := filepath.Join(ProvidersOutputDir, fmt.Sprintf("%d.parquet", fileID))
-		codesPath := filepath.Join(CodesOutputDir, fmt.Sprintf("%d.parquet", fileID))
-
 		for _, dir := range []string{RatesOutputDir, ProvidersOutputDir, CodesOutputDir} {
 			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 				markFailed(ctx, conn, fileID, fmt.Errorf("create dir %s: %w", dir, err), dryRun)
-				return
+				return nil
 			}
 		}
-
-		// defer file.Close registered before defer writer.Close so writer flushes first (LIFO)
-		ratesFile, err := os.Create(ratesPath)
+		ratesW, ratesC, err := newParquetWriter[RateRow](filepath.Join(RatesOutputDir, fmt.Sprintf("%d.parquet", fileID)))
 		if err != nil {
-			markFailed(ctx, conn, fileID, fmt.Errorf("create rates parquet: %w", err), dryRun)
-			return
+			markFailed(ctx, conn, fileID, err, dryRun)
+			return nil
 		}
-		defer ratesFile.Close()
-		ratesWriter = parquet.NewGenericWriter[RateRow](ratesFile, parquet.Compression(&parquet.Zstd))
-		defer ratesWriter.Close()
-
-		providersFile, err := os.Create(providersPath)
+		provW, provC, err := newParquetWriter[ProviderRow](filepath.Join(ProvidersOutputDir, fmt.Sprintf("%d.parquet", fileID)))
 		if err != nil {
-			markFailed(ctx, conn, fileID, fmt.Errorf("create providers parquet: %w", err), dryRun)
-			return
+			markFailed(ctx, conn, fileID, err, dryRun)
+			return nil
 		}
-		defer providersFile.Close()
-		providersWriter = parquet.NewGenericWriter[ProviderRow](providersFile, parquet.Compression(&parquet.Zstd))
-		defer providersWriter.Close()
-
-		codesFile, err := os.Create(codesPath)
+		codesW, codesC, err := newParquetWriter[BillingCodeRow](filepath.Join(CodesOutputDir, fmt.Sprintf("%d.parquet", fileID)))
 		if err != nil {
-			markFailed(ctx, conn, fileID, fmt.Errorf("create codes parquet: %w", err), dryRun)
-			return
+			markFailed(ctx, conn, fileID, err, dryRun)
+			return nil
 		}
-		defer codesFile.Close()
-		codesWriter = parquet.NewGenericWriter[BillingCodeRow](codesFile, parquet.Compression(&parquet.Zstd))
-		defer codesWriter.Close()
-
-		log.Printf("  📂 Writing to %s, %s, and %s", ratesPath, providersPath, codesPath)
+		closers = []io.Closer{ratesW, ratesC, provW, provC, codesW, codesC}
+		w = mrfWriters{
+			rates: func(rows []RateRow) {
+				if _, err := ratesW.Write(rows); err != nil {
+					log.Printf("⚠️ write rates parquet: %v", err)
+				}
+				ratesW.Flush()
+			},
+			providers: func(rows []ProviderRow) {
+				if _, err := provW.Write(rows); err != nil {
+					log.Printf("⚠️ write providers parquet: %v", err)
+				}
+				provW.Flush()
+			},
+			code: func(row BillingCodeRow) {
+				upsertBillingCode(ctx, conn, row)
+				codesW.Write([]BillingCodeRow{row})
+			},
+		}
 	}
 
 	gz, err := gzip.NewReader(pr)
 	if err != nil {
+		closeAll(closers)
 		markFailed(ctx, conn, fileID, err, dryRun)
-		return
+		return nil
 	}
 	defer gz.Close()
 
-	decoder := json.NewDecoder(gz)
-	schemaExample := make(map[string]interface{})
-
-	log.Println("  🔄 Starting Single-Pass Extract...")
-
-	t, err := decoder.Token()
+	log.Println("  🔄 Starting single-pass extract...")
+	res, err := streamMRF(gz, planName, isFirstFile, seenBillingCodes, seenNPIs, seenTINs, w, pr)
+	// Parquet writers must be closed (flushed) before we read the files back or
+	// mark the row completed — close in LIFO order (writer before its file).
+	closeAll(closers)
 	if err != nil {
-		markFailed(ctx, conn, fileID, fmt.Errorf("failed to read root token: %w", err), dryRun)
-		return
-	}
-	if delim, ok := t.(json.Delim); !ok || delim != '{' {
-		markFailed(ctx, conn, fileID, fmt.Errorf("expected root '{', got %v", t), dryRun)
-		return
+		markFailed(ctx, conn, fileID, err, dryRun)
+		return nil
 	}
 
-	var providerBuf []ProviderRow
-	var rateBuf []RateRow
-	// networkByGroup maps provider_group_id → the "|"-joined network_name array
-	// carried on that provider_references entry. Built during the provider_references
-	// pass (which always precedes in_network in Anthem MRFs) and used to stamp
-	// network_name onto every rate row — structured attribution, no string matching.
-	networkByGroup := make(map[int64]string)
-	var reportingEntityName, reportingEntityType string
-	totalProviders := 0
-	totalRates := 0
-	providerBatches := 0
-	rateBatches := 0
-	const logEveryNBatches = 10 // log every 10M rows
-
-	for decoder.More() {
-		t, err := decoder.Token()
-		if err != nil {
-			break
-		}
-		key, ok := t.(string)
-		if !ok {
-			continue
-		}
-
-		if key == "provider_references" {
-			log.Println("    🎯 Found 'provider_references'. Streaming to providers parquet...")
-			decoder.Token() // '['
-
-			for decoder.More() {
-				var ref ProviderReference
-
-				if isFirstFile && schemaExample["provider_references"] == nil {
-					var raw map[string]interface{}
-					if err := decoder.Decode(&raw); err == nil {
-						schemaExample["provider_references"] = []interface{}{raw}
-						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &ref)
-					}
-				} else {
-					if err := decoder.Decode(&ref); err != nil {
-						log.Printf("⚠️ Error decoding ProviderReference: %v", err)
-						continue
-					}
-				}
-
-				networkName := strings.Join(ref.NetworkName, "|")
-				if networkName != "" {
-					networkByGroup[int64(ref.ProviderGroupID)] = networkName
-				}
-
-				for _, pg := range ref.ProviderGroups {
-					for _, npi := range pg.NPIs {
-						npi64 := int64(npi)
-						if _, seen := seenNPIs[npi64]; !seen {
-							seenNPIs[npi64] = pg.TIN.Value
-						}
-						providerBuf = append(providerBuf, ProviderRow{
-							ProviderGroupID: int64(ref.ProviderGroupID),
-							NetworkName:     networkName,
-							NPI:             npi64,
-							TINType:         pg.TIN.Type,
-							TINValue:        pg.TIN.Value,
-						})
-					}
-				}
-
-				if len(providerBuf) >= copyBatchSize {
-					flushProviders(providersWriter, providerBuf, dryRun)
-					totalProviders += len(providerBuf)
-					providerBuf = providerBuf[:0]
-					providerBatches++
-					if providerBatches%logEveryNBatches == 0 {
-						log.Printf("    ⚙️  Loaded %d provider rows... | %s", totalProviders, pr.GetProgressString())
-					}
-				}
-			}
-			decoder.Token() // ']'
-
-			flushProviders(providersWriter, providerBuf, dryRun)
-			totalProviders += len(providerBuf)
-			providerBuf = providerBuf[:0]
-			log.Printf("    ✅ Streamed %d provider rows. %s", totalProviders, pr.GetProgressString())
-
-		} else if key == "in_network" {
-			log.Println("    🎯 Found 'in_network'. Streaming to rates parquet...")
-			decoder.Token() // '['
-
-			for decoder.More() {
-				var item InNetworkItem
-
-				if isFirstFile && schemaExample["in_network"] == nil {
-					var raw map[string]interface{}
-					if err := decoder.Decode(&raw); err == nil {
-						schemaExample["in_network"] = []interface{}{raw}
-						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &item)
-					}
-				} else {
-					if err := decoder.Decode(&item); err != nil {
-						log.Printf("⚠️ Error decoding InNetworkItem: %v", err)
-						continue
-					}
-				}
-
-				if !seenBillingCodes[item.BillingCode] {
-					seenBillingCodes[item.BillingCode] = true
-					upsertBillingCode(ctx, conn, item.BillingCodeType, item.BillingCode, item.Name, item.Description, dryRun)
-					if !dryRun && codesWriter != nil {
-						codesWriter.Write([]BillingCodeRow{{
-							BillingCodeType: item.BillingCodeType,
-							BillingCode:     item.BillingCode,
-							Name:            item.Name,
-							Description:     item.Description,
-						}})
-					}
-				}
-
-				for _, rate := range item.NegotiatedRates {
-					for _, refID := range rate.ProviderReferences {
-						networkName := networkByGroup[int64(refID)]
-						for _, price := range rate.NegotiatedPrices {
-							rateBuf = append(rateBuf, RateRow{
-								ProviderGroupID:        int64(refID),
-								PlanName:               planName,
-								NetworkName:            networkName,
-								BillingCodeType:        item.BillingCodeType,
-								BillingCode:            item.BillingCode,
-								NegotiationArrangement: item.NegotiationArrangement,
-								NegotiatedType:         price.NegotiatedType,
-								NegotiatedRate:         price.NegotiatedRate,
-								ExpirationDate:         price.ExpirationDate,
-								ServiceCode:            strings.Join(price.ServiceCode, "|"),
-								BillingClass:           price.BillingClass,
-								Setting:                price.Setting,
-							})
-						}
-					}
-				}
-
-				if len(rateBuf) >= copyBatchSize {
-					flushRates(ratesWriter, rateBuf, dryRun)
-					totalRates += len(rateBuf)
-					rateBuf = rateBuf[:0]
-					rateBatches++
-					if rateBatches%logEveryNBatches == 0 {
-						log.Printf("    ⚙️  Loaded %d rate rows... | %s", totalRates, pr.GetProgressString())
-					}
-				}
-			}
-			decoder.Token() // ']'
-
-			flushRates(ratesWriter, rateBuf, dryRun)
-			totalRates += len(rateBuf)
-			rateBuf = rateBuf[:0]
-			log.Printf("    ✅ Streamed %d total rate rows. %s", totalRates, pr.GetProgressString())
-
-		} else if key == "reporting_entity_name" || key == "reporting_entity_type" {
-			// Scalar root keys. The per-file value is more specific than the index
-			// root's ("Anthem Inc") — GA plan-specific files carry
-			// "Anthem Blue Cross and Blue Shield Georgia". Persist it on completion.
-			tVal, _ := decoder.Token()
-			s, _ := tVal.(string)
-			if key == "reporting_entity_name" {
-				reportingEntityName = s
-			} else {
-				reportingEntityType = s
-			}
-			if isFirstFile {
-				schemaExample[key] = s
-			}
-		} else {
-			if isFirstFile {
-				tPeek, _ := decoder.Token()
-				if delim, ok := tPeek.(json.Delim); ok && (delim == '[' || delim == '{') {
-					log.Printf("    🔍 Schema Discovery: Found unexpected root structure: '%s' (skipping) %s", key, pr.GetProgressString())
-					depth := 1
-					for depth > 0 {
-						tSkip, _ := decoder.Token()
-						if dSkip, ok := tSkip.(json.Delim); ok {
-							if dSkip == '{' || dSkip == '[' {
-								depth++
-							} else if dSkip == '}' || dSkip == ']' {
-								depth--
-							}
-						}
-					}
-				} else {
-					schemaExample[key] = tPeek
-					log.Printf("    🔍 Schema Discovery: Captured root key '%s' = %v", key, tPeek)
-				}
-			} else {
-				log.Printf("    🔍 Schema Discovery: Found unexpected root key: '%s' (skipping) %s", key, pr.GetProgressString())
-				skipValue(decoder)
-			}
-		}
-	}
-
-	decoder.Token() // '}'
-
-	if isFirstFile {
+	if isFirstFile && !dryRun && len(res.SchemaExample) > 0 {
 		os.MkdirAll(filepath.Dir(ExampleOutputPath), os.ModePerm)
 		if out, err := os.Create(ExampleOutputPath); err == nil {
 			enc := json.NewEncoder(out)
 			enc.SetIndent("", "  ")
-			enc.Encode(schemaExample)
+			enc.Encode(res.SchemaExample)
 			out.Close()
 			log.Println("    ✅ Wrote ERD snippet to mrf_example.json")
 		}
 	}
 
-	if !dryRun {
+	if !dryRun && conn != nil {
 		if _, err := conn.Exec(ctx, `
 			UPDATE index_files
 			SET status = 'completed',
@@ -445,10 +244,70 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 			    reporting_entity_name = COALESCE(NULLIF($2, ''), reporting_entity_name),
 			    reporting_entity_type = COALESCE(NULLIF($3, ''), reporting_entity_type)
 			WHERE id = $1`,
-			fileID, reportingEntityName, reportingEntityType); err != nil {
+			fileID, res.ReportingEntityName, res.ReportingEntityType); err != nil {
 			log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
 		}
+		writeCoverageLog(ctx, conn, fileID, orFixture(url, fixturePath), contentLength,
+			totalBillingCodesBefore, res)
 	}
 
-	log.Printf("  ✅ Completed. %d provider rows | %d rate rows", totalProviders, totalRates)
+	log.Printf("  ✅ Completed. %d provider rows | %d rate rows | %d new codes | %d new NPIs | networks=%v",
+		res.ProviderRows, res.RateRows, res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))
+	return res
+}
+
+func orFixture(url, fixturePath string) string {
+	if fixturePath != "" {
+		return "fixture:" + fixturePath
+	}
+	return url
+}
+
+func closeAll(closers []io.Closer) {
+	for _, c := range closers {
+		if c != nil {
+			c.Close()
+		}
+	}
+}
+
+// newParquetWriter creates a ZSTD-compressed Parquet writer over a new file and
+// returns the writer and the underlying file (close the writer first, then the file).
+func newParquetWriter[T any](path string) (*parquet.GenericWriter[T], io.Closer, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create %s: %w", path, err)
+	}
+	w := parquet.NewGenericWriter[T](f, parquet.Compression(&parquet.Zstd))
+	return w, f, nil
+}
+
+// writeCoverageLog records one row summarizing what this file contributed. The
+// index_files metadata (market_types etc.) is joined in from the row itself.
+func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location string, compressedBytes int64, totalCodesBefore int, res *mrfResult) {
+	_, err := conn.Exec(ctx, `
+		INSERT INTO coverage_log (
+			file_id, location, compressed_bytes,
+			n_rate_rows, n_provider_rows,
+			n_new_billing_codes, n_total_billing_codes_after,
+			n_new_npis, n_new_tins,
+			network_names, plan_states, hios_issuer_ids, market_types,
+			distinct_settings, distinct_billing_classes, billing_code_types
+		)
+		SELECT
+			$1, $2, NULLIF($3, 0)::bigint,
+			$4, $5, $6, $7, $8, $9,
+			$10::text[], i.plan_states, i.hios_issuer_ids, i.market_types,
+			$11::text[], $12::text[], $13::text[]
+		FROM index_files i WHERE i.id = $1`,
+		fileID, location, compressedBytes,
+		res.RateRows, res.ProviderRows,
+		res.NewBillingCodes, totalCodesBefore+res.NewBillingCodes,
+		res.NewNPIs, res.NewTINs,
+		sortedKeys(res.NetworkNames),
+		sortedKeys(res.Settings), sortedKeys(res.BillingClasses), sortedKeys(res.BillingCodeTypes),
+	)
+	if err != nil {
+		log.Printf("⚠️ Failed to write coverage_log for file %d: %v", fileID, err)
+	}
 }

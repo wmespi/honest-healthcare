@@ -183,3 +183,13 @@ CREATE TABLE IF NOT EXISTS test.negotiated_rates       (LIKE public.negotiated_r
 CREATE TABLE IF NOT EXISTS test.place_of_service_codes (LIKE public.place_of_service_codes INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS test.index_files            (LIKE public.index_files            INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS test.coverage_log           (LIKE public.coverage_log           INCLUDING ALL);
+
+-- discover.go manages these by exact name in test mode (search_path=test).
+CREATE INDEX IF NOT EXISTS idx_index_files_plan_states ON test.index_files USING GIN(plan_states);
+CREATE INDEX IF NOT EXISTS idx_index_files_market      ON test.index_files USING GIN(market_types);
+CREATE INDEX IF NOT EXISTS idx_index_files_hios        ON test.index_files USING GIN(hios_issuer_ids);
+
+-- NOTE: `LIKE public.x INCLUDING ALL` is a one-time copy. When you add a column
+-- to a public table above, existing databases will NOT get it on the test mirror
+-- until the test schema is rebuilt — see db/migrations/001_ga_coverage.sql, which
+-- drops and recreates the whole test schema (test.* is disposable by charter).

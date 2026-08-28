@@ -218,3 +218,7 @@ metastore_db/
 derby.log
 *.parquet
 etl-go/go-parser
+
+# ...but DO commit the test fixtures (small, truncated *.json.gz + synthetic MRFs)
+!etl-go/testdata/
+!etl-go/testdata/**

@@ -1,0 +1,97 @@
+{
+  "reporting_entity_name": "Anthem Blue Cross and Blue Shield Georgia",
+  "reporting_entity_type": "Health Insurance Network",
+  "last_updated_on": "2026-08-01",
+  "version": "2.0.0",
+  "provider_references": [
+    {
+      "provider_group_id": 1001,
+      "network_name": ["GA Blue Value HIX Individual Network"],
+      "provider_groups": [
+        { "npi": [1111111111, 2222222222], "tin": { "type": "ein", "value": "58-1111111" } },
+        { "npi": [3333333333], "tin": { "type": "npi", "value": "3333333333" } }
+      ]
+    },
+    {
+      "provider_group_id": 1002,
+      "network_name": ["GA Blue Open Access POS Network"],
+      "provider_groups": [
+        { "npi": [4444444444], "tin": { "type": "ein", "value": "58-2222222" } }
+      ]
+    },
+    {
+      "provider_group_id": 1003,
+      "provider_groups": [
+        { "npi": [5555555555], "tin": { "type": "ein", "value": "58-3333333" } }
+      ]
+    }
+  ],
+  "in_network": [
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Office visit, established patient, level 3",
+      "billing_code_type": "CPT",
+      "billing_code": "99213",
+      "description": "Office/outpatient visit est",
+      "negotiated_rates": [
+        {
+          "provider_references": [1001, 1002],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 92.5,
+              "expiration_date": "9999-12-31",
+              "service_code": ["11"],
+              "billing_class": "professional",
+              "setting": "outpatient"
+            },
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 88.0,
+              "expiration_date": "9999-12-31",
+              "service_code": ["11", "22"],
+              "billing_class": "professional",
+              "setting": "outpatient"
+            }
+          ]
+        },
+        {
+          "provider_references": [1003],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "fee schedule",
+              "negotiated_rate": 101.25,
+              "expiration_date": "9999-12-31",
+              "service_code": ["19"],
+              "billing_class": "institutional",
+              "setting": "inpatient"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Comprehensive metabolic panel",
+      "billing_code_type": "CPT",
+      "billing_code": "80053",
+      "description": "Metabolic panel total ca",
+      "negotiated_rates": [
+        {
+          "provider_references": [1001],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 14.31,
+              "expiration_date": "9999-12-31",
+              "service_code": ["81"],
+              "billing_class": "professional",
+              "setting": "outpatient"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "an_unexpected_root_object": { "ignored": true, "nested": [1, 2, 3] }
+}

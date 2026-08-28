@@ -19,6 +19,11 @@ func main() {
 	indexUrlFlag := flag.String("index-url", "", "Override the Master Index URL")
 	testFlag := flag.Bool("test", false, "Run in isolated test mode (writes to test schema, not production)")
 	fileIDsFlag := flag.String("file-ids", "", "Comma-separated list of index_files IDs to parse (skips normal queue ordering)")
+	makeFixtureFlag := flag.Bool("make-fixture", false, "Stream one MRF and write a truncated *.json.gz fixture to testdata/fixtures/")
+	fixtureURLFlag := flag.String("fixture-url", "", "Source URL for -make-fixture (alternative to -file-ids)")
+	fixtureNameFlag := flag.String("fixture-name", "", "Output name for -make-fixture (default: the file id)")
+	fixtureFlag := flag.String("fixture", "", "Parse a local *.json.gz fixture instead of downloading (use with -parse -file-ids N)")
+	priorityFlag := flag.Bool("priority", false, "Parse GA/individual priority files first (see gaPriorityOrder)")
 	dryRunFlag := flag.Bool("dry-run", false, "Stream and capture schema but skip all DB writes")
 	noCacheFlag := flag.Bool("no-cache", false, "Force re-download of the master index even if a local cache exists")
 	flag.Parse()
@@ -52,6 +57,18 @@ func main() {
 		return
 	}
 
+	// 2c. Fixture mode with an explicit URL needs no DB.
+	firstFileID := 0
+	if *fileIDsFlag != "" {
+		if id, err := strconv.Atoi(strings.TrimSpace(strings.Split(*fileIDsFlag, ",")[0])); err == nil {
+			firstFileID = id
+		}
+	}
+	if *makeFixtureFlag && *fixtureURLFlag != "" {
+		makeFixture(ctx, nil, firstFileID, *fixtureURLFlag, *fixtureNameFlag)
+		return
+	}
+
 	// 3. Connect to DB
 	conn, err := pgx.Connect(ctx, DatabaseURL)
 	if err != nil {
@@ -68,6 +85,11 @@ func main() {
 
 	if *sizeFlag {
 		fetchFileSizes(ctx, conn, *limitFlag)
+		return
+	}
+
+	if *makeFixtureFlag {
+		makeFixture(ctx, conn, firstFileID, *fixtureURLFlag, *fixtureNameFlag)
 		return
 	}
 
@@ -99,7 +121,12 @@ func main() {
 			query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
 			args = []any{ids}
 		} else {
-			query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
+			order := `file_size_bytes ASC NULLS LAST, id`
+			if *priorityFlag {
+				// GA / individual files first, then smallest-first within each tier.
+				order = gaPriorityExpr + ` DESC, file_size_bytes ASC NULLS LAST, id`
+			}
+			query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY ` + order
 			args = []any{}
 			if parseLimit > 0 {
 				query += ` LIMIT $1`
@@ -140,10 +167,25 @@ func main() {
 			log.Println("🔍 Dry-run mode — streaming only, no DB writes.")
 		}
 
+		if *fixtureFlag != "" && len(files) != 1 {
+			log.Fatalf("❌ -fixture needs exactly one -file-ids target (got %d)", len(files))
+		}
+
 		seenBillingCodes := make(map[string]bool)
 		seenNPIs := make(map[int64]string)
+		seenTINs := make(map[string]bool)
+
+		totalCodes := 0
+		if !*dryRunFlag {
+			conn.QueryRow(ctx, "SELECT count(*) FROM billing_codes").Scan(&totalCodes)
+		}
+
 		for i, f := range files {
-			parseRates(ctx, conn, f.ID, f.Location, f.PlanName, i == 0, seenBillingCodes, seenNPIs, *dryRunFlag)
+			res := parseRates(ctx, conn, f.ID, f.Location, f.PlanName, *fixtureFlag,
+				i == 0, seenBillingCodes, seenNPIs, seenTINs, totalCodes, *dryRunFlag)
+			if res != nil {
+				totalCodes += res.NewBillingCodes
+			}
 		}
 		if !*dryRunFlag {
 			writeNPILookup(seenNPIs)
