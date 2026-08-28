@@ -31,8 +31,11 @@ export const getRateDistribution = (billing_code, billing_code_type = 'CPT', net
     return api.get('/rates/distribution', { params });
 };
 
-export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, limit = 100) => {
-    const params = { billing_code, billing_code_type, limit };
+// One row per contracted provider group for a code, ordered by price, plus a
+// summary over every matching group. Powers the "compare across providers" table.
+// Returns { billing_code, summary: {min,median,avg,max,n_groups,n_providers}, results: [...] }.
+export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, { sort = 'rate_asc', limit = 200 } = {}) => {
+    const params = { billing_code, billing_code_type, sort, limit };
     if (network_name) params.network_name = network_name;
     if (setting) params.setting = setting;
     if (npi) params.npi = npi;

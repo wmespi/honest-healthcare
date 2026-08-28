@@ -252,6 +252,7 @@ def rates_by_provider(
     setting: Optional[str] = None,
     npi: Optional[int] = None,
     ga_hospitals_only: bool = False,
+    sort: str = "rate_asc",
     limit: int = Query(default=100, le=1000),
 ):
     """
@@ -259,17 +260,51 @@ def rates_by_provider(
     subset is present, each group is also annotated with GA hospital/clinic
     counts and example org names; ?ga_hospitals_only=true keeps only groups
     touching a GA hospital.
+
+    Powers the "compare across providers" view: one row per contracted provider
+    group, ordered by price. `summary` is computed over every matching group
+    (not just the returned page) so the frontend can show min/median/max without
+    a second call.
     """
     conn = db()
 
     where, params = _price_filters(billing_code, billing_code_type, network_name, setting, npi)
     has_nppes = os.path.exists(GA_NPPES_PATH)
+    order_by = "pg.negotiated_rate DESC" if sort == "rate_desc" else "pg.negotiated_rate"
+
+    # Summary over ALL matching (group × rate) rows, before the LIMIT. Blue Value
+    # has ~30 groups/code so this is cheap; the billing_code filter prunes prices
+    # to a single code's partition slice first.
+    summary = conn.execute(f"""
+        WITH grp AS (
+            SELECT pg.file_id, pg.provider_group_id, pg.negotiated_rate
+            FROM {PRICE_GROUPS_SRC} pg
+            WHERE {where}
+            GROUP BY 1, 2, 3
+        )
+        SELECT MIN(negotiated_rate), MAX(negotiated_rate),
+               AVG(negotiated_rate), MEDIAN(negotiated_rate),
+               COUNT(*),
+               COUNT(DISTINCT (file_id, provider_group_id))
+        FROM grp
+    """, params).fetchone()
+
+    n_providers = conn.execute(f"""
+        SELECT COUNT(DISTINCT p.npi)
+        FROM {PRICE_GROUPS_SRC} pg
+        JOIN {PROVIDERS_SRC} p
+          ON p.file_id = pg.file_id AND p.provider_group_id = pg.provider_group_id
+        WHERE {where}
+    """, params).fetchone()[0]
 
     if has_nppes:
         ga_select = """,
             COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_hospital) AS ga_hospital_npis,
             COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_clinic)   AS ga_clinic_npis,
-            LIST(DISTINCT ga.org_name) FILTER (WHERE ga.org_name IS NOT NULL AND ga.org_name != '') AS ga_org_names"""
+            COUNT(DISTINCT ga.npi)                               AS ga_npi_count,
+            LIST(DISTINCT ga.org_name) FILTER (WHERE ga.org_name IS NOT NULL AND ga.org_name != '') AS ga_org_names,
+            LIST(DISTINCT ga.taxonomy_group) FILTER (WHERE ga.taxonomy_group IS NOT NULL AND ga.taxonomy_group != '') AS ga_taxonomies,
+            LIST(DISTINCT ga.city) FILTER (WHERE ga.city IS NOT NULL AND ga.city != '') AS ga_cities"""
         ga_join = f"LEFT JOIN read_parquet('{GA_NPPES_PATH}') ga ON p.npi = ga.npi"
         ga_having = "HAVING COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_hospital) > 0" if ga_hospitals_only else ""
     else:
@@ -292,7 +327,7 @@ def rates_by_provider(
         GROUP BY pg.file_id, pg.provider_group_id, pg.negotiated_rate,
                  pg.negotiated_type, pg.expiration_date
         {ga_having}
-        ORDER BY pg.negotiated_rate
+        ORDER BY {order_by}
         LIMIT {limit}
     """, params).fetchall()
 
@@ -309,13 +344,25 @@ def rates_by_provider(
         if has_nppes:
             d["ga_hospital_npis"] = r[7]
             d["ga_clinic_npis"] = r[8]
-            d["ga_org_names"] = (r[9] or [])[:5]
+            d["ga_npi_count"] = r[9]
+            d["ga_org_names"] = (r[10] or [])[:5]
+            d["ga_taxonomies"] = (r[11] or [])[:4]
+            d["ga_cities"] = (r[12] or [])[:4]
         return d
 
     return {
         "billing_code":      billing_code,
         "billing_code_type": billing_code_type,
         "nppes_ga": has_nppes,
+        "summary": {
+            "min":       round(summary[0], 2) if summary[0] is not None else None,
+            "max":       round(summary[1], 2) if summary[1] is not None else None,
+            "avg":       round(summary[2], 2) if summary[2] is not None else None,
+            "median":    round(summary[3], 2) if summary[3] is not None else None,
+            "n_rows":    summary[4] or 0,
+            "n_groups":  summary[5] or 0,
+            "n_providers": n_providers or 0,
+        },
         "results": [row(r) for r in rows],
     }
 

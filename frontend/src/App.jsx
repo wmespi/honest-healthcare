@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, searchProviders, getProcedureCategories } from './api';
-import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown } from 'lucide-react';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, searchProviders, getProcedureCategories } from './api';
+import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, ArrowUpDown, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -360,6 +360,106 @@ function CategoryBrowser({ onPick }) {
   );
 }
 
+// Light title-casing for the ALL-CAPS NPPES org names, keeping entity suffixes upper.
+const ORG_SUFFIX = new Set(['LLC', 'INC', 'PC', 'PA', 'LLP', 'LP', 'MD', 'DO', 'DDS', 'CORP', 'CO']);
+function titleCaseOrg(name) {
+  if (!name) return name;
+  return name.split(/\s+/).map(w => {
+    const bare = w.replace(/[.,]/g, '').toUpperCase();
+    if (ORG_SUFFIX.has(bare)) return w.toUpperCase();
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }).join(' ');
+}
+
+// Best available human label for a contracted provider group. The MRF groups are
+// coarse (a few big TIN/IPA rollups + many tiny practices), so this degrades
+// gracefully: named org → specialty + city → city → opaque group id.
+function providerLabel(r) {
+  const orgs = (r.ga_org_names || []).filter(Boolean);
+  const cities = (r.ga_cities || []).filter(Boolean);
+  const tax = (r.ga_taxonomies || []).find(t => t && t !== 'Other');
+  const n = r.npi_count || 0;
+  if (n > 400) return `Large provider network`;
+  if (orgs.length) return titleCaseOrg(orgs[0]);
+  if (tax && cities.length) return `${tax} · ${cities.slice(0, 2).join(', ')}`;
+  if (cities.length) return `Provider group · ${cities.slice(0, 2).join(', ')}`;
+  return `Provider group #${r.provider_group_id}`;
+}
+
+// "Compare across providers" — one row per contracted provider group for the
+// selected code, ranked by negotiated rate. When an NPI filter is active the
+// backend narrows this to groups containing that provider, so the same table
+// answers "what will this cost at my clinic".
+function ProviderRateTable({ data, loading, sort, onSort, npiActive }) {
+  if (loading) {
+    return (
+      <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Loading providers…
+      </div>
+    );
+  }
+  const rows = data?.results || [];
+  if (!rows.length) return null;
+  const s = data.summary || {};
+
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+      <div className="flex items-start justify-between gap-4 mb-1">
+        <div>
+          <h2 className="text-white font-black text-xl tracking-tight">
+            {npiActive ? 'This provider’s rate' : 'Rates by provider'}
+          </h2>
+          <p className="text-slate-500 text-xs mt-1">
+            {npiActive
+              ? 'Every contracted group this provider belongs to.'
+              : `${s.n_groups ?? rows.length} contracted provider groups · ${(s.n_providers ?? 0).toLocaleString()} providers`}
+            {s.min != null && s.max != null && s.min !== s.max && (
+              <> · {fmt(s.min)}–{fmt(s.max)}</>
+            )}
+          </p>
+        </div>
+        <button
+          onClick={() => onSort(sort === 'rate_asc' ? 'rate_desc' : 'rate_asc')}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 text-[11px] font-bold transition-colors"
+        >
+          <ArrowUpDown size={12} />
+          {sort === 'rate_asc' ? 'Lowest first' : 'Highest first'}
+        </button>
+      </div>
+
+      <div className="mt-5 divide-y divide-slate-800/60">
+        {rows.map((r, i) => {
+          const cities = (r.ga_cities || []).filter(Boolean).slice(0, 3);
+          return (
+            <div key={i} className="flex items-center justify-between gap-4 py-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Building2 size={13} className="text-slate-600 shrink-0" />
+                  <span className="text-sm text-white font-medium truncate">{providerLabel(r)}</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-x-2.5 gap-y-0.5 flex-wrap">
+                  <span className="tabular-nums">{(r.npi_count || 0).toLocaleString()} providers</span>
+                  {r.ga_hospital_npis > 0 && <span className="text-amber-400">{r.ga_hospital_npis} hospital</span>}
+                  {r.ga_clinic_npis > 0 && <span className="text-sky-400">{r.ga_clinic_npis} clinic</span>}
+                  {cities.length > 0 && <span className="truncate text-slate-600">{cities.join(' · ')}</span>}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-lg font-black text-white tabular-nums">{fmt(r.negotiated_rate)}</div>
+                <div className="text-[10px] text-slate-600 uppercase tracking-wide">{r.negotiated_type}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {rows.length >= 200 && (
+        <p className="text-slate-600 text-[11px] mt-4">Showing the first 200 provider groups.</p>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [selectedPlan, setSelectedPlan] = useState('');
 
@@ -376,10 +476,28 @@ function App() {
   const [selectedCode, setSelectedCode] = useState(null);
   const [error, setError] = useState(null);
 
+  const [providerRates, setProviderRates] = useState(null);
+  const [providerRatesLoading, setProviderRatesLoading] = useState(false);
+  const [providerSort, setProviderSort] = useState('rate_asc');
+
   useEffect(() => {
     // Load network-wide overview immediately on mount
     fetchDistribution(null, null, '', '', '');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Provider-level rate table — only meaningful once a specific code is chosen.
+  // Reacts to the code, network, setting, NPI, and sort direction.
+  useEffect(() => {
+    const code = selectedCode?.code;
+    if (!code) { setProviderRates(null); return; }
+    let cancelled = false;
+    setProviderRatesLoading(true);
+    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, npi || undefined, { sort: providerSort })
+      .then(res => { if (!cancelled) setProviderRates(res.data); })
+      .catch(() => { if (!cancelled) setProviderRates(null); })
+      .finally(() => { if (!cancelled) setProviderRatesLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedCode, selectedPlan, setting, npi, providerSort]);
 
   // Show top results immediately on focus; debounce while typing
   useEffect(() => {
@@ -601,6 +719,16 @@ function App() {
         <AnimatePresence>
           {distribution && !loading && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              {/* Negotiated-rate disclaimer */}
+              <div className="mb-6 flex items-start gap-2.5 text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3">
+                <Info size={14} className="shrink-0 mt-0.5 text-slate-600" />
+                <span>
+                  These are <span className="text-slate-300 font-semibold">negotiated rates</span> — the price your plan and
+                  the provider agreed on, before your benefits apply. What you actually pay depends on your deductible,
+                  coinsurance, copay, and out-of-pocket max.
+                </span>
+              </div>
+
               {/* Summary stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
@@ -628,9 +756,11 @@ function App() {
                     <span className="text-white font-black">{summary.n_providers.toLocaleString()}</span> providers
                   </span>
                 )}
-                <span><span className="text-white font-black">{summary.provider_groups}</span> provider groups</span>
+                <span><span className="text-white font-black">{summary.provider_groups?.toLocaleString()}</span> provider groups</span>
                 <span><span className="text-white font-black">{summary.total_entries.toLocaleString()}</span> rate entries</span>
-                <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
+                {summary.min > 0 && summary.max / summary.min >= 1.05 && (
+                  <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
+                )}
               </div>
 
               {/* Histogram */}
@@ -673,6 +803,17 @@ function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Per-provider rate table — appears once a specific code is selected */}
+              {selectedCode?.code && (
+                <ProviderRateTable
+                  data={providerRates}
+                  loading={providerRatesLoading}
+                  sort={providerSort}
+                  onSort={setProviderSort}
+                  npiActive={!!npi}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>
