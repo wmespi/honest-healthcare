@@ -97,6 +97,11 @@ nppes: _require-etl-running ## Download NPPES national file, write data/nppes/ga
 nppes-test: _require-etl-running ## Hermetic NPPES test: extract GA rows from the committed CSV fixture, with teardown
 	bash scripts/nppes_test.sh
 
+## ── Reference data ──────────────────────────────────────────────────────────
+
+code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
+	docker compose exec -T backend python3 /app/scripts/build_code_labels.py --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
+
 ## ── Backend ──────────────────────────────────────────────────────────────────
 
 backend-test: ## Backend contract + coverage tests (pytest, against the running API)

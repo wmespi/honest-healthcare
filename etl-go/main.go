@@ -25,6 +25,8 @@ func main() {
 	fixtureFlag := flag.String("fixture", "", "Parse a local *.json.gz fixture instead of downloading (use with -parse -file-ids N)")
 	priorityFlag := flag.Bool("priority", false, "Parse GA/individual priority files first (see gaPriorityOrder)")
 	allNPIsFlag := flag.Bool("all-npis", false, "Keep every NPI/rate (default: drop providers/rates that don't touch a GA NPPES NPI, when data/nppes/ga_providers.parquet exists)")
+	networksFlag := flag.String("networks", "", "network_name allowlist, comma-separated (trailing * = prefix match). Default 'GA *' unless -all-networks. Groups whose network_name fails this — and all their rate rows — are dropped at parse time.")
+	allNetworksFlag := flag.Bool("all-networks", false, "Keep every network (disable the default 'GA *' network_name allowlist)")
 	nppesFlag := flag.Bool("nppes", false, "Download NPPES national file, write the GA subset to data/nppes/ga_providers.parquet")
 	nppesURLFlag := flag.String("nppes-url", "", "Override the NPPES dissemination zip URL")
 	nppesFileFlag := flag.String("nppes-file", "", "Use a local NPPES zip (or plain CSV via -nppes) instead of downloading")
@@ -197,14 +199,37 @@ func main() {
 			}
 		}
 
+		// Network allowlist. Default 'GA *' unless overridden. It is NOT applied to
+		// anthem/GA_* plan-specific files — those are unambiguously Georgia by
+		// Anthem's own file naming, and their network_name labels vary wildly
+		// ("GA Blue Value HIX Individual Network" in one file, "EXCHANGES
+		// SPECIALIST GATEKEEPER ON INDIVIDUAL" in another). A user-supplied
+		// -networks value overrides this and IS applied everywhere.
+		networksSpec := *networksFlag
+		userSetNetworks := *networksFlag != ""
+		if *allNetworksFlag {
+			networksSpec = ""
+			log.Println("⚠️ -all-networks — keeping every network (network_name allowlist disabled)")
+		} else if networksSpec == "" {
+			networksSpec = "GA *"
+		}
+		networkAllow := buildNetworkAllow(networksSpec)
+		if networkAllow != nil {
+			log.Printf("🗺️  network allowlist active — keeping only network_name in {%s} (skipped for anthem/GA_* files unless -networks is set)", networksSpec)
+		}
+
 		totalCodes := 0
 		if !*dryRunFlag {
 			conn.QueryRow(ctx, "SELECT count(*) FROM billing_codes").Scan(&totalCodes)
 		}
 
 		for i, f := range files {
+			fileNetworkAllow := networkAllow
+			if !userSetNetworks && isGAPlanSpecific(f.Location) {
+				fileNetworkAllow = nil // trust the GA_* filename; keep every network
+			}
 			res := parseRates(ctx, conn, f.ID, f.Location, f.PlanName, *fixtureFlag,
-				i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, totalCodes, *dryRunFlag)
+				i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, fileNetworkAllow, totalCodes, *dryRunFlag)
 			if res != nil {
 				totalCodes += res.NewBillingCodes
 			}

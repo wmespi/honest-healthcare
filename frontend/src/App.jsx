@@ -192,6 +192,7 @@ function NetworkDropdown({ selectedPlan, onSelect }) {
 
 function NpiSearch({ selectedNpi, onSelect }) {
   const [query, setQuery] = useState('');
+  const [selectedLabel, setSelectedLabel] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -215,35 +216,34 @@ function NpiSearch({ selectedNpi, onSelect }) {
     return () => clearTimeout(timer);
   }, [query, isFocused]);
 
-  const handleSelect = (npi) => {
-    onSelect(String(npi));
+  const handleSelect = (s) => {
+    onSelect(String(s.npi));
+    setSelectedLabel(s.name || String(s.npi));
     setQuery('');
     setShowSuggestions(false);
   };
 
-  const handleClear = () => { onSelect(''); setQuery(''); };
+  const handleClear = () => { onSelect(''); setQuery(''); setSelectedLabel(''); };
 
   return (
     <div ref={ref} className="flex items-center gap-2">
-      <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest shrink-0">NPI</span>
+      <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest shrink-0">Provider</span>
       {selectedNpi ? (
-        <div className="flex items-center gap-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 h-8">
-          <span className="text-xs font-mono text-indigo-400 font-bold">{selectedNpi}</span>
-          <button onClick={handleClear} className="text-slate-500 hover:text-white transition-colors"><X size={12} /></button>
+        <div className="flex items-center gap-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 h-8 max-w-[220px]">
+          <span className="text-xs text-indigo-300 font-bold truncate">{selectedLabel || selectedNpi}</span>
+          <button onClick={handleClear} className="text-slate-500 hover:text-white transition-colors shrink-0"><X size={12} /></button>
         </div>
       ) : (
         <div className="relative">
           <div className={`flex items-center bg-slate-900 border rounded-xl px-3 h-8 gap-2 transition-all ${showSuggestions ? 'border-indigo-500/50' : 'border-slate-800'}`}>
             <input
               type="text"
-              inputMode="numeric"
-              maxLength={10}
-              placeholder="Search NPI…"
+              placeholder="Search provider or NPI…"
               value={query}
-              onChange={e => setQuery(e.target.value.replace(/\D/g, ''))}
+              onChange={e => setQuery(e.target.value)}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setTimeout(() => { setIsFocused(false); setShowSuggestions(false); }, 200)}
-              className="bg-transparent outline-none text-xs text-white placeholder:text-slate-600 w-28 font-mono"
+              className="bg-transparent outline-none text-xs text-white placeholder:text-slate-600 w-44"
             />
           </div>
           <AnimatePresence>
@@ -252,16 +252,21 @@ function NpiSearch({ selectedNpi, onSelect }) {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 6 }}
-                className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden z-[999] shadow-2xl min-w-[220px] max-h-64 overflow-y-auto"
+                className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden z-[999] shadow-2xl min-w-[280px] max-h-72 overflow-y-auto"
               >
                 {suggestions.map((s, i) => (
                   <button
                     key={i}
-                    onClick={() => handleSelect(s.npi)}
-                    className="w-full px-4 py-3 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+                    onClick={() => handleSelect(s)}
+                    className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
                   >
-                    <div className="text-sm font-mono font-bold text-white">{s.npi}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">TIN {s.tin_value}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-white truncate">{s.name || s.npi}</span>
+                      {s.has_rates && <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 truncate">
+                      {[s.city, s.taxonomy_group, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
+                    </div>
                   </button>
                 ))}
               </motion.div>
@@ -315,36 +320,46 @@ function App() {
     setError(null);
     setShowSuggestions(false);
     try {
-      const res = await getRateDistribution(code, type, planName || undefined, activeSetting || undefined, activeNpi || undefined);
+      const res = await getRateDistribution(code || undefined, type || undefined, planName || undefined, activeSetting || undefined, activeNpi || undefined);
       setDistribution(res.data);
-      setSelectedCode({ code, type });
+      setSelectedCode(code ? { code, type } : null);
     } catch (err) {
       setDistribution(null);
-      setError(err.response?.status === 404 ? `No rates found for ${type}:${code}` : 'Query failed');
+      if (err.response?.status === 404) {
+        const scope = planName || 'this network';
+        setError(
+          activeNpi && !code ? `No negotiated rates for this provider in ${scope}.`
+          : activeNpi && code ? `No rates for ${type} ${code} at this provider in ${scope}.`
+          : code ? `No rates found for ${type} ${code} in ${scope}.`
+          : `No rates found in ${scope}.`
+        );
+      } else {
+        setError('Query failed');
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   const handleSuggestionClick = (sug) => {
-    setQuery(cleanProcedureName(sug.name) || `${sug.billing_code} (${sug.billing_code_type})`);
+    setQuery(sug.label || cleanProcedureName(sug.name) || `${sug.billing_code} (${sug.billing_code_type})`);
     setShowSuggestions(false);
     fetchDistribution(sug.billing_code, sug.billing_code_type, selectedPlan, setting, npi);
   };
 
   const handlePlanSelect = (plan) => {
     setSelectedPlan(plan);
-    if (selectedCode) fetchDistribution(selectedCode.code, selectedCode.type, plan, setting, npi);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi);
   };
 
   const handleSettingChange = (s) => {
     setSetting(s);
-    if (selectedCode) fetchDistribution(selectedCode.code, selectedCode.type, selectedPlan, s, npi);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, s, npi);
   };
 
   const handleNpiSelect = (n) => {
     setNpi(n);
-    if (selectedCode) fetchDistribution(selectedCode.code, selectedCode.type, selectedPlan, setting, n);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n);
   };
 
 
@@ -423,11 +438,14 @@ function App() {
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-white break-words">
-                          {cleanProcedureName(sug.name) || sug.billing_code}
+                          {sug.label || cleanProcedureName(sug.name) || sug.billing_code}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[11px] font-mono text-indigo-400">{sug.billing_code}</span>
                           <span className="text-[10px] text-slate-600 uppercase tracking-wide">{sug.billing_code_type}</span>
+                          {sug.rbcs_subcategory && sug.rbcs_subcategory !== sug.label && (
+                            <span className="text-[10px] text-slate-600 truncate">· {sug.rbcs_subcategory}</span>
+                          )}
                         </div>
                       </div>
                       <span className="text-xs text-slate-500 shrink-0 tabular-nums">

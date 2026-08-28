@@ -33,10 +33,14 @@ type mrfResult struct {
 	ReportingEntityType string
 	SchemaExample       map[string]interface{}
 
-	// GA NPI filter accounting (0 when the filter is off).
+	// Filter accounting (0 when the filters are off). Covers both the GA NPI
+	// filter and the network_name allowlist — a group dropped by either counts here.
 	ProviderRowsDropped int64
 	RateRowsDropped     int64
 	GroupsDropped       int
+	// GroupsDroppedNetwork is the subset of GroupsDropped rejected by the
+	// network_name allowlist (not a Georgia network).
+	GroupsDroppedNetwork int
 }
 
 func newStringSet() map[string]struct{} { return map[string]struct{}{} }
@@ -116,6 +120,7 @@ func streamMRF(
 	seenNPIs map[int64]string,
 	seenTINs map[string]bool,
 	gaNPIs map[int64]struct{}, // nil = keep everything; non-nil = drop providers/rates with no GA NPI
+	networkAllow func(networkName string) bool, // nil = allow every network; else keep only groups whose network_name passes
 	w mrfWriters,
 	pr *ProgressReader,
 ) (*mrfResult, error) {
@@ -203,23 +208,35 @@ func streamMRF(
 
 				rows, networkName := buildProviderRows(ref)
 
-				// GA NPI filter: keep only rows whose NPI is a Georgia NPPES NPI.
-				// A group with none is dropped entirely (its rates go too).
-				if gaNPIs != nil {
-					dropped := int64(0)
-					kept := rows[:0]
-					for _, row := range rows {
-						if _, ok := gaNPIs[row.NPI]; ok {
-							kept = append(kept, row)
-						} else {
-							dropped++
-						}
-					}
-					res.ProviderRowsDropped += dropped
-					rows = kept
-					if len(rows) == 0 {
+				// Filters: a provider group must pass every active filter, else the
+				// group — and every rate row that references it — is dropped.
+				if gaNPIs != nil || networkAllow != nil {
+					// Network allowlist: is this a Georgia network at all?
+					if networkAllow != nil && !networkAllow(networkName) {
+						res.ProviderRowsDropped += int64(len(rows))
 						res.GroupsDropped++
+						res.GroupsDroppedNetwork++
 						continue
+					}
+
+					// GA NPI filter: keep only rows whose NPI is a Georgia NPPES
+					// NPI; a group left with none is dropped (its rates go too).
+					if gaNPIs != nil {
+						dropped := int64(0)
+						kept := rows[:0]
+						for _, row := range rows {
+							if _, ok := gaNPIs[row.NPI]; ok {
+								kept = append(kept, row)
+							} else {
+								dropped++
+							}
+						}
+						res.ProviderRowsDropped += dropped
+						rows = kept
+						if len(rows) == 0 {
+							res.GroupsDropped++
+							continue
+						}
 					}
 					keptGroups[int64(ref.ProviderGroupID)] = struct{}{}
 				}
@@ -284,7 +301,7 @@ func streamMRF(
 				}
 
 				rows := buildRateRows(item, networkByGroup, planName)
-				if gaNPIs != nil {
+				if gaNPIs != nil || networkAllow != nil {
 					kept := rows[:0]
 					for _, row := range rows {
 						if _, ok := keptGroups[row.ProviderGroupID]; ok {

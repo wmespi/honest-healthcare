@@ -65,7 +65,9 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      # Override via .env (LAN_HOST=10.0.0.76) to reach the app from another
+      # device on the same network — e.g. a phone at http://<LAN_HOST>:5173.
+      - VITE_API_URL=http://${LAN_HOST:-localhost}:8000
     depends_on:
       - backend
 

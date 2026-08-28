@@ -59,6 +59,9 @@ make nppes                   # download NPPES national file, write data/nppes/ga
 make nppes URL="…_V3.zip"    # override the monthly URL (CMS re-cuts with _V<n> suffixes)
 make nppes-test              # hermetic GA-extraction test on the committed CSV fixture, with teardown
 
+# Reference data
+make code-labels             # build data/reference/code_labels.parquet (RBCS categories + synonyms per parsed code)
+
 # ETL — Quality (stack must be running)
 make etl-fmt                 # gofmt -w on etl-go source
 make etl-vet                 # go vet ./... static analysis
@@ -102,6 +105,8 @@ docker compose exec db psql -U postgres -d honest_healthcare
 | `-parse` | Phase 2 — stream `pending` files into Parquet |
 | `-priority` | With `-parse`: order the queue by `gaPriorityExpr` (GA/individual first) then size |
 | `-all-npis` | Disable the GA NPI filter — keep every provider/rate (default filters when `ga_providers.parquet` exists) |
+| `-networks "GA *"` | network_name allowlist (comma-sep, trailing `*` = prefix). Default `GA *`, applied to BlueCard-mirror / other-state files only — **skipped for `anthem/GA_*` plan-specific files** (trusted by filename; their network labels vary — see Known gaps). A user-set value applies everywhere. |
+| `-all-networks` | Disable the network_name allowlist entirely |
 | `-size` | HEAD every `index_files` row with a NULL `file_size_bytes`, fill it in (concurrent) |
 | `-file-ids 1,2,3` | Parse specific IDs, bypassing the queue order |
 | `-make-fixture` | Stream one MRF, write a truncated `*.json.gz` to `etl-go/testdata/fixtures/` (with `-file-ids N` or `-fixture-url`, `-fixture-name`) |
@@ -257,9 +262,25 @@ data/nppes/
   ga_providers.parquet    npi | entity_type | org_name | last_name | first_name
                           taxonomy_code | taxonomy_group | is_hospital | is_clinic
                           city | state | postal_code
+data/reference/
+  rbcs_taxonomy_ry26.csv  raw CMS RBCS download (cache)
+  code_labels.parquet     billing_code_type | billing_code | short_name
+                          rbcs_category | rbcs_subcategory | rbcs_family | rbcs_is_major
+                          label | search_text     ← consumer label + search blob
 ```
 
-`{id}` is `index_files.id`. `service_code` is the `|`-joined place-of-service array.
+`{id}` is `index_files.id`. `service_code` is the `|`-joined place-of-service array. While a
+parse runs, each `{id}.parquet` is written under `<dir>/.inflight/` and atomically renamed
+into place only on a clean stream — so the backend (which globs `<dir>/*.parquet`) never
+reads a half-written or zero-byte file.
+
+**`code_labels.parquet`** (`make code-labels`, script `scripts/build_code_labels.py`) is the
+consumer-friendly procedure layer, from **public data only**: CMS RBCS (185 families →
+`rbcs_family`, e.g. "Arthroplasty - Knee"; `rbcs_subcategory` covers ~84% of rate volume as a
+fallback) + a hand-curated `FAMILY_SYNONYMS` map so "colonoscopy" / "mri back" / "blood test"
+resolve. No AMA CPT descriptors (licensed). Needed because the Georgia MRF's own `codes.name`
+is near-useless ("Medical", "Surgery"). `/billing_codes` searches `search_text`;
+`/procedure_categories` powers browse-by-category.
 
 **`network_name`** is the real, structured network label for the rate — the `|`-joined
 `provider_references[].network_name` array (e.g. `"GA Blue Value HIX Individual Network"`). This is
@@ -379,8 +400,9 @@ Add `make backend-test` and `make frontend-test` targets when these are built, t
 | `etl-go/progress.go` | `ProgressReader` — byte tracking + ETA |
 | `etl-go/types.go` | Shared structs, global vars, DB URL / output path init |
 | `etl-go/*_test.go` | Hermetic unit tests over the committed fixtures |
-| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs (`/networks`, `/providers/ga`, network filters) |
+| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs (`/networks`, `/providers/search` = provider name/org search over NPPES GA, `/procedure_categories`, network filters) |
 | `backend/tests/test_coverage.py` | Contract + coverage pytest (run via `make backend-test`) |
+| `scripts/build_code_labels.py` | Build `data/reference/code_labels.parquet` (RBCS + synonyms) — `make code-labels` |
 | `scripts/coverage_probe.py` | ~40-code scorecard for the target plan |
 | `scripts/coverage_report.py` | Aggregate `coverage_log` |
 | `scripts/etl_e2e_test.sh`, `scripts/nppes_test.sh` | Hermetic e2e tests with teardown |
@@ -401,6 +423,18 @@ Add `make backend-test` and `make frontend-test` targets when these are built, t
   enters the pipeline; `index_files.plan_names` / `idx_index_files_plan` remain unused. Mapping a
   member's plan name → network_name(s) is the remaining piece (HIOS `plan_id` + the CMS registry, or
   the index's `reporting_plans`).
+- **`network_name` is NOT uniform across files.** `GA_JBNKMED0001` (the target plan's only source,
+  1.1 MB, id 21057, 682k rows) uses the clean `"GA Blue Value HIX Individual Network"`; other
+  `anthem/GA_*` files use config-style labels like `"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`.
+  That's why the `-networks "GA *"` default is **skipped for `anthem/GA_*` files** (`isGAPlanSpecific`
+  trusts the filename). Every other big `anthem/GA_*` file is a *different* GA individual plan
+  (Pathway/Gatekeeper HMO, etc.), not Blue Value — parsing them broadens GA coverage but adds nothing
+  to the target plan.
+- **The current dataset is deliberately just file 21057** (the target plan). A 2026-08 pass parsed
+  ~370 BlueCard-mirror / other-state files; all were ~98% non-GA national data ("Aware",
+  "Traditional", CareFirst, Anthem NV/CO/WY) — rolled back (`status='failed'`, reason "rolled back").
+  Re-adding scale needs `network_name`-partitioned parquet first (unpartitioned, one 679M-row file
+  took every query to ~3.5s).
 - **`coverage_log.n_ga_hospital_npis`** is never populated by the parser (the NPPES join happens at
   query time). Backfill it with a post-batch `providers ⨝ ga_providers` query if the number is wanted
   in the log.

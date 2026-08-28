@@ -49,7 +49,9 @@ print(f'{n} {ga}')
 ")
 read -r N GA <<< "$RATE_ROWS"
 echo "   rate rows=$N  attributed to GA Blue Value Individual=$GA"
-[ "$N" = "6" ] || { echo "FAIL: expected 6 rate rows, got $N"; exit 1; }
+# 5, not 6: the default 'GA *' network allowlist drops the fixture's one
+# provider group that has no network_name (and its single rate row).
+[ "$N" = "5" ] || { echo "FAIL: expected 5 rate rows (GA-network filtered), got $N"; exit 1; }
 [ "$GA" -ge 1 ] || { echo "FAIL: no rate rows attributed to the target network"; exit 1; }
 
 echo "→ verify status + coverage_log"
