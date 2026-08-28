@@ -73,6 +73,58 @@ def test_rates_providers_nppes_annotation(client):
             assert "ga_hospital_npis" in row and "ga_org_names" in row
 
 
+@pytest.fixture(scope="session")
+def npi_with_rates(client):
+    """An NPI we hold rate data for, discovered via provider search."""
+    for q in ("emory", "piedmont", "northside", "wellstar"):
+        r = client.get("/providers/search", params={"q": q, "limit": 20})
+        if r.status_code != 200:
+            continue
+        hit = next((p for p in r.json() if p.get("has_rates")), None)
+        if hit:
+            return hit["npi"]
+    pytest.skip("no NPI with rates found via provider search")
+
+
+def test_provider_menu_shape(client, npi_with_rates):
+    r = client.get(f"/providers/{npi_with_rates}/procedures",
+                   params={"network_name": "GA Blue Value HIX Individual Network"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["npi"] == npi_with_rates
+    assert body["count"] == len(body["results"])
+    for row in body["results"][:5]:
+        assert {"billing_code", "min_rate", "median_rate", "max_rate", "n_rates"} <= row.keys()
+        assert row["min_rate"] <= row["max_rate"]
+
+
+def test_rate_quote_shape(client, npi_with_rates):
+    # 99213 is in the core basket — every rate-bearing provider should have it.
+    menu = client.get(f"/providers/{npi_with_rates}/procedures").json()["results"]
+    code = next((m["billing_code"] for m in menu if m["billing_code_type"] == "CPT"), "99213")
+    ctype = next((m["billing_code_type"] for m in menu if m["billing_code"] == code), "CPT")
+    r = client.get("/rates/quote", params={
+        "billing_code": code, "billing_code_type": ctype, "npi": npi_with_rates})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["headline"]["rate"] <= body["headline"]["max_rate"]
+    assert body["components"]
+    for c in body["components"]:
+        assert {"modifier", "label", "settings"} <= c.keys()
+        for s in c["settings"]:
+            assert s["min_rate"] <= s["max_rate"]
+            assert s["pos_label"]
+    # global component (if present) sorts first
+    mods = [c["modifier"] for c in body["components"]]
+    if "" in mods:
+        assert mods[0] == ""
+
+
+def test_distribution_rejects_npi_without_code(client, npi_with_rates):
+    r = client.get("/rates/distribution", params={"npi": npi_with_rates})
+    assert r.status_code == 400
+
+
 def test_networks_endpoint(client):
     r = client.get("/networks")
     assert r.status_code == 200

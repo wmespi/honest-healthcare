@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getProviderMenu, searchProviders, getProcedureCategories } from './api';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRateQuote, getProviderMenu, searchProviders, getProcedureCategories } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, ArrowUpDown, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -461,6 +461,71 @@ function ProviderRateTable({ data, loading, sort, onSort, npiActive }) {
   );
 }
 
+// Job 1 — the cost answer for one procedure at one provider. Shows a headline
+// rate (a range when it varies by setting) and the breakdown by component
+// (full procedure / professional fee / technical fee) and place of service.
+function ProviderCostCard({ data, loading, providerName }) {
+  if (loading) {
+    return (
+      <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Pricing this procedure…
+      </div>
+    );
+  }
+  if (!data?.headline) return null;
+  const { headline, components, is_component_split } = data;
+  const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
+
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+      <h2 className="text-white font-black text-xl tracking-tight">
+        Negotiated cost{providerName ? <> at <span className="text-indigo-300">{providerName}</span></> : ''}
+      </h2>
+
+      <div className="mt-4 mb-2">
+        <div className="text-4xl sm:text-5xl font-black text-white tracking-tight">
+          {range(headline.rate, headline.max_rate)}
+        </div>
+        <div className="text-xs text-slate-500 mt-2">
+          {headline.basis === 'global'
+            ? (headline.pos_label
+                ? <>Full procedure · {headline.pos_label}</>
+                : <>Full procedure — varies by where it’s performed</>)
+            : <>This code is billed only as separate parts — see the breakdown below</>}
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-3">
+        {components.map(c => (
+          <div key={c.modifier || 'global'} className="rounded-2xl bg-slate-950/50 border border-slate-800 p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm font-bold text-slate-200">{c.label}</span>
+              {c.modifier && <span className="text-[10px] font-mono text-slate-600 shrink-0">mod {c.modifier}</span>}
+            </div>
+            {c.description && <p className="text-[11px] text-slate-500 mt-1">{c.description}</p>}
+            <div className="mt-2.5 divide-y divide-slate-800/50">
+              {c.settings.map((s, i) => (
+                <div key={i} className="flex items-center justify-between py-2 text-sm">
+                  <span className="text-slate-400">{s.pos_label}</span>
+                  <span className="text-white font-bold tabular-nums">{range(s.min_rate, s.max_rate)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {is_component_split && (
+        <p className="text-[11px] text-slate-500 mt-4 leading-relaxed">
+          Often billed as two line items — a <span className="text-slate-400">professional fee</span> (the physician’s
+          reading) and a <span className="text-slate-400">technical fee</span> (the equipment and facility) — which
+          together roughly equal the full rate. Which you’re charged depends on where it’s done and who interprets it.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // The provider "menu" — every procedure the selected provider has a negotiated
 // rate for, grouped by RBCS category. Shown when a provider is picked but no
 // specific procedure. Clicking a row drills into that procedure.
@@ -591,24 +656,40 @@ function App() {
   const [providerMenu, setProviderMenu] = useState(null);
   const [providerMenuLoading, setProviderMenuLoading] = useState(false);
 
+  const [providerQuote, setProviderQuote] = useState(null);
+  const [providerQuoteLoading, setProviderQuoteLoading] = useState(false);
+
   useEffect(() => {
     // Load network-wide overview immediately on mount
     fetchDistribution(null, null, '', '', '');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Provider-level rate table — only meaningful once a specific code is chosen.
-  // Reacts to the code, network, setting, NPI, and sort direction.
+  // Compare-across-providers table — a code is chosen and NO provider filter
+  // (with a provider, we show the cost card instead).
   useEffect(() => {
     const code = selectedCode?.code;
-    if (!code) { setProviderRates(null); return; }
+    if (!code || npi) { setProviderRates(null); return; }
     let cancelled = false;
     setProviderRatesLoading(true);
-    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, npi || undefined, { sort: providerSort })
+    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined, { sort: providerSort })
       .then(res => { if (!cancelled) setProviderRates(res.data); })
       .catch(() => { if (!cancelled) setProviderRates(null); })
       .finally(() => { if (!cancelled) setProviderRatesLoading(false); });
     return () => { cancelled = true; };
   }, [selectedCode, selectedPlan, setting, npi, providerSort]);
+
+  // Job 1 cost card — a provider AND a specific procedure are both selected.
+  useEffect(() => {
+    const code = selectedCode?.code;
+    if (!npi || !code) { setProviderQuote(null); return; }
+    let cancelled = false;
+    setProviderQuoteLoading(true);
+    getRateQuote(code, selectedCode.type, npi, selectedPlan || undefined)
+      .then(res => { if (!cancelled) setProviderQuote(res.data); })
+      .catch(() => { if (!cancelled) setProviderQuote(null); })
+      .finally(() => { if (!cancelled) setProviderQuoteLoading(false); });
+    return () => { cancelled = true; };
+  }, [npi, selectedCode, selectedPlan]);
 
   // Provider "menu" — every procedure the selected provider has a rate for.
   // Shown only when a provider is chosen but no specific procedure is.
@@ -976,14 +1057,22 @@ function App() {
                 </ResponsiveContainer>
               </div>
 
-              {/* Per-provider rate table — appears once a specific code is selected */}
-              {selectedCode?.code && (
+              {/* Provider + procedure both chosen → the cost answer (job 1).
+                  Procedure only → the compare-across-providers table (job 3). */}
+              {selectedCode?.code && npi && (
+                <ProviderCostCard
+                  data={providerQuote}
+                  loading={providerQuoteLoading}
+                  providerName={npiLabel}
+                />
+              )}
+              {selectedCode?.code && !npi && (
                 <ProviderRateTable
                   data={providerRates}
                   loading={providerRatesLoading}
                   sort={providerSort}
                   onSort={setProviderSort}
-                  npiActive={!!npi}
+                  npiActive={false}
                 />
               )}
             </motion.div>

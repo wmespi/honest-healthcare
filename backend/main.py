@@ -377,6 +377,149 @@ def rates_by_provider(
     }
 
 
+_POS_LABELS = {
+    "office": "Office / telehealth",
+    "asc": "Ambulatory surgery center",
+    "er": "Emergency room",
+    "inpatient": "Hospital inpatient",
+    "hosp_outpatient": "Hospital outpatient dept.",
+    "any": "Any setting",
+    "unspecified": "Setting not specified",
+    "facility": "Facility setting",
+}
+
+
+def _pos_bucket(service_code: Optional[str]) -> str:
+    """Collapse a `|`-joined CMS place-of-service list to one consumer bucket.
+    A long list means one rate that applies across settings -> "any"."""
+    codes = {c for c in (service_code or "").split("|") if c}
+    if not codes:
+        return "unspecified"
+    if len(codes) >= 4:
+        return "any"
+    if "24" in codes:
+        return "asc"
+    if "23" in codes:
+        return "er"
+    if codes & {"21", "51", "61"}:
+        return "inpatient"
+    if codes & {"22", "19", "20"}:
+        return "hosp_outpatient"
+    if codes & {"11", "10", "12", "02", "72"}:
+        return "office"
+    return "facility"
+
+
+_MODIFIER_LABELS = {
+    "": ("Full procedure", "The complete service — physician work plus facility/equipment."),
+    "26": ("Professional fee", "The physician's work only — reading, interpretation, supervision."),
+    "TC": ("Technical fee", "Facility, equipment, and staff only — no physician work."),
+    "26|TC": ("Professional + technical", "Billed as separate components that sum to the global rate."),
+    "QW": ("CLIA-waived test", "Simple lab test run in-office."),
+    "53": ("Discontinued procedure", "Stopped before completion."),
+    "50": ("Bilateral procedure", "Performed on both sides."),
+}
+
+
+@app.get("/rates/quote")
+def rate_quote(
+    billing_code: str,
+    npi: int,
+    billing_code_type: str = "CPT",
+    network_name: Optional[str] = None,
+):
+    """Job 1 — "what will this procedure cost at this provider". Resolves the NPI
+    to its group-sets first (cheap), then the code's prices, and organises them
+    by component modifier (global / professional / technical) and place of
+    service. Returns a headline rate + the breakdown."""
+    conn = db()
+
+    net_filter = "AND p.net = ?" if network_name else ""
+    params: list = [npi, billing_code, billing_code_type]
+    if network_name:
+        params.append(network_slug(network_name))
+
+    rows = conn.execute(f"""
+        WITH npi_groups AS (
+            SELECT DISTINCT file_id, provider_group_id
+            FROM {PROVIDERS_SRC} WHERE npi = ?
+        ),
+        npi_sets AS (
+            SELECT DISTINCT gs.file_id, gs.group_set_id
+            FROM {GROUP_SETS_SRC} gs
+            JOIN npi_groups g
+              ON g.file_id = gs.file_id AND g.provider_group_id = gs.provider_group_id
+        )
+        SELECT p.modifier, p.service_code, p.setting, p.negotiated_type,
+               MIN(p.negotiated_rate), MAX(p.negotiated_rate), COUNT(*)
+        FROM {PRICES_SRC} p
+        JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
+        WHERE p.billing_code = ? AND p.billing_code_type = ? {net_filter}
+        GROUP BY 1, 2, 3, 4
+    """, params).fetchall()
+
+    if not rows:
+        raise HTTPException(404, detail=f"No rate for {billing_code_type}:{billing_code} at this provider")
+
+    # Fold (modifier, pos_bucket) → rate range.
+    comps: dict = {}
+    for modifier, service_code, setting, ntype, lo, hi, n in rows:
+        mod = modifier or ""
+        bucket = _pos_bucket(service_code)
+        c = comps.setdefault(mod, {})
+        s = c.setdefault(bucket, {"min": lo, "max": hi, "n": 0, "negotiated_type": ntype})
+        s["min"] = min(s["min"], lo)
+        s["max"] = max(s["max"], hi)
+        s["n"] += n
+
+    def comp_block(mod):
+        label, desc = _MODIFIER_LABELS.get(mod, (f"Modifier {mod}", ""))
+        settings = sorted(
+            (
+                {
+                    "pos_bucket": b,
+                    "pos_label": _POS_LABELS.get(b, b),
+                    "min_rate": round(v["min"], 2),
+                    "max_rate": round(v["max"], 2),
+                    "negotiated_type": v["negotiated_type"],
+                }
+                for b, v in comps[mod].items()
+            ),
+            key=lambda x: x["min_rate"],
+        )
+        return {"modifier": mod, "label": label, "description": desc, "settings": settings}
+
+    order = sorted(comps.keys(), key=lambda m: (m != "", m))  # global first
+    components = [comp_block(m) for m in order]
+
+    # Headline: the range of the global (no-modifier) rate across settings. If
+    # there's no global rate (component-split only), fall back to the full spread
+    # and flag it so the UI can say "billed as parts".
+    glob = next((c for c in components if c["modifier"] == ""), None)
+    if glob and glob["settings"]:
+        lo = min(s["min_rate"] for s in glob["settings"])
+        hi = max(s["max_rate"] for s in glob["settings"])
+        one_setting = len(glob["settings"]) == 1
+        headline = {"rate": lo, "max_rate": hi, "basis": "global",
+                    "pos_label": glob["settings"][0]["pos_label"] if one_setting else None}
+    else:
+        allmin = [s["min_rate"] for c in components for s in c["settings"]]
+        allmax = [s["max_rate"] for c in components for s in c["settings"]]
+        headline = {"rate": min(allmin), "max_rate": max(allmax),
+                    "basis": "component", "pos_label": None}
+
+    split = "26" in comps and "TC" in comps
+    return {
+        "billing_code": billing_code,
+        "billing_code_type": billing_code_type,
+        "npi": npi,
+        "network_name": network_name,
+        "headline": headline,
+        "components": components,
+        "is_component_split": split,
+    }
+
+
 @app.get("/providers/{npi}/procedures")
 def provider_procedures(
     npi: int,

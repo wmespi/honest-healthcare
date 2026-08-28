@@ -437,7 +437,7 @@ Config in `frontend/vite.config.js` (`test:` block) + `frontend/src/test/setup.j
 | `etl-go/progress.go` | `ProgressReader` — byte tracking + ETA |
 | `etl-go/types.go` | Shared structs, global vars, DB URL / output path init |
 | `etl-go/*_test.go` | Hermetic unit tests over the committed fixtures |
-| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs (`/networks`, `/providers/search`, `/providers/{npi}/procedures` = the provider "menu", `/rates/providers` = per-group rate table, `/procedure_categories`, network filters) |
+| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs. Job endpoints: `/rates/quote` (one procedure × one provider → headline + component/POS breakdown), `/providers/{npi}/procedures` (the provider "menu"), `/rates/providers` (compare-across-providers table), `/rates/distribution` (histogram; 400s on npi-without-code). Plus `/networks`, `/providers/search`, `/procedure_categories`. `_pos_bucket` / `_MODIFIER_LABELS` turn raw `service_code` / `modifier` into consumer labels. |
 | `backend/tests/test_coverage.py` | Contract + coverage pytest (run via `make backend-test`) |
 | `scripts/build_code_labels.py` | Build `data/reference/code_labels.parquet` (RBCS + synonyms) — `make code-labels` |
 | `scripts/coverage_probe.py` | ~40-code scorecard for the target plan |

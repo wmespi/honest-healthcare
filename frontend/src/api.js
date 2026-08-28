@@ -45,6 +45,16 @@ export const getRateDistribution = (billing_code, billing_code_type = 'CPT', net
 // One row per contracted provider group for a code, ordered by price, plus a
 // summary over every matching group. Powers the "compare across providers" table.
 // Returns { billing_code, summary: {min,median,avg,max,n_groups,n_providers}, results: [...] }.
+// Job 1 — cost for one procedure at one provider, organised by component
+// (global / professional -26 / technical -TC) and place of service.
+// Returns { headline: {rate, max_rate, basis, pos_label}, components: [...], is_component_split }.
+export const getRateQuote = (billing_code, billing_code_type, npi, network_name) => {
+    const params = { billing_code, npi };
+    if (billing_code_type) params.billing_code_type = billing_code_type;
+    if (network_name) params.network_name = network_name;
+    return api.get('/rates/quote', { params });
+};
+
 export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, { sort = 'rate_asc', limit = 200 } = {}) => {
     const params = { billing_code, billing_code_type, sort, limit };
     if (network_name) params.network_name = network_name;

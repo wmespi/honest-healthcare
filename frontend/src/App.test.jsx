@@ -39,6 +39,14 @@ beforeEach(() => {
   api.searchBillingCodes.mockResolvedValue({ data: [] });
   api.getRateDistribution.mockResolvedValue({ data: OVERVIEW });
   api.getRatesByProvider.mockResolvedValue({ data: { billing_code: '99213', summary: { min: 40, max: 120, n_groups: 3, n_providers: 900 }, results: [] } });
+  api.getRateQuote.mockResolvedValue({ data: {
+    billing_code: '99213', billing_code_type: 'CPT', npi: 123,
+    headline: { rate: 82.05, max_rate: 82.05, basis: 'global', pos_label: 'Office / telehealth' },
+    components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+      { pos_bucket: 'office', pos_label: 'Office / telehealth', min_rate: 82.05, max_rate: 82.05, negotiated_type: 'fee schedule' },
+    ] }],
+    is_component_split: false,
+  } });
   api.getProviderMenu.mockResolvedValue({ data: MENU });
   api.searchProviders.mockResolvedValue({
     data: [{ npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', taxonomy_group: 'Family Medicine', has_rates: true }],
@@ -96,8 +104,11 @@ describe('provider selected without a procedure', () => {
         '99213', 'CPT', undefined, undefined, '123',
       ),
     );
-    // Provider-rate table is fetched for the drilled-in code.
-    expect(api.getRatesByProvider).toHaveBeenCalled();
+    // With a provider active, the cost card (job 1) is fetched — not the
+    // compare-across-providers table.
+    await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', undefined));
+    expect(api.getRatesByProvider).not.toHaveBeenCalled();
+    expect(await screen.findByText(/negotiated cost/i)).toBeInTheDocument();
   });
 });
 
