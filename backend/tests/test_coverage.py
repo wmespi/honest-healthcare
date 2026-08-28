@@ -53,6 +53,25 @@ def test_providers_shape(client):
         assert {"provider_group_id", "negotiated_rate", "network_name", "npi_count"} <= row.keys()
 
 
+def test_ga_providers_endpoint(client):
+    r = client.get("/providers/ga", params={"q": "hospital", "hospitals_only": "true", "limit": 5})
+    assert r.status_code == 200
+    body = r.json()
+    assert "available" in body
+    if body["available"]:
+        assert all(row["is_hospital"] for row in body["results"])
+        assert all(row["city"] for row in body["results"])
+
+
+def test_rates_providers_nppes_annotation(client):
+    r = client.get("/rates/providers", params={"billing_code": "99213", "limit": 3})
+    assert r.status_code == 200
+    body = r.json()
+    if body.get("nppes_ga"):
+        for row in body["results"]:
+            assert "ga_hospital_npis" in row and "ga_org_names" in row
+
+
 def test_networks_endpoint(client):
     r = client.get("/networks")
     assert r.status_code == 200

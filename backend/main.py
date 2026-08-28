@@ -10,6 +10,7 @@ RATES_GLOB      = f"{DATA_DIR}/anthem/rates/*.parquet"
 PROVIDERS_GLOB  = f"{DATA_DIR}/anthem/providers/*.parquet"
 CODES_GLOB      = f"{DATA_DIR}/anthem/codes/*.parquet"
 NPI_LOOKUP_PATH = f"{DATA_DIR}/anthem/npi_lookup.parquet"
+GA_NPPES_PATH   = f"{DATA_DIR}/nppes/ga_providers.parquet"
 
 app = FastAPI(title="Honest Healthcare API")
 
@@ -153,11 +154,14 @@ def rates_by_provider(
     network_name: Optional[str] = None,
     setting: Optional[str] = None,
     npi: Optional[int] = None,
+    ga_hospitals_only: bool = False,
     limit: int = Query(default=100, le=1000),
 ):
     """
-    Rates joined to provider groups with NPI count per group.
-    Phase 1 identifier is provider_group_id; Phase 2 will add NPPES name + location.
+    Rates joined to provider groups with NPI count per group. When the NPPES GA
+    subset is present, each group is also annotated with GA hospital/clinic
+    counts and example org names; ?ga_hospitals_only=true keeps only groups
+    touching a GA hospital.
     """
     conn = db()
 
@@ -179,6 +183,17 @@ def rates_by_provider(
         params.append(npi)
 
     where = " AND ".join(conditions)
+    has_nppes = os.path.exists(GA_NPPES_PATH)
+
+    if has_nppes:
+        ga_select = """,
+            COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_hospital) AS ga_hospital_npis,
+            COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_clinic)   AS ga_clinic_npis,
+            LIST(DISTINCT ga.org_name) FILTER (WHERE ga.org_name IS NOT NULL AND ga.org_name != '') AS ga_org_names"""
+        ga_join = f"LEFT JOIN read_parquet('{GA_NPPES_PATH}') ga ON p.npi = ga.npi"
+        ga_having = "HAVING COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_hospital) > 0" if ga_hospitals_only else ""
+    else:
+        ga_select, ga_join, ga_having = "", "", ""
 
     rows = conn.execute(f"""
         SELECT
@@ -188,32 +203,40 @@ def rates_by_provider(
             r.plan_name,
             {"ANY_VALUE(r.network_name)" if has_network else "NULL"} AS network_name,
             r.expiration_date,
-            COUNT(DISTINCT p.npi) AS npi_count
+            COUNT(DISTINCT p.npi) AS npi_count{ga_select}
         FROM read_parquet('{RATES_GLOB}', union_by_name=true) r
         LEFT JOIN read_parquet('{PROVIDERS_GLOB}', union_by_name=true) p
             ON r.provider_group_id = p.provider_group_id
+        {ga_join}
         WHERE {where}
         GROUP BY r.provider_group_id, r.negotiated_rate, r.negotiated_type,
                  r.plan_name, r.expiration_date
+        {ga_having}
         ORDER BY r.negotiated_rate
         LIMIT {limit}
     """, params).fetchall()
 
+    def row(r):
+        d = {
+            "provider_group_id": r[0],
+            "negotiated_rate":   r[1],
+            "negotiated_type":   r[2],
+            "plan_name":         r[3],
+            "network_name":      r[4],
+            "expiration_date":   r[5],
+            "npi_count":         r[6],
+        }
+        if has_nppes:
+            d["ga_hospital_npis"] = r[7]
+            d["ga_clinic_npis"] = r[8]
+            d["ga_org_names"] = (r[9] or [])[:5]
+        return d
+
     return {
         "billing_code":      billing_code,
         "billing_code_type": billing_code_type,
-        "results": [
-            {
-                "provider_group_id": r[0],
-                "negotiated_rate":   r[1],
-                "negotiated_type":   r[2],
-                "plan_name":         r[3],
-                "network_name":      r[4],
-                "expiration_date":   r[5],
-                "npi_count":         r[6],
-            }
-            for r in rows
-        ],
+        "nppes_ga": has_nppes,
+        "results": [row(r) for r in rows],
     }
 
 
@@ -264,6 +287,39 @@ def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)
         LIMIT {limit}
     """, params).fetchall()
     return [r[0] for r in rows]
+
+
+@app.get("/providers/ga")
+def ga_providers(
+    q: str = Query(default=""),
+    hospitals_only: bool = False,
+    clinics_only: bool = False,
+    limit: int = Query(default=50, le=500),
+):
+    """Search the NPPES Georgia provider subset (org name / city / NPI prefix)."""
+    if not os.path.exists(GA_NPPES_PATH):
+        return {"available": False, "results": []}
+    conn = db()
+    conds = ["1=1"]
+    params: list = []
+    if q:
+        conds.append("(org_name ILIKE ? OR city ILIKE ? OR CAST(npi AS VARCHAR) LIKE ?)")
+        params += [f"%{q}%", f"%{q}%", f"{q}%"]
+    if hospitals_only:
+        conds.append("is_hospital")
+    if clinics_only:
+        conds.append("is_clinic")
+    rows = conn.execute(f"""
+        SELECT npi, entity_type, org_name, last_name, first_name,
+               taxonomy_code, taxonomy_group, is_hospital, is_clinic, city, postal_code
+        FROM read_parquet('{GA_NPPES_PATH}')
+        WHERE {" AND ".join(conds)}
+        ORDER BY is_hospital DESC, is_clinic DESC, org_name
+        LIMIT {limit}
+    """, params).fetchall()
+    cols = ["npi", "entity_type", "org_name", "last_name", "first_name",
+            "taxonomy_code", "taxonomy_group", "is_hospital", "is_clinic", "city", "postal_code"]
+    return {"available": True, "results": [dict(zip(cols, r)) for r in rows]}
 
 
 @app.get("/networks")
