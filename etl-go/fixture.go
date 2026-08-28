@@ -22,6 +22,8 @@ const (
 	fixtureInNetworkItems = 25
 	fixtureRatesPerItem   = 5
 	fixturePricesPerRate  = 5
+	fixtureGroupsPerRef   = 3
+	fixtureNPIsPerGroup   = 10
 )
 
 // FixtureDir is where committed fixtures live. Relative to the etl-go working dir.
@@ -92,14 +94,23 @@ func makeFixture(ctx context.Context, conn *pgx.Conn, fileID int, fixtureURL, na
 					skipValue(dec)
 					continue
 				}
-				var raw json.RawMessage
-				if err := dec.Decode(&raw); err != nil {
+				var pr ProviderReference
+				if err := dec.Decode(&pr); err != nil {
 					log.Printf("⚠️ decode provider_reference: %v", err)
 					continue
 				}
-				var pr ProviderReference
-				json.Unmarshal(raw, &pr)
-				keptRefs = append(keptRefs, raw)
+				// Cap provider_groups + NPI lists — vision/dental networks put
+				// thousands of NPIs on one group and bloat the fixture.
+				if len(pr.ProviderGroups) > fixtureGroupsPerRef {
+					pr.ProviderGroups = pr.ProviderGroups[:fixtureGroupsPerRef]
+				}
+				for i := range pr.ProviderGroups {
+					if len(pr.ProviderGroups[i].NPIs) > fixtureNPIsPerGroup {
+						pr.ProviderGroups[i].NPIs = pr.ProviderGroups[i].NPIs[:fixtureNPIsPerGroup]
+					}
+				}
+				b, _ := json.Marshal(pr)
+				keptRefs = append(keptRefs, b)
 				keptGroupIDs[int64(pr.ProviderGroupID)] = true
 			}
 			dec.Token() // ']'
