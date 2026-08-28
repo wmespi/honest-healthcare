@@ -3,27 +3,37 @@
 #
 # Usage: make <target>
 #        make help   ← list all available targets
+#
+# One name per workflow: the make target, the etl-go subcommand, and the
+# helper doc next to the code all share it. Test isolation and single-item
+# selection are variables, not separate targets:
+#
+#   make discover TEST=1        # run in the test schema + data-test/
+#   make discover SCHEMA=1      # stream the index, write index_schema.json only
+#   make parse ID=10065         # parse one file by index_files.id
+#   make parse GA=1             # GA / individual-market files first
+#   make parse TEST=1           # parse in test isolation
+#   make db-reset WHAT=failed   # reset transiently-failed rows → pending
+#   make sh S=backend           # shell into a container
 
 .PHONY: help \
         start up down logs \
-        etl-discover etl-discover-test etl-index-schema \
-        etl-parse etl-parse-test etl-parse-file etl-size \
-        etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
-        nppes nppes-test code-labels taxonomy-labels \
-        db-psql db-migrate db-reset-processing db-reset-failed \
-        backend-test coverage-probe coverage-report frontend-smoke frontend-test \
-        sh-etl sh-backend \
-        check test-all \
+        discover parse size fixture \
+        nppes code-labels taxonomy-labels \
+        fmt lint test test-e2e test-api test-web check test-all \
+        cov-probe cov-report smoke-web \
+        psql migrate db-reset \
+        sh \
         _require-etl-running
 
 ## ── Help ─────────────────────────────────────────────────────────────────────
 
 help: ## Show all available make targets
 	@echo ""
-	@echo "Usage: make <target>"
+	@echo "Usage: make <target>   (see the Makefile header for TEST=1 / ID= / etc.)"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
 ## ── Infrastructure ───────────────────────────────────────────────────────────
@@ -42,62 +52,34 @@ down: ## Stop all containers
 logs: ## Follow logs from all services
 	@bash -c 'trap "echo \"\nLogs stopped — run make logs to resume\"" EXIT; docker compose logs -f'
 
-## ── ETL: Discovery ───────────────────────────────────────────────────────────
+## ── Pipeline: discover → parse ───────────────────────────────────────────────
 
-etl-discover: ## Phase 1 — populate index_files from the Anthem master index
-	docker compose exec etl_go go run . -discover
+discover: ## Phase 1 — sync the Anthem master index into index_files. TEST=1 · SCHEMA=1 (index_schema.json only, no DB)
+	docker compose exec etl_go go run . -discover \
+	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
+	  $(if $(filter 1,$(TEST)),-test,) \
+	  $(if $(LIMIT),-limit $(LIMIT),) \
+	  $(if $(filter 1,$(NO_CACHE)),-no-cache,) \
+	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
-etl-discover-test: ## Phase 1 in test isolation (test schema + data-test/)
-	docker compose exec etl_go go run . -discover -test
+parse: ## Phase 2 — stream pending files into Parquet. ID=<index_files.id> · GA=1 (priority) · TEST=1 · LIMIT=n
+	docker compose exec etl_go go run . -parse \
+	  $(if $(ID),-file-ids $(ID),) \
+	  $(if $(filter 1,$(GA)),-priority,) \
+	  $(if $(filter 1,$(TEST)),-test,) \
+	  $(if $(LIMIT),-limit $(LIMIT),) \
+	  $(if $(FIXTURE),-fixture "$(FIXTURE)",)
 
-etl-index-schema: ## Stream master index, write data/anthem/index_schema.json (no DB writes)
-	docker compose exec etl_go go run . -index-schema
-
-## ── ETL: Parsing ─────────────────────────────────────────────────────────────
-
-etl-parse: ## Phase 2 — stream pending files into Parquet
-	docker compose exec etl_go go run . -parse
-
-etl-parse-test: ## Phase 2 in test isolation (test schema + data-test/)
-	docker compose exec etl_go go run . -parse -test
-
-etl-parse-file: ## Parse a single file by ID — usage: make etl-parse-file ID=10065
-	docker compose exec etl_go go run . -parse -file-ids $(ID)
-
-etl-size: ## Backfill file_size_bytes via concurrent HEAD requests
+size: ## Backfill index_files.file_size_bytes via concurrent HEAD requests
 	docker compose exec etl_go go run . -size
 
-## ── ETL: Quality ─────────────────────────────────────────────────────────────
-
-etl-fmt: _require-etl-running ## Format all Go source with gofmt
-	docker compose exec etl_go gofmt -w .
-
-etl-vet: _require-etl-running ## Run go vet static analysis on etl-go
-	docker compose exec etl_go go vet ./...
-
-etl-build: _require-etl-running ## Verify etl-go compiles cleanly
-	docker compose exec etl_go go build ./...
-
-etl-unit: _require-etl-running ## Run Go unit tests (hermetic — fixture-driven, no network/DB)
-	docker compose exec etl_go go test ./...
-
-etl-check: _require-etl-running etl-fmt etl-vet etl-build etl-unit ## Run all ETL static checks (fmt + vet + build + unit)
-
-etl-test: _require-etl-running ## Hermetic e2e: parse a committed fixture in test isolation, with teardown
-	bash scripts/etl_e2e_test.sh
-
-etl-fixture: _require-etl-running ## Build a fixture from a file id — usage: make etl-fixture ID=5043 NAME=ga_small
+fixture: ## Build a truncated *.json.gz fixture from a file id — usage: make fixture ID=5043 NAME=ga_small
 	docker compose exec etl_go go run . -make-fixture -file-ids $(ID) $(if $(NAME),-fixture-name $(NAME),)
 
-## ── NPPES (Georgia provider subset) ──────────────────────────────────────────
-
-nppes: _require-etl-running ## Download NPPES national file, write data/nppes/ga_providers.parquet (GA subset). URL= to override.
-	docker compose exec etl_go go run . -nppes $(if $(URL),-nppes-url "$(URL)",) $(if $(FILE),-nppes-file "$(FILE)",)
-
-nppes-test: _require-etl-running ## Hermetic NPPES test: extract GA rows from the committed CSV fixture, with teardown
-	bash scripts/nppes_test.sh
-
 ## ── Reference data ──────────────────────────────────────────────────────────
+
+nppes: _require-etl-running ## Download the NPPES national file, write data/nppes/ga_providers.parquet (GA subset). URL= / FILE= to override.
+	docker compose exec etl_go go run . -nppes $(if $(URL),-nppes-url "$(URL)",) $(if $(FILE),-nppes-file "$(FILE)",)
 
 code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
 	docker compose exec -T backend python3 /app/scripts/build_code_labels.py --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
@@ -105,60 +87,80 @@ code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + syno
 taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
 	docker compose exec -T backend python3 /app/scripts/build_taxonomy_labels.py --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
 
-## ── Backend ──────────────────────────────────────────────────────────────────
+## ── Quality gate ────────────────────────────────────────────────────────────
 
-backend-test: ## Backend contract + coverage tests (pytest, against the running API)
+fmt: _require-etl-running ## Format all Go source (gofmt -w)
+	docker compose exec etl_go gofmt -w .
+
+lint: _require-etl-running ## Static checks — go vet + go build (non-mutating)
+	docker compose exec etl_go go vet ./...
+	docker compose exec etl_go go build ./...
+
+test: _require-etl-running ## Go unit tests (hermetic — fixture-driven, no network/DB)
+	docker compose exec etl_go go test ./...
+
+test-e2e: _require-etl-running ## Hermetic end-to-end: parse + NPPES fixtures in test isolation, with teardown
+	bash scripts/etl_e2e_test.sh
+	bash scripts/nppes_test.sh
+
+test-api: ## Backend contract + coverage tests (pytest, against the running API)
 	docker compose exec -T backend sh -c "pip install -q pytest httpx && cd /app/backend && python -m pytest tests/ -q"
 
-coverage-probe: ## Run the coverage scorecard — usage: make coverage-probe LABEL=before
+test-web: ## Rate-explorer component tests (vitest + Testing Library, hermetic — mocks the API)
+	docker compose exec -T frontend sh -c "cd /app && npx vitest run"
+
+check: fmt lint test ## Pre-commit gate — fmt + vet + build + Go unit tests
+
+test-all: check test-e2e test-api test-web ## Full sweep — gate + e2e + backend + frontend (stack must be up)
+
+## ── Coverage feedback loop ──────────────────────────────────────────────────
+
+cov-probe: ## Coverage scorecard for the target plan — usage: make cov-probe LABEL=before
 	python3 scripts/coverage_probe.py --label $(or $(LABEL),probe)
 
-coverage-report: ## Aggregate coverage_log — what we've ingested so far, per file
+cov-report: ## Aggregate coverage_log — what each parsed file contributed. SCHEMA=test to read test.*
 	python3 scripts/coverage_report.py --schema $(or $(SCHEMA),public)
 
-frontend-smoke: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
+smoke-web: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py
-
-frontend-test: ## Rate-explorer component tests (vitest + Testing Library, hermetic — mocks the API)
-	docker compose exec -T frontend sh -c "cd /app && npx vitest run"
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 
-db-psql: ## Open a psql shell on honest_healthcare
+psql: ## Open a psql shell on honest_healthcare
 	docker compose exec db psql -U postgres -d honest_healthcare
 
-db-migrate: ## Apply db/migrations/*.sql to the running database (idempotent)
+migrate: ## Apply db/migrations/*.sql to the running database (idempotent)
 	@for f in db/migrations/*.sql; do \
 	  echo "→ $$f"; \
 	  docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 < "$$f" || exit 1; \
 	done
 
-db-reset-processing: ## Reset stale 'processing' rows → 'pending'
-	docker compose exec db psql -U postgres -d honest_healthcare \
-	  -c "UPDATE index_files SET status = 'pending' WHERE status = 'processing';"
-
-db-reset-failed: ## Reset transiently-failed rows → 'pending' (keeps bad-gzip/EOF/HTTP 4xx failures failed)
-	docker compose exec db psql -U postgres -d honest_healthcare \
-	  -c "UPDATE index_files SET status = 'pending', failure_reason = NULL \
-	      WHERE status = 'failed' \
-	        AND (failure_reason IS NULL \
-	          OR failure_reason NOT SIMILAR TO '%(gzip|unexpected EOF|invalid header|HTTP 4%)%');"
+db-reset: ## Reset index_files rows → pending. WHAT=processing (stale) | failed (transient only)
+	@case "$(WHAT)" in \
+	  processing) \
+	    docker compose exec db psql -U postgres -d honest_healthcare \
+	      -c "UPDATE index_files SET status = 'pending' WHERE status = 'processing';" ;; \
+	  failed) \
+	    docker compose exec db psql -U postgres -d honest_healthcare \
+	      -c "UPDATE index_files SET status = 'pending', failure_reason = NULL \
+	          WHERE status = 'failed' \
+	            AND (failure_reason IS NULL \
+	              OR failure_reason NOT SIMILAR TO '%(gzip|unexpected EOF|invalid header|HTTP 4%)%');" ;; \
+	  *) echo "usage: make db-reset WHAT=processing|failed" && exit 1 ;; \
+	esac
 
 ## ── Shells ────────────────────────────────────────────────────────────────────
 
-sh-etl: ## Open a shell inside the etl_go container
-	@echo "Entering etl_go shell — type 'exit' to quit"
-	docker compose exec etl_go sh
-
-sh-backend: ## Open a shell inside the backend container
-	@echo "Entering backend shell — type 'exit' to quit"
-	docker compose exec backend sh
-
-## ── Top-level gate ───────────────────────────────────────────────────────────
-
-check: etl-check ## Fast pre-commit gate — ETL static checks (fmt + vet + build + unit), no stack needed
-
-test-all: etl-check etl-test backend-test frontend-test ## Full test sweep — static + e2e + backend contract + frontend components (stack must be up)
+sh: ## Open a shell inside a container — usage: make sh S=etl|backend|frontend|db
+	@case "$(S)" in \
+	  etl)      svc=etl_go ;; \
+	  backend)  svc=backend ;; \
+	  frontend) svc=frontend ;; \
+	  db)       svc=db ;; \
+	  *) echo "usage: make sh S=etl|backend|frontend|db" && exit 1 ;; \
+	esac; \
+	echo "Entering $$svc shell — type 'exit' to quit"; \
+	docker compose exec $$svc sh
 
 ## ── Internal ─────────────────────────────────────────────────────────────────
 

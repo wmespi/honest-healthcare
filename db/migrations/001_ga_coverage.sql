@@ -53,12 +53,11 @@ CREATE INDEX IF NOT EXISTS idx_coverage_log_file ON public.coverage_log(file_id)
 DROP SCHEMA IF EXISTS test CASCADE;
 CREATE SCHEMA test;
 
-CREATE TABLE test.provider_mappings      (LIKE public.provider_mappings      INCLUDING ALL);
-CREATE TABLE test.billing_codes          (LIKE public.billing_codes          INCLUDING ALL);
-CREATE TABLE test.negotiated_rates       (LIKE public.negotiated_rates       INCLUDING ALL);
-CREATE TABLE test.place_of_service_codes (LIKE public.place_of_service_codes INCLUDING ALL);
-CREATE TABLE test.index_files            (LIKE public.index_files            INCLUDING ALL);
-CREATE TABLE test.coverage_log           (LIKE public.coverage_log           INCLUDING ALL);
+CREATE TABLE test.billing_codes (LIKE public.billing_codes INCLUDING ALL);
+CREATE TABLE test.index_files   (LIKE public.index_files   INCLUDING ALL);
+CREATE TABLE test.coverage_log  (LIKE public.coverage_log  INCLUDING ALL);
+-- (legacy provider_mappings / negotiated_rates / place_of_service_codes dropped
+--  in migration 002 — no longer mirrored here)
 
 -- discover.go drops/recreates these by exact (schema-unqualified) name in test
 -- mode; INCLUDING ALL copies public's indexes only under auto-generated names.
