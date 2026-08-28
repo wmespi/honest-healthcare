@@ -217,13 +217,14 @@ function NpiSearch({ selectedNpi, onSelect }) {
   }, [query, isFocused]);
 
   const handleSelect = (s) => {
-    onSelect(String(s.npi));
-    setSelectedLabel(s.name || String(s.npi));
+    const label = s.name || String(s.npi);
+    onSelect(String(s.npi), label);
+    setSelectedLabel(label);
     setQuery('');
     setShowSuggestions(false);
   };
 
-  const handleClear = () => { onSelect(''); setQuery(''); setSelectedLabel(''); };
+  const handleClear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); };
 
   return (
     <div ref={ref} className="flex items-center gap-2">
@@ -463,7 +464,7 @@ function ProviderRateTable({ data, loading, sort, onSort, npiActive }) {
 // The provider "menu" — every procedure the selected provider has a negotiated
 // rate for, grouped by RBCS category. Shown when a provider is picked but no
 // specific procedure. Clicking a row drills into that procedure.
-function ProviderMenu({ data, loading, onPick }) {
+function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork }) {
   const [expanded, setExpanded] = useState(null);
 
   if (loading) {
@@ -474,7 +475,30 @@ function ProviderMenu({ data, loading, onPick }) {
     );
   }
   const rows = data?.results || [];
-  if (!rows.length) return null;
+
+  if (!rows.length) {
+    const who = providerName || 'This provider';
+    return (
+      <div className="mt-2 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
+        <p className="text-white font-bold">
+          No negotiated rates for {who}{network ? <> in <span className="text-slate-300">{network}</span></> : ''}.
+        </p>
+        <p className="text-slate-500 text-sm mt-2 max-w-md mx-auto">
+          {network
+            ? 'This provider isn’t in that network, or has no published rates there. Try a different network.'
+            : 'We don’t hold any published rates for this provider yet.'}
+        </p>
+        {network && onClearNetwork && (
+          <button
+            onClick={onClearNetwork}
+            className="mt-4 px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
+          >
+            Search all networks
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const byCat = rows.reduce((acc, r) => {
     (acc[r.rbcs_category || 'Other'] ||= []).push(r);
@@ -553,6 +577,7 @@ function App() {
 
   const [setting, setSetting] = useState('');
   const [npi, setNpi] = useState('');
+  const [npiLabel, setNpiLabel] = useState('');
 
   const [distribution, setDistribution] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -598,7 +623,9 @@ function App() {
     return () => { cancelled = true; };
   }, [npi, selectedCode, selectedPlan, setting]);
 
-  // Show top results immediately on focus; debounce while typing
+  // Procedure search. When a provider is selected, scope suggestions to that
+  // provider's actual menu (via /providers/{npi}/procedures) so we never offer
+  // a procedure the provider doesn't have. Otherwise search the full catalog.
   useEffect(() => {
     if (!isFocused) {
       setSuggestions([]);
@@ -607,12 +634,24 @@ function App() {
     }
     const delay = query.length === 0 ? 0 : 300;
     const timer = setTimeout(() => {
-      searchBillingCodes(query)
-        .then(res => { setSuggestions(res.data); setShowSuggestions(true); })
+      const req = npi
+        ? getProviderMenu(npi, selectedPlan || undefined, setting || undefined, query)
+            .then(res => (res.data.results || []).slice(0, 20).map(r => ({
+              billing_code: r.billing_code,
+              billing_code_type: r.billing_code_type,
+              label: r.label,
+              rbcs_subcategory: r.rbcs_subcategory,
+              min_rate: r.min_rate,
+              max_rate: r.max_rate,
+              n_rates: r.n_rates,
+            })))
+        : searchBillingCodes(query).then(res => res.data);
+      req
+        .then(list => { setSuggestions(list); setShowSuggestions(true); })
         .catch(() => {});
     }, delay);
     return () => clearTimeout(timer);
-  }, [query, isFocused]);
+  }, [query, isFocused, npi, selectedPlan, setting]);
 
   const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi) => {
     // Provider selected but no procedure yet: that's the "menu" view, handled by
@@ -667,8 +706,9 @@ function App() {
     fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, s, npi);
   };
 
-  const handleNpiSelect = (n) => {
+  const handleNpiSelect = (n, label) => {
     setNpi(n);
+    setNpiLabel(label || '');
     fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n);
   };
 
@@ -772,7 +812,11 @@ function App() {
                         </div>
                       </div>
                       <span className="text-xs text-slate-500 shrink-0 tabular-nums">
-                        {sug.provider_groups?.toLocaleString()} groups
+                        {sug.min_rate != null
+                          ? (sug.min_rate === sug.max_rate ? fmt(sug.min_rate) : `${fmt(sug.min_rate)}–${fmt(sug.max_rate)}`)
+                          : sug.provider_groups != null
+                            ? `${sug.provider_groups.toLocaleString()} groups`
+                            : null}
                       </span>
                     </button>
                   ))}
@@ -833,7 +877,14 @@ function App() {
 
         {/* Provider menu — provider chosen, no procedure yet */}
         {npi && !selectedCode?.code && !loading && (
-          <ProviderMenu data={providerMenu} loading={providerMenuLoading} onPick={handleMenuPick} />
+          <ProviderMenu
+            data={providerMenu}
+            loading={providerMenuLoading}
+            onPick={handleMenuPick}
+            providerName={npiLabel}
+            network={selectedPlan}
+            onClearNetwork={() => handlePlanSelect('')}
+          />
         )}
 
         {/* Results */}

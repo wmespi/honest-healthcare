@@ -101,6 +101,40 @@ describe('provider selected without a procedure', () => {
   });
 });
 
+describe('provider with no rates in the selected network', () => {
+  it('shows an explicit empty state instead of a blank screen', async () => {
+    const user = userEvent.setup();
+    api.getProviderMenu.mockResolvedValue({ data: { npi: 123, count: 0, results: [] } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+
+    await selectProvider(user);
+
+    expect(await screen.findByText(/no negotiated rates for/i)).toBeInTheDocument();
+    expect(screen.queryByText(/querying mrf data/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('procedure search scoping', () => {
+  it('queries the provider menu (not the global catalog) once a provider is selected', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+
+    api.searchBillingCodes.mockClear();
+    api.getProviderMenu.mockClear();
+
+    const search = screen.getByPlaceholderText(/search procedure or billing code/i);
+    await user.click(search);
+    await user.type(search, 'destruction');
+
+    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, 'destruction'));
+    expect(api.searchBillingCodes).not.toHaveBeenCalled();
+  });
+});
+
 describe('default landing state', () => {
   it('loads the network overview without a code or npi', async () => {
     render(<App />);
