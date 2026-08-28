@@ -132,7 +132,10 @@ describe('cross-specialty rollup caveat', () => {
     await user.click(screen.getByText('Evaluation & Management'));
     await user.click(await screen.findByText('Office Visit'));
 
-    expect(await screen.findByText(/wouldn.t typically perform this procedure/i)).toBeInTheDocument();
+    expect(await screen.findByText(/group-contracted rate/i)).toBeInTheDocument();
+    expect(screen.getByText(/no record of whether/i)).toBeInTheDocument();
+    // numbers are tucked behind a disclosure, not shown as the headline
+    expect(screen.getByText(/show the group rate/i)).toBeInTheDocument();
   });
 });
 

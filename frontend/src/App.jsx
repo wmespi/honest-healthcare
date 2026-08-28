@@ -494,64 +494,77 @@ function ProviderCostCard({ data, loading, providerName }) {
   const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
   const name = provider?.name || providerName;
   const sub = [provider?.specialty, provider?.address || provider?.city].filter(Boolean).join(' · ');
+  const groupRate = plausibility === 'unlikely'; // rate belongs to the group, not the individual
+
+  const breakdown = (
+    <div className="space-y-3">
+      {components.map(c => (
+        <div key={c.modifier || 'global'} className="rounded-2xl bg-slate-950/50 border border-slate-800 p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm font-bold text-slate-200">{c.label}</span>
+            {c.modifier && <span className="text-[10px] font-mono text-slate-600 shrink-0">mod {c.modifier}</span>}
+          </div>
+          {c.description && <p className="text-[11px] text-slate-500 mt-1">{c.description}</p>}
+          <div className="mt-2.5 divide-y divide-slate-800/50">
+            {c.settings.map((s, i) => (
+              <div key={i} className="flex items-center justify-between py-2 text-sm">
+                <span className="text-slate-400">{s.pos_label}</span>
+                <span className="text-white font-bold tabular-nums">{range(s.min_rate, s.max_rate)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
       <h2 className="text-white font-black text-xl tracking-tight">
-        Negotiated cost{name ? <> at <span className="text-indigo-300">{name}</span></> : ''}
+        {groupRate ? 'Group-contracted rate' : 'Negotiated cost'}
+        {name ? <> {groupRate ? 'for' : 'at'} <span className="text-indigo-300">{name}</span></> : ''}
       </h2>
       {sub && <p className="text-slate-500 text-xs mt-1">{sub}</p>}
 
-      {plausibility === 'unlikely' && (
-        <div className="mt-4 flex items-start gap-2.5 text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-amber-200/90">
-          <Info size={14} className="shrink-0 mt-0.5 text-amber-400" />
-          <span>
-            This rate is contracted to {name}&rsquo;s <span className="font-semibold">provider group</span>, but a{' '}
-            {provider?.specialty || 'provider'} wouldn&rsquo;t typically perform this procedure — it&rsquo;s a
-            cross-specialty group. The number below is the group&rsquo;s rate, not a service {name} offers.
-          </span>
-        </div>
-      )}
-
-      <div className="mt-4 mb-2">
-        <div className="text-4xl sm:text-5xl font-black text-white tracking-tight">
-          {range(headline.rate, headline.max_rate)}
-        </div>
-        <div className="text-xs text-slate-500 mt-2">
-          {headline.basis === 'global'
-            ? (headline.pos_label
-                ? <>Full procedure · {headline.pos_label}</>
-                : <>Full procedure — varies by where it’s performed</>)
-            : <>This code is billed only as separate parts — see the breakdown below</>}
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-3">
-        {components.map(c => (
-          <div key={c.modifier || 'global'} className="rounded-2xl bg-slate-950/50 border border-slate-800 p-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-sm font-bold text-slate-200">{c.label}</span>
-              {c.modifier && <span className="text-[10px] font-mono text-slate-600 shrink-0">mod {c.modifier}</span>}
+      {groupRate ? (
+        <>
+          <p className="mt-4 text-sm text-slate-300 leading-relaxed max-w-lg">
+            This rate is attached to the <span className="font-semibold text-white">billing group</span> {name} is
+            listed under — in this network that group spans thousands of practices and many specialties.
+            The rate sheet doesn&rsquo;t say which providers in the group actually perform this procedure, and we
+            have no record of whether {name} bills it. Treat the numbers below as the <em>group&rsquo;s</em> rate,
+            not {name}&rsquo;s.
+          </p>
+          <details className="mt-4 group">
+            <summary className="text-xs font-bold text-slate-500 cursor-pointer hover:text-slate-300 list-none">
+              Show the group rate ▸
+            </summary>
+            <div className="mt-3 opacity-70">{breakdown}</div>
+          </details>
+        </>
+      ) : (
+        <>
+          <div className="mt-4 mb-2">
+            <div className="text-4xl sm:text-5xl font-black text-white tracking-tight">
+              {range(headline.rate, headline.max_rate)}
             </div>
-            {c.description && <p className="text-[11px] text-slate-500 mt-1">{c.description}</p>}
-            <div className="mt-2.5 divide-y divide-slate-800/50">
-              {c.settings.map((s, i) => (
-                <div key={i} className="flex items-center justify-between py-2 text-sm">
-                  <span className="text-slate-400">{s.pos_label}</span>
-                  <span className="text-white font-bold tabular-nums">{range(s.min_rate, s.max_rate)}</span>
-                </div>
-              ))}
+            <div className="text-xs text-slate-500 mt-2">
+              {headline.basis === 'global'
+                ? (headline.pos_label
+                    ? <>Full procedure · {headline.pos_label}</>
+                    : <>Full procedure — varies by where it’s performed</>)
+                : <>This code is billed only as separate parts — see the breakdown below</>}
             </div>
           </div>
-        ))}
-      </div>
-
-      {is_component_split && (
-        <p className="text-[11px] text-slate-500 mt-4 leading-relaxed">
-          Often billed as two line items — a <span className="text-slate-400">professional fee</span> (the physician’s
-          reading) and a <span className="text-slate-400">technical fee</span> (the equipment and facility) — which
-          together roughly equal the full rate. Which you’re charged depends on where it’s done and who interprets it.
-        </p>
+          <div className="mt-6">{breakdown}</div>
+          {is_component_split && (
+            <p className="text-[11px] text-slate-500 mt-4 leading-relaxed">
+              Often billed as two line items — a <span className="text-slate-400">professional fee</span> (the physician’s
+              reading) and a <span className="text-slate-400">technical fee</span> (the equipment and facility) — which
+              together roughly equal the full rate. Which you’re charged depends on where it’s done and who interprets it.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

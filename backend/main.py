@@ -126,9 +126,11 @@ _PROCEDURAL_CATS = {"Procedure", "Imaging", "Test", "Anesthesia"}
 
 
 def _plausibility(grouping, classification, specialty, rbcs_category, rbcs_family):
-    """Rough "would this provider actually perform this?" check. Catches the
-    egregious cross-specialty noise from big rollup contract groups (a social
-    worker "having" a surgical rate). Returns "unlikely" | "typical" | None."""
+    """Coarse signal for "is this code within the provider's declared specialty?"
+    NOT proof of what they do or don't bill (we have no utilization data — see
+    GH issue #14). "unlikely" only means the code sits well outside the NUCC
+    taxonomy, so the frontend should present the number as the *group's* rate
+    rather than the individual's. Returns "unlikely" | "typical" | None."""
     who = " ".join(x for x in (grouping, classification, specialty) if x).lower()
     fam = (rbcs_family or "").lower()
     is_behavioral = any(t in who for t in _BEHAVIORAL)
