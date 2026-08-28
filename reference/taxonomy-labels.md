@@ -7,9 +7,11 @@ Builds `data/reference/nucc_taxonomy.parquet` from the **NUCC Health Care Provid
 Taxonomy Code Set** (nucc.org, public domain). Python over DuckDB — a small CSV
 reshape, no streaming parser ([language principle](../AGENTS.md#the-language-principle)).
 
-`make taxonomy-labels` → `scripts/build_taxonomy_labels.py --data-dir /app/data`.
-`NUCC_URL=` overrides the source. The script tries `nucc_taxonomy_261.csv` →
-`251` → `250` (NUCC re-stamps the trailing version twice a year).
+`make taxonomy-labels` → `python3 -m reference.taxonomy_labels --data-dir /app/data`
+in the backend container (`reference/taxonomy_labels.py`). `NUCC_URL=` overrides
+the source; otherwise it tries `nucc_taxonomy_261.csv` → `251` → `250` (NUCC
+re-stamps the trailing version twice a year). Shares `reference/_common.py` with
+`code_labels`.
 
 ## Why
 

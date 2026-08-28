@@ -18,18 +18,18 @@ Output columns:
   search_text      (lowercased: label + short_name + category words)
 
 Usage:
-  python3 scripts/build_code_labels.py [--rbcs-url URL | --rbcs-file PATH]
-                                       [--data-dir data] [--test]
+  python3 -m reference.code_labels [--rbcs-url URL | --rbcs-file PATH]
+                                   [--data-dir data] [--test]
 """
 import argparse
-import io
 import json
-import os
 import re
 import sys
 import urllib.request
 
 import duckdb
+
+from ._common import fetch_to_cache, ref_dir, write_parquet_atomic
 
 CMS_DATA_JSON = "https://data.cms.gov/data.json"
 RBCS_TITLE = "Restructured BETOS Classification System"
@@ -53,23 +53,6 @@ def resolve_rbcs_url() -> str:
     except Exception as e:  # noqa: BLE001
         print(f"  (data.json lookup failed: {e} — using fallback URL)", file=sys.stderr)
     return RBCS_URL_FALLBACK
-
-
-def fetch_rbcs(cache_path: str, url: str | None, local: str | None) -> str:
-    if local:
-        return local
-    if os.path.exists(cache_path):
-        print(f"  RBCS cache hit: {cache_path}")
-        return cache_path
-    url = url or resolve_rbcs_url()
-    print(f"  downloading RBCS taxonomy: {url}")
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    with urllib.request.urlopen(url, timeout=120) as r:
-        data = r.read()
-    with open(cache_path, "wb") as f:
-        f.write(data)
-    print(f"  wrote {cache_path} ({len(data):,} bytes)")
-    return cache_path
 
 
 TITLE_KEEP_UPPER = {"CT", "MRI", "MRA", "ECG", "EKG", "IV", "IM", "GI", "ER", "ICU"}
@@ -136,12 +119,16 @@ def main() -> None:
 
     data_dir = "data-test" if args.test else args.data_dir
     codes_glob = f"{data_dir}/anthem/codes/*.parquet"
-    ref_dir = f"{data_dir}/reference"
-    rbcs_cache = f"{ref_dir}/rbcs_taxonomy_ry26.csv"
-    out_path = f"{ref_dir}/code_labels.parquet"
+    rd = ref_dir(args.data_dir, args.test)
+    rbcs_cache = f"{rd}/rbcs_taxonomy_ry26.csv"
+    out_path = f"{rd}/code_labels.parquet"
 
     print("→ RBCS taxonomy")
-    rbcs_path = fetch_rbcs(rbcs_cache, args.rbcs_url, args.rbcs_file)
+    rbcs_path = fetch_to_cache(
+        rbcs_cache,
+        [args.rbcs_url or resolve_rbcs_url()],
+        args.rbcs_file,
+    )
 
     con = duckdb.connect()
 
@@ -193,7 +180,7 @@ def main() -> None:
     syn_rows = ", ".join(
         f"('{k.replace(chr(39), chr(39) * 2)}', '{v}')" for k, v in FAMILY_SYNONYMS.items()
     )
-    con.execute(f"CREATE TABLE fam_syn(family VARCHAR, syn VARCHAR)")
+    con.execute("CREATE TABLE fam_syn(family VARCHAR, syn VARCHAR)")
     if syn_rows:
         con.execute(f"INSERT INTO fam_syn VALUES {syn_rows}")
 
@@ -215,9 +202,9 @@ def main() -> None:
         """
     )
 
-    con.execute(
-        f"""
-        COPY (
+    write_parquet_atomic(
+        con,
+        """
           SELECT
             billing_code_type,
             billing_code,
@@ -238,8 +225,8 @@ def main() -> None:
               _syn, short_name, billing_code
             )) AS search_text
           FROM labelled
-        ) TO '{out_path}' (FORMAT parquet, COMPRESSION zstd)
-        """
+        """,
+        out_path,
     )
 
     matched = con.execute(

@@ -83,11 +83,11 @@ data/nppes/ga_providers.parquet
     address_line1 | address_line2 | city | state | postal_code
     ← join taxonomy_code to nucc_taxonomy.parquet for the real specialty label
 
-data/reference/code_labels.parquet     (make code-labels — scripts/code-labels.md)
+data/reference/code_labels.parquet     (make code-labels — reference/code-labels.md)
     billing_code_type | billing_code | short_name
     rbcs_category | rbcs_subcategory | rbcs_family | rbcs_is_major | label | search_text
 
-data/reference/nucc_taxonomy.parquet   (make taxonomy-labels — scripts/taxonomy-labels.md)
+data/reference/nucc_taxonomy.parquet   (make taxonomy-labels — reference/taxonomy-labels.md)
     taxonomy_code | grouping | classification | specialization
     display_name | specialty | is_individual
 ```
