@@ -623,6 +623,11 @@ function App() {
                       <span className="uppercase font-bold text-slate-600">{selectedCode.type}</span></>
                   : <span className="font-black text-white text-sm">Network Overview</span>
                 }
+                {summary.n_providers != null && (
+                  <span title="Distinct NPIs across these provider groups. Groups are often facility/TIN rollups, so one contract can cover thousands of NPIs.">
+                    <span className="text-white font-black">{summary.n_providers.toLocaleString()}</span> providers
+                  </span>
+                )}
                 <span><span className="text-white font-black">{summary.provider_groups}</span> provider groups</span>
                 <span><span className="text-white font-black">{summary.total_entries.toLocaleString()}</span> rate entries</span>
                 <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
