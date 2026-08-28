@@ -120,10 +120,15 @@ def main():
         print(f"{code:7} {name[:44]:44} {'ok' if search_ok else 'MISS':7} "
               f"{wide_n:<9} {plan_n:<9} {len(prov_rows):<10} {ga_hosp:<8} {plan_str}")
 
-        if not search_ok:
-            hard_fail.append(f"{code}: not searchable")
+        # "not searchable" is only a real failure when the code HAS rates — a
+        # code absent everywhere (e.g. 00810, priced in base units) legitimately
+        # won't be in the codes parquet.
+        if wide_n > 0 and not search_ok:
+            hard_fail.append(f"{code}: has rates but not searchable")
         if wide_n > 0 and plan_n == 0:
             gaps.append(f"{code} ({name})")
+        if wide_n == 0:
+            gaps.append(f"{code} ({name}) — no rates anywhere")
 
     print()
     if gaps:
