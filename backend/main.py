@@ -157,12 +157,25 @@ def rate_distribution(
     (pre-bucketed at the SQL level to keep the response size manageable).
     """
     conn = db()
-    where, params = _price_filters(billing_code, billing_code_type, network_name, setting, npi)
-    src = f"{PRICE_GROUPS_SRC} pg"
-    grp = "COUNT(DISTINCT (pg.file_id, pg.provider_group_id))"
+
+    # Expanding prices → provider groups is only affordable when the filter
+    # prunes prices hard (a billing_code) or the query needs per-NPI resolution
+    # (an npi filter). The bare overview (no code, maybe a network) aggregates
+    # over `prices` alone — bars/counts are distinct provider *rosters*, not the
+    # fully-expanded group count.
+    heavy = bool(billing_code or npi)
+
+    if heavy:
+        where, params = _price_filters(billing_code, billing_code_type, network_name, setting, npi)
+        src = f"{PRICE_GROUPS_SRC} pg"
+        grp = "COUNT(DISTINCT (pg.file_id, pg.provider_group_id))"
+    else:
+        # prices-only: reuse _price_filters minus the npi branch (npi ⇒ heavy).
+        where, params = _price_filters(None, billing_code_type, network_name, setting, None)
+        src = f"{PRICES_SRC} pg"
+        grp = "COUNT(DISTINCT pg.group_set_id)"
 
     if not billing_code:
-        # Network overview: pre-bucket into $50 intervals up to $2000, then one overflow bucket.
         dist = conn.execute(f"""
             SELECT
                 FLOOR(LEAST(pg.negotiated_rate, 2000) / 50) * 50 AS rate,
@@ -201,13 +214,15 @@ def rate_distribution(
         WHERE {where}
     """, params).fetchone()
 
-    n_providers = conn.execute(f"""
-        SELECT COUNT(DISTINCT pv.npi)
-        FROM {src}
-        JOIN {PROVIDERS_SRC} pv
-          ON pv.file_id = pg.file_id AND pv.provider_group_id = pg.provider_group_id
-        WHERE {where}
-    """, params).fetchone()[0]
+    n_providers = None
+    if heavy:
+        n_providers = conn.execute(f"""
+            SELECT COUNT(DISTINCT pv.npi)
+            FROM {src}
+            JOIN {PROVIDERS_SRC} pv
+              ON pv.file_id = pg.file_id AND pv.provider_group_id = pg.provider_group_id
+            WHERE {where}
+        """, params).fetchone()[0]
 
     return {
         "billing_code":      billing_code or "ALL",
