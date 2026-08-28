@@ -26,7 +26,7 @@ issues that only bite at scale are in [../etl-go/parse.md](../etl-go/parse.md).*
 
 - **`_plausibility()` is a heuristic.** A social worker in a rollup provider group
   "has" a $14k surgical rate because Anthem's `provider_references` are
-  network-administration buckets, not practices. The backend flags the mismatch and
+  network-administration buckets, not practices. The serving layer flags the mismatch and
   reframes the number as the group's rate — it cannot verify whether the individual
   performs the procedure. Real fix: cross-reference CMS "Medicare Physician & Other
   Practitioners: by Provider and Service" (public, one row per NPI × HCPCS actually
@@ -47,7 +47,7 @@ issues that only bite at scale are in [../etl-go/parse.md](../etl-go/parse.md).*
 ## Operational
 
 - **`make nppes` write is not atomic** — `ga_providers.parquet` is briefly 0 bytes
-  during a re-extract and backend queries touching it 500. Run when the backend is
+  during a re-extract and serving-layer queries touching it 500. Run when the API is
   idle.
 - **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` path prefix
   — not a cross-month key. Re-discover monthly and prune the prior month

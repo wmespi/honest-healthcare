@@ -1,6 +1,6 @@
 """Where the data lives and how to query it.
 
-The backend reads Parquet (see ../docs/schema.md); Postgres holds only the
+The serving layer reads Parquet (see ../docs/schema.md); Postgres holds only the
 discovery queue. This module centralises the glob paths, the DuckDB connection
 factory, and the "is there any data yet" guards that every router needs.
 """

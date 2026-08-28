@@ -2,7 +2,7 @@
 """
 Coverage probe — "is our data complete for the primary use case?"
 
-Runs a fixed basket of ~40 procedure codes against the backend and records, per
+Runs a fixed basket of ~40 procedure codes against the API and records, per
 code, whether we have rates, how many provider groups / rates, the rate spread,
 and how the target plan / network narrows it. Emits:
 
@@ -104,21 +104,21 @@ def main():
 
     health, err = get(args.api, "/")
     if err:
-        print(f"backend unreachable at {args.api}: {err}", file=sys.stderr)
+        print(f"API unreachable at {args.api}: {err}", file=sys.stderr)
         sys.exit(1)
 
     networks, _ = get(args.api, "/networks")
     network_attribution_live = bool(networks) and isinstance(networks, list)
     if not network_attribution_live:
         print("NOTE: no network_name-attributed parquet yet — the target-network "
-              "filter is inert (backend ignores it), so 'net✓' below is not "
+              "filter is inert (the API ignores it), so 'net✓' below is not "
               "meaningful until a post-attribution parse batch lands.\n", file=sys.stderr)
 
     scorecard = {
         "label": args.label,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "api": args.api,
-        "backend_totals": {k: health.get(k) for k in ("total_rates", "total_providers")},
+        "serving_totals": {k: health.get(k) for k in ("total_prices", "total_providers")},
         "target_plan_name": TARGET_PLAN_NAME,
         "target_network_name": TARGET_NETWORK_NAME,
         "network_attribution_live": network_attribution_live,
@@ -151,7 +151,7 @@ def main():
 
     # Markdown table
     print(f"\n## Coverage scorecard — `{args.label}`  ({scorecard['generated_at']})\n")
-    print(f"- backend: {health.get('total_rates'):,} rates / {health.get('total_providers'):,} provider rows")
+    print(f"- serving: {health.get('total_prices', 0):,} price rows / {health.get('total_providers', 0):,} provider rows")
     su = scorecard["summary"]
     print(f"- codes with any rates: **{su['n_with_rates']}/{su['n_codes']}**  |  gaps: **{su['n_gaps']}** ({', '.join(su['gap_codes']) or 'none'})")
     print(f"- codes covered under target plan string: {su['n_target_plan_covered']}  |  under target network: {su['n_target_network_covered']}\n")

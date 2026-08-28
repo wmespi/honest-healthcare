@@ -49,7 +49,7 @@ CLI-only flags (no `make` var yet): `-all-npis`, `-networks "GA *"`, `-all-netwo
 
 While a parse runs, everything for the file is written under
 `anthem/.inflight/{id}/` and promoted with an atomic rename only on a clean
-stream — the backend never reads a half-written file.
+stream — the serving layer never reads a half-written file.
 
 Output layout and column lists: [../docs/schema.md](../docs/schema.md).
 The `-networks` allowlist and why it's skipped for `anthem/GA_*` files:

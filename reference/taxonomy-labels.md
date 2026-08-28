@@ -8,7 +8,7 @@ Taxonomy Code Set** (nucc.org, public domain). Python over DuckDB — a small CS
 reshape, no streaming parser ([language principle](../AGENTS.md#the-language-principle)).
 
 `make taxonomy-labels` → `python3 -m reference.taxonomy_labels --data-dir /app/data`
-in the backend container (`reference/taxonomy_labels.py`). `NUCC_URL=` overrides
+in the serving container (`reference/taxonomy_labels.py`). `NUCC_URL=` overrides
 the source; otherwise it tries `nucc_taxonomy_261.csv` → `251` → `250` (NUCC
 re-stamps the trailing version twice a year). Shares `reference/_common.py` with
 `code_labels`.
@@ -16,7 +16,7 @@ re-stamps the trailing version twice a year). Shares `reference/_common.py` with
 ## Why
 
 The NPPES GA subset carries a raw `taxonomy_code` (e.g. `207RC0000X`). NPPES's own
-`taxonomy_group` is a useless coarse bucket. The backend LEFT JOINs this table so
+`taxonomy_group` is a useless coarse bucket. The serving layer LEFT JOINs this table so
 provider search and the cost card show "· Cardiology" instead of "· Physician
 (individual)".
 

@@ -28,7 +28,7 @@ code.
 | Frontend | React + Vite | Rate explorer — `localhost:5173` |
 | Queue DB | Postgres 15 + PostGIS | `index_files` + `billing_codes` + `coverage_log` |
 
-Docker services: `db`, `etl_go`, `backend`, `frontend`. Full on-disk layout:
+Docker services: `db`, `etl_go`, `serving`, `frontend`. Full on-disk layout:
 [docs/schema.md](docs/schema.md).
 
 ---
@@ -100,7 +100,7 @@ make cov-probe LABEL=before # coverage scorecard for the target plan
 make cov-report             # aggregate coverage_log
 make psql / make migrate    # DB shell / apply db/migrations/*.sql
 make db-reset WHAT=processing|failed
-make sh S=backend           # shell into a container
+make sh S=serving          # shell into a container
 ```
 
 ---
@@ -115,7 +115,7 @@ make sh S=backend           # shell into a container
 | Queue ordering, GA prioritization, recovering stuck rows | [etl-go/queue.md](etl-go/queue.md) |
 | NPPES Georgia provider subset | [etl-go/nppes.md](etl-go/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
-| API routes, the four consumer jobs, query-layer notes | [backend/backend.md](backend/backend.md) |
+| API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |

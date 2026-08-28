@@ -54,7 +54,7 @@ def fetch_to_cache(cache_path, urls, local=None, *, header_check=None, timeout=1
 
 def write_parquet_atomic(con, select_sql: str, out_path: str) -> None:
     """COPY a SELECT to a temp Parquet, then os.replace() onto out_path — so a
-    reader (the backend) never sees a half-written file."""
+    reader (the serving layer) never sees a half-written file."""
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     tmp = f"{out_path}.tmp.{os.getpid()}.parquet"
     con.execute(f"COPY ({select_sql}) TO '{tmp}' (FORMAT parquet, COMPRESSION zstd)")

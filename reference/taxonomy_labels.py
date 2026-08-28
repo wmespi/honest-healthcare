@@ -13,7 +13,7 @@ Output columns:
   specialty     (clean short label: Specialization, else Classification)
   is_individual (Section == "Individual")
 
-The NPPES GA subset carries `taxonomy_code`; the backend LEFT JOINs this so
+The NPPES GA subset carries `taxonomy_code`; the serving layer LEFT JOINs this so
 provider search / the cost card can show "· Cardiology" instead of the useless
 "· Physician (individual)" bucket.
 

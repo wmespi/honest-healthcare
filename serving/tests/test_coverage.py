@@ -5,8 +5,8 @@ Contract tests (must pass): endpoints return 200 with the expected shape.
 Coverage tests (xfail — monitoring signal, not a red build): the primary-use-case
 basket of procedure codes resolves to rates.
 
-Runs against a live backend. Point at it with API_URL (default http://localhost:8000).
-Inside the backend container use http://localhost:8000.
+Runs against the live API. Point at it with API_URL (default http://localhost:8000).
+Inside the serving container use http://localhost:8000.
 """
 import os
 

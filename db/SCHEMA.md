@@ -1,7 +1,7 @@
 # Postgres schema — Honest Healthcare
 
 **Authoritative on-disk schema is [../docs/schema.md](../docs/schema.md).** This
-file covers only what Postgres actually holds. The backend reads Parquet, not
+file covers only what Postgres actually holds. The serving layer reads Parquet, not
 Postgres.
 
 ## Connection
