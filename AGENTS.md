@@ -345,15 +345,23 @@ Isolation guarantees:
 The test passes when `prices/` and `group_sets/` parquet appear under `data-test/anthem/` and
 every price row's `group_set_id` resolves to at least one membership edge.
 
+### Frontend component tests (`make frontend-test`)
+
+`frontend/src/App.test.jsx` — vitest + Testing Library, hermetic (`vi.mock('./api')`,
+jsdom). Covers the rate-explorer state machine: the default network-overview load, and
+the regression that a **provider selected with no procedure** shows the `/providers/{npi}/procedures`
+menu and never fires an npi-only `/rates/distribution` (which full-scans and hangs).
+Config in `frontend/vite.config.js` (`test:` block) + `frontend/src/test/setup.js`.
+
+`make test-all` runs the full sweep: `etl-check` + `etl-test` + `backend-test` + `frontend-test`
+(stack must be up). `make check` stays the fast static-only gate.
+
 ### Future test layers (not yet implemented)
 
 | Layer | Tool | What it would cover |
 |---|---|---|
-| Backend API | pytest + httpx | `/rates`, `/plans`, `/providers` endpoint contracts |
-| Frontend | Playwright | Rate explorer filter + histogram interactions |
-| ETL unit | `go test ./...` | Parser struct validation, conflict-resolution logic |
-
-Add `make backend-test` and `make frontend-test` targets when these are built, then wire them into `make check` or a separate `make test-all`.
+| Frontend E2E | Playwright | Real browser: histogram render, filter chips, mobile layout |
+| ETL conflict-resolution | `go test ./...` | Plan-specific-file-wins rate override (Critical Rule 5) |
 
 ---
 
@@ -424,7 +432,7 @@ Add `make backend-test` and `make frontend-test` targets when these are built, t
 | `etl-go/progress.go` | `ProgressReader` — byte tracking + ETA |
 | `etl-go/types.go` | Shared structs, global vars, DB URL / output path init |
 | `etl-go/*_test.go` | Hermetic unit tests over the committed fixtures |
-| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs (`/networks`, `/providers/search` = provider name/org search over NPPES GA, `/procedure_categories`, network filters) |
+| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs (`/networks`, `/providers/search`, `/providers/{npi}/procedures` = the provider "menu", `/rates/providers` = per-group rate table, `/procedure_categories`, network filters) |
 | `backend/tests/test_coverage.py` | Contract + coverage pytest (run via `make backend-test`) |
 | `scripts/build_code_labels.py` | Build `data/reference/code_labels.parquet` (RBCS + synonyms) — `make code-labels` |
 | `scripts/coverage_probe.py` | ~40-code scorecard for the target plan |

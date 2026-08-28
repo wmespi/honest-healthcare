@@ -22,6 +22,17 @@ export const searchBillingCodes = (q = '', billing_code_type) => {
 // RBCS categories present in the data: [{ category, subcategory, n_codes, provider_groups }].
 export const getProcedureCategories = () => api.get('/procedure_categories');
 
+// The provider "menu" — every procedure this NPI has a negotiated rate for, with
+// the rate range. Returns { npi, count, results: [{ billing_code, label,
+// rbcs_category, min_rate, median_rate, max_rate, n_rates }] }.
+export const getProviderMenu = (npi, network_name, setting, q = '') => {
+    const params = {};
+    if (network_name) params.network_name = network_name;
+    if (setting) params.setting = setting;
+    if (q) params.q = q;
+    return api.get(`/providers/${npi}/procedures`, { params });
+};
+
 export const getRateDistribution = (billing_code, billing_code_type = 'CPT', network_name, setting, npi) => {
     const params = {};
     if (billing_code) { params.billing_code = billing_code; params.billing_code_type = billing_code_type; }

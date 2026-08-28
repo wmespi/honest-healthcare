@@ -156,6 +156,16 @@ def rate_distribution(
     Rate distribution. When billing_code is omitted, returns a network-wide overview
     (pre-bucketed at the SQL level to keep the response size manageable).
     """
+    # An npi filter with no billing_code would full-scan prices (nothing prunes
+    # the code axis) — it hangs. That view is the provider "menu": use
+    # /providers/{npi}/procedures instead.
+    if npi and not billing_code:
+        raise HTTPException(
+            400,
+            detail="Select a procedure to see its rate distribution for this provider, "
+                   "or call /providers/{npi}/procedures for the full menu.",
+        )
+
     conn = db()
 
     # Expanding prices → provider groups is only affordable when the filter
@@ -364,6 +374,91 @@ def rates_by_provider(
             "n_providers": n_providers or 0,
         },
         "results": [row(r) for r in rows],
+    }
+
+
+@app.get("/providers/{npi}/procedures")
+def provider_procedures(
+    npi: int,
+    network_name: Optional[str] = None,
+    setting: Optional[str] = None,
+    q: str = Query(default=""),
+    limit: int = Query(default=500, le=2000),
+):
+    """The provider "menu": every procedure this NPI has a negotiated rate for,
+    with the rate range, grouped-ready by RBCS category.
+
+    Resolves the NPI to its (file_id, group_set_id) sets FIRST (cheap — the
+    providers filter is selective, then a join to the small group_sets table),
+    then touches `prices`. This is what makes it affordable where a bare
+    npi filter on /rates/distribution is not.
+    """
+    conn = db()
+
+    net_filter = "AND p.net = ?" if network_name else ""
+    set_filter = "AND p.setting = ?" if setting else ""
+    params: list = [npi]
+    if network_name:
+        params.append(network_slug(network_name))
+    if setting:
+        params.append(setting)
+
+    has_labels = os.path.exists(CODE_LABELS_PATH)
+    if has_labels:
+        label_join = f"LEFT JOIN read_parquet('{CODE_LABELS_PATH}') l ON l.billing_code = m.billing_code AND l.billing_code_type = m.billing_code_type"
+        label_cols = "l.label, l.rbcs_category, l.rbcs_subcategory"
+        search_filter = "WHERE (m.billing_code ILIKE ? OR l.search_text ILIKE ?)" if q else ""
+    else:
+        label_join, label_cols = "", "NULL AS label, NULL AS rbcs_category, NULL AS rbcs_subcategory"
+        search_filter = "WHERE m.billing_code ILIKE ?" if q else ""
+
+    rows = conn.execute(f"""
+        WITH npi_groups AS (
+            SELECT DISTINCT file_id, provider_group_id
+            FROM {PROVIDERS_SRC}
+            WHERE npi = ?
+        ),
+        npi_sets AS (
+            SELECT DISTINCT gs.file_id, gs.group_set_id
+            FROM {GROUP_SETS_SRC} gs
+            JOIN npi_groups g
+              ON g.file_id = gs.file_id AND g.provider_group_id = gs.provider_group_id
+        ),
+        menu AS (
+            SELECT
+                p.billing_code, p.billing_code_type,
+                MIN(p.negotiated_rate)    AS min_rate,
+                MEDIAN(p.negotiated_rate) AS median_rate,
+                MAX(p.negotiated_rate)    AS max_rate,
+                COUNT(*)                  AS n_rates,
+                COUNT(DISTINCT p.network_name) AS n_networks
+            FROM {PRICES_SRC} p
+            JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
+            WHERE 1=1 {net_filter} {set_filter}
+            GROUP BY 1, 2
+        )
+        SELECT m.billing_code, m.billing_code_type,
+               ROUND(m.min_rate, 2), ROUND(m.median_rate, 2), ROUND(m.max_rate, 2),
+               m.n_rates, m.n_networks, {label_cols}
+        FROM menu m
+        {label_join}
+        {search_filter}
+        ORDER BY m.n_rates DESC, m.billing_code
+        LIMIT {limit}
+    """, params + ([f"%{q}%", f"%{q}%"] if q and has_labels else ([f"%{q}%"] if q else []))).fetchall()
+
+    return {
+        "npi": npi,
+        "count": len(rows),
+        "results": [
+            {
+                "billing_code": r[0], "billing_code_type": r[1],
+                "min_rate": r[2], "median_rate": r[3], "max_rate": r[4],
+                "n_rates": r[5], "n_networks": r[6],
+                "label": r[7], "rbcs_category": r[8], "rbcs_subcategory": r[9],
+            }
+            for r in rows
+        ],
     }
 
 

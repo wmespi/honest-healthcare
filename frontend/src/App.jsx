@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, searchProviders, getProcedureCategories } from './api';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getProviderMenu, searchProviders, getProcedureCategories } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, ArrowUpDown, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -460,6 +460,89 @@ function ProviderRateTable({ data, loading, sort, onSort, npiActive }) {
   );
 }
 
+// The provider "menu" — every procedure the selected provider has a negotiated
+// rate for, grouped by RBCS category. Shown when a provider is picked but no
+// specific procedure. Clicking a row drills into that procedure.
+function ProviderMenu({ data, loading, onPick }) {
+  const [expanded, setExpanded] = useState(null);
+
+  if (loading) {
+    return (
+      <div className="mt-2 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Loading this provider’s procedures…
+      </div>
+    );
+  }
+  const rows = data?.results || [];
+  if (!rows.length) return null;
+
+  const byCat = rows.reduce((acc, r) => {
+    (acc[r.rbcs_category || 'Other'] ||= []).push(r);
+    return acc;
+  }, {});
+  const cats = Object.entries(byCat).sort((a, b) => b[1].length - a[1].length);
+
+  return (
+    <div className="mt-2">
+      <div className="mb-4">
+        <h2 className="text-white font-black text-xl tracking-tight">Procedure menu</h2>
+        <p className="text-slate-500 text-xs mt-1">
+          {rows.length.toLocaleString()} procedures this provider has a negotiated rate for. Tap one for the full breakdown.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        {cats.map(([cat, items]) => (
+          <div key={cat} className="rounded-2xl overflow-hidden bg-slate-900 border border-slate-800">
+            <button
+              onClick={() => setExpanded(e => (e === cat ? null : cat))}
+              className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-white/[0.02] transition-colors"
+            >
+              <span className="text-sm font-bold text-slate-200">{cat}</span>
+              <span className="flex items-center gap-3">
+                <span className="text-[11px] text-slate-600 tabular-nums">{items.length}</span>
+                <ChevronDown size={15} className={`text-slate-500 transition-transform ${expanded === cat ? 'rotate-180' : ''}`} />
+              </span>
+            </button>
+            <AnimatePresence>
+              {expanded === cat && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <div className="divide-y divide-slate-800/60 border-t border-slate-800">
+                    {items.map((r, i) => (
+                      <button
+                        key={i}
+                        onClick={() => onPick(r)}
+                        className="w-full flex items-center justify-between gap-4 px-5 py-3 text-left hover:bg-indigo-500/[0.06] transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm text-white font-medium truncate">
+                            {r.label || `${r.billing_code_type} ${r.billing_code}`}
+                          </div>
+                          <div className="text-[11px] text-slate-600 mt-0.5">
+                            <span className="font-mono text-indigo-400">{r.billing_code}</span>
+                            {r.n_rates > 1 && <span> · {r.n_rates} rates</span>}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-black text-white tabular-nums">
+                            {r.min_rate === r.max_rate ? fmt(r.min_rate) : `${fmt(r.min_rate)}–${fmt(r.max_rate)}`}
+                          </div>
+                          {r.min_rate !== r.max_rate && (
+                            <div className="text-[10px] text-slate-600">median {fmt(r.median_rate)}</div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [selectedPlan, setSelectedPlan] = useState('');
 
@@ -480,6 +563,9 @@ function App() {
   const [providerRatesLoading, setProviderRatesLoading] = useState(false);
   const [providerSort, setProviderSort] = useState('rate_asc');
 
+  const [providerMenu, setProviderMenu] = useState(null);
+  const [providerMenuLoading, setProviderMenuLoading] = useState(false);
+
   useEffect(() => {
     // Load network-wide overview immediately on mount
     fetchDistribution(null, null, '', '', '');
@@ -499,6 +585,19 @@ function App() {
     return () => { cancelled = true; };
   }, [selectedCode, selectedPlan, setting, npi, providerSort]);
 
+  // Provider "menu" — every procedure the selected provider has a rate for.
+  // Shown only when a provider is chosen but no specific procedure is.
+  useEffect(() => {
+    if (!npi || selectedCode?.code) { setProviderMenu(null); return; }
+    let cancelled = false;
+    setProviderMenuLoading(true);
+    getProviderMenu(npi, selectedPlan || undefined, setting || undefined)
+      .then(res => { if (!cancelled) setProviderMenu(res.data); })
+      .catch(() => { if (!cancelled) setProviderMenu(null); })
+      .finally(() => { if (!cancelled) setProviderMenuLoading(false); });
+    return () => { cancelled = true; };
+  }, [npi, selectedCode, selectedPlan, setting]);
+
   // Show top results immediately on focus; debounce while typing
   useEffect(() => {
     if (!isFocused) {
@@ -516,6 +615,17 @@ function App() {
   }, [query, isFocused]);
 
   const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi) => {
+    // Provider selected but no procedure yet: that's the "menu" view, handled by
+    // its own effect (ProviderMenu). Calling /rates/distribution here would
+    // full-scan prices with nothing pruning the code axis — it hangs.
+    if (activeNpi && !code) {
+      setDistribution(null);
+      setSelectedCode(null);
+      setError(null);
+      setLoading(false);
+      setShowSuggestions(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     setShowSuggestions(false);
@@ -567,6 +677,12 @@ function App() {
     setIsFocused(true);
     setShowSuggestions(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Drill from a provider-menu row into that procedure's full breakdown.
+  const handleMenuPick = (row) => {
+    setQuery(row.label || `${row.billing_code} (${row.billing_code_type})`);
+    fetchDistribution(row.billing_code, row.billing_code_type, selectedPlan, setting, npi);
   };
 
 
@@ -713,6 +829,11 @@ function App() {
         {/* Error */}
         {error && !loading && (
           <div className="py-10 text-center text-rose-400 font-medium">{error}</div>
+        )}
+
+        {/* Provider menu — provider chosen, no procedure yet */}
+        {npi && !selectedCode?.code && !loading && (
+          <ProviderMenu data={providerMenu} loading={providerMenuLoading} onPick={handleMenuPick} />
         )}
 
         {/* Results */}

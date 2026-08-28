@@ -11,9 +11,9 @@
         etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
         nppes nppes-test \
         db-psql db-migrate db-reset-processing db-reset-failed \
-        backend-test coverage-probe coverage-report frontend-smoke \
+        backend-test coverage-probe coverage-report frontend-smoke frontend-test \
         sh-etl sh-backend \
-        check \
+        check test-all \
         _require-etl-running
 
 ## ── Help ─────────────────────────────────────────────────────────────────────
@@ -116,6 +116,9 @@ coverage-report: ## Aggregate coverage_log — what we've ingested so far, per f
 frontend-smoke: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py
 
+frontend-test: ## Rate-explorer component tests (vitest + Testing Library, hermetic — mocks the API)
+	docker compose exec -T frontend sh -c "cd /app && npx vitest run"
+
 ## ── Database ─────────────────────────────────────────────────────────────────
 
 db-psql: ## Open a psql shell on honest_healthcare
@@ -150,7 +153,9 @@ sh-backend: ## Open a shell inside the backend container
 
 ## ── Top-level gate ───────────────────────────────────────────────────────────
 
-check: etl-check ## Run all pre-commit checks (expands as backend/frontend checks are added)
+check: etl-check ## Fast pre-commit gate — ETL static checks (fmt + vet + build + unit), no stack needed
+
+test-all: etl-check etl-test backend-test frontend-test ## Full test sweep — static + e2e + backend contract + frontend components (stack must be up)
 
 ## ── Internal ─────────────────────────────────────────────────────────────────
 
