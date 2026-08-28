@@ -174,17 +174,20 @@ func parseRates(
 
 	// Parquet writers (skipped in dry-run). Everything for this file is written
 	// under a per-file scratch dir (…/anthem/.inflight/<id>/) and moved into place
-	// only after a clean stream, so the backend — which globs rates/**/*.parquet,
-	// providers/*.parquet, codes/*.parquet — never sees a half-written or
-	// zero-byte file. Rate rows fan out into rates/net=<slug>/<id>.parquet, one
-	// partition per network_name, so a network-filtered query prunes to it.
+	// only after a clean stream, so the backend — which globs prices/**/*.parquet,
+	// group_sets/*.parquet, providers/*.parquet, codes/*.parquet — never sees a
+	// half-written or zero-byte file. Price rows fan out into
+	// prices/net=<slug>/<id>.parquet, one partition per network_name, so a
+	// network-filtered query prunes to it; the deduped provider-group rosters go
+	// to group_sets/<id>.parquet.
 	name := fmt.Sprintf("%d.parquet", fileID)
-	anthemDir := filepath.Dir(RatesOutputDir)
+	anthemDir := filepath.Dir(PricesOutputDir)
 	scratchDir := filepath.Join(anthemDir, inflightSubdir, fmt.Sprintf("%d", fileID))
 
 	var w mrfWriters
 	var closers []io.Closer
-	var fanout *rateFanout
+	var fanout *priceFanout
+	groupSetsScratch := filepath.Join(scratchDir, "group_sets", name)
 	provScratch := filepath.Join(scratchDir, "providers", name)
 	codesScratch := filepath.Join(scratchDir, "codes", name)
 	committed := false
@@ -195,7 +198,8 @@ func parseRates(
 			}
 		}()
 		for _, d := range []string{
-			filepath.Join(scratchDir, "rates"),
+			filepath.Join(scratchDir, "prices"),
+			filepath.Join(scratchDir, "group_sets"),
 			filepath.Join(scratchDir, "providers"),
 			filepath.Join(scratchDir, "codes"),
 		} {
@@ -204,7 +208,12 @@ func parseRates(
 				return nil
 			}
 		}
-		fanout = newRateFanout(filepath.Join(scratchDir, "rates"), name)
+		fanout = newPriceFanout(filepath.Join(scratchDir, "prices"), name)
+		gsW, gsC, err := newParquetWriter[GroupSetMemberRow](groupSetsScratch)
+		if err != nil {
+			markFailed(ctx, conn, fileID, err, dryRun)
+			return nil
+		}
 		provW, provC, err := newParquetWriter[ProviderRow](provScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
@@ -215,12 +224,18 @@ func parseRates(
 			markFailed(ctx, conn, fileID, err, dryRun)
 			return nil
 		}
-		closers = []io.Closer{fanoutCloser{fanout}, provW, provC, codesW, codesC}
+		closers = []io.Closer{fanoutCloser{fanout}, gsW, gsC, provW, provC, codesW, codesC}
 		w = mrfWriters{
-			rates: func(rows []RateRow) {
+			prices: func(rows []PriceRow) {
 				if err := fanout.write(rows); err != nil {
-					log.Printf("⚠️ write rates parquet: %v", err)
+					log.Printf("⚠️ write prices parquet: %v", err)
 				}
+			},
+			groupSetMembers: func(rows []GroupSetMemberRow) {
+				if _, err := gsW.Write(rows); err != nil {
+					log.Printf("⚠️ write group_sets parquet: %v", err)
+				}
+				gsW.Flush()
 			},
 			providers: func(rows []ProviderRow) {
 				if _, err := provW.Write(rows); err != nil {
@@ -244,7 +259,7 @@ func parseRates(
 	defer gz.Close()
 
 	log.Println("  🔄 Starting single-pass extract...")
-	res, err := streamMRF(gz, planName, isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, w, pr)
+	res, err := streamMRF(gz, planName, int64(fileID), isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, w, pr)
 	// Parquet writers must be closed (flushed) before we read the files back or
 	// mark the row completed — close in LIFO order (writer before its file).
 	closeAll(closers)
@@ -255,11 +270,12 @@ func parseRates(
 
 	// Stream succeeded — move the scratch parquet into place.
 	if !dryRun {
-		if err := fanout.promote(RatesOutputDir); err != nil {
+		if err := fanout.promote(PricesOutputDir); err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
 			return nil
 		}
 		for _, mv := range [][2]string{
+			{groupSetsScratch, filepath.Join(GroupSetsOutputDir, name)},
 			{provScratch, filepath.Join(ProvidersOutputDir, name)},
 			{codesScratch, filepath.Join(CodesOutputDir, name)},
 		} {
@@ -310,13 +326,14 @@ func parseRates(
 			totalBillingCodesBefore, note, res)
 	}
 
-	if (gaNPIs != nil || networkAllow != nil) && (res.RateRowsDropped > 0 || res.ProviderRowsDropped > 0) {
-		log.Printf("  🗺️  GA filter dropped %d provider rows, %d rate rows, %d groups (%d non-GA-network) — kept %d / %d rate rows",
-			res.ProviderRowsDropped, res.RateRowsDropped, res.GroupsDropped, res.GroupsDroppedNetwork,
-			res.RateRows, res.RateRows+res.RateRowsDropped)
+	if (gaNPIs != nil || networkAllow != nil) && (res.PriceRowsDropped > 0 || res.ProviderRowsDropped > 0) {
+		log.Printf("  🗺️  GA filter dropped %d provider rows, %d price rows, %d groups (%d non-GA-network) — kept %d / %d price rows",
+			res.ProviderRowsDropped, res.PriceRowsDropped, res.GroupsDropped, res.GroupsDroppedNetwork,
+			res.PriceRows, res.PriceRows+res.PriceRowsDropped)
 	}
-	log.Printf("  ✅ Completed. %d provider rows | %d rate rows | %d new codes | %d new NPIs | networks=%v",
-		res.ProviderRows, res.RateRows, res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))
+	log.Printf("  ✅ Completed. %d provider rows | %d price rows | %d group-set edges (%d sets) | %d new codes | %d new NPIs | networks=%v",
+		res.ProviderRows, res.PriceRows, res.GroupSetMemberRows, res.GroupSets,
+		res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))
 	return res
 }
 
@@ -352,9 +369,9 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 	if note == "" {
 		note = "unfiltered"
 	}
-	if res.RateRowsDropped > 0 || res.ProviderRowsDropped > 0 {
-		note = fmt.Sprintf("%s; dropped %d rate + %d provider rows, %d groups",
-			note, res.RateRowsDropped, res.ProviderRowsDropped, res.GroupsDropped)
+	if res.PriceRowsDropped > 0 || res.ProviderRowsDropped > 0 {
+		note = fmt.Sprintf("%s; dropped %d price + %d provider rows, %d groups",
+			note, res.PriceRowsDropped, res.ProviderRowsDropped, res.GroupsDropped)
 	}
 	_, err := conn.Exec(ctx, `
 		INSERT INTO coverage_log (
@@ -372,7 +389,7 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 			$11::text[], $12::text[], $13::text[], $14
 		FROM index_files i WHERE i.id = $1`,
 		fileID, location, compressedBytes,
-		res.RateRows, res.ProviderRows,
+		res.PriceRows, res.ProviderRows,
 		res.NewBillingCodes, totalCodesBefore+res.NewBillingCodes,
 		res.NewNPIs, res.NewTINs,
 		sortedKeys(res.NetworkNames),

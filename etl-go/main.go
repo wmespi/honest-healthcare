@@ -40,7 +40,8 @@ func main() {
 	if *testFlag {
 		DatabaseURL = TestDatabaseURL
 		ExampleOutputPath = "../data-test/anthem/mrf_example.json"
-		RatesOutputDir = "../data-test/anthem/rates"
+		PricesOutputDir = "../data-test/anthem/prices"
+		GroupSetsOutputDir = "../data-test/anthem/group_sets"
 		ProvidersOutputDir = "../data-test/anthem/providers"
 		CodesOutputDir = "../data-test/anthem/codes"
 		NPILookupPath = "../data-test/anthem/npi_lookup.parquet"

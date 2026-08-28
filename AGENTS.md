@@ -15,7 +15,7 @@ end-to-end. Mapping the free-text plan *name* → network still isn't wired — 
 | Layer | Tech | Purpose |
 |---|---|---|
 | ETL | Go (streaming JSON) | Parses gzipped MRF files in one pass; writes Parquet + a little Postgres |
-| Storage | Parquet + ZSTD | `data/anthem/rates/`, `providers/`, `codes/`, `npi_lookup.parquet`; `data/nppes/ga_providers.parquet` |
+| Storage | Parquet + ZSTD | `data/anthem/prices/`, `group_sets/`, `providers/`, `codes/`, `npi_lookup.parquet`; `data/nppes/ga_providers.parquet` |
 | Backend | Python + DuckDB | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | Rate explorer: histogram, filters, NPI search — `localhost:5173` |
 | Discovery DB | Postgres 15 + PostGIS | `index_files` queue (URLs, status, sizes, `market_types`, `hios_issuer_ids`, `plan_states`) + `coverage_log` |
@@ -24,7 +24,7 @@ Docker services: `db`, `etl_go`, `backend`, `frontend`.
 
 **Where data actually lands:**
 
-- **Parquet** (`data/anthem/…`, `data/nppes/…`) — rate rows, provider rows, billing-code rows, NPI lookup, and the NPPES Georgia provider subset. This is what the backend reads.
+- **Parquet** (`data/anthem/…`, `data/nppes/…`) — price rows + group-set rosters, provider rows, billing-code rows, NPI lookup, and the NPPES Georgia provider subset. This is what the backend reads.
 - **Postgres** — `index_files` (the discovery/parse queue), `billing_codes` (a reference upsert), and `coverage_log` (one observational row per parsed file). The `negotiated_rates`, `provider_mappings`, `place_of_service_codes` tables and the `vw_rates_detailed` view exist in `db/init.sql` but are **not currently written or read** by any service; treat them as legacy until re-adopted.
 
 ---
@@ -173,15 +173,19 @@ or `gaPriorityExpr DESC, …` with `-priority`):
    via `streamMRF` (the shared token scanner; `provider_references` must precede `in_network`).
 2. Builds a `provider_group_id → network_name` map from `provider_references[].network_name`
    (a structured array, e.g. `["GA Blue Value HIX Individual Network"]`) and stamps `network_name`
-   onto every provider row and rate row — structured attribution, no string matching.
+   onto every provider row and price row — structured attribution, no string matching.
    **GA NPI filter (default on when `data/nppes/ga_providers.parquet` exists):** a provider row is
    kept only if its NPI is a Georgia NPPES NPI; a provider group with no GA NPI is dropped entirely,
-   and every rate row referencing it goes too. `-all-npis` disables this. For GA-plan-specific files
-   the loss is small (~0.4% of rates, ~23% of provider rows for `GA_JBNKMED0001`); for
-   BlueCard-mirror / out-of-state files it drops 85–100% (many parse to zero rows). The
-   `coverage_log.notes` column records the drop counts.
-3. Writes three Parquet files keyed by `index_files.id`:
-   `rates/{id}.parquet`, `providers/{id}.parquet`, `codes/{id}.parquet` (all ZSTD).
+   and every price row whose whole roster it was goes too. `-all-npis` disables this. For
+   GA-plan-specific files the loss is small (~0.4% of prices, ~23% of provider rows for
+   `GA_JBNKMED0001`); for BlueCard-mirror / out-of-state files it drops 85–100% (many parse to zero
+   rows). The `coverage_log.notes` column records the drop counts.
+3. For each `negotiated_rate` block, buckets its provider references by network, fingerprints each
+   network-scoped roster (`hashGroupSet`), and — first time that roster is seen in the file —
+   writes its membership edges to `group_sets`. Emits one `prices` row per `(network × price)`
+   pointing at the `group_set_id`. Parquet files keyed by `index_files.id`:
+   `prices/net=<slug>/{id}.parquet`, `group_sets/{id}.parquet`, `providers/{id}.parquet`,
+   `codes/{id}.parquet` (all ZSTD).
 4. Upserts each new billing code into the Postgres `billing_codes` table
    (`ON CONFLICT (billing_code) DO NOTHING`).
 5. Writes one `coverage_log` row per completed file (rate/provider row counts, new codes/NPIs/TINs,
@@ -252,14 +256,22 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file (override 
 
 ```
 data/anthem/
-  rates/net=<slug>/{id}.parquet   provider_group_id | plan_name | network_name | billing_code_type | billing_code
-                          negotiation_arrangement | negotiated_type | negotiated_rate
-                          expiration_date | service_code | billing_class | setting
-                          ← Hive-partitioned by network_name (slug = etl-go/partition.go:slugifyNetwork
-                            == backend network_slug()). Rate rows fan out one row per network member,
-                            so network_name is a single value per row. A network-filtered API query
-                            adds `net = ?` and DuckDB prunes to the one directory.
-  providers/{id}.parquet  provider_group_id | network_name | npi | tin_type | tin_value
+  prices/net=<slug>/{id}.parquet   file_id | group_set_id | network_name
+                          billing_code_type | billing_code | negotiation_arrangement
+                          negotiated_type | negotiated_rate | expiration_date
+                          service_code | billing_class | setting
+                          ← One row per (network × negotiated price) — NOT fanned out per
+                            provider group. Hive-partitioned by network_name (slug =
+                            etl-go/partition.go:slugifyNetwork == backend network_slug());
+                            a network-filtered query adds `net = ?` and DuckDB prunes to
+                            the one directory. Join to group_sets on (file_id, group_set_id)
+                            to expand a price to its provider groups.
+  group_sets/{id}.parquet  file_id | group_set_id | provider_group_id
+                          ← The deduplicated provider-group rosters. group_set_id =
+                            FNV-64a hash of a block's sorted provider_reference ids
+                            (etl-go/mrf.go:hashGroupSet); written once per distinct
+                            roster per file. File 21057: 199 rosters for 15,560 codes.
+  providers/{id}.parquet  file_id | provider_group_id | network_name | npi | tin_type | tin_value
   codes/{id}.parquet      billing_code_type | billing_code | name | description
   npi_lookup.parquet      npi | tin_value
 data/nppes/
@@ -273,10 +285,18 @@ data/reference/
                           label | search_text     ← consumer label + search blob
 ```
 
-`{id}` is `index_files.id`. `service_code` is the `|`-joined place-of-service array. While a
-parse runs, each `{id}.parquet` is written under `<dir>/.inflight/` and atomically renamed
-into place only on a clean stream — so the backend (which globs `<dir>/*.parquet`) never
-reads a half-written or zero-byte file.
+`{id}` is `index_files.id`, and `file_id` on every row carries it — `provider_group_id` is the
+MRF's *file-local* `provider_reference.id`, so all cross-file joins key on `(file_id,
+provider_group_id)`. `service_code` is the `|`-joined place-of-service array. While a parse runs,
+everything for the file is written under `anthem/.inflight/{id}/` and promoted together (atomic
+rename) only on a clean stream — so the backend never reads a half-written or zero-byte file.
+
+**Why the split.** The MRF lists every participating provider group under nearly every billing
+code, so the old flat `rates/` layout fanned out to one row per `(code × price × group ×
+network)` — file 28947 alone was 723M rows. `prices` + `group_sets` stores each roster once:
+file 21057 went 682k → 76k price rows + 2.8k roster edges (~9×), and the ratio grows with file
+size since roster count stays ~flat as codes scale. The backend's `PRICE_GROUPS_SRC` re-joins
+them; `prices ⨝ group_sets` reproduces every original `(code, rate, provider_group)` tuple exactly.
 
 **`code_labels.parquet`** (`make code-labels`, script `scripts/build_code_labels.py`) is the
 consumer-friendly procedure layer, from **public data only**: CMS RBCS (185 families →
@@ -286,15 +306,14 @@ resolve. No AMA CPT descriptors (licensed). Needed because the Georgia MRF's own
 is near-useless ("Medical", "Surgery"). `/billing_codes` searches `search_text`;
 `/procedure_categories` powers browse-by-category.
 
-**`network_name`** is the real, structured network label for the rate — the `|`-joined
-`provider_references[].network_name` array (e.g. `"GA Blue Value HIX Individual Network"`). This is
-the reliable filter for the target plan. Old parquet files (pre-migration) lack the column; the
-backend reads every glob with `union_by_name=true` and guards `network_name` paths, so they show as
-`NULL` and `/networks` stays empty until a post-migration parse lands.
+**`network_name`** is the real, structured network label for the price — one member of the
+`provider_references[].network_name` array (e.g. `"GA Blue Value HIX Individual Network"`), a
+single value per price row (and equal to its `net` partition). This is the reliable filter for
+the target plan. A provider group in two networks lands in both partitions.
 
-**`plan_name` caveat:** the parser stamps each rate row with the `|`-joined `market_types` of its
-source file (e.g. `"individual | group"`), *not* an actual plan name (a few older parquet files carry
-a different, real string). Prefer `network_name`. See [Known gaps](#known-gaps).
+**No `plan_name`.** The old layout stamped rows with the source file's `|`-joined `market_types`
+(`"individual | group"`) — never a real plan name. It's gone; `/plans` returns `[]`. Filter by
+`network_name`. See [Known gaps](#known-gaps).
 
 ---
 
@@ -323,7 +342,8 @@ Isolation guarantees:
 - Discovery caps at 100 reporting structures; parsing caps at 1 file
 - Safe to run at any time — `test.*` and `data-test/` can be truncated/deleted freely
 
-The test passes when at least one `.parquet` file appears in `data-test/anthem/rates/`.
+The test passes when `prices/` and `group_sets/` parquet appear under `data-test/anthem/` and
+every price row's `group_set_id` resolves to at least one membership edge.
 
 ### Future test layers (not yet implemented)
 
@@ -395,7 +415,7 @@ Add `make backend-test` and `make frontend-test` targets when these are built, t
 |---|---|
 | `etl-go/main.go` | CLI entry point, flag routing, test/prod path selection |
 | `etl-go/discover.go` | Phase 1: master index download, stream, staging-table upsert (+ `plan_states`, `hiosStateCode`) |
-| `etl-go/mrf.go` | `streamMRF` — the shared single-pass token scanner + pure `buildRateRows`/`buildProviderRows` |
+| `etl-go/mrf.go` | `streamMRF` — the shared single-pass token scanner + pure `buildPriceRows` (group-set dedup) / `buildProviderRows`, `hashGroupSet` |
 | `etl-go/parse.go` | Phase 2: I/O around `streamMRF` — Parquet writers, billing-code upsert, status, `coverage_log` |
 | `etl-go/fixture.go` | `-make-fixture` — truncated `*.json.gz` generator |
 | `etl-go/priority.go` | `gaPriorityExpr` — the deterministic GA/individual ranking |
@@ -434,25 +454,27 @@ Add `make backend-test` and `make frontend-test` targets when these are built, t
   trusts the filename). Every other big `anthem/GA_*` file is a *different* GA individual plan
   (Pathway/Gatekeeper HMO, etc.), not Blue Value — parsing them broadens GA coverage but adds nothing
   to the target plan.
-- **The current dataset is deliberately just file 21057** (the target plan). A 2026-08 pass parsed
-  ~370 BlueCard-mirror / other-state files; all were ~98% non-GA national data ("Aware",
-  "Traditional", CareFirst, Anthem NV/CO/WY) — rolled back (`status='failed'`, reason "rolled back").
-  Re-adding scale needs `network_name`-partitioned parquet first (unpartitioned, one 679M-row file
-  took every query to ~3.5s).
+- **Browse-layer aggregates still full-scan.** `/networks`, `/billing_codes`, `/procedure_categories`
+  aggregate all of `prices ⨝ group_sets` (`VOL_CTE` in `backend/main.py`). Fine now (76k price rows),
+  but a precomputed summary table is the next step for many-file / multi-payor scale — see GitHub
+  issue #10. The detail endpoints (`/rates/distribution`, `/rates/providers` with a network filter)
+  partition-prune and stay fast regardless.
+- **The backend opens a fresh `duckdb.connect()` per request** — no connection reuse, no
+  `memory_limit`, no spill dir. A heavy query can OOM-kill the process rather than degrade. Part of
+  issue #10.
 - **`coverage_log.n_ga_hospital_npis`** is never populated by the parser (the NPPES join happens at
   query time). Backfill it with a post-batch `providers ⨝ ga_providers` query if the number is wanted
   in the log.
 - **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` path prefix, so it is not a
   cross-month key — re-discover monthly and prune the prior month (see Phase 1 note). A query-stripped
   `url_path` column would fix this.
-- **Large GA files deferred.** The `anthem/GA_*` plan-specific files above ~1 MB (e.g.
-  `GA_HXRCMED0001` at 2.1 GB, `GA_AHPPMEDGAHF*` at 3–7 GB) are the richest source for the target plan.
-  Even after the GA NPI filter they keep ~all their rate rows (they *are* Georgia plans), so one file
-  can be many GB of Parquet — parse them individually and watch `du -sh data`.
-- **Plan-name attribution — no real plan name in the pipeline.** `RateRow.plan_name` is the source
-  file's `|`-joined `market_types` (e.g. `"individual | group"`). The frontend and probes filter by
-  `network_name` instead. Revisit: map a member's plan name → network via HIOS `plan_id` + the CMS
-  registry, or bound `plan_names` in discovery to just the individual/GA subset.
+- **Large GA files.** The `anthem/GA_*` plan-specific files above ~1 MB (e.g. `GA_HXRCMED0001` at
+  2.1 GB, `GA_AHPPMEDGAHF*` at 3–7 GB) are the richest source for the target plan. The `prices` +
+  `group_sets` split makes them tractable now (28947: 723M flat rows → far fewer), but still parse
+  them individually and watch `du -sh data`.
+- **Plan-name attribution — no real plan name in the pipeline.** The old `plan_name` column (source
+  file `market_types`) is gone; nothing carries a real plan name. The frontend and probes filter by
+  `network_name`. Revisit: map a member's plan name → network via HIOS `plan_id` + the CMS registry.
 - **Legacy Postgres tables.** `negotiated_rates`, `provider_mappings`, `place_of_service_codes`,
   `vw_rates_detailed` in `db/init.sql` are neither written nor read. `db/SCHEMA.md` still describes the
   old Postgres-centric model.

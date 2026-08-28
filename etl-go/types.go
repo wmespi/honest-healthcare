@@ -11,7 +11,8 @@ var (
 	TestDatabaseURL    = "postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test"
 	IndexURL           = ""
 	ExampleOutputPath  = "../data/anthem/mrf_example.json"
-	RatesOutputDir     = "../data/anthem/rates"
+	PricesOutputDir    = "../data/anthem/prices"
+	GroupSetsOutputDir = "../data/anthem/group_sets"
 	ProvidersOutputDir = "../data/anthem/providers"
 	CodesOutputDir     = "../data/anthem/codes"
 	NPILookupPath      = "../data/anthem/npi_lookup.parquet"
@@ -94,9 +95,14 @@ type InNetworkItem struct {
 	NegotiatedRates        []NegotiatedRate `json:"negotiated_rates"`
 }
 
-type RateRow struct {
-	ProviderGroupID        int64   `parquet:"provider_group_id"`
-	PlanName               string  `parquet:"plan_name"`
+// PriceRow is one negotiated price for a billing code, attributed to a network
+// and a provider-group *set* (group_set_id) rather than fanned out one row per
+// member. The roster behind group_set_id lives in GroupSetMemberRow. Partitioned
+// on disk by network_name (prices/net=<slug>/<file_id>.parquet), so a
+// network-filtered query still prunes to one directory.
+type PriceRow struct {
+	FileID                 int64   `parquet:"file_id"`
+	GroupSetID             int64   `parquet:"group_set_id"`
 	NetworkName            string  `parquet:"network_name"`
 	BillingCodeType        string  `parquet:"billing_code_type"`
 	BillingCode            string  `parquet:"billing_code"`
@@ -109,7 +115,18 @@ type RateRow struct {
 	Setting                string  `parquet:"setting"`
 }
 
+// GroupSetMemberRow is one membership edge of a deduplicated provider-group set.
+// Written once per distinct (file, group_set_id) roster and joined back from
+// PriceRow on (file_id, group_set_id). provider_group_id is the MRF's file-local
+// provider_reference id — join to ProviderRow on (file_id, provider_group_id).
+type GroupSetMemberRow struct {
+	FileID          int64 `parquet:"file_id"`
+	GroupSetID      int64 `parquet:"group_set_id"`
+	ProviderGroupID int64 `parquet:"provider_group_id"`
+}
+
 type ProviderRow struct {
+	FileID          int64  `parquet:"file_id"`
 	ProviderGroupID int64  `parquet:"provider_group_id"`
 	NetworkName     string `parquet:"network_name"`
 	NPI             int64  `parquet:"npi"`
