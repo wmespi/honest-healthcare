@@ -25,11 +25,11 @@ services:
       timeout: 5s
       retries: 5
 
-  etl_go:
+  etl:
     build:
       context: .
-      dockerfile: deploy/Dockerfile.etl_go
-    container_name: honest-healthcare-etl-go
+      dockerfile: deploy/Dockerfile.etl
+    container_name: honest-healthcare-etl
     init: true
     command: tail -f /dev/null
     volumes:

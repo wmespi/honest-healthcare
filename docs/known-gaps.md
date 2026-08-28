@@ -1,7 +1,7 @@
 # Known gaps
 
 *The running list of things that are wrong, missing, or deferred. Parser-internal
-issues that only bite at scale are in [../etl-go/parse.md](../etl-go/parse.md).*
+issues that only bite at scale are in [../etl/parse.md](../etl/parse.md).*
 
 ## Attribution
 
@@ -51,7 +51,7 @@ issues that only bite at scale are in [../etl-go/parse.md](../etl-go/parse.md).*
   idle.
 - **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` path prefix
   — not a cross-month key. Re-discover monthly and prune the prior month
-  ([../etl-go/discover.md](../etl-go/discover.md)). A query-stripped `url_path`
+  ([../etl/discover.md](../etl/discover.md)). A query-stripped `url_path`
   column would fix it.
 - **Large GA files.** `GA_HXRCMED0001` (~2.1 GB), `GA_AHPPMEDGAHF*` (3–7 GB) are the
   richest Blue-Value-adjacent sources. The `prices` + `group_sets` split makes them
@@ -66,7 +66,7 @@ issues that only bite at scale are in [../etl-go/parse.md](../etl-go/parse.md).*
   [issue #13 item 5](https://github.com/wmespi/honest-healthcare/issues/13),
   flagged for discussion.
 - **Conflict resolution** (Critical Rule 5) is documented in
-  [../etl-go/mrf-model.md](../etl-go/mrf-model.md), not implemented — needs
+  [../etl/mrf-model.md](../etl/mrf-model.md), not implemented — needs
   `source_file_id` / `plan_count` on price rows.
 
 ## Legacy / stale

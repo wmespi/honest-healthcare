@@ -32,7 +32,7 @@ Each router is `router = APIRouter()`; handlers are `@router.get(...)`.
 - `price_filters(billing_code, billing_code_type, network_name, setting, npi)` →
   `(where_sql, params)` for the `pg`-aliased price-groups source.
 - `network_slug(name)` — turns a `network_name` into its Hive partition key.
-  **Must stay identical to `etl-go/partition.go:slugifyNetwork`.**
+  **Must stay identical to `etl/extraction/partition.go:slugifyNetwork`.**
 
 Consumer labels live in `serving/labels.py` (`pos_bucket`, `MODIFIER_LABELS`,
 `provider_card`, `nucc_bits`, `plausibility`).

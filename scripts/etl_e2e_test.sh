@@ -10,7 +10,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-FIXTURE="testdata/fixtures/synthetic.json.gz"
+FIXTURE="extraction/testdata/fixtures/synthetic.json.gz"
 PSQL=(docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 -qtA)
 
 cleanup() {
@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "→ unit tests"
-docker compose exec -T etl_go go test ./...
+docker compose exec -T etl go test ./...
 
 echo "→ seed test.index_files"
 cleanup  # start from a clean slate
@@ -32,10 +32,10 @@ FILE_ID=$("${PSQL[@]}" -c \
 echo "   file id = $FILE_ID"
 
 echo "→ parse fixture (test isolation)"
-docker compose exec -T etl_go go run . parse -test -file-ids "$FILE_ID" -fixture "$FIXTURE"
+docker compose exec -T etl go run . parse -test -file-ids "$FILE_ID" -fixture "$FIXTURE"
 
-echo "→ verify parquet output (via backend duckdb)"
-RATE_ROWS=$(docker compose exec -T backend python3 -c "
+echo "→ verify parquet output (via serving duckdb)"
+RATE_ROWS=$(docker compose exec -T serving python3 -c "
 import duckdb, glob
 prices = glob.glob('/app/data-test/anthem/prices/**/*.parquet', recursive=True)
 gsets  = glob.glob('/app/data-test/anthem/group_sets/*.parquet')

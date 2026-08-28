@@ -67,7 +67,7 @@ _DUCK_MEM = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
 
 
 def network_slug(name: str) -> str:
-    """Partition key for a network_name. MUST match etl-go/partition.go:slugifyNetwork."""
+    """Partition key for a network_name. MUST match etl/extraction/partition.go:slugifyNetwork."""
     s = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
     s = s[:100].strip("-")
     return s or "_unattributed"

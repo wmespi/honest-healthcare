@@ -27,7 +27,7 @@ prices/net=<slug>/{id}.parquet
     service_code | billing_class | modifier | setting
 ```
 One row per **(network × negotiated price)** — NOT fanned out per provider group.
-Hive-partitioned by `network_name` (slug = `etl-go/partition.go:slugifyNetwork` ==
+Hive-partitioned by `network_name` (slug = `etl/extraction/partition.go:slugifyNetwork` ==
 serving `network_slug()`); a network-filtered query adds `net = ?` and DuckDB
 prunes to the one directory. Join to `group_sets` on `(file_id, group_set_id)` to
 expand a price to its provider groups.
@@ -42,7 +42,7 @@ expand a price to its provider groups.
 group_sets/{id}.parquet     file_id | group_set_id | provider_group_id
 ```
 Deduplicated provider-group rosters. `group_set_id` = FNV-64a of a block's sorted
-`provider_reference` ids (`etl-go/mrf.go:hashGroupSet`); written once per distinct
+`provider_reference` ids (`etl/extraction/stream.go:hashGroupSet`); written once per distinct
 roster per file. `prices ⨝ group_sets` reproduces every original
 `(code, rate, provider_group)` tuple exactly.
 
