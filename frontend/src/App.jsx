@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRateQuote, getProviderMenu, searchProviders, getProcedureCategories } from './api';
-import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, ArrowUpDown, Building2 } from 'lucide-react';
+import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -372,30 +372,27 @@ function titleCaseOrg(name) {
   }).join(' ');
 }
 
-// Best available human label for a contracted provider group. The MRF groups are
-// coarse (a few big TIN/IPA rollups + many tiny practices), so this degrades
-// gracefully: named org → specialty + city → city → opaque group id.
+// Name for one contracted provider group. Small groups get their real practice
+// name (NPPES org, else physician names); the big TIN/IPA rollups can't be
+// named and say so plainly.
 function providerLabel(r) {
-  const orgs = (r.ga_org_names || []).filter(Boolean);
-  const cities = (r.ga_cities || []).filter(Boolean);
+  if (r.is_rollup) return 'Statewide contract group';
+  const named = (r.named_practices || []).filter(Boolean);
+  if (named.length) return titleCaseOrg(named[0]);
   const tax = (r.ga_taxonomies || []).find(t => t && t !== 'Other');
-  const n = r.npi_count || 0;
-  if (n > 400) return `Large provider network`;
-  if (orgs.length) return titleCaseOrg(orgs[0]);
-  if (tax && cities.length) return `${tax} · ${cities.slice(0, 2).join(', ')}`;
-  if (cities.length) return `Provider group · ${cities.slice(0, 2).join(', ')}`;
+  if (tax) return tax;
   return `Provider group #${r.provider_group_id}`;
 }
 
-// "Compare across providers" — one row per contracted provider group for the
-// selected code, ranked by negotiated rate. When an NPI filter is active the
-// backend narrows this to groups containing that provider, so the same table
-// answers "what will this cost at my clinic".
-function ProviderRateTable({ data, loading, sort, onSort, npiActive }) {
+// "Does the provider matter?" — Job 3. Blue Value is close to a network-wide fee
+// schedule, so for most codes every provider negotiated the same rate and the
+// honest answer is "provider choice doesn't change the price". When rates do
+// vary, show the ranked list with the named practices surfaced.
+function ProviderRateTable({ data, loading }) {
   if (loading) {
     return (
       <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
-        Loading providers…
+        Comparing providers…
       </div>
     );
   }
@@ -403,60 +400,80 @@ function ProviderRateTable({ data, loading, sort, onSort, npiActive }) {
   if (!rows.length) return null;
   const s = data.summary || {};
 
+  const medians = rows.map(r => r.median_rate).filter(x => x != null);
+  const lo = Math.min(...medians), hi = Math.max(...medians);
+  const uniform = medians.length > 1 && hi - lo < Math.max(0.02 * lo, 1);
+  const rangeStr = s.min === s.max ? fmt(s.min) : `${fmt(s.min)}–${fmt(s.max)}`;
+
   return (
     <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
-      <div className="flex items-start justify-between gap-4 mb-1">
-        <div>
-          <h2 className="text-white font-black text-xl tracking-tight">
-            {npiActive ? 'This provider’s rate' : 'Rates by provider'}
-          </h2>
-          <p className="text-slate-500 text-xs mt-1">
-            {npiActive
-              ? 'Every contracted group this provider belongs to.'
-              : `${s.n_groups ?? rows.length} contracted provider groups · ${(s.n_providers ?? 0).toLocaleString()} providers`}
-            {s.min != null && s.max != null && s.min !== s.max && (
-              <> · {fmt(s.min)}–{fmt(s.max)}</>
-            )}
+      <h2 className="text-white font-black text-xl tracking-tight">Does the provider matter?</h2>
+
+      {uniform ? (
+        <div className="mt-4">
+          <div className="text-3xl sm:text-4xl font-black text-white tracking-tight">{rangeStr}</div>
+          <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
+            Every in-network provider negotiated <span className="text-white font-semibold">the same rate</span> for
+            this procedure.{' '}
+            {s.min !== s.max && 'The spread is office vs. facility setting — not one provider vs. another. '}
+            Picking a cheaper clinic won’t lower this price.
+          </p>
+          <p className="text-slate-600 text-xs mt-3">
+            {s.n_groups} contracted provider groups · {(s.n_providers ?? 0).toLocaleString()} providers
           </p>
         </div>
-        <button
-          onClick={() => onSort(sort === 'rate_asc' ? 'rate_desc' : 'rate_asc')}
-          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 text-[11px] font-bold transition-colors"
-        >
-          <ArrowUpDown size={12} />
-          {sort === 'rate_asc' ? 'Lowest first' : 'Highest first'}
-        </button>
-      </div>
-
-      <div className="mt-5 divide-y divide-slate-800/60">
-        {rows.map((r, i) => {
-          const cities = (r.ga_cities || []).filter(Boolean).slice(0, 3);
-          return (
-            <div key={i} className="flex items-center justify-between gap-4 py-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <Building2 size={13} className="text-slate-600 shrink-0" />
-                  <span className="text-sm text-white font-medium truncate">{providerLabel(r)}</span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-x-2.5 gap-y-0.5 flex-wrap">
-                  <span className="tabular-nums">{(r.npi_count || 0).toLocaleString()} providers</span>
-                  {r.ga_hospital_npis > 0 && <span className="text-amber-400">{r.ga_hospital_npis} hospital</span>}
-                  {r.ga_clinic_npis > 0 && <span className="text-sky-400">{r.ga_clinic_npis} clinic</span>}
-                  {cities.length > 0 && <span className="truncate text-slate-600">{cities.join(' · ')}</span>}
-                </div>
+      ) : (() => {
+        // "Typical" = a contract carrying the full standard schedule (same floor
+        // and ceiling as the network). Outliers miss the cheap tier or are
+        // capped differently — those are the only actionable rows.
+        const isTypical = r => r.min_rate === s.min && r.max_rate === s.max;
+        const atModal = rows.filter(isTypical);
+        const outliers = rows.filter(r => !isTypical(r));
+        const Row = ({ r }) => (
+          <div className="flex items-center justify-between gap-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Building2 size={13} className="text-slate-600 shrink-0" />
+                <span className="text-sm text-white font-medium truncate">{providerLabel(r)}</span>
               </div>
-              <div className="text-right shrink-0">
-                <div className="text-lg font-black text-white tabular-nums">{fmt(r.negotiated_rate)}</div>
-                <div className="text-[10px] text-slate-600 uppercase tracking-wide">{r.negotiated_type}</div>
+              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-x-2.5 flex-wrap">
+                <span className="tabular-nums">{(r.npi_count || 0).toLocaleString()} providers</span>
+                {r.ga_hospital_npis > 0 && <span className="text-amber-400">hospital-affiliated</span>}
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {rows.length >= 200 && (
-        <p className="text-slate-600 text-[11px] mt-4">Showing the first 200 provider groups.</p>
-      )}
+            <div className="text-right shrink-0">
+              <div className="text-lg font-black text-white tabular-nums">
+                {r.min_rate === r.max_rate ? fmt(r.min_rate) : `${fmt(r.min_rate)}–${fmt(r.max_rate)}`}
+              </div>
+              {r.min_rate !== r.max_rate && <div className="text-[10px] text-slate-600">by setting</div>}
+            </div>
+          </div>
+        );
+        return (
+          <>
+            <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
+              At most in-network providers this is <span className="text-white font-semibold">{rangeStr}</span>
+              {' '}(depending on setting).
+              {outliers.length > 0
+                ? <> {outliers.length} contract{outliers.length > 1 ? 's differ' : ' differs'}:</>
+                : <> Every contract we hold uses that same schedule.</>}
+            </p>
+            {outliers.length > 0 && (
+              <div className="mt-4 divide-y divide-slate-800/60">
+                {outliers.map((r, i) => <Row key={i} r={r} />)}
+              </div>
+            )}
+            {atModal.length > 0 && (
+              <p className="text-slate-600 text-[11px] mt-4">
+                {atModal.length} contract{atModal.length > 1 ? 's' : ''} on the standard {rangeStr} schedule
+                {atModal.some(r => !r.is_rollup) && (
+                  <> — incl. {atModal.filter(r => !r.is_rollup).slice(0, 3).map(providerLabel).join(', ')}</>
+                )}
+              </p>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -651,7 +668,6 @@ function App() {
 
   const [providerRates, setProviderRates] = useState(null);
   const [providerRatesLoading, setProviderRatesLoading] = useState(false);
-  const [providerSort, setProviderSort] = useState('rate_asc');
 
   const [providerMenu, setProviderMenu] = useState(null);
   const [providerMenuLoading, setProviderMenuLoading] = useState(false);
@@ -671,12 +687,12 @@ function App() {
     if (!code || npi) { setProviderRates(null); return; }
     let cancelled = false;
     setProviderRatesLoading(true);
-    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined, { sort: providerSort })
+    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined)
       .then(res => { if (!cancelled) setProviderRates(res.data); })
       .catch(() => { if (!cancelled) setProviderRates(null); })
       .finally(() => { if (!cancelled) setProviderRatesLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedCode, selectedPlan, setting, npi, providerSort]);
+  }, [selectedCode, selectedPlan, setting, npi]);
 
   // Job 1 cost card — a provider AND a specific procedure are both selected.
   useEffect(() => {
@@ -1067,13 +1083,7 @@ function App() {
                 />
               )}
               {selectedCode?.code && !npi && (
-                <ProviderRateTable
-                  data={providerRates}
-                  loading={providerRatesLoading}
-                  sort={providerSort}
-                  onSort={setProviderSort}
-                  npiActive={false}
-                />
+                <ProviderRateTable data={providerRates} loading={providerRatesLoading} />
               )}
             </motion.div>
           )}

@@ -55,8 +55,8 @@ export const getRateQuote = (billing_code, billing_code_type, npi, network_name)
     return api.get('/rates/quote', { params });
 };
 
-export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, { sort = 'rate_asc', limit = 200 } = {}) => {
-    const params = { billing_code, billing_code_type, sort, limit };
+export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, { component = 'global' } = {}) => {
+    const params = { billing_code, billing_code_type, component };
     if (network_name) params.network_name = network_name;
     if (setting) params.setting = setting;
     if (npi) params.npi = npi;

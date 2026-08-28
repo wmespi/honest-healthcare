@@ -262,23 +262,30 @@ def rates_by_provider(
     setting: Optional[str] = None,
     npi: Optional[int] = None,
     ga_hospitals_only: bool = False,
+    component: str = "global",
     sort: str = "rate_asc",
-    limit: int = Query(default=100, le=1000),
+    limit: int = Query(default=200, le=1000),
 ):
     """
-    Rates joined to provider groups with NPI count per group. When the NPPES GA
-    subset is present, each group is also annotated with GA hospital/clinic
-    counts and example org names; ?ga_hospitals_only=true keeps only groups
-    touching a GA hospital.
+    "Compare across providers" — one row per contracted provider group for a
+    code, ordered by price. Defaults to the global (unmodified) rate so groups
+    are compared like-for-like; `component=all` keeps every modifier, or pass a
+    specific one ("26", "TC").
 
-    Powers the "compare across providers" view: one row per contracted provider
-    group, ordered by price. `summary` is computed over every matching group
-    (not just the returned page) so the frontend can show min/median/max without
-    a second call.
+    Each row carries the named practices behind the group (org + individual
+    names) and its size; the frontend collapses the big TIN/IPA rollups and
+    surfaces the nameable ones. `summary` (min/median/max/modal rate, computed
+    over every matching group) supports a headline like "most contracts ~$82".
     """
     conn = db()
 
     where, params = _price_filters(billing_code, billing_code_type, network_name, setting, npi)
+    if component == "global":
+        # NULL = a file parsed before the modifier column existed; treat as global.
+        where += " AND COALESCE(pg.modifier, '') = ''"
+    elif component != "all":
+        where += " AND pg.modifier = ?"
+        params = params + [component]
     has_nppes = os.path.exists(GA_NPPES_PATH)
     order_by = "pg.negotiated_rate DESC" if sort == "rate_desc" else "pg.negotiated_rate"
 
@@ -291,12 +298,19 @@ def rates_by_provider(
             FROM {PRICE_GROUPS_SRC} pg
             WHERE {where}
             GROUP BY 1, 2, 3
+        ),
+        modal AS (
+            SELECT negotiated_rate, COUNT(*) AS n
+            FROM grp GROUP BY 1 ORDER BY n DESC, negotiated_rate LIMIT 1
         )
-        SELECT MIN(negotiated_rate), MAX(negotiated_rate),
-               AVG(negotiated_rate), MEDIAN(negotiated_rate),
+        SELECT MIN(g.negotiated_rate), MAX(g.negotiated_rate),
+               AVG(g.negotiated_rate), MEDIAN(g.negotiated_rate),
                COUNT(*),
-               COUNT(DISTINCT (file_id, provider_group_id))
-        FROM grp
+               COUNT(DISTINCT (g.file_id, g.provider_group_id)),
+               (SELECT negotiated_rate FROM modal),
+               (SELECT n FROM modal),
+               COUNT(*) FILTER (WHERE g.negotiated_rate <= (SELECT MEDIAN(negotiated_rate) FROM grp))
+        FROM grp g
     """, params).fetchone()
 
     n_providers = conn.execute(f"""
@@ -313,65 +327,85 @@ def rates_by_provider(
             COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_clinic)   AS ga_clinic_npis,
             COUNT(DISTINCT ga.npi)                               AS ga_npi_count,
             LIST(DISTINCT ga.org_name) FILTER (WHERE ga.org_name IS NOT NULL AND ga.org_name != '') AS ga_org_names,
-            LIST(DISTINCT ga.taxonomy_group) FILTER (WHERE ga.taxonomy_group IS NOT NULL AND ga.taxonomy_group != '') AS ga_taxonomies,
-            LIST(DISTINCT ga.city) FILTER (WHERE ga.city IS NOT NULL AND ga.city != '') AS ga_cities"""
+            LIST(DISTINCT TRIM(BOTH ', ' FROM ga.last_name || ', ' || ga.first_name))
+              FILTER (WHERE ga.entity_type = 'individual' AND ga.last_name IS NOT NULL AND ga.last_name != '') AS ga_indiv_names,
+            LIST(DISTINCT ga.taxonomy_group) FILTER (WHERE ga.taxonomy_group IS NOT NULL AND ga.taxonomy_group != '') AS ga_taxonomies"""
         ga_join = f"LEFT JOIN read_parquet('{GA_NPPES_PATH}') ga ON p.npi = ga.npi"
         ga_having = "HAVING COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_hospital) > 0" if ga_hospitals_only else ""
     else:
         ga_select, ga_join, ga_having = "", "", ""
 
+    # One row per contracted provider group — its rate RANGE for this code
+    # (min–max across settings), not one row per (group × rate). Lets the
+    # frontend rank practices without a practice appearing three times.
+    grp_order = "grp_max_rate DESC, grp_min_rate DESC" if sort == "rate_desc" else "grp_min_rate, grp_max_rate"
     rows = conn.execute(f"""
         SELECT
             pg.provider_group_id,
-            pg.negotiated_rate,
-            pg.negotiated_type,
-            NULL AS plan_name,
+            MIN(pg.negotiated_rate) AS grp_min_rate,
+            MAX(pg.negotiated_rate) AS grp_max_rate,
+            MEDIAN(pg.negotiated_rate) AS grp_median_rate,
+            ANY_VALUE(pg.negotiated_type) AS negotiated_type,
             ANY_VALUE(pg.network_name) AS network_name,
-            pg.expiration_date,
             COUNT(DISTINCT p.npi) AS npi_count{ga_select}
         FROM {PRICE_GROUPS_SRC} pg
         LEFT JOIN {PROVIDERS_SRC} p
             ON p.file_id = pg.file_id AND p.provider_group_id = pg.provider_group_id
         {ga_join}
         WHERE {where}
-        GROUP BY pg.file_id, pg.provider_group_id, pg.negotiated_rate,
-                 pg.negotiated_type, pg.expiration_date
+        GROUP BY pg.file_id, pg.provider_group_id
         {ga_having}
-        ORDER BY {order_by}
+        ORDER BY {grp_order}
         LIMIT {limit}
     """, params).fetchall()
+
+    ROLLUP_THRESHOLD = 40  # groups bigger than this can't be meaningfully named
 
     def row(r):
         d = {
             "provider_group_id": r[0],
-            "negotiated_rate":   r[1],
-            "negotiated_type":   r[2],
-            "plan_name":         r[3],
-            "network_name":      r[4],
-            "expiration_date":   r[5],
+            "min_rate":          round(r[1], 2) if r[1] is not None else None,
+            "max_rate":          round(r[2], 2) if r[2] is not None else None,
+            "median_rate":       round(r[3], 2) if r[3] is not None else None,
+            "negotiated_rate":   round(r[1], 2) if r[1] is not None else None,  # back-compat
+            "negotiated_type":   r[4],
+            "network_name":      r[5],
             "npi_count":         r[6],
         }
         if has_nppes:
+            # ga_select order: hospital_npis, clinic_npis, npi_count, org_names,
+            #                  indiv_names, taxonomies  →  r[7..12]
+            npi_count = r[6] or 0
+            orgs = r[10] or []
+            indiv = r[11] or []
             d["ga_hospital_npis"] = r[7]
             d["ga_clinic_npis"] = r[8]
             d["ga_npi_count"] = r[9]
-            d["ga_org_names"] = (r[10] or [])[:5]
-            d["ga_taxonomies"] = (r[11] or [])[:4]
-            d["ga_cities"] = (r[12] or [])[:4]
+            d["ga_org_names"] = orgs[:5]
+            d["ga_indiv_names"] = indiv[:5]
+            d["ga_taxonomies"] = (r[12] or [])[:4]
+            d["is_rollup"] = npi_count > ROLLUP_THRESHOLD
+            d["named_practices"] = ([] if d["is_rollup"]
+                                    else (orgs[:3] or [n.title() for n in indiv[:3]]))
         return d
 
+    median = round(summary[3], 2) if summary[3] is not None else None
     return {
         "billing_code":      billing_code,
         "billing_code_type": billing_code_type,
+        "component":         component,
         "nppes_ga": has_nppes,
         "summary": {
             "min":       round(summary[0], 2) if summary[0] is not None else None,
             "max":       round(summary[1], 2) if summary[1] is not None else None,
             "avg":       round(summary[2], 2) if summary[2] is not None else None,
-            "median":    round(summary[3], 2) if summary[3] is not None else None,
+            "median":    median,
             "n_rows":    summary[4] or 0,
             "n_groups":  summary[5] or 0,
             "n_providers": n_providers or 0,
+            "modal_rate": round(summary[6], 2) if summary[6] is not None else None,
+            "n_at_modal": summary[7] or 0,
+            "n_at_or_below_median": summary[8] or 0,
         },
         "results": [row(r) for r in rows],
     }

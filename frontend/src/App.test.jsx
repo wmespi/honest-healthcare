@@ -146,6 +146,39 @@ describe('procedure search scoping', () => {
   });
 });
 
+describe('compare-across-providers view', () => {
+  it('shows "Does the provider matter?" with named practices when a code is picked and no provider', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.searchBillingCodes.mockResolvedValue({ data: [
+      { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', provider_groups: 12 },
+    ] });
+    api.getRatesByProvider.mockResolvedValue({ data: {
+      billing_code: '99213', component: 'global',
+      summary: { min: 56.84, max: 123.08, median: 90.5, n_groups: 12, n_providers: 6566, modal_rate: 56.84, n_at_modal: 9, n_at_or_below_median: 8 },
+      results: [
+        { provider_group_id: 1, min_rate: 123.08, max_rate: 123.08, median_rate: 123.08, npi_count: 1, is_rollup: false, named_practices: ['MOON DERMATOLOGY'], ga_taxonomies: [], ga_hospital_npis: 0 },
+        { provider_group_id: 2, min_rate: 56.84, max_rate: 123.08, median_rate: 90.5, npi_count: 5643, is_rollup: true, named_practices: [], ga_taxonomies: [], ga_hospital_npis: 1 },
+      ],
+    } });
+
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+
+    const search = screen.getByPlaceholderText(/search procedure or billing code/i);
+    await user.click(search);
+    await user.type(search, 'office');
+    await user.click(await screen.findByText('Office Visit'));
+
+    expect(await screen.findByText(/does the provider matter/i)).toBeInTheDocument();
+    // the outlier practice is surfaced individually
+    expect(screen.getByText(/Moon Dermatology/i)).toBeInTheDocument();
+    // the rollup, which carries the standard schedule, is folded into the summary line
+    expect(screen.getByText(/on the standard/i)).toBeInTheDocument();
+    expect(api.getRatesByProvider).toHaveBeenCalledWith('99213', 'CPT', undefined, undefined, undefined);
+  });
+});
+
 describe('default landing state', () => {
   it('loads the network overview without a code or npi', async () => {
     render(<App />);
