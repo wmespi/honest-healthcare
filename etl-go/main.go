@@ -24,6 +24,9 @@ func main() {
 	fixtureNameFlag := flag.String("fixture-name", "", "Output name for -make-fixture (default: the file id)")
 	fixtureFlag := flag.String("fixture", "", "Parse a local *.json.gz fixture instead of downloading (use with -parse -file-ids N)")
 	priorityFlag := flag.Bool("priority", false, "Parse GA/individual priority files first (see gaPriorityOrder)")
+	nppesFlag := flag.Bool("nppes", false, "Download NPPES national file, write the GA subset to data/nppes/ga_providers.parquet")
+	nppesURLFlag := flag.String("nppes-url", "", "Override the NPPES dissemination zip URL")
+	nppesFileFlag := flag.String("nppes-file", "", "Use a local NPPES zip (or plain CSV via -nppes) instead of downloading")
 	dryRunFlag := flag.Bool("dry-run", false, "Stream and capture schema but skip all DB writes")
 	noCacheFlag := flag.Bool("no-cache", false, "Force re-download of the master index even if a local cache exists")
 	flag.Parse()
@@ -38,6 +41,7 @@ func main() {
 		ProvidersOutputDir = "../data-test/anthem/providers"
 		CodesOutputDir = "../data-test/anthem/codes"
 		NPILookupPath = "../data-test/anthem/npi_lookup.parquet"
+		NPPESOutputPath = "../data-test/nppes/ga_providers.parquet"
 		if *limitFlag == 0 {
 			*limitFlag = 100
 		}
@@ -66,6 +70,12 @@ func main() {
 	}
 	if *makeFixtureFlag && *fixtureURLFlag != "" {
 		makeFixture(ctx, nil, firstFileID, *fixtureURLFlag, *fixtureNameFlag)
+		return
+	}
+
+	// NPPES GA extraction — no database needed.
+	if *nppesFlag {
+		runNPPES(*nppesURLFlag, *nppesFileFlag, *limitFlag)
 		return
 	}
 

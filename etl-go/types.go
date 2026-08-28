@@ -127,3 +127,20 @@ type NPILookupRow struct {
 	NPI      int64  `parquet:"npi"`
 	TINValue string `parquet:"tin_value"`
 }
+
+// NPPESRow is one Georgia provider from the NPPES national dissemination file,
+// filtered to practice-location state == "GA".
+type NPPESRow struct {
+	NPI           int64  `parquet:"npi"`
+	EntityType    string `parquet:"entity_type"` // "individual" | "organization"
+	OrgName       string `parquet:"org_name"`
+	LastName      string `parquet:"last_name"`
+	FirstName     string `parquet:"first_name"`
+	TaxonomyCode  string `parquet:"taxonomy_code"`
+	TaxonomyGroup string `parquet:"taxonomy_group"`
+	IsHospital    bool   `parquet:"is_hospital"`
+	IsClinic      bool   `parquet:"is_clinic"`
+	City          string `parquet:"city"`
+	State         string `parquet:"state"`
+	PostalCode    string `parquet:"postal_code"`
+}
