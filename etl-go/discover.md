@@ -3,7 +3,7 @@
 *Read this when working on the monthly metadata sync into the Postgres queue.*
 
 Populates `index_files` (the parse queue) from the Anthem master index. Cheap,
-incremental, safe to re-run. `make discover` → `etl-go -discover`.
+incremental, safe to re-run. `make discover` → `etl-go discover`.
 
 | Variable | Effect |
 |---|---|

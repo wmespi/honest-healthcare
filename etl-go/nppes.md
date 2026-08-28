@@ -4,7 +4,7 @@
 
 Streams the CMS NPPES national dissemination file (~9 GB CSV in a zip) in a single
 pass and writes the **Georgia-only** subset to `data/nppes/ga_providers.parquet`.
-`make nppes` → `etl-go -nppes`.
+`make nppes` → `etl-go nppes`.
 
 **In Go, not Python, by design** ([language principle](../AGENTS.md#the-language-principle)):
 it's a single-pass stream over a source too large to materialize — exactly what the

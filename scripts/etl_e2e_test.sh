@@ -32,7 +32,7 @@ FILE_ID=$("${PSQL[@]}" -c \
 echo "   file id = $FILE_ID"
 
 echo "→ parse fixture (test isolation)"
-docker compose exec -T etl_go go run . -parse -test -file-ids "$FILE_ID" -fixture "$FIXTURE"
+docker compose exec -T etl_go go run . parse -test -file-ids "$FILE_ID" -fixture "$FIXTURE"
 
 echo "→ verify parquet output (via backend duckdb)"
 RATE_ROWS=$(docker compose exec -T backend python3 -c "

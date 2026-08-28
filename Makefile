@@ -55,7 +55,7 @@ logs: ## Follow logs from all services
 ## ── Pipeline: discover → parse ───────────────────────────────────────────────
 
 discover: ## Phase 1 — sync the Anthem master index into index_files. TEST=1 · SCHEMA=1 (index_schema.json only, no DB)
-	docker compose exec etl_go go run . -discover \
+	docker compose exec etl_go go run . discover \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
@@ -63,7 +63,7 @@ discover: ## Phase 1 — sync the Anthem master index into index_files. TEST=1 �
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
 parse: ## Phase 2 — stream pending files into Parquet. ID=<index_files.id> · GA=1 (priority) · TEST=1 · LIMIT=n
-	docker compose exec etl_go go run . -parse \
+	docker compose exec etl_go go run . parse \
 	  $(if $(ID),-file-ids $(ID),) \
 	  $(if $(filter 1,$(GA)),-priority,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
@@ -71,15 +71,15 @@ parse: ## Phase 2 — stream pending files into Parquet. ID=<index_files.id> · 
 	  $(if $(FIXTURE),-fixture "$(FIXTURE)",)
 
 size: ## Backfill index_files.file_size_bytes via concurrent HEAD requests
-	docker compose exec etl_go go run . -size
+	docker compose exec etl_go go run . size
 
 fixture: ## Build a truncated *.json.gz fixture from a file id — usage: make fixture ID=5043 NAME=ga_small
-	docker compose exec etl_go go run . -make-fixture -file-ids $(ID) $(if $(NAME),-fixture-name $(NAME),)
+	docker compose exec etl_go go run . fixture -file-ids $(ID) $(if $(NAME),-name $(NAME),)
 
 ## ── Reference data ──────────────────────────────────────────────────────────
 
 nppes: _require-etl-running ## Download the NPPES national file, write data/nppes/ga_providers.parquet (GA subset). URL= / FILE= to override.
-	docker compose exec etl_go go run . -nppes $(if $(URL),-nppes-url "$(URL)",) $(if $(FILE),-nppes-file "$(FILE)",)
+	docker compose exec etl_go go run . nppes $(if $(URL),-url "$(URL)",) $(if $(FILE),-file "$(FILE)",)
 
 code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
 	docker compose exec -T backend python3 /app/scripts/build_code_labels.py --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)

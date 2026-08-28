@@ -14,7 +14,7 @@ echo "→ unit tests (nppes)"
 docker compose exec -T etl_go go test ./... -run 'NPPES|ClassifyTaxonomy' -v 2>&1 | tail -8
 
 echo "→ extract GA subset from fixture (test output dir)"
-docker compose exec -T etl_go go run . -nppes -test -nppes-file testdata/nppes_sample.csv
+docker compose exec -T etl_go go run . nppes -test -file testdata/nppes_sample.csv
 
 echo "→ verify parquet (via backend duckdb)"
 docker compose exec -T backend python3 -c "
