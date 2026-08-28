@@ -9,7 +9,7 @@
         etl-discover etl-discover-test etl-index-schema \
         etl-parse etl-parse-test etl-parse-file etl-size \
         etl-fmt etl-vet etl-build etl-check etl-test \
-        db-psql db-reset-processing db-reset-failed \
+        db-psql db-migrate db-reset-processing db-reset-failed \
         sh-etl sh-backend \
         check \
         _require-etl-running
@@ -87,6 +87,12 @@ etl-test: _require-etl-running ## Full e2e pipeline in test isolation (discover 
 
 db-psql: ## Open a psql shell on honest_healthcare
 	docker compose exec db psql -U postgres -d honest_healthcare
+
+db-migrate: ## Apply db/migrations/*.sql to the running database (idempotent)
+	@for f in db/migrations/*.sql; do \
+	  echo "→ $$f"; \
+	  docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 < "$$f" || exit 1; \
+	done
 
 db-reset-processing: ## Reset stale 'processing' rows → 'pending'
 	docker compose exec db psql -U postgres -d honest_healthcare \

@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS index_files (
     plan_names TEXT[],
     market_types TEXT[],
     hios_issuer_ids TEXT[],
+    -- 2-letter state codes from HIOS plan_id[5:7] (positional, deterministic — no regex).
+    plan_states TEXT[] DEFAULT '{}',
     network_entity TEXT,
     description TEXT,
     location TEXT NOT NULL,
@@ -119,6 +121,37 @@ CREATE INDEX IF NOT EXISTS idx_index_files_plan ON index_files USING GIN(plan_na
 CREATE INDEX IF NOT EXISTS idx_index_files_status ON index_files(status);
 CREATE INDEX IF NOT EXISTS idx_index_files_market ON index_files USING GIN(market_types);
 CREATE INDEX IF NOT EXISTS idx_index_files_hios ON index_files USING GIN(hios_issuer_ids);
+CREATE INDEX IF NOT EXISTS idx_index_files_plan_states ON index_files USING GIN(plan_states);
+
+-- Table 6: Coverage Log (one row per parsed file — what did this file contribute?)
+-- Written by the Go parser (Phase 2) after each file completes. Feeds the
+-- coverage report so we can see, per file, which procedures / networks / states /
+-- provider identifiers we gained. Purely observational — never read by the ETL.
+CREATE TABLE IF NOT EXISTS coverage_log (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER,
+    location TEXT,
+    parsed_at TIMESTAMP DEFAULT NOW(),
+    compressed_bytes BIGINT,
+    n_rate_rows BIGINT,
+    n_provider_rows BIGINT,
+    n_new_billing_codes INTEGER,
+    n_total_billing_codes_after INTEGER,
+    n_new_npis INTEGER,
+    n_new_tins INTEGER,
+    network_names TEXT[],
+    plan_states TEXT[],
+    hios_issuer_ids TEXT[],
+    market_types TEXT[],
+    distinct_settings TEXT[],
+    distinct_billing_classes TEXT[],
+    billing_code_types TEXT[],
+    n_ga_hospital_npis INTEGER,
+    parquet_retained BOOLEAN DEFAULT TRUE,
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_coverage_log_file ON coverage_log(file_id);
 
 -- Create View for Convenience
 CREATE OR REPLACE VIEW vw_rates_detailed AS
@@ -149,3 +182,4 @@ CREATE TABLE IF NOT EXISTS test.billing_codes          (LIKE public.billing_code
 CREATE TABLE IF NOT EXISTS test.negotiated_rates       (LIKE public.negotiated_rates       INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS test.place_of_service_codes (LIKE public.place_of_service_codes INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS test.index_files            (LIKE public.index_files            INCLUDING ALL);
+CREATE TABLE IF NOT EXISTS test.coverage_log           (LIKE public.coverage_log           INCLUDING ALL);
