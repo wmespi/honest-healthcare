@@ -76,7 +76,7 @@ def rate_distribution(
         conditions.append("plan_name = ?")
         params.append(plan_name)
     if network_name and rates_has_column(conn, "network_name"):
-        conditions.append("network_name = ?")
+        conditions.append("list_contains(list_transform(string_split(network_name, '|'), x -> trim(x)), ?)")
         params.append(network_name)
     if setting:
         conditions.append("setting = ?")
@@ -173,7 +173,7 @@ def rates_by_provider(
         params.append(plan_name)
     has_network = rates_has_column(conn, "network_name")
     if network_name and has_network:
-        conditions.append("r.network_name = ?")
+        conditions.append("list_contains(list_transform(string_split(r.network_name, '|'), x -> trim(x)), ?)")
         params.append(network_name)
     if setting:
         conditions.append("r.setting = ?")
@@ -328,14 +328,20 @@ def get_networks(q: str = Query(default=""), limit: int = Query(default=100, le=
     conn = db()
     if not rates_has_column(conn, "network_name"):
         return []  # no new-format parquet yet — nothing to list
-    search_filter = "AND network_name ILIKE ?" if q else ""
+    # A rate row's network_name is '|'-joined when the provider_reference carried
+    # several networks — split them so each network is one clean dropdown entry.
+    search_filter = "AND net ILIKE ?" if q else ""
     params = [f"%{q}%"] if q else []
     rows = conn.execute(f"""
-        SELECT network_name, COUNT(*) AS n_rates
-        FROM read_parquet('{RATES_GLOB}', union_by_name=true)
-        WHERE network_name IS NOT NULL AND network_name != ''
+        SELECT net AS network_name, COUNT(*) AS n_rates
+        FROM (
+            SELECT TRIM(UNNEST(string_split(network_name, '|'))) AS net
+            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            WHERE network_name IS NOT NULL AND network_name != ''
+        )
+        WHERE net IS NOT NULL AND net != ''
         {search_filter}
-        GROUP BY network_name
+        GROUP BY net
         ORDER BY n_rates DESC
         LIMIT {limit}
     """, params).fetchall()
