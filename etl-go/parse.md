@@ -5,7 +5,7 @@ Parquet writers, network attribution, or the GA NPI filter.*
 
 For each `index_files` row with `status = 'pending'`, streams the gzipped MRF once
 and writes Parquet. IO-bound, embarrassingly parallel (not yet parallelized).
-`make parse` → `etl-go -parse`.
+`make parse` → `etl-go parse`.
 
 | Variable | Effect |
 |---|---|
@@ -16,7 +16,7 @@ and writes Parquet. IO-bound, embarrassingly parallel (not yet parallelized).
 | `FIXTURE=path` | with `ID=n`: read a local `*.json.gz` instead of downloading (offline) |
 
 CLI-only flags (no `make` var yet): `-all-npis`, `-networks "GA *"`, `-all-networks`,
-`-dry-run`. See `etl-go -parse -h`.
+`-dry-run`. See `etl-go parse -h`.
 
 ## Per-file steps
 
