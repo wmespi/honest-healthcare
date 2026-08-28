@@ -11,7 +11,7 @@
         etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
         nppes nppes-test \
         db-psql db-migrate db-reset-processing db-reset-failed \
-        backend-test coverage-probe coverage-report \
+        backend-test coverage-probe coverage-report frontend-smoke \
         sh-etl sh-backend \
         check \
         _require-etl-running
@@ -107,6 +107,9 @@ coverage-probe: ## Run the coverage scorecard — usage: make coverage-probe LAB
 
 coverage-report: ## Aggregate coverage_log — what we've ingested so far, per file
 	python3 scripts/coverage_report.py --schema $(or $(SCHEMA),public)
+
+frontend-smoke: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
+	python3 scripts/frontend_smoke.py
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 
