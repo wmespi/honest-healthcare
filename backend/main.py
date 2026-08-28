@@ -56,6 +56,38 @@ CODES_GLOB      = f"{DATA_DIR}/anthem/codes/*.parquet"
 NPI_LOOKUP_PATH = f"{DATA_DIR}/anthem/npi_lookup.parquet"
 GA_NPPES_PATH   = f"{DATA_DIR}/nppes/ga_providers.parquet"
 CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
+NUCC_PATH        = f"{DATA_DIR}/reference/nucc_taxonomy.parquet"
+
+
+def _provider_card(conn, npi: int) -> Optional[dict]:
+    """Name / specialty / city for one NPI from the NPPES GA subset, or None."""
+    if not os.path.exists(GA_NPPES_PATH):
+        return None
+    spec_sel, spec_join = _nucc_bits()
+    r = conn.execute(f"""
+        SELECT COALESCE(NULLIF(g.org_name, ''),
+                        NULLIF(TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name), '')) AS name,
+               g.city, g.is_hospital, {spec_sel}
+        FROM read_parquet('{GA_NPPES_PATH}') g
+        {spec_join}
+        WHERE g.npi = ?
+        LIMIT 1
+    """, [npi]).fetchone()
+    if not r:
+        return None
+    return {"npi": npi, "name": r[0], "city": r[1], "is_hospital": bool(r[2]), "specialty": r[3]}
+
+
+def _nucc_bits():
+    """(select-fragment, join-fragment) adding a `specialty` column off nx, or
+    ("NULL AS specialty", "") when the NUCC reference isn't built yet. Assumes the
+    provider row exposes `taxonomy_code` as `g.taxonomy_code`."""
+    if os.path.exists(NUCC_PATH):
+        return (
+            "COALESCE(nx.specialty, NULLIF(g.taxonomy_group, 'Other')) AS specialty",
+            f"LEFT JOIN read_parquet('{NUCC_PATH}') nx ON nx.taxonomy_code = g.taxonomy_code",
+        )
+    return ("NULLIF(g.taxonomy_group, 'Other') AS specialty", "")
 
 
 def network_slug(name: str) -> str:
@@ -548,6 +580,7 @@ def rate_quote(
         "billing_code_type": billing_code_type,
         "npi": npi,
         "network_name": network_name,
+        "provider": _provider_card(conn, npi),
         "headline": headline,
         "components": components,
         "is_component_split": split,
@@ -637,6 +670,7 @@ def provider_procedures(
 
     return {
         "npi": npi,
+        "provider": _provider_card(conn, npi),
         "count": len(rows),
         "results": [
             {
@@ -654,13 +688,16 @@ def provider_procedures(
 @app.get("/providers/search")
 def search_providers(
     q: str = Query(default=""),
+    specialty: str = Query(default=""),
     limit: int = Query(default=20, le=100),
 ):
     """Search providers by name, organization, city, or NPI against the NPPES
     Georgia subset. Providers we actually hold rate data for are returned first
-    (`has_rates`). A purely numeric query is treated as an NPI prefix."""
+    (`has_rates`). A purely numeric query is treated as an NPI prefix. `specialty`
+    filters on the NUCC label (e.g. "cardio", "orthopa")."""
     q = q.strip()
-    if not q:
+    specialty = specialty.strip()
+    if not q and not specialty:
         return []
     conn = db()
 
@@ -684,12 +721,21 @@ def search_providers(
         if have_lookup else "FALSE"
     )
 
+    conds, params = [], []
     if q.isdigit():
-        where, params = "CAST(g.npi AS VARCHAR) LIKE ?", [f"{q}%"]
-    else:
-        where = ("(g.org_name ILIKE ? OR TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name) ILIKE ? "
-                 "OR g.city ILIKE ?)")
-        params = [f"%{q}%", f"%{q}%", f"%{q}%"]
+        conds.append("CAST(g.npi AS VARCHAR) LIKE ?")
+        params.append(f"{q}%")
+    elif q:
+        conds.append("(g.org_name ILIKE ? OR TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name) ILIKE ? "
+                     "OR g.city ILIKE ?)")
+        params += [f"%{q}%", f"%{q}%", f"%{q}%"]
+    spec_sel, spec_join = _nucc_bits()
+    if specialty:
+        conds.append("(COALESCE(nx.specialty, '') ILIKE ? OR COALESCE(nx.classification, '') ILIKE ? "
+                     "OR COALESCE(nx.grouping, '') ILIKE ?)" if spec_join
+                     else "g.taxonomy_group ILIKE ?")
+        params += ([f"%{specialty}%"] * 3 if spec_join else [f"%{specialty}%"])
+    where = " AND ".join(conds) if conds else "1=1"
 
     rows = conn.execute(f"""
         SELECT g.npi,
@@ -697,13 +743,15 @@ def search_providers(
                         NULLIF(TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name), ''),
                         CAST(g.npi AS VARCHAR)) AS name,
                g.city, g.taxonomy_group, g.is_hospital, g.is_clinic,
-               {has_rates_expr} AS has_rates
+               {has_rates_expr} AS has_rates,
+               {spec_sel}
         FROM read_parquet('{GA_NPPES_PATH}') g
+        {spec_join}
         WHERE {where}
         ORDER BY has_rates DESC, g.is_hospital DESC, g.is_clinic DESC, name
         LIMIT {limit}
     """, params).fetchall()
-    cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic", "has_rates"]
+    cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic", "has_rates", "specialty"]
     return [dict(zip(cols, r)) for r in rows]
 
 

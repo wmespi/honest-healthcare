@@ -9,7 +9,7 @@
         etl-discover etl-discover-test etl-index-schema \
         etl-parse etl-parse-test etl-parse-file etl-size \
         etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
-        nppes nppes-test \
+        nppes nppes-test code-labels taxonomy-labels \
         db-psql db-migrate db-reset-processing db-reset-failed \
         backend-test coverage-probe coverage-report frontend-smoke frontend-test \
         sh-etl sh-backend \
@@ -101,6 +101,9 @@ nppes-test: _require-etl-running ## Hermetic NPPES test: extract GA rows from th
 
 code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
 	docker compose exec -T backend python3 /app/scripts/build_code_labels.py --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
+
+taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
+	docker compose exec -T backend python3 /app/scripts/build_taxonomy_labels.py --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
 
 ## ── Backend ──────────────────────────────────────────────────────────────────
 

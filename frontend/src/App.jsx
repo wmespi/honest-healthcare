@@ -266,7 +266,7 @@ function NpiSearch({ selectedNpi, onSelect }) {
                       {s.has_rates && <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>}
                     </div>
                     <div className="text-[11px] text-slate-500 mt-0.5 truncate">
-                      {[s.city, s.taxonomy_group, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
+                      {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
                     </div>
                   </button>
                 ))}
@@ -490,14 +490,17 @@ function ProviderCostCard({ data, loading, providerName }) {
     );
   }
   if (!data?.headline) return null;
-  const { headline, components, is_component_split } = data;
+  const { headline, components, is_component_split, provider } = data;
   const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
+  const name = provider?.name || providerName;
+  const sub = [provider?.specialty, provider?.city].filter(Boolean).join(' · ');
 
   return (
     <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
       <h2 className="text-white font-black text-xl tracking-tight">
-        Negotiated cost{providerName ? <> at <span className="text-indigo-300">{providerName}</span></> : ''}
+        Negotiated cost{name ? <> at <span className="text-indigo-300">{name}</span></> : ''}
       </h2>
+      {sub && <p className="text-slate-500 text-xs mt-1">{sub}</p>}
 
       <div className="mt-4 mb-2">
         <div className="text-4xl sm:text-5xl font-black text-white tracking-tight">
@@ -591,9 +594,13 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
   return (
     <div className="mt-2">
       <div className="mb-4">
-        <h2 className="text-white font-black text-xl tracking-tight">Procedure menu</h2>
+        <h2 className="text-white font-black text-xl tracking-tight">
+          {data?.provider?.name ? `${data.provider.name} — procedure menu` : 'Procedure menu'}
+        </h2>
         <p className="text-slate-500 text-xs mt-1">
-          {rows.length.toLocaleString()} procedures this provider has a negotiated rate for. Tap one for the full breakdown.
+          {[data?.provider?.specialty, data?.provider?.city].filter(Boolean).join(' · ')}
+          {(data?.provider?.specialty || data?.provider?.city) ? ' · ' : ''}
+          {rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.
         </p>
       </div>
       <div className="space-y-1.5">

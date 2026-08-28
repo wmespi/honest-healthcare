@@ -54,6 +54,28 @@ def test_providers_shape(client):
         assert {"provider_group_id", "negotiated_rate", "network_name", "npi_count"} <= row.keys()
 
 
+def test_provider_search_specialty(client):
+    r = client.get("/providers/search", params={"q": "emory", "limit": 5})
+    assert r.status_code == 200
+    body = r.json()
+    if body:
+        assert "specialty" in body[0]
+    # specialty-only filter works without a text query
+    r2 = client.get("/providers/search", params={"specialty": "cardio", "limit": 5})
+    assert r2.status_code == 200
+    for row in r2.json():
+        assert row.get("specialty")
+
+
+def test_rate_quote_provider_card(client, npi_with_rates):
+    menu = client.get(f"/providers/{npi_with_rates}/procedures").json()
+    assert "provider" in menu
+    code = next((m["billing_code"] for m in menu["results"] if m["billing_code_type"] == "CPT"), "99213")
+    r = client.get("/rates/quote", params={"billing_code": code, "npi": npi_with_rates})
+    assert r.status_code == 200
+    assert "provider" in r.json()
+
+
 def test_ga_providers_endpoint(client):
     r = client.get("/providers/ga", params={"q": "hospital", "hospitals_only": "true", "limit": 5})
     assert r.status_code == 200
