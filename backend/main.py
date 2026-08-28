@@ -1,5 +1,6 @@
 import os
 import duckdb
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
@@ -221,15 +222,23 @@ def search_providers(
 
 
 @app.get("/plans")
-def get_plans():
-    """Distinct plan names in the rate files."""
+def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)):
+    """Distinct plan names. Splits pipe-joined plan_name values into individual names."""
     conn = db()
+    search_filter = "AND plan ILIKE ?" if q else ""
+    params = [f"%{q}%"] if q else []
     rows = conn.execute(f"""
-        SELECT DISTINCT plan_name
-        FROM read_parquet('{RATES_GLOB}')
-        WHERE plan_name IS NOT NULL AND plan_name != ''
+        SELECT DISTINCT TRIM(plan) AS plan_name
+        FROM (
+            SELECT UNNEST(string_split(plan_name, ' | ')) AS plan
+            FROM read_parquet('{RATES_GLOB}')
+            WHERE plan_name IS NOT NULL AND plan_name != ''
+        )
+        WHERE plan IS NOT NULL AND TRIM(plan) != ''
+        {search_filter}
         ORDER BY plan_name
-    """).fetchall()
+        LIMIT {limit}
+    """, params).fetchall()
     return [r[0] for r in rows]
 
 

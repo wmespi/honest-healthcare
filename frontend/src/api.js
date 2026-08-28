@@ -4,7 +4,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({ baseURL: API_BASE_URL });
 
-export const getPlans = () => api.get('/plans');
+export const getPlans = (q = '') => api.get('/plans', { params: q ? { q } : {} });
 
 export const searchProviders = (q) => api.get('/providers/search', { params: { q } });
 

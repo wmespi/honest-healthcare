@@ -12,12 +12,15 @@ import (
 
 func main() {
 	discoverFlag := flag.Bool("discover", false, "Run index discovery logic")
+	indexSchemaFlag := flag.Bool("index-schema", false, "Stream the master index and write a compact schema example to data/anthem/index_schema.json (no DB writes)")
 	parseFlag := flag.Bool("parse", false, "Run rate parsing logic")
+	sizeFlag := flag.Bool("size", false, "Fetch file sizes (HEAD requests) for all unsized index_files entries")
 	limitFlag := flag.Int("limit", 0, "Override the default limits for discovery or parsing")
 	indexUrlFlag := flag.String("index-url", "", "Override the Master Index URL")
 	testFlag := flag.Bool("test", false, "Run in isolated test mode (writes to test schema, not production)")
 	fileIDsFlag := flag.String("file-ids", "", "Comma-separated list of index_files IDs to parse (skips normal queue ordering)")
 	dryRunFlag := flag.Bool("dry-run", false, "Stream and capture schema but skip all DB writes")
+	noCacheFlag := flag.Bool("no-cache", false, "Force re-download of the master index even if a local cache exists")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -26,10 +29,14 @@ func main() {
 	if *testFlag {
 		DatabaseURL = TestDatabaseURL
 		ExampleOutputPath = "../data-test/anthem/mrf_example.json"
+		RatesOutputDir = "../data-test/anthem/rates"
+		ProvidersOutputDir = "../data-test/anthem/providers"
+		CodesOutputDir = "../data-test/anthem/codes"
+		NPILookupPath = "../data-test/anthem/npi_lookup.parquet"
 		if *limitFlag == 0 {
 			*limitFlag = 100
 		}
-		log.Println("🧪 Test mode enabled — writing to 'test' schema")
+		log.Println("🧪 Test mode enabled — writing to 'test' schema and ../data-test/")
 	}
 
 	// 2. Set Index URL
@@ -37,6 +44,12 @@ func main() {
 		IndexURL = *indexUrlFlag
 	} else {
 		IndexURL = getDefaultIndexURL()
+	}
+
+	// 2b. Index-schema mode: stream the index, write the schema example, no DB needed.
+	if *indexSchemaFlag {
+		discoverLinks(ctx, nil, *limitFlag, *noCacheFlag, true)
+		return
 	}
 
 	// 3. Connect to DB
@@ -49,7 +62,12 @@ func main() {
 
 	// 4. Routing
 	if *discoverFlag {
-		discoverLinks(ctx, conn, *limitFlag)
+		discoverLinks(ctx, conn, *limitFlag, *noCacheFlag, false)
+		return
+	}
+
+	if *sizeFlag {
+		fetchFileSizes(ctx, conn, *limitFlag)
 		return
 	}
 
@@ -78,10 +96,10 @@ func main() {
 				}
 				ids = append(ids, id)
 			}
-			query = `SELECT id, location, COALESCE((SELECT string_agg(DISTINCT p, ' | ' ORDER BY p) FROM unnest(plan_names) p), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
+			query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
 			args = []any{ids}
 		} else {
-			query = `SELECT id, location, COALESCE((SELECT string_agg(DISTINCT p, ' | ' ORDER BY p) FROM unnest(plan_names) p), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
+			query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY file_size_bytes ASC NULLS LAST, id`
 			args = []any{}
 			if parseLimit > 0 {
 				query += ` LIMIT $1`
@@ -133,5 +151,5 @@ func main() {
 		return
 	}
 
-	log.Println("⚠️ Please specify an action: -discover or -parse (and optionally -test)")
+	log.Println("⚠️ Please specify an action: -discover, -index-schema, -size, or -parse (and optionally -test, -no-cache)")
 }

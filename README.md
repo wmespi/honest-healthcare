@@ -42,6 +42,16 @@ For MRF data model details, rate file conflict resolution, and ETL flags, see [e
 
 ---
 
+## Target plan
+
+The primary use case for this project is analyzing rates for:
+
+> **BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM**
+
+This is an individual HMO plan on Anthem's Blue Value network in Georgia. There are **245 MRF rate files** in the index that contain this plan's negotiated rates.
+
+---
+
 ## Running locally
 
 ```bash

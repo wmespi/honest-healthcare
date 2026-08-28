@@ -103,6 +103,9 @@ CREATE TABLE IF NOT EXISTS index_files (
     reporting_entity_name TEXT,
     reporting_entity_type TEXT,
     plan_names TEXT[],
+    market_types TEXT[],
+    hios_issuer_ids TEXT[],
+    network_entity TEXT,
     description TEXT,
     location TEXT NOT NULL,
     file_size_bytes BIGINT,
@@ -114,6 +117,8 @@ CREATE TABLE IF NOT EXISTS index_files (
 
 CREATE INDEX IF NOT EXISTS idx_index_files_plan ON index_files USING GIN(plan_names);
 CREATE INDEX IF NOT EXISTS idx_index_files_status ON index_files(status);
+CREATE INDEX IF NOT EXISTS idx_index_files_market ON index_files USING GIN(market_types);
+CREATE INDEX IF NOT EXISTS idx_index_files_hios ON index_files USING GIN(hios_issuer_ids);
 
 -- Create View for Convenience
 CREATE OR REPLACE VIEW vw_rates_detailed AS
