@@ -1,5 +1,11 @@
 # DuckDB Migration Design
 
+> **SUPERSEDED — historical.** This is the pre-migration design doc, kept for the
+> *why DuckDB* rationale and the open questions. The migration happened; the schema
+> below (`rates`, `network_providers`, one Parquet per source file) is **not** what
+> shipped. Current on-disk layout: [../docs/schema.md](../docs/schema.md). Parser
+> internals: [../etl-go/parse.md](../etl-go/parse.md).
+
 ## Why DuckDB
 
 The current Postgres stack was designed for OLTP (frequent small transactions). The MRF workload is the opposite:
