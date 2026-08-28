@@ -252,9 +252,13 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file (override 
 
 ```
 data/anthem/
-  rates/{id}.parquet      provider_group_id | plan_name | network_name | billing_code_type | billing_code
+  rates/net=<slug>/{id}.parquet   provider_group_id | plan_name | network_name | billing_code_type | billing_code
                           negotiation_arrangement | negotiated_type | negotiated_rate
                           expiration_date | service_code | billing_class | setting
+                          ← Hive-partitioned by network_name (slug = etl-go/partition.go:slugifyNetwork
+                            == backend network_slug()). Rate rows fan out one row per network member,
+                            so network_name is a single value per row. A network-filtered API query
+                            adds `net = ?` and DuckDB prunes to the one directory.
   providers/{id}.parquet  provider_group_id | network_name | npi | tin_type | tin_value
   codes/{id}.parquet      billing_code_type | billing_code | name | description
   npi_lookup.parquet      npi | tin_value

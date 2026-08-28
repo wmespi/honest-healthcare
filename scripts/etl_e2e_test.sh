@@ -37,14 +37,16 @@ docker compose exec -T etl_go go run . -parse -test -file-ids "$FILE_ID" -fixtur
 echo "→ verify parquet output (via backend duckdb)"
 RATE_ROWS=$(docker compose exec -T backend python3 -c "
 import duckdb, glob
-files = glob.glob('/app/data-test/anthem/rates/*.parquet')
+files = glob.glob('/app/data-test/anthem/rates/**/*.parquet', recursive=True)
 assert files, 'no rates parquet written'
+assert any('/net=' in f for f in files), f'rates not partitioned by net: {files}'
 con = duckdb.connect()
-cols = [c[0] for c in con.execute(f\"DESCRIBE SELECT * FROM read_parquet('{files[0]}')\").fetchall()]
-assert 'network_name' in cols, f'network_name column missing: {cols}'
-n = con.execute(f\"SELECT count(*) FROM read_parquet('/app/data-test/anthem/rates/*.parquet')\").fetchone()[0]
-ga = con.execute(f\"\"\"SELECT count(*) FROM read_parquet('/app/data-test/anthem/rates/*.parquet')
-                     WHERE network_name = 'GA Blue Value HIX Individual Network'\"\"\").fetchone()[0]
+SRC = \"read_parquet('/app/data-test/anthem/rates/**/*.parquet', hive_partitioning=1)\"
+cols = [c[0] for c in con.execute(f'DESCRIBE SELECT * FROM {SRC}').fetchall()]
+assert 'network_name' in cols and 'net' in cols, f'missing columns: {cols}'
+n = con.execute(f'SELECT count(*) FROM {SRC}').fetchone()[0]
+ga = con.execute(f\"\"\"SELECT count(*) FROM {SRC}
+                     WHERE net = 'ga-blue-value-hix-individual-network'\"\"\").fetchone()[0]
 print(f'{n} {ga}')
 ")
 read -r N GA <<< "$RATE_ROWS"

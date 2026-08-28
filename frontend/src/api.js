@@ -19,6 +19,9 @@ export const searchBillingCodes = (q = '', billing_code_type) => {
     return api.get('/billing_codes', { params });
 };
 
+// RBCS categories present in the data: [{ category, subcategory, n_codes, provider_groups }].
+export const getProcedureCategories = () => api.get('/procedure_categories');
+
 export const getRateDistribution = (billing_code, billing_code_type = 'CPT', network_name, setting, npi) => {
     const params = {};
     if (billing_code) { params.billing_code = billing_code; params.billing_code_type = billing_code_type; }

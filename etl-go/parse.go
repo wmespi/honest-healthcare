@@ -172,60 +172,55 @@ func parseRates(
 		}
 	}
 
-	// Parquet writers (skipped in dry-run). Each file is written under an
-	// .inflight/ subdir and atomically renamed into place only on success, so the
-	// backend — which globs <dir>/*.parquet — never sees a half-written or
-	// zero-byte file while a parse is running.
+	// Parquet writers (skipped in dry-run). Everything for this file is written
+	// under a per-file scratch dir (…/anthem/.inflight/<id>/) and moved into place
+	// only after a clean stream, so the backend — which globs rates/**/*.parquet,
+	// providers/*.parquet, codes/*.parquet — never sees a half-written or
+	// zero-byte file. Rate rows fan out into rates/net=<slug>/<id>.parquet, one
+	// partition per network_name, so a network-filtered query prunes to it.
+	name := fmt.Sprintf("%d.parquet", fileID)
+	anthemDir := filepath.Dir(RatesOutputDir)
+	scratchDir := filepath.Join(anthemDir, inflightSubdir, fmt.Sprintf("%d", fileID))
+
 	var w mrfWriters
 	var closers []io.Closer
-	var inflightPaths, finalPaths []string
+	var fanout *rateFanout
+	provScratch := filepath.Join(scratchDir, "providers", name)
+	codesScratch := filepath.Join(scratchDir, "codes", name)
 	committed := false
 	if !dryRun {
 		defer func() {
 			if !committed {
-				for _, p := range inflightPaths {
-					os.Remove(p)
-				}
+				os.RemoveAll(scratchDir)
 			}
 		}()
-		for _, dir := range []string{RatesOutputDir, ProvidersOutputDir, CodesOutputDir} {
-			if err := os.MkdirAll(filepath.Join(dir, inflightSubdir), os.ModePerm); err != nil {
-				markFailed(ctx, conn, fileID, fmt.Errorf("create dir %s: %w", dir, err), dryRun)
+		for _, d := range []string{
+			filepath.Join(scratchDir, "rates"),
+			filepath.Join(scratchDir, "providers"),
+			filepath.Join(scratchDir, "codes"),
+		} {
+			if err := os.MkdirAll(d, os.ModePerm); err != nil {
+				markFailed(ctx, conn, fileID, fmt.Errorf("create dir %s: %w", d, err), dryRun)
 				return nil
 			}
 		}
-		name := fmt.Sprintf("%d.parquet", fileID)
-		mk := func(dir string) (tmp, final string) {
-			return filepath.Join(dir, inflightSubdir, name), filepath.Join(dir, name)
-		}
-		ratesTmp, ratesFinal := mk(RatesOutputDir)
-		provTmp, provFinal := mk(ProvidersOutputDir)
-		codesTmp, codesFinal := mk(CodesOutputDir)
-		inflightPaths = []string{ratesTmp, provTmp, codesTmp}
-		finalPaths = []string{ratesFinal, provFinal, codesFinal}
-
-		ratesW, ratesC, err := newParquetWriter[RateRow](ratesTmp)
+		fanout = newRateFanout(filepath.Join(scratchDir, "rates"), name)
+		provW, provC, err := newParquetWriter[ProviderRow](provScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
 			return nil
 		}
-		provW, provC, err := newParquetWriter[ProviderRow](provTmp)
+		codesW, codesC, err := newParquetWriter[BillingCodeRow](codesScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
 			return nil
 		}
-		codesW, codesC, err := newParquetWriter[BillingCodeRow](codesTmp)
-		if err != nil {
-			markFailed(ctx, conn, fileID, err, dryRun)
-			return nil
-		}
-		closers = []io.Closer{ratesW, ratesC, provW, provC, codesW, codesC}
+		closers = []io.Closer{fanoutCloser{fanout}, provW, provC, codesW, codesC}
 		w = mrfWriters{
 			rates: func(rows []RateRow) {
-				if _, err := ratesW.Write(rows); err != nil {
+				if err := fanout.write(rows); err != nil {
 					log.Printf("⚠️ write rates parquet: %v", err)
 				}
-				ratesW.Flush()
 			},
 			providers: func(rows []ProviderRow) {
 				if _, err := provW.Write(rows); err != nil {
@@ -258,14 +253,26 @@ func parseRates(
 		return nil
 	}
 
-	// Stream succeeded — promote the .inflight parquet into place atomically.
+	// Stream succeeded — move the scratch parquet into place.
 	if !dryRun {
-		for i := range inflightPaths {
-			if err := os.Rename(inflightPaths[i], finalPaths[i]); err != nil {
-				markFailed(ctx, conn, fileID, fmt.Errorf("promote parquet %s: %w", finalPaths[i], err), dryRun)
+		if err := fanout.promote(RatesOutputDir); err != nil {
+			markFailed(ctx, conn, fileID, err, dryRun)
+			return nil
+		}
+		for _, mv := range [][2]string{
+			{provScratch, filepath.Join(ProvidersOutputDir, name)},
+			{codesScratch, filepath.Join(CodesOutputDir, name)},
+		} {
+			if err := os.MkdirAll(filepath.Dir(mv[1]), os.ModePerm); err != nil {
+				markFailed(ctx, conn, fileID, err, dryRun)
+				return nil
+			}
+			if err := os.Rename(mv[0], mv[1]); err != nil {
+				markFailed(ctx, conn, fileID, fmt.Errorf("promote %s: %w", mv[1], err), dryRun)
 				return nil
 			}
 		}
+		os.RemoveAll(scratchDir)
 		committed = true
 	}
 

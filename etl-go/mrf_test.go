@@ -274,6 +274,40 @@ func TestStreamMRF_NetworkAndNPIFilterCombine(t *testing.T) {
 	}
 }
 
+func TestSlugifyNetwork(t *testing.T) {
+	cases := map[string]string{
+		"GA Blue Value HIX Individual Network": "ga-blue-value-hix-individual-network",
+		"EXCHANGES SPECIALIST  GATEKEEPER":     "exchanges-specialist-gatekeeper",
+		"CO HMO|CO PPO":                        "co-hmo-co-ppo",
+		"  ":                                   "_unattributed",
+		"":                                     "_unattributed",
+		"A/B — C":                              "a-b-c",
+	}
+	for in, want := range cases {
+		if got := slugifyNetwork(in); got != want {
+			t.Errorf("slugifyNetwork(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBuildRateRows_NetworkFanout(t *testing.T) {
+	item := InNetworkItem{
+		BillingCode: "99999", BillingCodeType: "CPT",
+		NegotiatedRates: []NegotiatedRate{{
+			ProviderReferences: []int{1},
+			NegotiatedPrices:   []NegotiatedPrice{{NegotiatedRate: 10}},
+		}},
+	}
+	rows := buildRateRows(item, map[int64]string{1: "GA One|GA Two"}, "plan")
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2 (one per network member)", len(rows))
+	}
+	got := map[string]bool{rows[0].NetworkName: true, rows[1].NetworkName: true}
+	if !got["GA One"] || !got["GA Two"] {
+		t.Errorf("network members not fanned out: %+v", got)
+	}
+}
+
 func TestBuildNetworkAllow(t *testing.T) {
 	if buildNetworkAllow("") != nil || buildNetworkAllow("  ") != nil {
 		t.Fatal("empty spec should return nil (no filter)")

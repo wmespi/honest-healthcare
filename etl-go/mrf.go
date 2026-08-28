@@ -68,26 +68,50 @@ func buildRateRows(item InNetworkItem, networkByGroup map[int64]string, planName
 	var rows []RateRow
 	for _, rate := range item.NegotiatedRates {
 		for _, refID := range rate.ProviderReferences {
-			networkName := networkByGroup[int64(refID)]
+			// A provider group may carry several networks ("A|B"). Emit one rate
+			// row per network so network_name is a single value and each row
+			// lands in exactly one rates/net=<slug>/ partition.
+			networks := splitNetworks(networkByGroup[int64(refID)])
 			for _, price := range rate.NegotiatedPrices {
-				rows = append(rows, RateRow{
-					ProviderGroupID:        int64(refID),
-					PlanName:               planName,
-					NetworkName:            networkName,
-					BillingCodeType:        item.BillingCodeType,
-					BillingCode:            item.BillingCode,
-					NegotiationArrangement: item.NegotiationArrangement,
-					NegotiatedType:         price.NegotiatedType,
-					NegotiatedRate:         price.NegotiatedRate,
-					ExpirationDate:         price.ExpirationDate,
-					ServiceCode:            strings.Join(price.ServiceCode, "|"),
-					BillingClass:           price.BillingClass,
-					Setting:                price.Setting,
-				})
+				for _, networkName := range networks {
+					rows = append(rows, RateRow{
+						ProviderGroupID:        int64(refID),
+						PlanName:               planName,
+						NetworkName:            networkName,
+						BillingCodeType:        item.BillingCodeType,
+						BillingCode:            item.BillingCode,
+						NegotiationArrangement: item.NegotiationArrangement,
+						NegotiatedType:         price.NegotiatedType,
+						NegotiatedRate:         price.NegotiatedRate,
+						ExpirationDate:         price.ExpirationDate,
+						ServiceCode:            strings.Join(price.ServiceCode, "|"),
+						BillingClass:           price.BillingClass,
+						Setting:                price.Setting,
+					})
+				}
 			}
 		}
 	}
 	return rows
+}
+
+// splitNetworks turns a "|"-joined network_name into its members, always
+// returning at least one element ("" for an unattributed group).
+func splitNetworks(joined string) []string {
+	if joined == "" {
+		return []string{""}
+	}
+	parts := strings.Split(joined, "|")
+	out := parts[:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
 }
 
 // buildProviderRows flattens one provider_references entry into provider rows
@@ -243,7 +267,9 @@ func streamMRF(
 
 				if networkName != "" {
 					networkByGroup[int64(ref.ProviderGroupID)] = networkName
-					res.NetworkNames[networkName] = struct{}{}
+					for _, n := range splitNetworks(networkName) {
+						res.NetworkNames[n] = struct{}{}
+					}
 				}
 				for _, row := range rows {
 					if _, seen := seenNPIs[row.NPI]; !seen {

@@ -1,4 +1,5 @@
 import os
+import re
 import duckdb
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException
@@ -6,12 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 DATA_DIR        = os.getenv("DATA_DIR", "/app/data")
-RATES_GLOB      = f"{DATA_DIR}/anthem/rates/*.parquet"
+# rates are Hive-partitioned by network: rates/net=<slug>/<id>.parquet
+RATES_GLOB      = f"{DATA_DIR}/anthem/rates/**/*.parquet"
+RATES_SRC       = f"read_parquet('{RATES_GLOB}', union_by_name=true, hive_partitioning=1)"
 PROVIDERS_GLOB  = f"{DATA_DIR}/anthem/providers/*.parquet"
+
+
 CODES_GLOB      = f"{DATA_DIR}/anthem/codes/*.parquet"
 NPI_LOOKUP_PATH = f"{DATA_DIR}/anthem/npi_lookup.parquet"
 GA_NPPES_PATH   = f"{DATA_DIR}/nppes/ga_providers.parquet"
 CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
+
+
+def network_slug(name: str) -> str:
+    """Partition key for a network_name. MUST match etl-go/partition.go:slugifyNetwork."""
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    s = s[:100].strip("-")
+    return s or "_unattributed"
 
 app = FastAPI(title="Honest Healthcare API")
 
@@ -34,7 +46,7 @@ def rates_has_column(conn, name: str) -> bool:
     has been written, so filters/endpoints that use it must degrade gracefully."""
     try:
         cols = conn.execute(
-            f"DESCRIBE SELECT * FROM read_parquet('{RATES_GLOB}', union_by_name=true)"
+            f"DESCRIBE SELECT * FROM {RATES_SRC}"
         ).fetchall()
         return any(c[0] == name for c in cols)
     except Exception:
@@ -45,7 +57,7 @@ def rates_has_column(conn, name: str) -> bool:
 def health():
     conn = db()
     try:
-        rates     = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{RATES_GLOB}', union_by_name=true)").fetchone()[0]
+        rates     = conn.execute(f"SELECT COUNT(*) FROM {RATES_SRC}").fetchone()[0]
         providers = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true)").fetchone()[0]
         return {"status": "ok", "total_rates": rates, "total_providers": providers}
     except Exception as e:
@@ -76,9 +88,10 @@ def rate_distribution(
     if plan_name:
         conditions.append("plan_name = ?")
         params.append(plan_name)
-    if network_name and rates_has_column(conn, "network_name"):
-        conditions.append("list_contains(list_transform(string_split(network_name, '|'), x -> trim(x)), ?)")
-        params.append(network_name)
+    if network_name:
+        # net is the Hive partition key — this prunes the scan to one directory.
+        conditions.append("net = ?")
+        params.append(network_slug(network_name))
     if setting:
         conditions.append("setting = ?")
         params.append(setting)
@@ -96,7 +109,7 @@ def rate_distribution(
                 FLOOR(LEAST(negotiated_rate, 2000) / 50) * 50 AS rate,
                 'fee schedule' AS negotiated_type,
                 COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            FROM {RATES_SRC}
             WHERE {where}
             GROUP BY 1, 2
             ORDER BY 1
@@ -107,7 +120,7 @@ def rate_distribution(
                 negotiated_rate,
                 negotiated_type,
                 COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            FROM {RATES_SRC}
             WHERE {where}
             GROUP BY negotiated_rate, negotiated_type
             ORDER BY negotiated_rate
@@ -125,7 +138,7 @@ def rate_distribution(
             MEDIAN(negotiated_rate),
             COUNT(DISTINCT provider_group_id),
             COUNT(*)
-        FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+        FROM {RATES_SRC}
         WHERE {where}
     """, params).fetchone()
 
@@ -173,9 +186,9 @@ def rates_by_provider(
         conditions.append("r.plan_name = ?")
         params.append(plan_name)
     has_network = rates_has_column(conn, "network_name")
-    if network_name and has_network:
-        conditions.append("list_contains(list_transform(string_split(r.network_name, '|'), x -> trim(x)), ?)")
-        params.append(network_name)
+    if network_name:
+        conditions.append("r.net = ?")
+        params.append(network_slug(network_name))
     if setting:
         conditions.append("r.setting = ?")
         params.append(setting)
@@ -205,7 +218,7 @@ def rates_by_provider(
             {"ANY_VALUE(r.network_name)" if has_network else "NULL"} AS network_name,
             r.expiration_date,
             COUNT(DISTINCT p.npi) AS npi_count{ga_select}
-        FROM read_parquet('{RATES_GLOB}', union_by_name=true) r
+        FROM {RATES_SRC} r
         LEFT JOIN read_parquet('{PROVIDERS_GLOB}', union_by_name=true) p
             ON r.provider_group_id = p.provider_group_id
         {ga_join}
@@ -307,7 +320,7 @@ def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)
         SELECT DISTINCT TRIM(plan) AS plan_name
         FROM (
             SELECT UNNEST(string_split(plan_name, ' | ')) AS plan
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            FROM {RATES_SRC}
             WHERE plan_name IS NOT NULL AND plan_name != ''
         )
         WHERE plan IS NOT NULL AND TRIM(plan) != ''
@@ -353,24 +366,18 @@ def ga_providers(
 
 @app.get("/networks")
 def get_networks(q: str = Query(default=""), limit: int = Query(default=100, le=500)):
-    """Distinct network_name values (structured attribution from provider_references)."""
+    """Distinct network_name values. Rates are fanned out one row per network, so
+    network_name is a single clean value per row (and matches its net partition)."""
     conn = db()
     if not rates_has_column(conn, "network_name"):
-        return []  # no new-format parquet yet — nothing to list
-    # A rate row's network_name is '|'-joined when the provider_reference carried
-    # several networks — split them so each network is one clean dropdown entry.
-    search_filter = "AND net ILIKE ?" if q else ""
+        return []
+    search_filter = "AND network_name ILIKE ?" if q else ""
     params = [f"%{q}%"] if q else []
     rows = conn.execute(f"""
-        SELECT net AS network_name, COUNT(*) AS n_rates
-        FROM (
-            SELECT TRIM(UNNEST(string_split(network_name, '|'))) AS net
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
-            WHERE network_name IS NOT NULL AND network_name != ''
-        )
-        WHERE net IS NOT NULL AND net != ''
-        {search_filter}
-        GROUP BY net
+        SELECT network_name, COUNT(*) AS n_rates
+        FROM {RATES_SRC}
+        WHERE network_name IS NOT NULL AND network_name != '' {search_filter}
+        GROUP BY network_name
         ORDER BY n_rates DESC
         LIMIT {limit}
     """, params).fetchall()
@@ -398,7 +405,7 @@ def search_billing_codes(
     vol_cte = f"""
         SELECT billing_code, billing_code_type,
                COUNT(DISTINCT provider_group_id) AS provider_groups
-        FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+        FROM {RATES_SRC}
         GROUP BY billing_code, billing_code_type
     """
 
@@ -439,7 +446,7 @@ def search_billing_codes(
     rows = conn.execute(f"""
         SELECT billing_code, billing_code_type,
                COUNT(DISTINCT provider_group_id) AS provider_groups
-        FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+        FROM {RATES_SRC}
         WHERE {" AND ".join(conditions)}
         GROUP BY billing_code, billing_code_type
         ORDER BY provider_groups DESC
@@ -464,7 +471,7 @@ def procedure_categories():
         WITH vol AS (
             SELECT billing_code, billing_code_type,
                    COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            FROM {RATES_SRC}
             GROUP BY 1, 2
         )
         SELECT
