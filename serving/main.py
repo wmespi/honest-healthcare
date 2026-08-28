@@ -2,7 +2,7 @@
 
 App wiring only. Data sources and the connection factory live in
 data_sources.py; consumer-label helpers in labels.py; the routes in routers/.
-See backend/backend.md.
+See serving/serving.md.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

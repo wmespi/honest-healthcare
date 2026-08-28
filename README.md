@@ -95,7 +95,7 @@ make code-labels
 make taxonomy-labels
 ```
 
-The backend picks up new Parquet automatically — just refresh the UI. `make help`
+The API picks up new Parquet automatically — just refresh the UI. `make help`
 lists every workflow. To reach the UI from a phone on the same network, set
 `LAN_HOST=<your-ip>` in `.env` and use `http://<your-ip>:5173`.
 

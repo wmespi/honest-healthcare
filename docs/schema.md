@@ -4,7 +4,7 @@
 writes. This is the single source of truth for the on-disk layout; `db/SCHEMA.md`
 narrates the Postgres side.*
 
-The backend reads **Parquet**. Postgres holds only the discovery queue and two
+The serving layer reads **Parquet**. Postgres holds only the discovery queue and two
 small reference/log tables.
 
 **Why Parquet + DuckDB and not Postgres.** The workload is one sequential bulk
@@ -17,7 +17,7 @@ a server process.
 
 ---
 
-## Parquet — `data/anthem/` (what the backend reads)
+## Parquet — `data/anthem/` (what the serving layer reads)
 
 ```
 prices/net=<slug>/{id}.parquet
@@ -28,7 +28,7 @@ prices/net=<slug>/{id}.parquet
 ```
 One row per **(network × negotiated price)** — NOT fanned out per provider group.
 Hive-partitioned by `network_name` (slug = `etl-go/partition.go:slugifyNetwork` ==
-backend `network_slug()`); a network-filtered query adds `net = ?` and DuckDB
+serving `network_slug()`); a network-filtered query adds `net = ?` and DuckDB
 prunes to the one directory. Join to `group_sets` on `(file_id, group_set_id)` to
 expand a price to its provider groups.
 
@@ -62,7 +62,7 @@ The MRF lists every participating provider group under nearly every billing code
 so a flat layout fans out to one row per `(code × price × group × network)` — file
 28947 alone was 723M rows. `prices` + `group_sets` stores each roster once: file
 21057 went 682k → 76k price rows + 2.8k roster edges (~9×), and the ratio grows
-with file size. `PRICE_GROUPS_SRC` in the backend re-joins them.
+with file size. `PRICE_GROUPS_SRC` in the serving layer re-joins them.
 
 ### `network_name`
 

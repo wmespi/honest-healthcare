@@ -41,11 +41,11 @@ services:
       db:
         condition: service_healthy
 
-  backend:
+  serving:
     build:
       context: .
-      dockerfile: deploy/Dockerfile.backend
-    container_name: honest-healthcare-backend
+      dockerfile: deploy/Dockerfile.serving
+    container_name: honest-healthcare-serving
     volumes:
       - .:/app
     ports:
@@ -69,7 +69,7 @@ services:
       # device on the same network — e.g. a phone at http://<LAN_HOST>:5173.
       - VITE_API_URL=http://${LAN_HOST:-localhost}:8000
     depends_on:
-      - backend
+      - serving
 
 volumes:
   postgres_data:

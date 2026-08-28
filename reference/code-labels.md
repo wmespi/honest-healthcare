@@ -9,7 +9,7 @@ joins the parsed `codes/*.parquet` against a small reference CSV and reshapes â€
 SQL-shaped work, no streaming parser.
 
 `make code-labels` â†’ `python3 -m reference.code_labels --data-dir /app/data` in the
-backend container (`reference/code_labels.py`). `RBCS_URL=` overrides the source;
+serving container (`reference/code_labels.py`). `RBCS_URL=` overrides the source;
 `--rbcs-file` / `--test` exist on the module. Cache download + atomic Parquet
 write come from `reference/_common.py`, shared with `taxonomy_labels`.
 

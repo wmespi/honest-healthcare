@@ -14,7 +14,7 @@
 #   make parse GA=1             # GA / individual-market files first
 #   make parse TEST=1           # parse in test isolation
 #   make db-reset WHAT=failed   # reset transiently-failed rows → pending
-#   make sh S=backend           # shell into a container
+#   make sh S=serving          # shell into a container
 
 .PHONY: help \
         start up down logs \
@@ -82,10 +82,10 @@ nppes: _require-etl-running ## Download the NPPES national file, write data/nppe
 	docker compose exec etl_go go run . nppes $(if $(URL),-url "$(URL)",) $(if $(FILE),-file "$(FILE)",)
 
 code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
-	docker compose exec -T -w /app backend python3 -m reference.code_labels --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
+	docker compose exec -T -w /app serving python3 -m reference.code_labels --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
 
 taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
-	docker compose exec -T -w /app backend python3 -m reference.taxonomy_labels --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
+	docker compose exec -T -w /app serving python3 -m reference.taxonomy_labels --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
 
 ## ── Quality gate ────────────────────────────────────────────────────────────
 
@@ -104,14 +104,14 @@ test-e2e: _require-etl-running ## Hermetic end-to-end: parse + NPPES fixtures in
 	bash scripts/nppes_test.sh
 
 test-api: ## Backend contract + coverage tests (pytest, against the running API)
-	docker compose exec -T backend sh -c "pip install -q pytest httpx && cd /app/backend && python -m pytest tests/ -q"
+	docker compose exec -T serving sh -c "pip install -q pytest httpx && cd /app/serving && python -m pytest tests/ -q"
 
 test-web: ## Rate-explorer component tests (vitest + Testing Library, hermetic — mocks the API)
 	docker compose exec -T frontend sh -c "cd /app && npx vitest run"
 
 check: fmt lint test ## Pre-commit gate — fmt + vet + build + Go unit tests
 
-test-all: check test-e2e test-api test-web ## Full sweep — gate + e2e + backend + frontend (stack must be up)
+test-all: check test-e2e test-api test-web ## Full sweep — gate + e2e + serving + frontend (stack must be up)
 
 ## ── Coverage feedback loop ──────────────────────────────────────────────────
 
@@ -151,13 +151,13 @@ db-reset: ## Reset index_files rows → pending. WHAT=processing (stale) | faile
 
 ## ── Shells ────────────────────────────────────────────────────────────────────
 
-sh: ## Open a shell inside a container — usage: make sh S=etl|backend|frontend|db
+sh: ## Open a shell inside a container — usage: make sh S=etl|serving|frontend|db
 	@case "$(S)" in \
 	  etl)      svc=etl_go ;; \
-	  backend)  svc=backend ;; \
+	  serving)  svc=serving ;; \
 	  frontend) svc=frontend ;; \
 	  db)       svc=db ;; \
-	  *) echo "usage: make sh S=etl|backend|frontend|db" && exit 1 ;; \
+	  *) echo "usage: make sh S=etl|serving|frontend|db" && exit 1 ;; \
 	esac; \
 	echo "Entering $$svc shell — type 'exit' to quit"; \
 	docker compose exec $$svc sh

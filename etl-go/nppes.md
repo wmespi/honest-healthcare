@@ -28,7 +28,7 @@ address_line1 | address_line2 | city | state | postal_code
 - `taxonomy_group` is a coarse bucket — join `taxonomy_code` to
   `nucc_taxonomy.parquet` for the real specialty label
   ([../reference/taxonomy-labels.md](../reference/taxonomy-labels.md)).
-- Consumed by the GA NPI filter in [parse.md](parse.md) and by the backend's
+- Consumed by the GA NPI filter in [parse.md](parse.md) and by the serving layer's
   provider cards.
 
 ## Dev loop
@@ -37,6 +37,6 @@ address_line1 | address_line2 | city | state | postal_code
   `testdata/nppes_sample.csv` fixture with teardown — column mapping and taxonomy
   classification should never touch the 9 GB file.
 - The write to `ga_providers.parquet` is **not atomic** — during a re-extract the
-  file is briefly 0 bytes and backend queries that touch it 500. Run `make nppes`
-  when the backend is idle, or expect transient errors. See
+  file is briefly 0 bytes and serving-layer queries that touch it 500. Run `make nppes`
+  when the API is idle, or expect transient errors. See
   [../docs/known-gaps.md](../docs/known-gaps.md).

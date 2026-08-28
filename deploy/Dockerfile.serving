@@ -4,11 +4,11 @@ WORKDIR /app
 
 # Dependencies are pure-Python wheels (fastapi, uvicorn, duckdb, pydantic) —
 # no build toolchain needed.
-COPY backend/requirements.txt .
+COPY serving/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ ./backend/
+COPY serving/ ./serving/
 
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "serving.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

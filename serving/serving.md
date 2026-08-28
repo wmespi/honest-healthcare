@@ -1,7 +1,7 @@
 # Serving layer — FastAPI + DuckDB
 
 *Read this when adding or changing an API route. Tests: `make test-api`
-(`backend/tests/`, contract + coverage, against the running API).*
+(`serving/tests/`, contract + coverage, against the running API).*
 
 FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 `read_parquet(...)` globs — no ORM, `?` placeholders.

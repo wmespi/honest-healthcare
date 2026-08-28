@@ -1,29 +1,29 @@
 ---
-name: backend-endpoint
+name: serving-endpoint
 description: >
-  Add or modify a FastAPI route in the honest-healthcare backend. Use when the
+  Add or modify a FastAPI route in the honest-healthcare serving layer. Use when the
   user wants a new API endpoint, a change to an existing one, or a new query over
   the rate/provider data. Covers the router layout, the shared query helpers,
   partition-pruning, and the query shapes that hang if you get them wrong.
 ---
 
-# Adding / changing a backend endpoint
+# Adding / changing a serving endpoint
 
-Full context: `backend/backend.md`. Schema: `docs/schema.md`.
+Full context: `serving/serving.md`. Schema: `docs/schema.md`.
 
 ## Where it goes
 
 | Concern | File |
 |---|---|
-| `/rates/*` | `backend/routers/rates.py` |
-| `/providers/*` | `backend/routers/providers.py` |
-| `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` | `backend/routers/reference.py` |
-| a genuinely new area | new `backend/routers/<x>.py` + `app.include_router` in `main.py` |
+| `/rates/*` | `serving/routers/rates.py` |
+| `/providers/*` | `serving/routers/providers.py` |
+| `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` | `serving/routers/reference.py` |
+| a genuinely new area | new `serving/routers/<x>.py` + `app.include_router` in `main.py` |
 
 Each router is `router = APIRouter()`; handlers are `@router.get(...)`.
 `main.py` is wiring only — don't add routes there.
 
-## Use the shared pieces (`backend/data_sources.py`)
+## Use the shared pieces (`serving/data_sources.py`)
 
 - `db()` — the DuckDB connection. Always use it; it sets `memory_limit` and a
   spill dir. Never bare `duckdb.connect()`.
@@ -34,7 +34,7 @@ Each router is `router = APIRouter()`; handlers are `@router.get(...)`.
 - `network_slug(name)` — turns a `network_name` into its Hive partition key.
   **Must stay identical to `etl-go/partition.go:slugifyNetwork`.**
 
-Consumer labels live in `backend/labels.py` (`pos_bucket`, `MODIFIER_LABELS`,
+Consumer labels live in `serving/labels.py` (`pos_bucket`, `MODIFIER_LABELS`,
 `provider_card`, `nucc_bits`, `plausibility`).
 
 ## Query rules — get these wrong and it hangs
@@ -56,10 +56,10 @@ Consumer labels live in `backend/labels.py` (`pos_bucket`, `MODIFIER_LABELS`,
 
 ## Finish
 
-1. Add a contract test to `backend/tests/test_coverage.py` — 200 + expected
+1. Add a contract test to `serving/tests/test_coverage.py` — 200 + expected
    shape. If it resolves an NPI, add it to the `npi_with_rates` fixture flow.
 2. If the endpoint changes the rate-explorer state machine, add a
    `frontend/src/App.test.jsx` case (and update `api.js`).
-3. `docker compose restart backend`, then `make test-api`. Hit the new route by
+3. `docker compose restart serving`, then `make test-api`. Hit the new route by
    hand against live data for the 200 and the intended error codes.
-4. Update `backend/backend.md` if you added a route or a helper.
+4. Update `serving/serving.md` if you added a route or a helper.
