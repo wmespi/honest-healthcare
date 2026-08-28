@@ -31,7 +31,8 @@ def test_health(client):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body.get("total_rates", 0) > 0
+    assert body.get("total_prices", 0) > 0
+    assert body.get("total_group_set_edges", 0) > 0
 
 
 def test_distribution_shape(client):
@@ -39,7 +40,7 @@ def test_distribution_shape(client):
     assert r.status_code == 200
     body = r.json()
     assert body["billing_code"] == "99213"
-    for k in ("min", "max", "avg", "median", "provider_groups", "total_entries"):
+    for k in ("min", "max", "avg", "median", "provider_groups", "n_providers", "total_entries"):
         assert k in body["summary"]
     assert isinstance(body["distribution"], list) and body["distribution"]
 
@@ -76,7 +77,9 @@ def test_networks_endpoint(client):
     r = client.get("/networks")
     assert r.status_code == 200
     body = r.json()
-    assert isinstance(body, list)  # [] until a post-attribution parse lands
+    assert isinstance(body, list)
+    for row in body:
+        assert {"network_name", "n_rates"} <= row.keys()
 
 
 def test_billing_codes_search(client):

@@ -1,27 +1,46 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
+	"sort"
 	"strings"
 )
 
 // mrfWriters are the side-effecting sinks for a streamed MRF. The production
 // caller wires these to Parquet writers + a Postgres billing-code upsert; tests
-// wire them to in-memory slices. All three may be nil (dry run / counting only).
+// wire them to in-memory slices. Every field may be nil (dry run / counting only).
 type mrfWriters struct {
-	rates     func([]RateRow)
-	providers func([]ProviderRow)
+	prices          func([]PriceRow)
+	groupSetMembers func([]GroupSetMemberRow)
+	providers       func([]ProviderRow)
 	// code is called exactly once per billing code not already in seenBillingCodes.
 	code func(BillingCodeRow)
+}
+
+// hashGroupSet fingerprints a sorted provider-group roster. FNV-64a over the
+// little-endian id bytes — deterministic across runs and machines. Paired with
+// the file_id column, (file_id, group_set_id) uniquely identifies a roster.
+func hashGroupSet(sortedIDs []int64) int64 {
+	h := fnv.New64a()
+	var buf [8]byte
+	for _, id := range sortedIDs {
+		binary.LittleEndian.PutUint64(buf[:], uint64(id))
+		h.Write(buf[:])
+	}
+	return int64(h.Sum64())
 }
 
 // mrfResult is the per-file coverage summary — what this one file contributed.
 type mrfResult struct {
 	ProviderRows        int64
-	RateRows            int64
+	PriceRows           int64
+	GroupSetMemberRows  int64
+	GroupSets           int
 	NewBillingCodes     int
 	NewNPIs             int
 	NewTINs             int
@@ -36,8 +55,10 @@ type mrfResult struct {
 	// Filter accounting (0 when the filters are off). Covers both the GA NPI
 	// filter and the network_name allowlist — a group dropped by either counts here.
 	ProviderRowsDropped int64
-	RateRowsDropped     int64
-	GroupsDropped       int
+	// PriceRowsDropped counts price rows not emitted because a block's entire
+	// network roster was filtered out.
+	PriceRowsDropped int64
+	GroupsDropped    int
 	// GroupsDroppedNetwork is the subset of GroupsDropped rejected by the
 	// network_name allowlist (not a Georgia network).
 	GroupsDroppedNetwork int
@@ -61,34 +82,70 @@ func sortedKeys(m map[string]struct{}) []string {
 	return out
 }
 
-// buildRateRows expands one in_network item into rate rows: one per
-// (provider_reference × negotiated_price), stamped with the network_name carried
-// by that provider group. Pure — no I/O — so it is unit-testable directly.
-func buildRateRows(item InNetworkItem, networkByGroup map[int64]string, planName string) []RateRow {
-	var rows []RateRow
+// buildPriceRows expands one in_network item into price rows: one per
+// (network × negotiated_price). The provider references in each negotiated_rate
+// block are bucketed by network into a roster; the roster is fingerprinted
+// (group_set_id) and, if not already seen in this file, its membership edges are
+// emitted via emitMembers. Pure except for those two callbacks (seenSets +
+// emitMembers dedupe rosters across the whole file).
+//
+// keptGroups, when non-nil, is the GA/network filter: a referenced group not in
+// it is excluded from the roster. dropped receives the count of price rows that
+// would have been emitted but were not because a block's whole network roster
+// was filtered away.
+func buildPriceRows(
+	item InNetworkItem,
+	fileID int64,
+	networkByGroup map[int64]string,
+	keptGroups map[int64]struct{},
+	seenSets map[int64]struct{},
+	emitMembers func(fileID, groupSetID int64, groupIDs []int64),
+	dropped *int64,
+) []PriceRow {
+	var rows []PriceRow
 	for _, rate := range item.NegotiatedRates {
+		// Bucket this block's provider references by network. A group in "A|B"
+		// joins both rosters.
+		byNet := map[string][]int64{}
+		hadRefs := len(rate.ProviderReferences) > 0
 		for _, refID := range rate.ProviderReferences {
-			// A provider group may carry several networks ("A|B"). Emit one rate
-			// row per network so network_name is a single value and each row
-			// lands in exactly one rates/net=<slug>/ partition.
-			networks := splitNetworks(networkByGroup[int64(refID)])
-			for _, price := range rate.NegotiatedPrices {
-				for _, networkName := range networks {
-					rows = append(rows, RateRow{
-						ProviderGroupID:        int64(refID),
-						PlanName:               planName,
-						NetworkName:            networkName,
-						BillingCodeType:        item.BillingCodeType,
-						BillingCode:            item.BillingCode,
-						NegotiationArrangement: item.NegotiationArrangement,
-						NegotiatedType:         price.NegotiatedType,
-						NegotiatedRate:         price.NegotiatedRate,
-						ExpirationDate:         price.ExpirationDate,
-						ServiceCode:            strings.Join(price.ServiceCode, "|"),
-						BillingClass:           price.BillingClass,
-						Setting:                price.Setting,
-					})
+			gid := int64(refID)
+			if keptGroups != nil {
+				if _, ok := keptGroups[gid]; !ok {
+					continue
 				}
+			}
+			for _, net := range splitNetworks(networkByGroup[gid]) {
+				byNet[net] = append(byNet[net], gid)
+			}
+		}
+		if hadRefs && len(byNet) == 0 && dropped != nil {
+			*dropped += int64(len(rate.NegotiatedPrices))
+		}
+		for net, groupIDs := range byNet {
+			sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
+			gsid := hashGroupSet(groupIDs)
+			if _, ok := seenSets[gsid]; !ok {
+				seenSets[gsid] = struct{}{}
+				if emitMembers != nil {
+					emitMembers(fileID, gsid, groupIDs)
+				}
+			}
+			for _, price := range rate.NegotiatedPrices {
+				rows = append(rows, PriceRow{
+					FileID:                 fileID,
+					GroupSetID:             gsid,
+					NetworkName:            net,
+					BillingCodeType:        item.BillingCodeType,
+					BillingCode:            item.BillingCode,
+					NegotiationArrangement: item.NegotiationArrangement,
+					NegotiatedType:         price.NegotiatedType,
+					NegotiatedRate:         price.NegotiatedRate,
+					ExpirationDate:         price.ExpirationDate,
+					ServiceCode:            strings.Join(price.ServiceCode, "|"),
+					BillingClass:           price.BillingClass,
+					Setting:                price.Setting,
+				})
 			}
 		}
 	}
@@ -116,12 +173,13 @@ func splitNetworks(joined string) []string {
 
 // buildProviderRows flattens one provider_references entry into provider rows
 // (one per NPI) and returns the "|"-joined network_name for that group. Pure.
-func buildProviderRows(ref ProviderReference) ([]ProviderRow, string) {
+func buildProviderRows(ref ProviderReference, fileID int64) ([]ProviderRow, string) {
 	networkName := strings.Join(ref.NetworkName, "|")
 	var rows []ProviderRow
 	for _, pg := range ref.ProviderGroups {
 		for _, npi := range pg.NPIs {
 			rows = append(rows, ProviderRow{
+				FileID:          fileID,
 				ProviderGroupID: int64(ref.ProviderGroupID),
 				NetworkName:     networkName,
 				NPI:             int64(npi),
@@ -139,6 +197,7 @@ func buildProviderRows(ref ProviderReference) ([]ProviderRow, string) {
 func streamMRF(
 	r io.Reader,
 	planName string,
+	fileID int64,
 	wantSchema bool,
 	seenBillingCodes map[string]bool,
 	seenNPIs map[int64]string,
@@ -148,6 +207,7 @@ func streamMRF(
 	w mrfWriters,
 	pr *ProgressReader,
 ) (*mrfResult, error) {
+	_ = planName // no longer stamped onto rows — see PriceRow / Known gaps
 	progress := func() string {
 		if pr == nil {
 			return ""
@@ -165,8 +225,11 @@ func streamMRF(
 	}
 	networkByGroup := make(map[int64]string)
 	// When the GA filter is on, keptGroups holds every provider_group_id that had
-	// at least one GA NPPES NPI — rate rows for any other group are dropped.
+	// at least one GA NPPES NPI — price rows for any other group are dropped.
 	keptGroups := make(map[int64]struct{})
+	// seenSets dedupes provider-group rosters across the whole file so each
+	// distinct roster's membership edges are written to group_sets exactly once.
+	seenSets := make(map[int64]struct{})
 
 	t, err := decoder.Token()
 	if err != nil {
@@ -177,8 +240,9 @@ func streamMRF(
 	}
 
 	var providerBuf []ProviderRow
-	var rateBuf []RateRow
-	providerBatches, rateBatches := 0, 0
+	var priceBuf []PriceRow
+	var memberBuf []GroupSetMemberRow
+	providerBatches, priceBatches := 0, 0
 	const logEveryNBatches = 10
 
 	flushProv := func() {
@@ -191,15 +255,40 @@ func streamMRF(
 		res.ProviderRows += int64(len(providerBuf))
 		providerBuf = providerBuf[:0]
 	}
-	flushRate := func() {
-		if len(rateBuf) == 0 {
+	flushMembers := func() {
+		if len(memberBuf) == 0 {
 			return
 		}
-		if w.rates != nil {
-			w.rates(rateBuf)
+		if w.groupSetMembers != nil {
+			w.groupSetMembers(memberBuf)
 		}
-		res.RateRows += int64(len(rateBuf))
-		rateBuf = rateBuf[:0]
+		res.GroupSetMemberRows += int64(len(memberBuf))
+		memberBuf = memberBuf[:0]
+	}
+	flushPrice := func() {
+		if len(priceBuf) == 0 {
+			return
+		}
+		if w.prices != nil {
+			w.prices(priceBuf)
+		}
+		res.PriceRows += int64(len(priceBuf))
+		priceBuf = priceBuf[:0]
+	}
+	// emitMembers is handed to buildPriceRows; it appends one edge per roster
+	// member and is called at most once per distinct roster (seenSets dedupe).
+	emitMembers := func(fileID, groupSetID int64, groupIDs []int64) {
+		res.GroupSets++
+		for _, gid := range groupIDs {
+			memberBuf = append(memberBuf, GroupSetMemberRow{
+				FileID:          fileID,
+				GroupSetID:      groupSetID,
+				ProviderGroupID: gid,
+			})
+		}
+		if len(memberBuf) >= copyBatchSize {
+			flushMembers()
+		}
 	}
 
 	for decoder.More() {
@@ -230,7 +319,7 @@ func streamMRF(
 					continue
 				}
 
-				rows, networkName := buildProviderRows(ref)
+				rows, networkName := buildProviderRows(ref, fileID)
 
 				// Filters: a provider group must pass every active filter, else the
 				// group — and every rate row that references it — is dropped.
@@ -326,18 +415,12 @@ func streamMRF(
 					}
 				}
 
-				rows := buildRateRows(item, networkByGroup, planName)
+				var keptFilter map[int64]struct{}
 				if gaNPIs != nil || networkAllow != nil {
-					kept := rows[:0]
-					for _, row := range rows {
-						if _, ok := keptGroups[row.ProviderGroupID]; ok {
-							kept = append(kept, row)
-						} else {
-							res.RateRowsDropped++
-						}
-					}
-					rows = kept
+					keptFilter = keptGroups
 				}
+				rows := buildPriceRows(item, fileID, networkByGroup, keptFilter,
+					seenSets, emitMembers, &res.PriceRowsDropped)
 				for _, row := range rows {
 					if row.Setting != "" {
 						res.Settings[row.Setting] = struct{}{}
@@ -346,17 +429,19 @@ func streamMRF(
 						res.BillingClasses[row.BillingClass] = struct{}{}
 					}
 				}
-				rateBuf = append(rateBuf, rows...)
-				if len(rateBuf) >= copyBatchSize {
-					flushRate()
-					if rateBatches++; rateBatches%logEveryNBatches == 0 {
-						log.Printf("    ⚙️  %d rate rows... | %s", res.RateRows, progress())
+				priceBuf = append(priceBuf, rows...)
+				if len(priceBuf) >= copyBatchSize {
+					flushPrice()
+					if priceBatches++; priceBatches%logEveryNBatches == 0 {
+						log.Printf("    ⚙️  %d price rows... | %s", res.PriceRows, progress())
 					}
 				}
 			}
 			decoder.Token() // ']'
-			flushRate()
-			log.Printf("    ✅ Streamed %d rate rows. %s", res.RateRows, progress())
+			flushPrice()
+			flushMembers()
+			log.Printf("    ✅ Streamed %d price rows, %d group-set edges (%d sets). %s",
+				res.PriceRows, res.GroupSetMemberRows, res.GroupSets, progress())
 
 		case "reporting_entity_name", "reporting_entity_type":
 			tVal, _ := decoder.Token()

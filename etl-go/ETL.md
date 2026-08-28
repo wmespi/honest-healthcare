@@ -115,15 +115,26 @@ NEGOTIATED PRICE                             PROVIDER_REFERENCE (by ID)
 OUR PARQUET SCHEMA
 ══════════════════
 
-  rates/{fileID}.parquet
-    provider_group_id | plan_name | billing_code | billing_code_type
-    negotiated_rate   | negotiated_type | expiration_date | service_code
+  prices/net=<slug>/{fileID}.parquet
+    file_id | group_set_id | network_name | billing_code | billing_code_type
+    negotiation_arrangement | negotiated_type | negotiated_rate
+    expiration_date | service_code | billing_class | setting
+    └─ one row per (network × negotiated price); NOT fanned out per group
+
+  group_sets/{fileID}.parquet
+    file_id | group_set_id | provider_group_id
+    └─ deduped rosters. group_set_id = FNV-64a of a block's sorted
+       provider_reference ids. prices ⨝ group_sets on (file_id,
+       group_set_id) reproduces every (code, rate, provider_group) tuple.
 
   providers/{fileID}.parquet
-    provider_group_id | npi | tin_type | tin_value
+    file_id | provider_group_id | network_name | npi | tin_type | tin_value
 
   codes/{fileID}.parquet
     billing_code | billing_code_type | name | description
+
+  provider_group_id is the MRF's file-local provider_reference id — all
+  cross-file joins key on (file_id, provider_group_id).
 ```
 
 ### Why the Same Rate Can Appear in Multiple Files for the Same Plan
@@ -164,12 +175,14 @@ go run . -parse       # Phase 2: stream each pending file → Parquet (+ a littl
 
 > **This doc lags the code in places** (it still describes CSV output and direct
 > `negotiated_rates` inserts). Authoritative state:
-> - Phase 2 writes **Parquet** (`data/anthem/{rates,providers,codes}/{id}.parquet`, ZSTD) plus a
+> - Phase 2 writes **Parquet** (`data/anthem/{prices,group_sets,providers,codes}/…`, ZSTD) plus a
 >   `billing_codes` upsert and one `coverage_log` row per file. It does not write `negotiated_rates`.
-> - The streaming core is `streamMRF` in `mrf.go`, shared by `-parse` and the unit tests.
+> - The streaming core is `streamMRF` in `mrf.go`, shared by `-parse` and the unit tests. Each
+>   negotiated_rate block's provider roster is deduped into `group_sets` and referenced by
+>   `group_set_id` from the `prices` rows — no per-group fan-out (see "OUR PARQUET SCHEMA").
 > - **Structured attribution (no regex):** `provider_references[].network_name` (e.g.
 >   `["GA Blue Value HIX Individual Network"]`) is mapped `provider_group_id → network_name` during
->   the provider pass and stamped onto every provider and rate row. `discover.go` also captures
+>   the provider pass and stamped onto every provider and price row. `discover.go` also captures
 >   `plan_states` from HIOS `plan_id[5:7]` (positional state code) into `index_files`.
 > - **GA priority:** `-parse -priority` orders by `gaPriorityExpr` (`priority.go`) — individual-market
 >   Georgia files first. Signals: `market_types ∋ individual`, `plan_states ∋ GA`, GA issuer IDs

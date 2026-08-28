@@ -7,11 +7,50 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 DATA_DIR        = os.getenv("DATA_DIR", "/app/data")
-# rates are Hive-partitioned by network: rates/net=<slug>/<id>.parquet
-RATES_GLOB      = f"{DATA_DIR}/anthem/rates/**/*.parquet"
-RATES_SRC       = f"read_parquet('{RATES_GLOB}', union_by_name=true, hive_partitioning=1)"
+# Normalized rate store (see AGENTS.md → Parquet Schema):
+#   prices/net=<slug>/<id>.parquet  — one row per (network × negotiated price),
+#     Hive-partitioned by network; carries file_id + group_set_id.
+#   group_sets/<id>.parquet         — file_id | group_set_id | provider_group_id,
+#     the deduplicated provider-group rosters. Join prices → group_sets on
+#     (file_id, group_set_id) to expand a price to its provider groups.
+PRICES_GLOB     = f"{DATA_DIR}/anthem/prices/**/*.parquet"
+PRICES_SRC      = f"read_parquet('{PRICES_GLOB}', union_by_name=true, hive_partitioning=1)"
+GROUP_SETS_GLOB = f"{DATA_DIR}/anthem/group_sets/*.parquet"
+GROUP_SETS_SRC  = f"read_parquet('{GROUP_SETS_GLOB}', union_by_name=true)"
 PROVIDERS_GLOB  = f"{DATA_DIR}/anthem/providers/*.parquet"
+PROVIDERS_SRC   = f"read_parquet('{PROVIDERS_GLOB}', union_by_name=true)"
 
+# prices expanded to one row per provider group — the common join. A billing_code
+# / net filter on the outer query prunes `prices` before the join runs.
+PRICE_GROUPS_SRC = f"""(
+    SELECT p.*, m.provider_group_id
+    FROM {PRICES_SRC} p
+    JOIN {GROUP_SETS_SRC} m
+      ON m.file_id = p.file_id AND m.group_set_id = p.group_set_id
+)"""
+
+# per-code provider-group volume — the browse-layer ranking hint behind
+# /billing_codes and /procedure_categories. Avoids a COUNT(DISTINCT group) over
+# the full prices ⨝ group_sets expansion: it sizes each roster once (tiny), then
+# sums roster sizes over each code's distinct rosters. That over-counts a group
+# that sits in several of a code's rosters — fine for a ranking hint, and a
+# precomputed exact summary replaces it in issue #10.
+VOL_CTE = f"""
+    WITH set_size AS (
+        SELECT file_id, group_set_id, COUNT(*) AS n
+        FROM {GROUP_SETS_SRC}
+        GROUP BY 1, 2
+    ),
+    code_sets AS (
+        SELECT DISTINCT billing_code, billing_code_type, file_id, group_set_id
+        FROM {PRICES_SRC}
+    )
+    SELECT cs.billing_code, cs.billing_code_type,
+           SUM(ss.n) AS provider_groups
+    FROM code_sets cs
+    JOIN set_size ss USING (file_id, group_set_id)
+    GROUP BY 1, 2
+"""
 
 CODES_GLOB      = f"{DATA_DIR}/anthem/codes/*.parquet"
 NPI_LOOKUP_PATH = f"{DATA_DIR}/anthem/npi_lookup.parquet"
@@ -36,39 +75,79 @@ app.add_middleware(
 )
 
 
+_DUCK_TMP = os.getenv("DUCKDB_TMP", "/tmp/duckdb_spill")
+_DUCK_MEM = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
+
+
 def db():
-    return duckdb.connect()
-
-
-def rates_has_column(conn, name: str) -> bool:
-    """True if `name` is present in the unioned rates schema. network_name only
-    appears once at least one new-format parquet (post structured-attribution)
-    has been written, so filters/endpoints that use it must degrade gracefully."""
+    conn = duckdb.connect()
+    # Bound memory and let big aggregates spill to disk instead of OOM-killing
+    # the process. A persistent pooled connection + a precomputed browse-layer
+    # summary are the next step (issue #10) — until then the browse endpoints
+    # (/networks aside) full-scan prices ⨝ group_sets.
     try:
-        cols = conn.execute(
-            f"DESCRIBE SELECT * FROM {RATES_SRC}"
-        ).fetchall()
-        return any(c[0] == name for c in cols)
+        os.makedirs(_DUCK_TMP, exist_ok=True)
+        conn.execute(f"SET memory_limit = '{_DUCK_MEM}'")
+        conn.execute(f"SET temp_directory = '{_DUCK_TMP}'")
+        conn.execute("SET preserve_insertion_order = false")
     except Exception:
-        return False
+        pass
+    return conn
+
+
+def _has_parquet(glob_dir: str) -> bool:
+    """Cheap check for whether any parquet has been written under a data subtree
+    (a bare read_parquet over an empty glob raises)."""
+    import glob as _g
+    return bool(_g.glob(glob_dir, recursive=True))
+
+
+def have_prices() -> bool:
+    return _has_parquet(PRICES_GLOB)
 
 
 @app.get("/")
 def health():
     conn = db()
     try:
-        rates     = conn.execute(f"SELECT COUNT(*) FROM {RATES_SRC}").fetchone()[0]
-        providers = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true)").fetchone()[0]
-        return {"status": "ok", "total_rates": rates, "total_providers": providers}
+        prices    = conn.execute(f"SELECT COUNT(*) FROM {PRICES_SRC}").fetchone()[0]
+        edges     = conn.execute(f"SELECT COUNT(*) FROM {GROUP_SETS_SRC}").fetchone()[0]
+        providers = conn.execute(f"SELECT COUNT(*) FROM {PROVIDERS_SRC}").fetchone()[0]
+        return {"status": "ok", "total_prices": prices,
+                "total_group_set_edges": edges, "total_providers": providers}
     except Exception as e:
         return {"status": "ok", "note": str(e)}
+
+
+def _price_filters(billing_code, billing_code_type, network_name, setting, npi):
+    """Shared WHERE for the price_groups source (alias pg). Returns (sql, params)."""
+    conditions = ["1=1"]
+    params: list = []
+    if billing_code:
+        conditions += ["pg.billing_code = ?", "pg.billing_code_type = ?"]
+        params += [billing_code, billing_code_type]
+    if network_name:
+        # net is the Hive partition key — prunes the scan to one directory.
+        conditions.append("pg.net = ?")
+        params.append(network_slug(network_name))
+    if setting:
+        conditions.append("pg.setting = ?")
+        params.append(setting)
+    if npi:
+        conditions.append(f"""EXISTS (
+            SELECT 1 FROM {PROVIDERS_SRC} pv
+            WHERE pv.file_id = pg.file_id
+              AND pv.provider_group_id = pg.provider_group_id
+              AND pv.npi = ?)""")
+        params.append(npi)
+    return " AND ".join(conditions), params
 
 
 @app.get("/rates/distribution")
 def rate_distribution(
     billing_code: Optional[str] = None,
     billing_code_type: str = "CPT",
-    plan_name: Optional[str] = None,
+    plan_name: Optional[str] = None,  # accepted for API compat, unused
     network_name: Optional[str] = None,
     setting: Optional[str] = None,
     npi: Optional[int] = None,
@@ -79,37 +158,30 @@ def rate_distribution(
     """
     conn = db()
 
-    conditions = ["1=1"]
-    params: list = []
+    # Expanding prices → provider groups is only affordable when the filter
+    # prunes prices hard (a billing_code) or the query needs per-NPI resolution
+    # (an npi filter). The bare overview (no code, maybe a network) aggregates
+    # over `prices` alone — bars/counts are distinct provider *rosters*, not the
+    # fully-expanded group count.
+    heavy = bool(billing_code or npi)
 
-    if billing_code:
-        conditions += ["billing_code = ?", "billing_code_type = ?"]
-        params += [billing_code, billing_code_type]
-    if plan_name:
-        conditions.append("plan_name = ?")
-        params.append(plan_name)
-    if network_name:
-        # net is the Hive partition key — this prunes the scan to one directory.
-        conditions.append("net = ?")
-        params.append(network_slug(network_name))
-    if setting:
-        conditions.append("setting = ?")
-        params.append(setting)
-    if npi:
-        conditions.append(f"provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true) WHERE npi = ?)")
-        params.append(npi)
-
-    where = " AND ".join(conditions)
+    if heavy:
+        where, params = _price_filters(billing_code, billing_code_type, network_name, setting, npi)
+        src = f"{PRICE_GROUPS_SRC} pg"
+        grp = "COUNT(DISTINCT (pg.file_id, pg.provider_group_id))"
+    else:
+        # prices-only: reuse _price_filters minus the npi branch (npi ⇒ heavy).
+        where, params = _price_filters(None, billing_code_type, network_name, setting, None)
+        src = f"{PRICES_SRC} pg"
+        grp = "COUNT(DISTINCT pg.group_set_id)"
 
     if not billing_code:
-        # Network overview: pre-bucket into $50 intervals up to $2000, then one overflow bucket.
-        # Avoids returning hundreds of thousands of distinct rate values.
         dist = conn.execute(f"""
             SELECT
-                FLOOR(LEAST(negotiated_rate, 2000) / 50) * 50 AS rate,
+                FLOOR(LEAST(pg.negotiated_rate, 2000) / 50) * 50 AS rate,
                 'fee schedule' AS negotiated_type,
-                COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM {RATES_SRC}
+                {grp} AS provider_groups
+            FROM {src}
             WHERE {where}
             GROUP BY 1, 2
             ORDER BY 1
@@ -117,13 +189,13 @@ def rate_distribution(
     else:
         dist = conn.execute(f"""
             SELECT
-                negotiated_rate,
-                negotiated_type,
-                COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM {RATES_SRC}
+                pg.negotiated_rate,
+                pg.negotiated_type,
+                {grp} AS provider_groups
+            FROM {src}
             WHERE {where}
-            GROUP BY negotiated_rate, negotiated_type
-            ORDER BY negotiated_rate
+            GROUP BY pg.negotiated_rate, pg.negotiated_type
+            ORDER BY pg.negotiated_rate
         """, params).fetchall()
 
     if not dist:
@@ -132,15 +204,25 @@ def rate_distribution(
 
     stats = conn.execute(f"""
         SELECT
-            MIN(negotiated_rate),
-            MAX(negotiated_rate),
-            AVG(negotiated_rate),
-            MEDIAN(negotiated_rate),
-            COUNT(DISTINCT provider_group_id),
+            MIN(pg.negotiated_rate),
+            MAX(pg.negotiated_rate),
+            AVG(pg.negotiated_rate),
+            MEDIAN(pg.negotiated_rate),
+            {grp},
             COUNT(*)
-        FROM {RATES_SRC}
+        FROM {src}
         WHERE {where}
     """, params).fetchone()
+
+    n_providers = None
+    if heavy:
+        n_providers = conn.execute(f"""
+            SELECT COUNT(DISTINCT pv.npi)
+            FROM {src}
+            JOIN {PROVIDERS_SRC} pv
+              ON pv.file_id = pg.file_id AND pv.provider_group_id = pg.provider_group_id
+            WHERE {where}
+        """, params).fetchone()[0]
 
     return {
         "billing_code":      billing_code or "ALL",
@@ -151,6 +233,7 @@ def rate_distribution(
             "avg":             round(stats[2], 2),
             "median":          round(stats[3], 2),
             "provider_groups": stats[4],
+            "n_providers":     n_providers,
             "total_entries":   stats[5],
         },
         "distribution": [
@@ -179,24 +262,7 @@ def rates_by_provider(
     """
     conn = db()
 
-    conditions = ["r.billing_code = ?", "r.billing_code_type = ?"]
-    params: list = [billing_code, billing_code_type]
-
-    if plan_name:
-        conditions.append("r.plan_name = ?")
-        params.append(plan_name)
-    has_network = rates_has_column(conn, "network_name")
-    if network_name:
-        conditions.append("r.net = ?")
-        params.append(network_slug(network_name))
-    if setting:
-        conditions.append("r.setting = ?")
-        params.append(setting)
-    if npi:
-        conditions.append(f"r.provider_group_id IN (SELECT provider_group_id FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true) WHERE npi = ?)")
-        params.append(npi)
-
-    where = " AND ".join(conditions)
+    where, params = _price_filters(billing_code, billing_code_type, network_name, setting, npi)
     has_nppes = os.path.exists(GA_NPPES_PATH)
 
     if has_nppes:
@@ -211,22 +277,22 @@ def rates_by_provider(
 
     rows = conn.execute(f"""
         SELECT
-            r.provider_group_id,
-            r.negotiated_rate,
-            r.negotiated_type,
-            r.plan_name,
-            {"ANY_VALUE(r.network_name)" if has_network else "NULL"} AS network_name,
-            r.expiration_date,
+            pg.provider_group_id,
+            pg.negotiated_rate,
+            pg.negotiated_type,
+            NULL AS plan_name,
+            ANY_VALUE(pg.network_name) AS network_name,
+            pg.expiration_date,
             COUNT(DISTINCT p.npi) AS npi_count{ga_select}
-        FROM {RATES_SRC} r
-        LEFT JOIN read_parquet('{PROVIDERS_GLOB}', union_by_name=true) p
-            ON r.provider_group_id = p.provider_group_id
+        FROM {PRICE_GROUPS_SRC} pg
+        LEFT JOIN {PROVIDERS_SRC} p
+            ON p.file_id = pg.file_id AND p.provider_group_id = pg.provider_group_id
         {ga_join}
         WHERE {where}
-        GROUP BY r.provider_group_id, r.negotiated_rate, r.negotiated_type,
-                 r.plan_name, r.expiration_date
+        GROUP BY pg.file_id, pg.provider_group_id, pg.negotiated_rate,
+                 pg.negotiated_type, pg.expiration_date
         {ga_having}
-        ORDER BY r.negotiated_rate
+        ORDER BY pg.negotiated_rate
         LIMIT {limit}
     """, params).fetchall()
 
@@ -312,23 +378,9 @@ def search_providers(
 
 @app.get("/plans")
 def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)):
-    """Distinct plan names. Splits pipe-joined plan_name values into individual names."""
-    conn = db()
-    search_filter = "AND plan ILIKE ?" if q else ""
-    params = [f"%{q}%"] if q else []
-    rows = conn.execute(f"""
-        SELECT DISTINCT TRIM(plan) AS plan_name
-        FROM (
-            SELECT UNNEST(string_split(plan_name, ' | ')) AS plan
-            FROM {RATES_SRC}
-            WHERE plan_name IS NOT NULL AND plan_name != ''
-        )
-        WHERE plan IS NOT NULL AND TRIM(plan) != ''
-        {search_filter}
-        ORDER BY plan_name
-        LIMIT {limit}
-    """, params).fetchall()
-    return [r[0] for r in rows]
+    """Deprecated. The pipeline never carried a real plan name (see AGENTS.md →
+    Known gaps); the explorer filters by network_name via /networks instead."""
+    return []
 
 
 @app.get("/providers/ga")
@@ -366,16 +418,16 @@ def ga_providers(
 
 @app.get("/networks")
 def get_networks(q: str = Query(default=""), limit: int = Query(default=100, le=500)):
-    """Distinct network_name values. Rates are fanned out one row per network, so
-    network_name is a single clean value per row (and matches its net partition)."""
+    """Distinct network_name values with a price-row count as a popularity signal.
+    Each price row carries exactly one network_name (== its net partition)."""
     conn = db()
-    if not rates_has_column(conn, "network_name"):
+    if not have_prices():
         return []
     search_filter = "AND network_name ILIKE ?" if q else ""
     params = [f"%{q}%"] if q else []
     rows = conn.execute(f"""
         SELECT network_name, COUNT(*) AS n_rates
-        FROM {RATES_SRC}
+        FROM {PRICES_SRC}
         WHERE network_name IS NOT NULL AND network_name != '' {search_filter}
         GROUP BY network_name
         ORDER BY n_rates DESC
@@ -402,12 +454,7 @@ def search_billing_codes(
     has_labels = _codes_have_labels(conn)
     q = q.strip()
 
-    vol_cte = f"""
-        SELECT billing_code, billing_code_type,
-               COUNT(DISTINCT provider_group_id) AS provider_groups
-        FROM {RATES_SRC}
-        GROUP BY billing_code, billing_code_type
-    """
+    vol_cte = VOL_CTE
 
     if has_labels:
         where, params = ["1=1"], []
@@ -435,7 +482,7 @@ def search_billing_codes(
             for r in rows
         ]
 
-    # No labels file yet — rates-only search by code.
+    # No labels file yet — code-only search over the price volume aggregate.
     conditions, params_fb = ["1=1"], []
     if q:
         conditions.append("billing_code ILIKE ?")
@@ -444,11 +491,9 @@ def search_billing_codes(
         conditions.append("billing_code_type = ?")
         params_fb.append(billing_code_type)
     rows = conn.execute(f"""
-        SELECT billing_code, billing_code_type,
-               COUNT(DISTINCT provider_group_id) AS provider_groups
-        FROM {RATES_SRC}
+        SELECT billing_code, billing_code_type, provider_groups
+        FROM ({VOL_CTE})
         WHERE {" AND ".join(conditions)}
-        GROUP BY billing_code, billing_code_type
         ORDER BY provider_groups DESC
         LIMIT {limit}
     """, params_fb).fetchall()
@@ -468,12 +513,7 @@ def procedure_categories():
         return []
     conn = db()
     rows = conn.execute(f"""
-        WITH vol AS (
-            SELECT billing_code, billing_code_type,
-                   COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM {RATES_SRC}
-            GROUP BY 1, 2
-        )
+        WITH vol AS ({VOL_CTE})
         SELECT
             COALESCE(l.rbcs_category, 'Other')                 AS category,
             COALESCE(l.rbcs_subcategory, l.rbcs_category, 'Other') AS subcategory,

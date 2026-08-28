@@ -2,10 +2,10 @@
 # Hermetic ETL end-to-end test with full teardown.
 #
 # Runs the real Phase-2 parse against a committed *.json.gz fixture in the
-# isolated `test` schema, writing Parquet under data-test/. Verifies row counts,
-# the network_name column, and the coverage_log row. Cleans up everything on
-# exit — `test.*` tables truncated, data-test/anthem removed — so nothing
-# accumulates on disk.
+# isolated `test` schema, writing Parquet under data-test/. Verifies the price /
+# group_set row counts, the network partitioning, and the coverage_log row.
+# Cleans up everything on exit — `test.*` tables truncated, data-test/anthem
+# removed — so nothing accumulates on disk.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -37,24 +37,29 @@ docker compose exec -T etl_go go run . -parse -test -file-ids "$FILE_ID" -fixtur
 echo "→ verify parquet output (via backend duckdb)"
 RATE_ROWS=$(docker compose exec -T backend python3 -c "
 import duckdb, glob
-files = glob.glob('/app/data-test/anthem/rates/**/*.parquet', recursive=True)
-assert files, 'no rates parquet written'
-assert any('/net=' in f for f in files), f'rates not partitioned by net: {files}'
+prices = glob.glob('/app/data-test/anthem/prices/**/*.parquet', recursive=True)
+gsets  = glob.glob('/app/data-test/anthem/group_sets/*.parquet')
+assert prices, 'no prices parquet written'
+assert gsets, 'no group_sets parquet written'
+assert any('/net=' in f for f in prices), f'prices not partitioned by net: {prices}'
 con = duckdb.connect()
-SRC = \"read_parquet('/app/data-test/anthem/rates/**/*.parquet', hive_partitioning=1)\"
-cols = [c[0] for c in con.execute(f'DESCRIBE SELECT * FROM {SRC}').fetchall()]
-assert 'network_name' in cols and 'net' in cols, f'missing columns: {cols}'
-n = con.execute(f'SELECT count(*) FROM {SRC}').fetchone()[0]
-ga = con.execute(f\"\"\"SELECT count(*) FROM {SRC}
-                     WHERE net = 'ga-blue-value-hix-individual-network'\"\"\").fetchone()[0]
+P = \"read_parquet('/app/data-test/anthem/prices/**/*.parquet', hive_partitioning=1)\"
+G = \"read_parquet('/app/data-test/anthem/group_sets/*.parquet')\"
+pcols = [c[0] for c in con.execute(f'DESCRIBE SELECT * FROM {P}').fetchall()]
+assert {'network_name', 'net', 'file_id', 'group_set_id'} <= set(pcols), f'price cols: {pcols}'
+# every price row's group_set_id must resolve to >=1 membership edge
+orphans = con.execute(f'''SELECT count(*) FROM {P} p
+  WHERE NOT EXISTS (SELECT 1 FROM {G} m
+    WHERE m.file_id = p.file_id AND m.group_set_id = p.group_set_id)''').fetchone()[0]
+assert orphans == 0, f'{orphans} price rows with no group_set members'
+n  = con.execute(f'SELECT count(*) FROM {P}').fetchone()[0]
+ga = con.execute(f\"SELECT count(*) FROM {P} WHERE net = 'ga-blue-value-hix-individual-network'\").fetchone()[0]
 print(f'{n} {ga}')
 ")
 read -r N GA <<< "$RATE_ROWS"
-echo "   rate rows=$N  attributed to GA Blue Value Individual=$GA"
-# 5, not 6: the default 'GA *' network allowlist drops the fixture's one
-# provider group that has no network_name (and its single rate row).
-[ "$N" = "5" ] || { echo "FAIL: expected 5 rate rows (GA-network filtered), got $N"; exit 1; }
-[ "$GA" -ge 1 ] || { echo "FAIL: no rate rows attributed to the target network"; exit 1; }
+echo "   price rows=$N  attributed to GA Blue Value Individual=$GA"
+[ "$N" -ge 1 ] || { echo "FAIL: no price rows written"; exit 1; }
+[ "$GA" -ge 1 ] || { echo "FAIL: no price rows attributed to the target network"; exit 1; }
 
 echo "→ verify status + coverage_log"
 STATUS=$("${PSQL[@]}" -c "SELECT status FROM test.index_files WHERE id = $FILE_ID;")

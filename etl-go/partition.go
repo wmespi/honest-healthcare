@@ -39,32 +39,32 @@ func slugifyNetwork(name string) string {
 	return s
 }
 
-// rateFanout writes rate rows into one Parquet file per network_name partition
-// (rates/net=<slug>/<id>.parquet), created lazily. All files land under a
+// priceFanout writes price rows into one Parquet file per network_name partition
+// (prices/net=<slug>/<id>.parquet), created lazily. All files land under a
 // scratch dir first and are promoted together on a clean stream.
-type rateFanout struct {
-	scratchRatesDir string // …/.inflight/<id>/rates
-	fileName        string // "<id>.parquet"
-	parts           map[string]*ratePart
+type priceFanout struct {
+	scratchPricesDir string // …/.inflight/<id>/prices
+	fileName         string // "<id>.parquet"
+	parts            map[string]*pricePart
 }
 
-type ratePart struct {
-	writer *parquet.GenericWriter[RateRow]
+type pricePart struct {
+	writer *parquet.GenericWriter[PriceRow]
 	file   io.Closer
 	path   string // scratch path
 }
 
-func newRateFanout(scratchRatesDir, fileName string) *rateFanout {
-	return &rateFanout{
-		scratchRatesDir: scratchRatesDir,
-		fileName:        fileName,
-		parts:           map[string]*ratePart{},
+func newPriceFanout(scratchPricesDir, fileName string) *priceFanout {
+	return &priceFanout{
+		scratchPricesDir: scratchPricesDir,
+		fileName:         fileName,
+		parts:            map[string]*pricePart{},
 	}
 }
 
-// write routes a batch into per-network Parquet writers.
-func (f *rateFanout) write(rows []RateRow) error {
-	bySlug := map[string][]RateRow{}
+// write routes a batch of price rows into per-network Parquet writers.
+func (f *priceFanout) write(rows []PriceRow) error {
+	bySlug := map[string][]PriceRow{}
 	for _, r := range rows {
 		s := slugifyNetwork(r.NetworkName)
 		bySlug[s] = append(bySlug[s], r)
@@ -72,16 +72,16 @@ func (f *rateFanout) write(rows []RateRow) error {
 	for slug, batch := range bySlug {
 		part := f.parts[slug]
 		if part == nil {
-			dir := filepath.Join(f.scratchRatesDir, "net="+slug)
+			dir := filepath.Join(f.scratchPricesDir, "net="+slug)
 			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 				return err
 			}
 			path := filepath.Join(dir, f.fileName)
-			w, c, err := newParquetWriter[RateRow](path)
+			w, c, err := newParquetWriter[PriceRow](path)
 			if err != nil {
 				return err
 			}
-			part = &ratePart{writer: w, file: c, path: path}
+			part = &pricePart{writer: w, file: c, path: path}
 			f.parts[slug] = part
 		}
 		if _, err := part.writer.Write(batch); err != nil {
@@ -93,16 +93,16 @@ func (f *rateFanout) write(rows []RateRow) error {
 }
 
 // close flushes and closes every partition writer (writer before its file).
-func (f *rateFanout) close() {
+func (f *priceFanout) close() {
 	for _, p := range f.parts {
 		p.writer.Close()
 		p.file.Close()
 	}
 }
 
-// fanoutCloser adapts *rateFanout to io.Closer so it can sit in the same close
+// fanoutCloser adapts *priceFanout to io.Closer so it can sit in the same close
 // list as the provider/code writers.
-type fanoutCloser struct{ f *rateFanout }
+type fanoutCloser struct{ f *priceFanout }
 
 func (c fanoutCloser) Close() error {
 	if c.f != nil {
@@ -112,14 +112,14 @@ func (c fanoutCloser) Close() error {
 }
 
 // promote moves each scratch partition file to
-// finalRatesDir/net=<slug>/<fileName>, first deleting any stale copy of this
+// finalPricesDir/net=<slug>/<fileName>, first deleting any stale copy of this
 // file id in a partition it no longer writes to.
-func (f *rateFanout) promote(finalRatesDir string) error {
+func (f *priceFanout) promote(finalPricesDir string) error {
 	// Drop stale partitions for this file id from a previous parse.
-	if existing, _ := filepath.Glob(filepath.Join(finalRatesDir, "net=*", f.fileName)); existing != nil {
+	if existing, _ := filepath.Glob(filepath.Join(finalPricesDir, "net=*", f.fileName)); existing != nil {
 		want := map[string]bool{}
 		for slug := range f.parts {
-			want[filepath.Join(finalRatesDir, "net="+slug, f.fileName)] = true
+			want[filepath.Join(finalPricesDir, "net="+slug, f.fileName)] = true
 		}
 		for _, p := range existing {
 			if !want[p] {
@@ -128,7 +128,7 @@ func (f *rateFanout) promote(finalRatesDir string) error {
 		}
 	}
 	for slug, part := range f.parts {
-		dstDir := filepath.Join(finalRatesDir, "net="+slug)
+		dstDir := filepath.Join(finalPricesDir, "net="+slug)
 		if err := os.MkdirAll(dstDir, os.ModePerm); err != nil {
 			return err
 		}
