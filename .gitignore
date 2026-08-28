@@ -222,3 +222,6 @@ etl-go/go-parser
 # ...but DO commit the test fixtures (small, truncated *.json.gz + synthetic MRFs)
 !etl-go/testdata/
 !etl-go/testdata/**
+
+# DuckDB spill dir if a query runs without temp_directory set (should not happen — see backend db())
+.tmp/

@@ -9,11 +9,11 @@
         etl-discover etl-discover-test etl-index-schema \
         etl-parse etl-parse-test etl-parse-file etl-size \
         etl-fmt etl-vet etl-build etl-unit etl-check etl-test etl-fixture \
-        nppes nppes-test \
+        nppes nppes-test code-labels taxonomy-labels \
         db-psql db-migrate db-reset-processing db-reset-failed \
-        backend-test coverage-probe coverage-report frontend-smoke \
+        backend-test coverage-probe coverage-report frontend-smoke frontend-test \
         sh-etl sh-backend \
-        check \
+        check test-all \
         _require-etl-running
 
 ## ── Help ─────────────────────────────────────────────────────────────────────
@@ -102,6 +102,9 @@ nppes-test: _require-etl-running ## Hermetic NPPES test: extract GA rows from th
 code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
 	docker compose exec -T backend python3 /app/scripts/build_code_labels.py --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
 
+taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
+	docker compose exec -T backend python3 /app/scripts/build_taxonomy_labels.py --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
+
 ## ── Backend ──────────────────────────────────────────────────────────────────
 
 backend-test: ## Backend contract + coverage tests (pytest, against the running API)
@@ -115,6 +118,9 @@ coverage-report: ## Aggregate coverage_log — what we've ingested so far, per f
 
 frontend-smoke: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py
+
+frontend-test: ## Rate-explorer component tests (vitest + Testing Library, hermetic — mocks the API)
+	docker compose exec -T frontend sh -c "cd /app && npx vitest run"
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 
@@ -150,7 +156,9 @@ sh-backend: ## Open a shell inside the backend container
 
 ## ── Top-level gate ───────────────────────────────────────────────────────────
 
-check: etl-check ## Run all pre-commit checks (expands as backend/frontend checks are added)
+check: etl-check ## Fast pre-commit gate — ETL static checks (fmt + vet + build + unit), no stack needed
+
+test-all: etl-check etl-test backend-test frontend-test ## Full test sweep — static + e2e + backend contract + frontend components (stack must be up)
 
 ## ── Internal ─────────────────────────────────────────────────────────────────
 

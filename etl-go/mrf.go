@@ -144,12 +144,29 @@ func buildPriceRows(
 					ExpirationDate:         price.ExpirationDate,
 					ServiceCode:            strings.Join(price.ServiceCode, "|"),
 					BillingClass:           price.BillingClass,
+					Modifier:               joinModifiers(price.BillingCodeModifier),
 					Setting:                price.Setting,
 				})
 			}
 		}
 	}
 	return rows
+}
+
+// joinModifiers sorts and "|"-joins a billing_code_modifier array so
+// ["TC","26"] and ["26","TC"] produce the same stable key ("26|TC").
+func joinModifiers(mods []string) string {
+	if len(mods) == 0 {
+		return ""
+	}
+	clean := make([]string, 0, len(mods))
+	for _, m := range mods {
+		if m = strings.TrimSpace(m); m != "" {
+			clean = append(clean, m)
+		}
+	}
+	sort.Strings(clean)
+	return strings.Join(clean, "|")
 }
 
 // splitNetworks turns a "|"-joined network_name into its members, always

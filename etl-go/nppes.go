@@ -108,7 +108,7 @@ func runNPPES(nppesURL, nppesFile string, limit int) {
 // to the column indices we need.
 type nppesColumns struct {
 	npi, entityType, orgName, lastName, firstName int
-	state, city, postal                           int
+	addr1, addr2, state, city, postal             int
 	taxonomy, taxonomySwitch                      []int // _1.._15 pairs
 }
 
@@ -145,6 +145,14 @@ func resolveNPPESColumns(header []string) (*nppesColumns, error) {
 	}
 	if c.city, err = get("Provider Business Practice Location Address City Name"); err != nil {
 		return nil, err
+	}
+	// Street address: line 1 required, line 2 optional (absent in some cuts).
+	if c.addr1, err = get("Provider First Line Business Practice Location Address"); err != nil {
+		return nil, err
+	}
+	c.addr2 = -1
+	if i, ok := idx["Provider Second Line Business Practice Location Address"]; ok {
+		c.addr2 = i
 	}
 	if c.postal, err = get("Provider Business Practice Location Address Postal Code"); err != nil {
 		return nil, err
@@ -266,6 +274,10 @@ func extractNPPESGeorgia(r io.Reader, outPath string, limit int) (int, error) {
 		var npi int64
 		fmt.Sscan(strings.TrimSpace(rec[cols.npi]), &npi)
 
+		addr2 := ""
+		if cols.addr2 >= 0 && cols.addr2 < len(rec) {
+			addr2 = strings.TrimSpace(rec[cols.addr2])
+		}
 		buf = append(buf, NPPESRow{
 			NPI:           npi,
 			EntityType:    entity,
@@ -276,6 +288,8 @@ func extractNPPESGeorgia(r io.Reader, outPath string, limit int) (int, error) {
 			TaxonomyGroup: group,
 			IsHospital:    isHosp,
 			IsClinic:      isClinic,
+			AddressLine1:  strings.TrimSpace(rec[cols.addr1]),
+			AddressLine2:  addr2,
 			City:          strings.TrimSpace(rec[cols.city]),
 			State:         "GA",
 			PostalCode:    strings.TrimSpace(rec[cols.postal]),

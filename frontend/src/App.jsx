@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, searchProviders, getProcedureCategories } from './api';
-import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown } from 'lucide-react';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getProcedureCategories } from './api';
+import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -217,13 +217,14 @@ function NpiSearch({ selectedNpi, onSelect }) {
   }, [query, isFocused]);
 
   const handleSelect = (s) => {
-    onSelect(String(s.npi));
-    setSelectedLabel(s.name || String(s.npi));
+    const label = s.name || String(s.npi);
+    onSelect(String(s.npi), label);
+    setSelectedLabel(label);
     setQuery('');
     setShowSuggestions(false);
   };
 
-  const handleClear = () => { onSelect(''); setQuery(''); setSelectedLabel(''); };
+  const handleClear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); };
 
   return (
     <div ref={ref} className="flex items-center gap-2">
@@ -265,7 +266,7 @@ function NpiSearch({ selectedNpi, onSelect }) {
                       {s.has_rates && <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>}
                     </div>
                     <div className="text-[11px] text-slate-500 mt-0.5 truncate">
-                      {[s.city, s.taxonomy_group, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
+                      {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
                     </div>
                   </button>
                 ))}
@@ -360,6 +361,411 @@ function CategoryBrowser({ onPick }) {
   );
 }
 
+// Light title-casing for the ALL-CAPS NPPES org names, keeping entity suffixes upper.
+const ORG_SUFFIX = new Set(['LLC', 'INC', 'PC', 'PA', 'LLP', 'LP', 'MD', 'DO', 'DDS', 'CORP', 'CO']);
+function titleCaseOrg(name) {
+  if (!name) return name;
+  return name.split(/\s+/).map(w => {
+    const bare = w.replace(/[.,]/g, '').toUpperCase();
+    if (ORG_SUFFIX.has(bare)) return w.toUpperCase();
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }).join(' ');
+}
+
+// Name for one contracted provider group. Small groups get their real practice
+// name (NPPES org, else physician names); the big TIN/IPA rollups can't be
+// named and say so plainly.
+function providerLabel(r) {
+  if (r.is_rollup) return 'Statewide contract group';
+  const named = (r.named_practices || []).filter(Boolean);
+  if (named.length) return titleCaseOrg(named[0]);
+  const tax = (r.ga_taxonomies || []).find(t => t && t !== 'Other');
+  if (tax) return tax;
+  return `Provider group #${r.provider_group_id}`;
+}
+
+// "Does the provider matter?" — Job 3. Blue Value is close to a network-wide fee
+// schedule, so for most codes every provider negotiated the same rate and the
+// honest answer is "provider choice doesn't change the price". When rates do
+// vary, show the ranked list with the named practices surfaced.
+function ProviderRateTable({ data, loading }) {
+  if (loading) {
+    return (
+      <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Comparing providers…
+      </div>
+    );
+  }
+  const rows = data?.results || [];
+  if (!rows.length) return null;
+  const s = data.summary || {};
+
+  const medians = rows.map(r => r.median_rate).filter(x => x != null);
+  const lo = Math.min(...medians), hi = Math.max(...medians);
+  const uniform = medians.length > 1 && hi - lo < Math.max(0.02 * lo, 1);
+  const rangeStr = s.min === s.max ? fmt(s.min) : `${fmt(s.min)}–${fmt(s.max)}`;
+
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+      <h2 className="text-white font-black text-xl tracking-tight">Does the provider matter?</h2>
+
+      {uniform ? (
+        <div className="mt-4">
+          <div className="text-3xl sm:text-4xl font-black text-white tracking-tight">{rangeStr}</div>
+          <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
+            Every in-network provider negotiated <span className="text-white font-semibold">the same rate</span> for
+            this procedure.{' '}
+            {s.min !== s.max && 'The spread is office vs. facility setting — not one provider vs. another. '}
+            Picking a cheaper clinic won’t lower this price.
+          </p>
+          <p className="text-slate-600 text-xs mt-3">
+            {s.n_groups} contracted provider groups · {(s.n_providers ?? 0).toLocaleString()} providers
+          </p>
+        </div>
+      ) : (() => {
+        // "Typical" = a contract carrying the full standard schedule (same floor
+        // and ceiling as the network). Outliers miss the cheap tier or are
+        // capped differently — those are the only actionable rows.
+        const isTypical = r => r.min_rate === s.min && r.max_rate === s.max;
+        const atModal = rows.filter(isTypical);
+        const outliers = rows.filter(r => !isTypical(r));
+        const Row = ({ r }) => (
+          <div className="flex items-center justify-between gap-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Building2 size={13} className="text-slate-600 shrink-0" />
+                <span className="text-sm text-white font-medium truncate">{providerLabel(r)}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-x-2.5 flex-wrap">
+                <span className="tabular-nums">{(r.npi_count || 0).toLocaleString()} providers</span>
+                {r.ga_hospital_npis > 0 && <span className="text-amber-400">hospital-affiliated</span>}
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-lg font-black text-white tabular-nums">
+                {r.min_rate === r.max_rate ? fmt(r.min_rate) : `${fmt(r.min_rate)}–${fmt(r.max_rate)}`}
+              </div>
+              {r.min_rate !== r.max_rate && <div className="text-[10px] text-slate-600">by setting</div>}
+            </div>
+          </div>
+        );
+        return (
+          <>
+            <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
+              At most in-network providers this is <span className="text-white font-semibold">{rangeStr}</span>
+              {' '}(depending on setting).
+              {outliers.length > 0
+                ? <> {outliers.length} contract{outliers.length > 1 ? 's differ' : ' differs'}:</>
+                : <> Every contract we hold uses that same schedule.</>}
+            </p>
+            {outliers.length > 0 && (
+              <div className="mt-4 divide-y divide-slate-800/60">
+                {outliers.map((r, i) => <Row key={i} r={r} />)}
+              </div>
+            )}
+            {atModal.length > 0 && (
+              <p className="text-slate-600 text-[11px] mt-4">
+                {atModal.length} contract{atModal.length > 1 ? 's' : ''} on the standard {rangeStr} schedule
+                {atModal.some(r => !r.is_rollup) && (
+                  <> — incl. {atModal.filter(r => !r.is_rollup).slice(0, 3).map(providerLabel).join(', ')}</>
+                )}
+              </p>
+            )}
+          </>
+        );
+      })()}
+    </div>
+  );
+}
+
+// Short, plan-type-aware label for the long MRF network names.
+function shortNetwork(name) {
+  if (!name) return name;
+  if (/blue value/i.test(name)) return 'Blue Value (HMO)';
+  if (/traditional/i.test(name)) return 'Traditional (PPO)';
+  if (/\bHBP\b/i.test(name)) return 'HBP Specialties';
+  return name.replace(/^GA\s+/, '');
+}
+
+// Job 2 — the same procedure priced across every network we hold. The headline
+// finding is usually "the HMO is cheaper and far more predictable than the PPO".
+function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork }) {
+  if (loading) {
+    return (
+      <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Comparing plans…
+      </div>
+    );
+  }
+  const nets = data?.networks || [];
+  if (nets.length < 2) return null;
+
+  const cheapest = nets[0];
+  const others = nets.slice(1);
+  const maxMed = Math.max(...nets.map(n => n.median || 0));
+
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+      <h2 className="text-white font-black text-xl tracking-tight">Does your plan matter?</h2>
+      <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
+        {(() => {
+          const dear = others[others.length - 1];
+          const mult = cheapest.median > 0 ? (dear.median / cheapest.median) : 1;
+          if (mult >= 1.25)
+            return <>On <span className="text-white font-semibold">{shortNetwork(cheapest.network_name)}</span> this
+              runs about {fmt(cheapest.median)} — roughly {mult.toFixed(1)}× less than {shortNetwork(dear.network_name)}.</>;
+          return <>Priced similarly across plans (~{fmt(cheapest.median)}).</>;
+        })()}
+        {' '}
+        {cheapest.spread != null && others.some(n => n.spread >= 1.8) && (
+          <>It&rsquo;s also steadier — {shortNetwork(cheapest.network_name)} varies {cheapest.spread}× by provider vs.{' '}
+          {Math.max(...others.map(n => n.spread || 0))}× on the PPO plans.</>
+        )}
+      </p>
+
+      <div className="mt-5 space-y-2.5">
+        {nets.map((n, i) => {
+          const active = n.network_name === selectedNetwork;
+          return (
+            <button
+              key={i}
+              onClick={() => onPickNetwork?.(active ? '' : n.network_name)}
+              className={`w-full text-left rounded-2xl border p-4 transition-colors ${
+                active ? 'border-indigo-500/60 bg-indigo-500/[0.06]' : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-slate-200">
+                  {shortNetwork(n.network_name)}
+                  {active && <span className="ml-2 text-[10px] font-black uppercase tracking-wide text-indigo-400">your filter</span>}
+                </span>
+                <span className="text-lg font-black text-white tabular-nums shrink-0">{fmt(n.median)}</span>
+              </div>
+              <div className="mt-2 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="h-full bg-indigo-500/70 rounded-full" style={{ width: `${maxMed ? (n.median / maxMed) * 100 : 0}%` }} />
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500 flex items-center gap-x-3 flex-wrap">
+                <span>typically {fmt(n.typical_low)}–{fmt(n.typical_high)}</span>
+                {n.spread != null && (
+                  <span className={n.spread >= 2 ? 'text-amber-500/80' : 'text-slate-600'}>
+                    {n.spread <= 1.15 ? 'flat rate' : `${n.spread}× provider spread`}
+                  </span>
+                )}
+                <span className="text-slate-600">{n.n_groups.toLocaleString()} groups</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-slate-600 text-[11px] mt-4">
+        All Anthem networks. Tap a plan to filter the rest of the page to it.
+      </p>
+    </div>
+  );
+}
+
+// Job 1 — the cost answer for one procedure at one provider. Shows a headline
+// rate (a range when it varies by setting) and the breakdown by component
+// (full procedure / professional fee / technical fee) and place of service.
+function ProviderCostCard({ data, loading, providerName }) {
+  if (loading) {
+    return (
+      <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Pricing this procedure…
+      </div>
+    );
+  }
+  if (!data?.headline) return null;
+  const { headline, components, is_component_split, provider, plausibility } = data;
+  const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
+  const name = provider?.name || providerName;
+  const sub = [provider?.specialty, provider?.address || provider?.city].filter(Boolean).join(' · ');
+  const groupRate = plausibility === 'unlikely'; // rate belongs to the group, not the individual
+
+  const breakdown = (
+    <div className="space-y-3">
+      {components.map(c => (
+        <div key={c.modifier || 'global'} className="rounded-2xl bg-slate-950/50 border border-slate-800 p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm font-bold text-slate-200">{c.label}</span>
+            {c.modifier && <span className="text-[10px] font-mono text-slate-600 shrink-0">mod {c.modifier}</span>}
+          </div>
+          {c.description && <p className="text-[11px] text-slate-500 mt-1">{c.description}</p>}
+          <div className="mt-2.5 divide-y divide-slate-800/50">
+            {c.settings.map((s, i) => (
+              <div key={i} className="flex items-center justify-between py-2 text-sm">
+                <span className="text-slate-400">{s.pos_label}</span>
+                <span className="text-white font-bold tabular-nums">{range(s.min_rate, s.max_rate)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+      <h2 className="text-white font-black text-xl tracking-tight">
+        {groupRate ? 'Group-contracted rate' : 'Negotiated cost'}
+        {name ? <> {groupRate ? 'for' : 'at'} <span className="text-indigo-300">{name}</span></> : ''}
+      </h2>
+      {sub && <p className="text-slate-500 text-xs mt-1">{sub}</p>}
+
+      {groupRate ? (
+        <>
+          <p className="mt-4 text-sm text-slate-300 leading-relaxed max-w-lg">
+            This rate is attached to the <span className="font-semibold text-white">billing group</span> {name} is
+            listed under — in this network that group spans thousands of practices and many specialties.
+            The rate sheet doesn&rsquo;t say which providers in the group actually perform this procedure, and we
+            have no record of whether {name} bills it. Treat the numbers below as the <em>group&rsquo;s</em> rate,
+            not {name}&rsquo;s.
+          </p>
+          <details className="mt-4 group">
+            <summary className="text-xs font-bold text-slate-500 cursor-pointer hover:text-slate-300 list-none">
+              Show the group rate ▸
+            </summary>
+            <div className="mt-3 opacity-70">{breakdown}</div>
+          </details>
+        </>
+      ) : (
+        <>
+          <div className="mt-4 mb-2">
+            <div className="text-4xl sm:text-5xl font-black text-white tracking-tight">
+              {range(headline.rate, headline.max_rate)}
+            </div>
+            <div className="text-xs text-slate-500 mt-2">
+              {headline.basis === 'global'
+                ? (headline.pos_label
+                    ? <>Full procedure · {headline.pos_label}</>
+                    : <>Full procedure — varies by where it’s performed</>)
+                : <>This code is billed only as separate parts — see the breakdown below</>}
+            </div>
+          </div>
+          <div className="mt-6">{breakdown}</div>
+          {is_component_split && (
+            <p className="text-[11px] text-slate-500 mt-4 leading-relaxed">
+              Often billed as two line items — a <span className="text-slate-400">professional fee</span> (the physician’s
+              reading) and a <span className="text-slate-400">technical fee</span> (the equipment and facility) — which
+              together roughly equal the full rate. Which you’re charged depends on where it’s done and who interprets it.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// The provider "menu" — every procedure the selected provider has a negotiated
+// rate for, grouped by RBCS category. Shown when a provider is picked but no
+// specific procedure. Clicking a row drills into that procedure.
+function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork }) {
+  const [expanded, setExpanded] = useState(null);
+
+  if (loading) {
+    return (
+      <div className="mt-2 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Loading this provider’s procedures…
+      </div>
+    );
+  }
+  const rows = data?.results || [];
+
+  if (!rows.length) {
+    const who = providerName || 'This provider';
+    return (
+      <div className="mt-2 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
+        <p className="text-white font-bold">
+          No negotiated rates for {who}{network ? <> in <span className="text-slate-300">{network}</span></> : ''}.
+        </p>
+        <p className="text-slate-500 text-sm mt-2 max-w-md mx-auto">
+          {network
+            ? 'This provider isn’t in that network, or has no published rates there. Try a different network.'
+            : 'We don’t hold any published rates for this provider yet.'}
+        </p>
+        {network && onClearNetwork && (
+          <button
+            onClick={onClearNetwork}
+            className="mt-4 px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
+          >
+            Search all networks
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const byCat = rows.reduce((acc, r) => {
+    (acc[r.rbcs_category || 'Other'] ||= []).push(r);
+    return acc;
+  }, {});
+  const cats = Object.entries(byCat).sort((a, b) => b[1].length - a[1].length);
+
+  return (
+    <div className="mt-2">
+      <div className="mb-4">
+        <h2 className="text-white font-black text-xl tracking-tight">
+          {data?.provider?.name ? `${data.provider.name} — procedure menu` : 'Procedure menu'}
+        </h2>
+        <p className="text-slate-500 text-xs mt-1">
+          {[data?.provider?.specialty, data?.provider?.address || data?.provider?.city].filter(Boolean).join(' · ')}
+          {(data?.provider?.specialty || data?.provider?.city) ? ' · ' : ''}
+          {rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        {cats.map(([cat, items]) => (
+          <div key={cat} className="rounded-2xl overflow-hidden bg-slate-900 border border-slate-800">
+            <button
+              onClick={() => setExpanded(e => (e === cat ? null : cat))}
+              className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-white/[0.02] transition-colors"
+            >
+              <span className="text-sm font-bold text-slate-200">{cat}</span>
+              <span className="flex items-center gap-3">
+                <span className="text-[11px] text-slate-600 tabular-nums">{items.length}</span>
+                <ChevronDown size={15} className={`text-slate-500 transition-transform ${expanded === cat ? 'rotate-180' : ''}`} />
+              </span>
+            </button>
+            <AnimatePresence>
+              {expanded === cat && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <div className="divide-y divide-slate-800/60 border-t border-slate-800">
+                    {items.map((r, i) => (
+                      <button
+                        key={i}
+                        onClick={() => onPick(r)}
+                        className="w-full flex items-center justify-between gap-4 px-5 py-3 text-left hover:bg-indigo-500/[0.06] transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm text-white font-medium truncate">
+                            {r.label || `${r.billing_code_type} ${r.billing_code}`}
+                          </div>
+                          <div className="text-[11px] text-slate-600 mt-0.5 flex items-center gap-2">
+                            <span className="font-mono text-indigo-400">{r.billing_code}</span>
+                            {r.is_split && <span className="text-amber-500/80">billed in parts</span>}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-black text-white tabular-nums">
+                            {r.min_rate === r.max_rate ? fmt(r.min_rate) : `${fmt(r.min_rate)}–${fmt(r.max_rate)}`}
+                          </div>
+                          <div className="text-[10px] text-slate-600">
+                            {r.min_rate !== r.max_rate ? `median ${fmt(r.median_rate)}` : (r.has_global ? 'full procedure' : 'component only')}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [selectedPlan, setSelectedPlan] = useState('');
 
@@ -370,18 +776,86 @@ function App() {
 
   const [setting, setSetting] = useState('');
   const [npi, setNpi] = useState('');
+  const [npiLabel, setNpiLabel] = useState('');
 
   const [distribution, setDistribution] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedCode, setSelectedCode] = useState(null);
   const [error, setError] = useState(null);
 
+  const [providerRates, setProviderRates] = useState(null);
+  const [providerRatesLoading, setProviderRatesLoading] = useState(false);
+
+  const [providerMenu, setProviderMenu] = useState(null);
+  const [providerMenuLoading, setProviderMenuLoading] = useState(false);
+
+  const [providerQuote, setProviderQuote] = useState(null);
+  const [providerQuoteLoading, setProviderQuoteLoading] = useState(false);
+
+  const [networkCompare, setNetworkCompare] = useState(null);
+  const [networkCompareLoading, setNetworkCompareLoading] = useState(false);
+
   useEffect(() => {
-    // Load network-wide overview immediately on mount
+    // Load the network-wide overview immediately on mount.
     fetchDistribution(null, null, '', '', '');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show top results immediately on focus; debounce while typing
+  // Compare-across-providers table — a code is chosen and NO provider filter
+  // (with a provider, we show the cost card instead).
+  useEffect(() => {
+    const code = selectedCode?.code;
+    if (!code || npi) { setProviderRates(null); return; }
+    let cancelled = false;
+    setProviderRatesLoading(true);
+    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined)
+      .then(res => { if (!cancelled) setProviderRates(res.data); })
+      .catch(() => { if (!cancelled) setProviderRates(null); })
+      .finally(() => { if (!cancelled) setProviderRatesLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedCode, selectedPlan, setting, npi]);
+
+  // Job 2 — compare the selected procedure across every network.
+  useEffect(() => {
+    const code = selectedCode?.code;
+    if (!code) { setNetworkCompare(null); return; }
+    let cancelled = false;
+    setNetworkCompareLoading(true);
+    getRatesByNetwork(code, selectedCode.type, setting || undefined)
+      .then(res => { if (!cancelled) setNetworkCompare(res.data); })
+      .catch(() => { if (!cancelled) setNetworkCompare(null); })
+      .finally(() => { if (!cancelled) setNetworkCompareLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedCode, setting]);
+
+  // Job 1 cost card — a provider AND a specific procedure are both selected.
+  useEffect(() => {
+    const code = selectedCode?.code;
+    if (!npi || !code) { setProviderQuote(null); return; }
+    let cancelled = false;
+    setProviderQuoteLoading(true);
+    getRateQuote(code, selectedCode.type, npi, selectedPlan || undefined)
+      .then(res => { if (!cancelled) setProviderQuote(res.data); })
+      .catch(() => { if (!cancelled) setProviderQuote(null); })
+      .finally(() => { if (!cancelled) setProviderQuoteLoading(false); });
+    return () => { cancelled = true; };
+  }, [npi, selectedCode, selectedPlan]);
+
+  // Provider "menu" — every procedure the selected provider has a rate for.
+  // Shown only when a provider is chosen but no specific procedure is.
+  useEffect(() => {
+    if (!npi || selectedCode?.code) { setProviderMenu(null); return; }
+    let cancelled = false;
+    setProviderMenuLoading(true);
+    getProviderMenu(npi, selectedPlan || undefined, setting || undefined)
+      .then(res => { if (!cancelled) setProviderMenu(res.data); })
+      .catch(() => { if (!cancelled) setProviderMenu(null); })
+      .finally(() => { if (!cancelled) setProviderMenuLoading(false); });
+    return () => { cancelled = true; };
+  }, [npi, selectedCode, selectedPlan, setting]);
+
+  // Procedure search. When a provider is selected, scope suggestions to that
+  // provider's actual menu (via /providers/{npi}/procedures) so we never offer
+  // a procedure the provider doesn't have. Otherwise search the full catalog.
   useEffect(() => {
     if (!isFocused) {
       setSuggestions([]);
@@ -390,14 +864,37 @@ function App() {
     }
     const delay = query.length === 0 ? 0 : 300;
     const timer = setTimeout(() => {
-      searchBillingCodes(query)
-        .then(res => { setSuggestions(res.data); setShowSuggestions(true); })
+      const req = npi
+        ? getProviderMenu(npi, selectedPlan || undefined, setting || undefined, query)
+            .then(res => (res.data.results || []).slice(0, 20).map(r => ({
+              billing_code: r.billing_code,
+              billing_code_type: r.billing_code_type,
+              label: r.label,
+              rbcs_subcategory: r.rbcs_subcategory,
+              min_rate: r.min_rate,
+              max_rate: r.max_rate,
+              n_rates: r.n_rates,
+            })))
+        : searchBillingCodes(query).then(res => res.data);
+      req
+        .then(list => { setSuggestions(list); setShowSuggestions(true); })
         .catch(() => {});
     }, delay);
     return () => clearTimeout(timer);
-  }, [query, isFocused]);
+  }, [query, isFocused, npi, selectedPlan, setting]);
 
   const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi) => {
+    // Provider selected but no procedure yet: that's the "menu" view, handled by
+    // its own effect (ProviderMenu). Calling /rates/distribution here would
+    // full-scan prices with nothing pruning the code axis — it hangs.
+    if (activeNpi && !code) {
+      setDistribution(null);
+      setSelectedCode(null);
+      setError(null);
+      setLoading(false);
+      setShowSuggestions(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     setShowSuggestions(false);
@@ -439,8 +936,9 @@ function App() {
     fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, s, npi);
   };
 
-  const handleNpiSelect = (n) => {
+  const handleNpiSelect = (n, label) => {
     setNpi(n);
+    setNpiLabel(label || '');
     fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n);
   };
 
@@ -449,6 +947,12 @@ function App() {
     setIsFocused(true);
     setShowSuggestions(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Drill from a provider-menu row into that procedure's full breakdown.
+  const handleMenuPick = (row) => {
+    setQuery(row.label || `${row.billing_code} (${row.billing_code_type})`);
+    fetchDistribution(row.billing_code, row.billing_code_type, selectedPlan, setting, npi);
   };
 
 
@@ -538,7 +1042,11 @@ function App() {
                         </div>
                       </div>
                       <span className="text-xs text-slate-500 shrink-0 tabular-nums">
-                        {sug.provider_groups?.toLocaleString()} groups
+                        {sug.min_rate != null
+                          ? (sug.min_rate === sug.max_rate ? fmt(sug.min_rate) : `${fmt(sug.min_rate)}–${fmt(sug.max_rate)}`)
+                          : sug.provider_groups != null
+                            ? `${sug.provider_groups.toLocaleString()} groups`
+                            : null}
                       </span>
                     </button>
                   ))}
@@ -597,10 +1105,32 @@ function App() {
           <div className="py-10 text-center text-rose-400 font-medium">{error}</div>
         )}
 
+        {/* Provider menu — provider chosen, no procedure yet */}
+        {npi && !selectedCode?.code && !loading && (
+          <ProviderMenu
+            data={providerMenu}
+            loading={providerMenuLoading}
+            onPick={handleMenuPick}
+            providerName={npiLabel}
+            network={selectedPlan}
+            onClearNetwork={() => handlePlanSelect('')}
+          />
+        )}
+
         {/* Results */}
         <AnimatePresence>
           {distribution && !loading && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              {/* Negotiated-rate disclaimer */}
+              <div className="mb-6 flex items-start gap-2.5 text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3">
+                <Info size={14} className="shrink-0 mt-0.5 text-slate-600" />
+                <span>
+                  These are <span className="text-slate-300 font-semibold">negotiated rates</span> — the price your plan and
+                  the provider agreed on, before your benefits apply. What you actually pay depends on your deductible,
+                  coinsurance, copay, and out-of-pocket max.
+                </span>
+              </div>
+
               {/* Summary stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 {[
@@ -628,9 +1158,11 @@ function App() {
                     <span className="text-white font-black">{summary.n_providers.toLocaleString()}</span> providers
                   </span>
                 )}
-                <span><span className="text-white font-black">{summary.provider_groups}</span> provider groups</span>
+                <span><span className="text-white font-black">{summary.provider_groups?.toLocaleString()}</span> provider groups</span>
                 <span><span className="text-white font-black">{summary.total_entries.toLocaleString()}</span> rate entries</span>
-                <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
+                {summary.min > 0 && summary.max / summary.min >= 1.05 && (
+                  <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
+                )}
               </div>
 
               {/* Histogram */}
@@ -673,6 +1205,29 @@ function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Job 2 — the same procedure across every network */}
+              {selectedCode?.code && (
+                <NetworkCompare
+                  data={networkCompare}
+                  loading={networkCompareLoading}
+                  selectedNetwork={selectedPlan}
+                  onPickNetwork={handlePlanSelect}
+                />
+              )}
+
+              {/* Provider + procedure both chosen → the cost answer (job 1).
+                  Procedure only → the compare-across-providers table (job 3). */}
+              {selectedCode?.code && npi && (
+                <ProviderCostCard
+                  data={providerQuote}
+                  loading={providerQuoteLoading}
+                  providerName={npiLabel}
+                />
+              )}
+              {selectedCode?.code && !npi && (
+                <ProviderRateTable data={providerRates} loading={providerRatesLoading} />
+              )}
             </motion.div>
           )}
         </AnimatePresence>

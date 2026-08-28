@@ -73,12 +73,13 @@ type ProviderReference struct {
 }
 
 type NegotiatedPrice struct {
-	NegotiatedType string   `json:"negotiated_type"`
-	NegotiatedRate float64  `json:"negotiated_rate"`
-	ExpirationDate string   `json:"expiration_date"`
-	ServiceCode    []string `json:"service_code"`
-	BillingClass   string   `json:"billing_class"`
-	Setting        string   `json:"setting"`
+	NegotiatedType      string   `json:"negotiated_type"`
+	NegotiatedRate      float64  `json:"negotiated_rate"`
+	ExpirationDate      string   `json:"expiration_date"`
+	ServiceCode         []string `json:"service_code"`
+	BillingClass        string   `json:"billing_class"`
+	BillingCodeModifier []string `json:"billing_code_modifier"`
+	Setting             string   `json:"setting"`
 }
 
 type NegotiatedRate struct {
@@ -112,7 +113,12 @@ type PriceRow struct {
 	ExpirationDate         string  `parquet:"expiration_date"`
 	ServiceCode            string  `parquet:"service_code"`
 	BillingClass           string  `parquet:"billing_class"`
-	Setting                string  `parquet:"setting"`
+	// Modifier is the sorted, "|"-joined billing_code_modifier array (e.g. "26",
+	// "TC", "26|TC"). It splits the price for one base code into its component
+	// parts — 26 = professional (physician work), TC = technical (equipment/
+	// facility), none = global. Empty for ~89% of rows.
+	Modifier string `parquet:"modifier"`
+	Setting  string `parquet:"setting"`
 }
 
 // GroupSetMemberRow is one membership edge of a deduplicated provider-group set.
@@ -158,6 +164,8 @@ type NPPESRow struct {
 	TaxonomyGroup string `parquet:"taxonomy_group"`
 	IsHospital    bool   `parquet:"is_hospital"`
 	IsClinic      bool   `parquet:"is_clinic"`
+	AddressLine1  string `parquet:"address_line1"` // practice-location street address
+	AddressLine2  string `parquet:"address_line2"` // suite / floor, often empty
 	City          string `parquet:"city"`
 	State         string `parquet:"state"`
 	PostalCode    string `parquet:"postal_code"`

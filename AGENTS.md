@@ -61,6 +61,7 @@ make nppes-test              # hermetic GA-extraction test on the committed CSV 
 
 # Reference data
 make code-labels             # build data/reference/code_labels.parquet (RBCS categories + synonyms per parsed code)
+make taxonomy-labels         # build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
 
 # ETL — Quality (stack must be running)
 make etl-fmt                 # gofmt -w on etl-go source
@@ -259,8 +260,13 @@ data/anthem/
   prices/net=<slug>/{id}.parquet   file_id | group_set_id | network_name
                           billing_code_type | billing_code | negotiation_arrangement
                           negotiated_type | negotiated_rate | expiration_date
-                          service_code | billing_class | setting
+                          service_code | billing_class | modifier | setting
                           ← One row per (network × negotiated price) — NOT fanned out per
+                            provider group. `modifier` is the sorted "|"-joined
+                            billing_code_modifier array ("26" = professional / physician
+                            work, "TC" = technical / equipment+facility, "" = global);
+                            ~11% of Blue Value rows carry one. `(billing_code, modifier,
+                            service_code, setting)` is what pins a rate for a patient.
                             provider group. Hive-partitioned by network_name (slug =
                             etl-go/partition.go:slugifyNetwork == backend network_slug());
                             a network-filtered query adds `net = ?` and DuckDB prunes to
@@ -277,12 +283,17 @@ data/anthem/
 data/nppes/
   ga_providers.parquet    npi | entity_type | org_name | last_name | first_name
                           taxonomy_code | taxonomy_group | is_hospital | is_clinic
-                          city | state | postal_code
+                          address_line1 | address_line2 | city | state | postal_code
+                          ← taxonomy_group is a coarse bucket; join taxonomy_code to
+                            nucc_taxonomy.parquet for the real specialty label
 data/reference/
   rbcs_taxonomy_ry26.csv  raw CMS RBCS download (cache)
   code_labels.parquet     billing_code_type | billing_code | short_name
                           rbcs_category | rbcs_subcategory | rbcs_family | rbcs_is_major
                           label | search_text     ← consumer label + search blob
+  nucc_taxonomy.csv       raw NUCC taxonomy download (cache)
+  nucc_taxonomy.parquet   taxonomy_code | grouping | classification | specialization
+                          display_name | specialty | is_individual   ← `make taxonomy-labels`
 ```
 
 `{id}` is `index_files.id`, and `file_id` on every row carries it — `provider_group_id` is the
@@ -345,15 +356,23 @@ Isolation guarantees:
 The test passes when `prices/` and `group_sets/` parquet appear under `data-test/anthem/` and
 every price row's `group_set_id` resolves to at least one membership edge.
 
+### Frontend component tests (`make frontend-test`)
+
+`frontend/src/App.test.jsx` — vitest + Testing Library, hermetic (`vi.mock('./api')`,
+jsdom). Covers the rate-explorer state machine: the default network-overview load, and
+the regression that a **provider selected with no procedure** shows the `/providers/{npi}/procedures`
+menu and never fires an npi-only `/rates/distribution` (which full-scans and hangs).
+Config in `frontend/vite.config.js` (`test:` block) + `frontend/src/test/setup.js`.
+
+`make test-all` runs the full sweep: `etl-check` + `etl-test` + `backend-test` + `frontend-test`
+(stack must be up). `make check` stays the fast static-only gate.
+
 ### Future test layers (not yet implemented)
 
 | Layer | Tool | What it would cover |
 |---|---|---|
-| Backend API | pytest + httpx | `/rates`, `/plans`, `/providers` endpoint contracts |
-| Frontend | Playwright | Rate explorer filter + histogram interactions |
-| ETL unit | `go test ./...` | Parser struct validation, conflict-resolution logic |
-
-Add `make backend-test` and `make frontend-test` targets when these are built, then wire them into `make check` or a separate `make test-all`.
+| Frontend E2E | Playwright | Real browser: histogram render, filter chips, mobile layout |
+| ETL conflict-resolution | `go test ./...` | Plan-specific-file-wins rate override (Critical Rule 5) |
 
 ---
 
@@ -424,9 +443,10 @@ Add `make backend-test` and `make frontend-test` targets when these are built, t
 | `etl-go/progress.go` | `ProgressReader` — byte tracking + ETA |
 | `etl-go/types.go` | Shared structs, global vars, DB URL / output path init |
 | `etl-go/*_test.go` | Hermetic unit tests over the committed fixtures |
-| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs (`/networks`, `/providers/search` = provider name/org search over NPPES GA, `/procedure_categories`, network filters) |
+| `backend/main.py` | FastAPI routes + DuckDB queries over the Parquet globs. Job endpoints: `/rates/quote` (job 1 — one procedure × one provider → headline + component/POS breakdown + `plausibility`), `/rates/by_network` (job 2 — a procedure priced across every network, p10/p90 spread), `/rates/providers` (job 3 — compare-across-providers, `component=global`), `/providers/{npi}/procedures` (job 4 — the provider "menu"), `/rates/distribution` (histogram; 400s on npi-without-code). Plus `/networks`, `/providers/search` (+ `specialty=`), `/procedure_categories`. `_pos_bucket` / `_MODIFIER_LABELS` label raw `service_code` / `modifier`; `_nucc_bits` / `_provider_card` join NUCC specialty + practice address; `_plausibility` is a coarse specialty↔code check (real fix: GH #14). |
 | `backend/tests/test_coverage.py` | Contract + coverage pytest (run via `make backend-test`) |
 | `scripts/build_code_labels.py` | Build `data/reference/code_labels.parquet` (RBCS + synonyms) — `make code-labels` |
+| `scripts/build_taxonomy_labels.py` | Build `data/reference/nucc_taxonomy.parquet` (NUCC specialty labels) — `make taxonomy-labels` |
 | `scripts/coverage_probe.py` | ~40-code scorecard for the target plan |
 | `scripts/coverage_report.py` | Aggregate `coverage_log` |
 | `scripts/etl_e2e_test.sh`, `scripts/nppes_test.sh` | Hermetic e2e tests with teardown |
