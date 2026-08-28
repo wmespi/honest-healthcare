@@ -155,6 +155,9 @@ docker compose exec etl_go go run . -discover -no-cache -index-url "https://…/
 > prior-month rows (`DELETE FROM index_files WHERE location LIKE '%/PREV-MM\_%' AND status IN
 > ('pending','failed')`). `location` is not a cross-month key — a future improvement is to store the
 > query-stripped path and dedupe on that.
+>
+> The 8.7 GB `index_cache.json.gz` is only needed *during* a discovery run — safe to delete between
+> monthly refreshes (`-discover` re-downloads it).
 
 ### Phase 2 — Parsing (`-parse`)
 
@@ -401,8 +404,13 @@ Add `make backend-test` and `make frontend-test` targets when these are built, t
   cross-month key — re-discover monthly and prune the prior month (see Phase 1 note). A query-stripped
   `url_path` column would fix this.
 - **Large GA files deferred.** The `anthem/GA_*` plan-specific files above ~1 MB (e.g.
-  `GA_HXRCMED0001` at 2.1 GB, `GA_AHPPMEDGAHF*` at 3–7 GB) are the richest source for the target plan
-  but were left unparsed to stay inside the disk budget for this pass.
+  `GA_HXRCMED0001` at 2.1 GB, `GA_AHPPMEDGAHF*` at 3–7 GB) are the richest source for the target plan.
+  Even after the GA NPI filter they keep ~all their rate rows (they *are* Georgia plans), so one file
+  can be many GB of Parquet — parse them individually and watch `du -sh data`.
+- **Plan-name attribution — no real plan name in the pipeline.** `RateRow.plan_name` is the source
+  file's `|`-joined `market_types` (e.g. `"individual | group"`). The frontend and probes filter by
+  `network_name` instead. Revisit: map a member's plan name → network via HIOS `plan_id` + the CMS
+  registry, or bound `plan_names` in discovery to just the individual/GA subset.
 - **Legacy Postgres tables.** `negotiated_rates`, `provider_mappings`, `place_of_service_codes`,
   `vw_rates_detailed` in `db/init.sql` are neither written nor read. `db/SCHEMA.md` still describes the
   old Postgres-centric model.
