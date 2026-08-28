@@ -229,6 +229,12 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 
 	var providerBuf []ProviderRow
 	var rateBuf []RateRow
+	// networkByGroup maps provider_group_id → the "|"-joined network_name array
+	// carried on that provider_references entry. Built during the provider_references
+	// pass (which always precedes in_network in Anthem MRFs) and used to stamp
+	// network_name onto every rate row — structured attribution, no string matching.
+	networkByGroup := make(map[int64]string)
+	var reportingEntityName, reportingEntityType string
 	totalProviders := 0
 	totalRates := 0
 	providerBatches := 0
@@ -266,6 +272,11 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 					}
 				}
 
+				networkName := strings.Join(ref.NetworkName, "|")
+				if networkName != "" {
+					networkByGroup[int64(ref.ProviderGroupID)] = networkName
+				}
+
 				for _, pg := range ref.ProviderGroups {
 					for _, npi := range pg.NPIs {
 						npi64 := int64(npi)
@@ -274,6 +285,7 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 						}
 						providerBuf = append(providerBuf, ProviderRow{
 							ProviderGroupID: int64(ref.ProviderGroupID),
+							NetworkName:     networkName,
 							NPI:             npi64,
 							TINType:         pg.TIN.Type,
 							TINValue:        pg.TIN.Value,
@@ -334,10 +346,12 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 
 				for _, rate := range item.NegotiatedRates {
 					for _, refID := range rate.ProviderReferences {
+						networkName := networkByGroup[int64(refID)]
 						for _, price := range rate.NegotiatedPrices {
 							rateBuf = append(rateBuf, RateRow{
 								ProviderGroupID:        int64(refID),
 								PlanName:               planName,
+								NetworkName:            networkName,
 								BillingCodeType:        item.BillingCodeType,
 								BillingCode:            item.BillingCode,
 								NegotiationArrangement: item.NegotiationArrangement,
@@ -369,6 +383,20 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 			rateBuf = rateBuf[:0]
 			log.Printf("    ✅ Streamed %d total rate rows. %s", totalRates, pr.GetProgressString())
 
+		} else if key == "reporting_entity_name" || key == "reporting_entity_type" {
+			// Scalar root keys. The per-file value is more specific than the index
+			// root's ("Anthem Inc") — GA plan-specific files carry
+			// "Anthem Blue Cross and Blue Shield Georgia". Persist it on completion.
+			tVal, _ := decoder.Token()
+			s, _ := tVal.(string)
+			if key == "reporting_entity_name" {
+				reportingEntityName = s
+			} else {
+				reportingEntityType = s
+			}
+			if isFirstFile {
+				schemaExample[key] = s
+			}
 		} else {
 			if isFirstFile {
 				tPeek, _ := decoder.Token()
@@ -410,7 +438,14 @@ func parseRates(ctx context.Context, conn *pgx.Conn, fileID int, url string, pla
 	}
 
 	if !dryRun {
-		if _, err := conn.Exec(ctx, "UPDATE index_files SET status = 'completed', completed_at = NOW() WHERE id = $1", fileID); err != nil {
+		if _, err := conn.Exec(ctx, `
+			UPDATE index_files
+			SET status = 'completed',
+			    completed_at = NOW(),
+			    reporting_entity_name = COALESCE(NULLIF($2, ''), reporting_entity_name),
+			    reporting_entity_type = COALESCE(NULLIF($3, ''), reporting_entity_type)
+			WHERE id = $1`,
+			fileID, reportingEntityName, reportingEntityType); err != nil {
 			log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
 		}
 	}

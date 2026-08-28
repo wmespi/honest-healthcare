@@ -66,6 +66,7 @@ type ProviderGroup struct {
 
 type ProviderReference struct {
 	ProviderGroupID int             `json:"provider_group_id"`
+	NetworkName     []string        `json:"network_name"`
 	ProviderGroups  []ProviderGroup `json:"provider_groups"`
 }
 
@@ -95,6 +96,7 @@ type InNetworkItem struct {
 type RateRow struct {
 	ProviderGroupID        int64   `parquet:"provider_group_id"`
 	PlanName               string  `parquet:"plan_name"`
+	NetworkName            string  `parquet:"network_name"`
 	BillingCodeType        string  `parquet:"billing_code_type"`
 	BillingCode            string  `parquet:"billing_code"`
 	NegotiationArrangement string  `parquet:"negotiation_arrangement"`
@@ -108,6 +110,7 @@ type RateRow struct {
 
 type ProviderRow struct {
 	ProviderGroupID int64  `parquet:"provider_group_id"`
+	NetworkName     string `parquet:"network_name"`
 	NPI             int64  `parquet:"npi"`
 	TINType         string `parquet:"tin_type"`
 	TINValue        string `parquet:"tin_value"`
