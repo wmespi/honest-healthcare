@@ -123,9 +123,12 @@ db-reset-processing: ## Reset stale 'processing' rows → 'pending'
 	docker compose exec db psql -U postgres -d honest_healthcare \
 	  -c "UPDATE index_files SET status = 'pending' WHERE status = 'processing';"
 
-db-reset-failed: ## Reset 'failed' rows → 'pending' for retry
+db-reset-failed: ## Reset transiently-failed rows → 'pending' (keeps bad-gzip/EOF/HTTP 4xx failures failed)
 	docker compose exec db psql -U postgres -d honest_healthcare \
-	  -c "UPDATE index_files SET status = 'pending' WHERE status = 'failed';"
+	  -c "UPDATE index_files SET status = 'pending', failure_reason = NULL \
+	      WHERE status = 'failed' \
+	        AND (failure_reason IS NULL \
+	          OR failure_reason NOT SIMILAR TO '%(gzip|unexpected EOF|invalid header|HTTP 4%)%');"
 
 ## ── Shells ────────────────────────────────────────────────────────────────────
 

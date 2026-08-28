@@ -13,6 +13,11 @@
 ALTER TABLE public.index_files ADD COLUMN IF NOT EXISTS plan_states TEXT[] DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS idx_index_files_plan_states ON public.index_files USING GIN(plan_states);
 
+-- Why a file failed — so retries can skip unrecoverable failures (bad gzip,
+-- unexpected EOF) instead of re-downloading them forever. status 'failed'
+-- stays retryable; the reason lets db-reset-failed be selective.
+ALTER TABLE public.index_files ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+
 -- ── coverage_log: one row per parsed file ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.coverage_log (
     id SERIAL PRIMARY KEY,

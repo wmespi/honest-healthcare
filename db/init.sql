@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS index_files (
     location TEXT NOT NULL,
     file_size_bytes BIGINT,
     status VARCHAR(20) DEFAULT 'pending',
+    failure_reason TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     completed_at TIMESTAMP,
     CONSTRAINT uq_index_files_location UNIQUE (location)

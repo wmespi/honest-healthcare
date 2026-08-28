@@ -61,7 +61,11 @@ func upsertBillingCode(ctx context.Context, conn *pgx.Conn, row BillingCodeRow) 
 func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error, dryRun bool) {
 	log.Printf("❌ File %d failed: %v", fileID, reason)
 	if !dryRun && conn != nil {
-		conn.Exec(ctx, "UPDATE index_files SET status = 'failed' WHERE id = $1", fileID)
+		msg := ""
+		if reason != nil {
+			msg = reason.Error()
+		}
+		conn.Exec(ctx, "UPDATE index_files SET status = 'failed', failure_reason = $2 WHERE id = $1", fileID, msg)
 	}
 }
 
