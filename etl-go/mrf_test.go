@@ -203,6 +203,45 @@ func TestStreamMRF_ServiceCodeJoin(t *testing.T) {
 	}
 }
 
+func TestStreamMRF_ModifierSortedJoin(t *testing.T) {
+	c := collect(t, "testdata/synthetic_mrf.json")
+	var withMod, withoutMod int
+	for _, r := range c.prices {
+		switch r.Modifier {
+		case "26|TC": // sorted from the fixture's ["TC","26"]
+			withMod++
+		case "":
+			withoutMod++
+		default:
+			t.Errorf("unexpected modifier %q on a price row", r.Modifier)
+		}
+	}
+	if withMod == 0 {
+		t.Error(`expected a price row with modifier "26|TC" (sorted, |-joined billing_code_modifier)`)
+	}
+	if withoutMod == 0 {
+		t.Error("expected most price rows to have an empty modifier")
+	}
+}
+
+func TestJoinModifiers(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{}, ""},
+		{[]string{"26"}, "26"},
+		{[]string{"TC", "26"}, "26|TC"},
+		{[]string{" 26 ", "", "TC"}, "26|TC"},
+	}
+	for _, tc := range cases {
+		if got := joinModifiers(tc.in); got != tc.want {
+			t.Errorf("joinModifiers(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestStreamMRF_SetsAndReportingEntity(t *testing.T) {
 	res := collect(t, "testdata/synthetic_mrf.json").res
 

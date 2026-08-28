@@ -259,8 +259,13 @@ data/anthem/
   prices/net=<slug>/{id}.parquet   file_id | group_set_id | network_name
                           billing_code_type | billing_code | negotiation_arrangement
                           negotiated_type | negotiated_rate | expiration_date
-                          service_code | billing_class | setting
+                          service_code | billing_class | modifier | setting
                           ← One row per (network × negotiated price) — NOT fanned out per
+                            provider group. `modifier` is the sorted "|"-joined
+                            billing_code_modifier array ("26" = professional / physician
+                            work, "TC" = technical / equipment+facility, "" = global);
+                            ~11% of Blue Value rows carry one. `(billing_code, modifier,
+                            service_code, setting)` is what pins a rate for a patient.
                             provider group. Hive-partitioned by network_name (slug =
                             etl-go/partition.go:slugifyNetwork == backend network_slug());
                             a network-filtered query adds `net = ?` and DuckDB prunes to
