@@ -33,10 +33,14 @@ type mrfResult struct {
 	ReportingEntityType string
 	SchemaExample       map[string]interface{}
 
-	// GA NPI filter accounting (0 when the filter is off).
+	// Filter accounting (0 when the filters are off). Covers both the GA NPI
+	// filter and the network_name allowlist — a group dropped by either counts here.
 	ProviderRowsDropped int64
 	RateRowsDropped     int64
 	GroupsDropped       int
+	// GroupsDroppedNetwork is the subset of GroupsDropped rejected by the
+	// network_name allowlist (not a Georgia network).
+	GroupsDroppedNetwork int
 }
 
 func newStringSet() map[string]struct{} { return map[string]struct{}{} }
@@ -64,26 +68,50 @@ func buildRateRows(item InNetworkItem, networkByGroup map[int64]string, planName
 	var rows []RateRow
 	for _, rate := range item.NegotiatedRates {
 		for _, refID := range rate.ProviderReferences {
-			networkName := networkByGroup[int64(refID)]
+			// A provider group may carry several networks ("A|B"). Emit one rate
+			// row per network so network_name is a single value and each row
+			// lands in exactly one rates/net=<slug>/ partition.
+			networks := splitNetworks(networkByGroup[int64(refID)])
 			for _, price := range rate.NegotiatedPrices {
-				rows = append(rows, RateRow{
-					ProviderGroupID:        int64(refID),
-					PlanName:               planName,
-					NetworkName:            networkName,
-					BillingCodeType:        item.BillingCodeType,
-					BillingCode:            item.BillingCode,
-					NegotiationArrangement: item.NegotiationArrangement,
-					NegotiatedType:         price.NegotiatedType,
-					NegotiatedRate:         price.NegotiatedRate,
-					ExpirationDate:         price.ExpirationDate,
-					ServiceCode:            strings.Join(price.ServiceCode, "|"),
-					BillingClass:           price.BillingClass,
-					Setting:                price.Setting,
-				})
+				for _, networkName := range networks {
+					rows = append(rows, RateRow{
+						ProviderGroupID:        int64(refID),
+						PlanName:               planName,
+						NetworkName:            networkName,
+						BillingCodeType:        item.BillingCodeType,
+						BillingCode:            item.BillingCode,
+						NegotiationArrangement: item.NegotiationArrangement,
+						NegotiatedType:         price.NegotiatedType,
+						NegotiatedRate:         price.NegotiatedRate,
+						ExpirationDate:         price.ExpirationDate,
+						ServiceCode:            strings.Join(price.ServiceCode, "|"),
+						BillingClass:           price.BillingClass,
+						Setting:                price.Setting,
+					})
+				}
 			}
 		}
 	}
 	return rows
+}
+
+// splitNetworks turns a "|"-joined network_name into its members, always
+// returning at least one element ("" for an unattributed group).
+func splitNetworks(joined string) []string {
+	if joined == "" {
+		return []string{""}
+	}
+	parts := strings.Split(joined, "|")
+	out := parts[:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
 }
 
 // buildProviderRows flattens one provider_references entry into provider rows
@@ -116,6 +144,7 @@ func streamMRF(
 	seenNPIs map[int64]string,
 	seenTINs map[string]bool,
 	gaNPIs map[int64]struct{}, // nil = keep everything; non-nil = drop providers/rates with no GA NPI
+	networkAllow func(networkName string) bool, // nil = allow every network; else keep only groups whose network_name passes
 	w mrfWriters,
 	pr *ProgressReader,
 ) (*mrfResult, error) {
@@ -203,30 +232,44 @@ func streamMRF(
 
 				rows, networkName := buildProviderRows(ref)
 
-				// GA NPI filter: keep only rows whose NPI is a Georgia NPPES NPI.
-				// A group with none is dropped entirely (its rates go too).
-				if gaNPIs != nil {
-					dropped := int64(0)
-					kept := rows[:0]
-					for _, row := range rows {
-						if _, ok := gaNPIs[row.NPI]; ok {
-							kept = append(kept, row)
-						} else {
-							dropped++
-						}
-					}
-					res.ProviderRowsDropped += dropped
-					rows = kept
-					if len(rows) == 0 {
+				// Filters: a provider group must pass every active filter, else the
+				// group — and every rate row that references it — is dropped.
+				if gaNPIs != nil || networkAllow != nil {
+					// Network allowlist: is this a Georgia network at all?
+					if networkAllow != nil && !networkAllow(networkName) {
+						res.ProviderRowsDropped += int64(len(rows))
 						res.GroupsDropped++
+						res.GroupsDroppedNetwork++
 						continue
+					}
+
+					// GA NPI filter: keep only rows whose NPI is a Georgia NPPES
+					// NPI; a group left with none is dropped (its rates go too).
+					if gaNPIs != nil {
+						dropped := int64(0)
+						kept := rows[:0]
+						for _, row := range rows {
+							if _, ok := gaNPIs[row.NPI]; ok {
+								kept = append(kept, row)
+							} else {
+								dropped++
+							}
+						}
+						res.ProviderRowsDropped += dropped
+						rows = kept
+						if len(rows) == 0 {
+							res.GroupsDropped++
+							continue
+						}
 					}
 					keptGroups[int64(ref.ProviderGroupID)] = struct{}{}
 				}
 
 				if networkName != "" {
 					networkByGroup[int64(ref.ProviderGroupID)] = networkName
-					res.NetworkNames[networkName] = struct{}{}
+					for _, n := range splitNetworks(networkName) {
+						res.NetworkNames[n] = struct{}{}
+					}
 				}
 				for _, row := range rows {
 					if _, seen := seenNPIs[row.NPI]; !seen {
@@ -284,7 +327,7 @@ func streamMRF(
 				}
 
 				rows := buildRateRows(item, networkByGroup, planName)
-				if gaNPIs != nil {
+				if gaNPIs != nil || networkAllow != nil {
 					kept := rows[:0]
 					for _, row := range rows {
 						if _, ok := keptGroups[row.ProviderGroupID]; ok {

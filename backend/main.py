@@ -1,4 +1,5 @@
 import os
+import re
 import duckdb
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException
@@ -6,11 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 DATA_DIR        = os.getenv("DATA_DIR", "/app/data")
-RATES_GLOB      = f"{DATA_DIR}/anthem/rates/*.parquet"
+# rates are Hive-partitioned by network: rates/net=<slug>/<id>.parquet
+RATES_GLOB      = f"{DATA_DIR}/anthem/rates/**/*.parquet"
+RATES_SRC       = f"read_parquet('{RATES_GLOB}', union_by_name=true, hive_partitioning=1)"
 PROVIDERS_GLOB  = f"{DATA_DIR}/anthem/providers/*.parquet"
+
+
 CODES_GLOB      = f"{DATA_DIR}/anthem/codes/*.parquet"
 NPI_LOOKUP_PATH = f"{DATA_DIR}/anthem/npi_lookup.parquet"
 GA_NPPES_PATH   = f"{DATA_DIR}/nppes/ga_providers.parquet"
+CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
+
+
+def network_slug(name: str) -> str:
+    """Partition key for a network_name. MUST match etl-go/partition.go:slugifyNetwork."""
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    s = s[:100].strip("-")
+    return s or "_unattributed"
 
 app = FastAPI(title="Honest Healthcare API")
 
@@ -33,7 +46,7 @@ def rates_has_column(conn, name: str) -> bool:
     has been written, so filters/endpoints that use it must degrade gracefully."""
     try:
         cols = conn.execute(
-            f"DESCRIBE SELECT * FROM read_parquet('{RATES_GLOB}', union_by_name=true)"
+            f"DESCRIBE SELECT * FROM {RATES_SRC}"
         ).fetchall()
         return any(c[0] == name for c in cols)
     except Exception:
@@ -44,7 +57,7 @@ def rates_has_column(conn, name: str) -> bool:
 def health():
     conn = db()
     try:
-        rates     = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{RATES_GLOB}', union_by_name=true)").fetchone()[0]
+        rates     = conn.execute(f"SELECT COUNT(*) FROM {RATES_SRC}").fetchone()[0]
         providers = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true)").fetchone()[0]
         return {"status": "ok", "total_rates": rates, "total_providers": providers}
     except Exception as e:
@@ -75,9 +88,10 @@ def rate_distribution(
     if plan_name:
         conditions.append("plan_name = ?")
         params.append(plan_name)
-    if network_name and rates_has_column(conn, "network_name"):
-        conditions.append("list_contains(list_transform(string_split(network_name, '|'), x -> trim(x)), ?)")
-        params.append(network_name)
+    if network_name:
+        # net is the Hive partition key — this prunes the scan to one directory.
+        conditions.append("net = ?")
+        params.append(network_slug(network_name))
     if setting:
         conditions.append("setting = ?")
         params.append(setting)
@@ -95,7 +109,7 @@ def rate_distribution(
                 FLOOR(LEAST(negotiated_rate, 2000) / 50) * 50 AS rate,
                 'fee schedule' AS negotiated_type,
                 COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            FROM {RATES_SRC}
             WHERE {where}
             GROUP BY 1, 2
             ORDER BY 1
@@ -106,7 +120,7 @@ def rate_distribution(
                 negotiated_rate,
                 negotiated_type,
                 COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            FROM {RATES_SRC}
             WHERE {where}
             GROUP BY negotiated_rate, negotiated_type
             ORDER BY negotiated_rate
@@ -124,7 +138,7 @@ def rate_distribution(
             MEDIAN(negotiated_rate),
             COUNT(DISTINCT provider_group_id),
             COUNT(*)
-        FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+        FROM {RATES_SRC}
         WHERE {where}
     """, params).fetchone()
 
@@ -172,9 +186,9 @@ def rates_by_provider(
         conditions.append("r.plan_name = ?")
         params.append(plan_name)
     has_network = rates_has_column(conn, "network_name")
-    if network_name and has_network:
-        conditions.append("list_contains(list_transform(string_split(r.network_name, '|'), x -> trim(x)), ?)")
-        params.append(network_name)
+    if network_name:
+        conditions.append("r.net = ?")
+        params.append(network_slug(network_name))
     if setting:
         conditions.append("r.setting = ?")
         params.append(setting)
@@ -204,7 +218,7 @@ def rates_by_provider(
             {"ANY_VALUE(r.network_name)" if has_network else "NULL"} AS network_name,
             r.expiration_date,
             COUNT(DISTINCT p.npi) AS npi_count{ga_select}
-        FROM read_parquet('{RATES_GLOB}', union_by_name=true) r
+        FROM {RATES_SRC} r
         LEFT JOIN read_parquet('{PROVIDERS_GLOB}', union_by_name=true) p
             ON r.provider_group_id = p.provider_group_id
         {ga_join}
@@ -245,27 +259,55 @@ def search_providers(
     q: str = Query(default=""),
     limit: int = Query(default=20, le=100),
 ):
-    """Search providers by NPI prefix. ETL writes npi_lookup.parquet after each parse run."""
+    """Search providers by name, organization, city, or NPI against the NPPES
+    Georgia subset. Providers we actually hold rate data for are returned first
+    (`has_rates`). A purely numeric query is treated as an NPI prefix."""
+    q = q.strip()
     if not q:
         return []
     conn = db()
-    if os.path.exists(NPI_LOOKUP_PATH):
+
+    # No NPPES file yet — fall back to NPI-prefix over what we've parsed.
+    if not os.path.exists(GA_NPPES_PATH):
+        if not q.isdigit() or not os.path.exists(NPI_LOOKUP_PATH):
+            return []
         rows = conn.execute(f"""
             SELECT npi, tin_value
             FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true)
             WHERE CAST(npi AS VARCHAR) LIKE ?
-            ORDER BY npi
-            LIMIT {limit}
+            ORDER BY npi LIMIT {limit}
         """, [f"{q}%"]).fetchall()
-        return [{"npi": r[0], "tin_value": r[1]} for r in rows]
-    # Fallback: scan raw providers parquet (slow, only before first ETL run)
+        return [{"npi": r[0], "name": None, "city": None,
+                 "taxonomy_group": None, "is_hospital": False,
+                 "is_clinic": False, "has_rates": True} for r in rows]
+
+    have_lookup = os.path.exists(NPI_LOOKUP_PATH)
+    has_rates_expr = (
+        f"g.npi IN (SELECT npi FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true))"
+        if have_lookup else "FALSE"
+    )
+
+    if q.isdigit():
+        where, params = "CAST(g.npi AS VARCHAR) LIKE ?", [f"{q}%"]
+    else:
+        where = ("(g.org_name ILIKE ? OR TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name) ILIKE ? "
+                 "OR g.city ILIKE ?)")
+        params = [f"%{q}%", f"%{q}%", f"%{q}%"]
+
     rows = conn.execute(f"""
-        SELECT npi, MAX(tin_value) AS tin_value
-        FROM read_parquet('{PROVIDERS_GLOB}', union_by_name=true)
-        WHERE CAST(npi AS VARCHAR) LIKE ?
-        GROUP BY npi ORDER BY npi LIMIT {limit}
-    """, [f"{q}%"]).fetchall()
-    return [{"npi": r[0], "tin_value": r[1]} for r in rows]
+        SELECT g.npi,
+               COALESCE(NULLIF(g.org_name, ''),
+                        NULLIF(TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name), ''),
+                        CAST(g.npi AS VARCHAR)) AS name,
+               g.city, g.taxonomy_group, g.is_hospital, g.is_clinic,
+               {has_rates_expr} AS has_rates
+        FROM read_parquet('{GA_NPPES_PATH}') g
+        WHERE {where}
+        ORDER BY has_rates DESC, g.is_hospital DESC, g.is_clinic DESC, name
+        LIMIT {limit}
+    """, params).fetchall()
+    cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic", "has_rates"]
+    return [dict(zip(cols, r)) for r in rows]
 
 
 @app.get("/plans")
@@ -278,7 +320,7 @@ def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)
         SELECT DISTINCT TRIM(plan) AS plan_name
         FROM (
             SELECT UNNEST(string_split(plan_name, ' | ')) AS plan
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
+            FROM {RATES_SRC}
             WHERE plan_name IS NOT NULL AND plan_name != ''
         )
         WHERE plan IS NOT NULL AND TRIM(plan) != ''
@@ -324,28 +366,26 @@ def ga_providers(
 
 @app.get("/networks")
 def get_networks(q: str = Query(default=""), limit: int = Query(default=100, le=500)):
-    """Distinct network_name values (structured attribution from provider_references)."""
+    """Distinct network_name values. Rates are fanned out one row per network, so
+    network_name is a single clean value per row (and matches its net partition)."""
     conn = db()
     if not rates_has_column(conn, "network_name"):
-        return []  # no new-format parquet yet — nothing to list
-    # A rate row's network_name is '|'-joined when the provider_reference carried
-    # several networks — split them so each network is one clean dropdown entry.
-    search_filter = "AND net ILIKE ?" if q else ""
+        return []
+    search_filter = "AND network_name ILIKE ?" if q else ""
     params = [f"%{q}%"] if q else []
     rows = conn.execute(f"""
-        SELECT net AS network_name, COUNT(*) AS n_rates
-        FROM (
-            SELECT TRIM(UNNEST(string_split(network_name, '|'))) AS net
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
-            WHERE network_name IS NOT NULL AND network_name != ''
-        )
-        WHERE net IS NOT NULL AND net != ''
-        {search_filter}
-        GROUP BY net
+        SELECT network_name, COUNT(*) AS n_rates
+        FROM {RATES_SRC}
+        WHERE network_name IS NOT NULL AND network_name != '' {search_filter}
+        GROUP BY network_name
         ORDER BY n_rates DESC
         LIMIT {limit}
     """, params).fetchall()
     return [{"network_name": r[0], "n_rates": r[1]} for r in rows]
+
+
+def _codes_have_labels(conn) -> bool:
+    return os.path.exists(CODE_LABELS_PATH)
 
 
 @app.get("/billing_codes")
@@ -354,52 +394,99 @@ def search_billing_codes(
     billing_code_type: Optional[str] = None,
     limit: int = Query(default=20, le=100),
 ):
-    """Search billing codes — empty q returns top results by provider volume."""
+    """Search billing codes by consumer label / synonym / code. Empty q returns
+    top codes by provider volume. Labels + RBCS categories come from
+    reference/code_labels.parquet (public CMS data); the MRF's own descriptors in
+    the Georgia files are near-useless ("Medical", "Surgery")."""
     conn = db()
+    has_labels = _codes_have_labels(conn)
+    q = q.strip()
 
-    text_filter = "AND (c.billing_code ILIKE ? OR c.name ILIKE ?)" if q else ""
-    type_filter  = "AND c.billing_code_type = ?" if billing_code_type else ""
-    params_base: list = ([f"%{q}%", f"%{q}%"] if q else []) + ([billing_code_type] if billing_code_type else [])
+    vol_cte = f"""
+        SELECT billing_code, billing_code_type,
+               COUNT(DISTINCT provider_group_id) AS provider_groups
+        FROM {RATES_SRC}
+        GROUP BY billing_code, billing_code_type
+    """
 
-    try:
+    if has_labels:
+        where, params = ["1=1"], []
+        if q:
+            where.append("(l.billing_code ILIKE ? OR l.search_text ILIKE ?)")
+            params += [f"%{q}%", f"%{q}%"]
+        if billing_code_type:
+            where.append("l.billing_code_type = ?")
+            params.append(billing_code_type)
         rows = conn.execute(f"""
-            SELECT c.billing_code, c.billing_code_type, c.name,
-                   COALESCE(r.provider_groups, 0) AS provider_groups
-            FROM read_parquet('{CODES_GLOB}', union_by_name=true) c
-            LEFT JOIN (
-                SELECT billing_code, billing_code_type,
-                       COUNT(DISTINCT provider_group_id) AS provider_groups
-                FROM read_parquet('{RATES_GLOB}', union_by_name=true)
-                GROUP BY billing_code, billing_code_type
-            ) r ON c.billing_code = r.billing_code AND c.billing_code_type = r.billing_code_type
-            WHERE 1=1 {text_filter} {type_filter}
-            ORDER BY provider_groups DESC
+            SELECT l.billing_code, l.billing_code_type, l.label,
+                   l.rbcs_category, l.rbcs_subcategory, l.rbcs_family,
+                   COALESCE(v.provider_groups, 0) AS provider_groups
+            FROM read_parquet('{CODE_LABELS_PATH}') l
+            LEFT JOIN ({vol_cte}) v
+              ON l.billing_code = v.billing_code AND l.billing_code_type = v.billing_code_type
+            WHERE {" AND ".join(where)}
+            ORDER BY provider_groups DESC, l.rbcs_is_major DESC, l.label
             LIMIT {limit}
-        """, params_base).fetchall()
+        """, params).fetchall()
         return [
-            {"billing_code": r[0], "billing_code_type": r[1], "name": r[2], "provider_groups": r[3]}
+            {"billing_code": r[0], "billing_code_type": r[1], "name": r[2], "label": r[2],
+             "rbcs_category": r[3], "rbcs_subcategory": r[4], "rbcs_family": r[5],
+             "provider_groups": r[6]}
             for r in rows
         ]
-    except Exception:
-        # codes parquet not yet generated — fall back to rates-only search (no names)
-        conditions = ["1=1"]
-        params_fb: list = []
-        if q:
-            conditions.append("billing_code ILIKE ?")
-            params_fb.append(f"%{q}%")
-        if billing_code_type:
-            conditions.append("billing_code_type = ?")
-            params_fb.append(billing_code_type)
-        rows = conn.execute(f"""
+
+    # No labels file yet — rates-only search by code.
+    conditions, params_fb = ["1=1"], []
+    if q:
+        conditions.append("billing_code ILIKE ?")
+        params_fb.append(f"%{q}%")
+    if billing_code_type:
+        conditions.append("billing_code_type = ?")
+        params_fb.append(billing_code_type)
+    rows = conn.execute(f"""
+        SELECT billing_code, billing_code_type,
+               COUNT(DISTINCT provider_group_id) AS provider_groups
+        FROM {RATES_SRC}
+        WHERE {" AND ".join(conditions)}
+        GROUP BY billing_code, billing_code_type
+        ORDER BY provider_groups DESC
+        LIMIT {limit}
+    """, params_fb).fetchall()
+    return [
+        {"billing_code": r[0], "billing_code_type": r[1], "name": None, "label": None,
+         "rbcs_category": None, "rbcs_subcategory": None, "rbcs_family": None,
+         "provider_groups": r[2]}
+        for r in rows
+    ]
+
+
+@app.get("/procedure_categories")
+def procedure_categories():
+    """RBCS categories/subcategories present in the data, with how many billing
+    codes and provider groups each covers — powers the browse-by-category UI."""
+    if not os.path.exists(CODE_LABELS_PATH):
+        return []
+    conn = db()
+    rows = conn.execute(f"""
+        WITH vol AS (
             SELECT billing_code, billing_code_type,
                    COUNT(DISTINCT provider_group_id) AS provider_groups
-            FROM read_parquet('{RATES_GLOB}', union_by_name=true)
-            WHERE {" AND ".join(conditions)}
-            GROUP BY billing_code, billing_code_type
-            ORDER BY provider_groups DESC
-            LIMIT {limit}
-        """, params_fb).fetchall()
-        return [
-            {"billing_code": r[0], "billing_code_type": r[1], "name": None, "provider_groups": r[2]}
-            for r in rows
-        ]
+            FROM {RATES_SRC}
+            GROUP BY 1, 2
+        )
+        SELECT
+            COALESCE(l.rbcs_category, 'Other')                 AS category,
+            COALESCE(l.rbcs_subcategory, l.rbcs_category, 'Other') AS subcategory,
+            COUNT(DISTINCT l.billing_code)                     AS n_codes,
+            COALESCE(SUM(v.provider_groups), 0)                AS provider_groups
+        FROM read_parquet('{CODE_LABELS_PATH}') l
+        JOIN vol v
+          ON l.billing_code = v.billing_code AND l.billing_code_type = v.billing_code_type
+        GROUP BY 1, 2
+        HAVING COUNT(DISTINCT l.billing_code) > 0
+        ORDER BY category, provider_groups DESC
+    """).fetchall()
+    return [
+        {"category": r[0], "subcategory": r[1], "n_codes": r[2], "provider_groups": r[3]}
+        for r in rows
+    ]

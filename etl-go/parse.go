@@ -11,12 +11,17 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	parquet "github.com/parquet-go/parquet-go"
 )
 
 const copyBatchSize = 1_000_000
+
+// inflightSubdir holds parquet files still being written. They are renamed up one
+// level (into the backend's glob path) only after a clean single-pass stream.
+const inflightSubdir = ".inflight"
 
 // skipValue consumes and discards one JSON value (scalar, object, or array).
 func skipValue(decoder *json.Decoder) {
@@ -138,6 +143,7 @@ func parseRates(
 	seenNPIs map[int64]string,
 	seenTINs map[string]bool,
 	gaNPIs map[int64]struct{},
+	networkAllow func(string) bool,
 	totalBillingCodesBefore int,
 	dryRun bool,
 ) *mrfResult {
@@ -166,38 +172,55 @@ func parseRates(
 		}
 	}
 
-	// Parquet writers (skipped in dry-run).
+	// Parquet writers (skipped in dry-run). Everything for this file is written
+	// under a per-file scratch dir (…/anthem/.inflight/<id>/) and moved into place
+	// only after a clean stream, so the backend — which globs rates/**/*.parquet,
+	// providers/*.parquet, codes/*.parquet — never sees a half-written or
+	// zero-byte file. Rate rows fan out into rates/net=<slug>/<id>.parquet, one
+	// partition per network_name, so a network-filtered query prunes to it.
+	name := fmt.Sprintf("%d.parquet", fileID)
+	anthemDir := filepath.Dir(RatesOutputDir)
+	scratchDir := filepath.Join(anthemDir, inflightSubdir, fmt.Sprintf("%d", fileID))
+
 	var w mrfWriters
 	var closers []io.Closer
+	var fanout *rateFanout
+	provScratch := filepath.Join(scratchDir, "providers", name)
+	codesScratch := filepath.Join(scratchDir, "codes", name)
+	committed := false
 	if !dryRun {
-		for _, dir := range []string{RatesOutputDir, ProvidersOutputDir, CodesOutputDir} {
-			if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-				markFailed(ctx, conn, fileID, fmt.Errorf("create dir %s: %w", dir, err), dryRun)
+		defer func() {
+			if !committed {
+				os.RemoveAll(scratchDir)
+			}
+		}()
+		for _, d := range []string{
+			filepath.Join(scratchDir, "rates"),
+			filepath.Join(scratchDir, "providers"),
+			filepath.Join(scratchDir, "codes"),
+		} {
+			if err := os.MkdirAll(d, os.ModePerm); err != nil {
+				markFailed(ctx, conn, fileID, fmt.Errorf("create dir %s: %w", d, err), dryRun)
 				return nil
 			}
 		}
-		ratesW, ratesC, err := newParquetWriter[RateRow](filepath.Join(RatesOutputDir, fmt.Sprintf("%d.parquet", fileID)))
+		fanout = newRateFanout(filepath.Join(scratchDir, "rates"), name)
+		provW, provC, err := newParquetWriter[ProviderRow](provScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
 			return nil
 		}
-		provW, provC, err := newParquetWriter[ProviderRow](filepath.Join(ProvidersOutputDir, fmt.Sprintf("%d.parquet", fileID)))
+		codesW, codesC, err := newParquetWriter[BillingCodeRow](codesScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
 			return nil
 		}
-		codesW, codesC, err := newParquetWriter[BillingCodeRow](filepath.Join(CodesOutputDir, fmt.Sprintf("%d.parquet", fileID)))
-		if err != nil {
-			markFailed(ctx, conn, fileID, err, dryRun)
-			return nil
-		}
-		closers = []io.Closer{ratesW, ratesC, provW, provC, codesW, codesC}
+		closers = []io.Closer{fanoutCloser{fanout}, provW, provC, codesW, codesC}
 		w = mrfWriters{
 			rates: func(rows []RateRow) {
-				if _, err := ratesW.Write(rows); err != nil {
+				if err := fanout.write(rows); err != nil {
 					log.Printf("⚠️ write rates parquet: %v", err)
 				}
-				ratesW.Flush()
 			},
 			providers: func(rows []ProviderRow) {
 				if _, err := provW.Write(rows); err != nil {
@@ -221,13 +244,36 @@ func parseRates(
 	defer gz.Close()
 
 	log.Println("  🔄 Starting single-pass extract...")
-	res, err := streamMRF(gz, planName, isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, w, pr)
+	res, err := streamMRF(gz, planName, isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, w, pr)
 	// Parquet writers must be closed (flushed) before we read the files back or
 	// mark the row completed — close in LIFO order (writer before its file).
 	closeAll(closers)
 	if err != nil {
 		markFailed(ctx, conn, fileID, err, dryRun)
 		return nil
+	}
+
+	// Stream succeeded — move the scratch parquet into place.
+	if !dryRun {
+		if err := fanout.promote(RatesOutputDir); err != nil {
+			markFailed(ctx, conn, fileID, err, dryRun)
+			return nil
+		}
+		for _, mv := range [][2]string{
+			{provScratch, filepath.Join(ProvidersOutputDir, name)},
+			{codesScratch, filepath.Join(CodesOutputDir, name)},
+		} {
+			if err := os.MkdirAll(filepath.Dir(mv[1]), os.ModePerm); err != nil {
+				markFailed(ctx, conn, fileID, err, dryRun)
+				return nil
+			}
+			if err := os.Rename(mv[0], mv[1]); err != nil {
+				markFailed(ctx, conn, fileID, fmt.Errorf("promote %s: %w", mv[1], err), dryRun)
+				return nil
+			}
+		}
+		os.RemoveAll(scratchDir)
+		committed = true
 	}
 
 	if isFirstFile && !dryRun && len(res.SchemaExample) > 0 {
@@ -252,17 +298,22 @@ func parseRates(
 			fileID, res.ReportingEntityName, res.ReportingEntityType); err != nil {
 			log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
 		}
-		note := ""
-		if gaNPIs != nil {
-			note = "ga-npi-filtered"
+		var parts []string
+		if networkAllow != nil {
+			parts = append(parts, "ga-network-filtered")
 		}
+		if gaNPIs != nil {
+			parts = append(parts, "ga-npi-filtered")
+		}
+		note := strings.Join(parts, ",")
 		writeCoverageLog(ctx, conn, fileID, orFixture(url, fixturePath), contentLength,
 			totalBillingCodesBefore, note, res)
 	}
 
-	if gaNPIs != nil && (res.RateRowsDropped > 0 || res.ProviderRowsDropped > 0) {
-		log.Printf("  🗺️  GA filter dropped %d provider rows, %d rate rows, %d groups (kept %d / %d rate rows)",
-			res.ProviderRowsDropped, res.RateRowsDropped, res.GroupsDropped, res.RateRows, res.RateRows+res.RateRowsDropped)
+	if (gaNPIs != nil || networkAllow != nil) && (res.RateRowsDropped > 0 || res.ProviderRowsDropped > 0) {
+		log.Printf("  🗺️  GA filter dropped %d provider rows, %d rate rows, %d groups (%d non-GA-network) — kept %d / %d rate rows",
+			res.ProviderRowsDropped, res.RateRowsDropped, res.GroupsDropped, res.GroupsDroppedNetwork,
+			res.RateRows, res.RateRows+res.RateRowsDropped)
 	}
 	log.Printf("  ✅ Completed. %d provider rows | %d rate rows | %d new codes | %d new NPIs | networks=%v",
 		res.ProviderRows, res.RateRows, res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))

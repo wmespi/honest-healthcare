@@ -30,7 +30,7 @@ func TestFixtures_Parse(t *testing.T) {
 			defer gz.Close()
 
 			res, err := streamMRF(gz, "individual | group", true,
-				map[string]bool{}, map[int64]string{}, map[string]bool{}, nil,
+				map[string]bool{}, map[int64]string{}, map[string]bool{}, nil, nil,
 				mrfWriters{}, nil)
 			if err != nil {
 				t.Fatalf("streamMRF: %v", err)
@@ -50,6 +50,10 @@ func collect(t *testing.T, path string) (*mrfResult, []RateRow, []ProviderRow, [
 }
 
 func collectFiltered(t *testing.T, path string, gaNPIs map[int64]struct{}) (*mrfResult, []RateRow, []ProviderRow, []BillingCodeRow) {
+	return collectFiltered2(t, path, gaNPIs, nil)
+}
+
+func collectFiltered2(t *testing.T, path string, gaNPIs map[int64]struct{}, networkAllow func(string) bool) (*mrfResult, []RateRow, []ProviderRow, []BillingCodeRow) {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {
@@ -67,7 +71,7 @@ func collectFiltered(t *testing.T, path string, gaNPIs map[int64]struct{}) (*mrf
 	}
 
 	res, err := streamMRF(f, "individual | group", true,
-		map[string]bool{}, map[int64]string{}, map[string]bool{}, gaNPIs, w, nil)
+		map[string]bool{}, map[int64]string{}, map[string]bool{}, gaNPIs, networkAllow, w, nil)
 	if err != nil {
 		t.Fatalf("streamMRF: %v", err)
 	}
@@ -214,6 +218,113 @@ func TestStreamMRF_GANPIFilter(t *testing.T) {
 	for _, p := range provs {
 		if _, ok := gaNPIs[p.NPI]; !ok {
 			t.Errorf("provider row for non-GA NPI %d leaked through", p.NPI)
+		}
+	}
+}
+
+func TestStreamMRF_NetworkAllowlist(t *testing.T) {
+	// Exact match — only group 1001 ("GA Blue Value HIX Individual Network").
+	exact := buildNetworkAllow("GA Blue Value HIX Individual Network")
+	res, rates, provs, _ := collectFiltered2(t, "testdata/synthetic_mrf.json", nil, exact)
+	if len(provs) != 3 {
+		t.Errorf("exact: provider rows = %d, want 3 (group 1001 only)", len(provs))
+	}
+	if len(rates) != 3 {
+		t.Errorf("exact: rate rows = %d, want 3", len(rates))
+	}
+	if res.GroupsDroppedNetwork != 2 {
+		t.Errorf("exact: GroupsDroppedNetwork = %d, want 2 (1002 + 1003)", res.GroupsDroppedNetwork)
+	}
+	for _, r := range rates {
+		if r.ProviderGroupID != 1001 {
+			t.Errorf("exact: leaked rate for group %d", r.ProviderGroupID)
+		}
+	}
+
+	// Prefix match — groups 1001 and 1002 (both "GA ..."), 1003 (no network) dropped.
+	prefix := buildNetworkAllow("GA *")
+	res2, rates2, provs2, _ := collectFiltered2(t, "testdata/synthetic_mrf.json", nil, prefix)
+	if len(provs2) != 4 {
+		t.Errorf("prefix: provider rows = %d, want 4 (1001+1002)", len(provs2))
+	}
+	if len(rates2) != 5 {
+		t.Errorf("prefix: rate rows = %d, want 5", len(rates2))
+	}
+	if res2.GroupsDroppedNetwork != 1 {
+		t.Errorf("prefix: GroupsDroppedNetwork = %d, want 1 (group 1003)", res2.GroupsDroppedNetwork)
+	}
+}
+
+func TestStreamMRF_NetworkAndNPIFilterCombine(t *testing.T) {
+	// Network allowlist keeps 1001 + 1002; GA NPI set then keeps only NPI
+	// 2222222222 (in 1001) — so 1002 survives the network filter but is dropped
+	// by the NPI filter (its only NPI 4444444444 isn't GA).
+	res, rates, provs, _ := collectFiltered2(t, "testdata/synthetic_mrf.json",
+		map[int64]struct{}{2222222222: {}}, buildNetworkAllow("GA *"))
+	if len(provs) != 1 || provs[0].NPI != 2222222222 {
+		t.Errorf("combined: provider rows = %+v, want just NPI 2222222222", provs)
+	}
+	for _, r := range rates {
+		if r.ProviderGroupID != 1001 {
+			t.Errorf("combined: leaked rate for group %d", r.ProviderGroupID)
+		}
+	}
+	if res.GroupsDroppedNetwork != 1 {
+		t.Errorf("combined: GroupsDroppedNetwork = %d, want 1 (group 1003)", res.GroupsDroppedNetwork)
+	}
+}
+
+func TestSlugifyNetwork(t *testing.T) {
+	cases := map[string]string{
+		"GA Blue Value HIX Individual Network": "ga-blue-value-hix-individual-network",
+		"EXCHANGES SPECIALIST  GATEKEEPER":     "exchanges-specialist-gatekeeper",
+		"CO HMO|CO PPO":                        "co-hmo-co-ppo",
+		"  ":                                   "_unattributed",
+		"":                                     "_unattributed",
+		"A/B — C":                              "a-b-c",
+	}
+	for in, want := range cases {
+		if got := slugifyNetwork(in); got != want {
+			t.Errorf("slugifyNetwork(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBuildRateRows_NetworkFanout(t *testing.T) {
+	item := InNetworkItem{
+		BillingCode: "99999", BillingCodeType: "CPT",
+		NegotiatedRates: []NegotiatedRate{{
+			ProviderReferences: []int{1},
+			NegotiatedPrices:   []NegotiatedPrice{{NegotiatedRate: 10}},
+		}},
+	}
+	rows := buildRateRows(item, map[int64]string{1: "GA One|GA Two"}, "plan")
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2 (one per network member)", len(rows))
+	}
+	got := map[string]bool{rows[0].NetworkName: true, rows[1].NetworkName: true}
+	if !got["GA One"] || !got["GA Two"] {
+		t.Errorf("network members not fanned out: %+v", got)
+	}
+}
+
+func TestBuildNetworkAllow(t *testing.T) {
+	if buildNetworkAllow("") != nil || buildNetworkAllow("  ") != nil {
+		t.Fatal("empty spec should return nil (no filter)")
+	}
+	f := buildNetworkAllow("GA *, ACCESS NETWORK")
+	cases := map[string]bool{
+		"GA Blue Value HIX Individual Network":   true,
+		"ACCESS NETWORK":                         true,
+		"CO TRADITIONAL NETWORK":                 false,
+		"NV HMO OA":                              false,
+		"":                                       false,
+		"CO HMO|GA Blue Open Access POS Network": true,  // |-joined — one member passes
+		"GABC Something":                         false, // prefix is "GA " (with the space)
+	}
+	for name, want := range cases {
+		if got := f(name); got != want {
+			t.Errorf("allow(%q) = %v, want %v", name, got, want)
 		}
 	}
 }
