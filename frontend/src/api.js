@@ -6,6 +6,11 @@ const api = axios.create({ baseURL: API_BASE_URL });
 
 export const getPlans = (q = '') => api.get('/plans', { params: q ? { q } : {} });
 
+// Structured network labels (from provider_references) — the reliable filter for
+// a specific plan, e.g. "GA Blue Value HIX Individual Network". Returns
+// [{ network_name, n_rates }].
+export const getNetworks = (q = '') => api.get('/networks', { params: q ? { q } : {} });
+
 export const searchProviders = (q) => api.get('/providers/search', { params: { q } });
 
 export const searchBillingCodes = (q = '', billing_code_type) => {
@@ -14,18 +19,18 @@ export const searchBillingCodes = (q = '', billing_code_type) => {
     return api.get('/billing_codes', { params });
 };
 
-export const getRateDistribution = (billing_code, billing_code_type = 'CPT', plan_name, setting, npi) => {
+export const getRateDistribution = (billing_code, billing_code_type = 'CPT', network_name, setting, npi) => {
     const params = {};
     if (billing_code) { params.billing_code = billing_code; params.billing_code_type = billing_code_type; }
-    if (plan_name) params.plan_name = plan_name;
+    if (network_name) params.network_name = network_name;
     if (setting) params.setting = setting;
     if (npi) params.npi = npi;
     return api.get('/rates/distribution', { params });
 };
 
-export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', plan_name, setting, npi, limit = 100) => {
+export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, limit = 100) => {
     const params = { billing_code, billing_code_type, limit };
-    if (plan_name) params.plan_name = plan_name;
+    if (network_name) params.network_name = network_name;
     if (setting) params.setting = setting;
     if (npi) params.npi = npi;
     return api.get('/rates/providers', { params });

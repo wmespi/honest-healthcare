@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getPlans, searchBillingCodes, getRateDistribution, searchProviders } from './api';
+import { getNetworks, searchBillingCodes, getRateDistribution, searchProviders } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -83,8 +83,9 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-// Searchable plan dropdown — fetches server-side on open and debounces search
-function PlanDropdown({ selectedPlan, onSelect }) {
+// Searchable network dropdown — the reliable per-plan filter. Fetches
+// /networks server-side on open and debounces search.
+function NetworkDropdown({ selectedPlan, onSelect }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [plans, setPlans] = useState([]);
@@ -99,16 +100,19 @@ function PlanDropdown({ selectedPlan, onSelect }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const loadNetworks = (q) =>
+    getNetworks(q)
+      .then(r => setPlans((r.data || []).map(n => n.network_name).filter(Boolean)))
+      .catch(() => {});
+
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
-    if (open && plans.length === 0) getPlans('').then(r => setPlans(r.data)).catch(() => {});
+    if (open && plans.length === 0) loadNetworks('');
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(() => {
-      getPlans(query).then(r => setPlans(r.data)).catch(() => {});
-    }, 250);
+    const t = setTimeout(() => loadNetworks(query), 250);
     return () => clearTimeout(t);
   }, [query, open]);
 
@@ -127,7 +131,7 @@ function PlanDropdown({ selectedPlan, onSelect }) {
         className={`w-full h-14 px-4 flex items-center gap-3 bg-slate-900 border rounded-2xl text-left transition-all ${open ? 'border-indigo-500/50' : 'border-slate-800'}`}
       >
         <Layers size={18} className="text-slate-500 shrink-0" />
-        <span className="flex-1 text-sm truncate text-white">{selectedPlan || 'All Plans'}</span>
+        <span className="flex-1 text-sm truncate text-white">{selectedPlan || 'All Networks'}</span>
         {selectedPlan ? (
           <button
             onClick={(e) => { e.stopPropagation(); handleSelect(''); }}
@@ -153,7 +157,7 @@ function PlanDropdown({ selectedPlan, onSelect }) {
                 ref={inputRef}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Search plans..."
+                placeholder="Search networks..."
                 className="w-full bg-slate-800/80 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none"
               />
             </div>
@@ -163,10 +167,10 @@ function PlanDropdown({ selectedPlan, onSelect }) {
                 className={`w-full px-4 py-3 text-left text-sm flex items-center gap-2 hover:bg-white/5 transition-colors border-b border-white/5 ${!selectedPlan ? 'text-indigo-400' : 'text-slate-400'}`}
               >
                 {!selectedPlan && <span>✓</span>}
-                <span className={!selectedPlan ? 'font-bold' : ''}>All Plans</span>
+                <span className={!selectedPlan ? 'font-bold' : ''}>All Networks</span>
               </button>
               {filtered.length === 0 && (
-                <div className="px-4 py-3 text-slate-500 text-sm italic">No plans match</div>
+                <div className="px-4 py-3 text-slate-500 text-sm italic">No networks match</div>
               )}
               {filtered.map((p, i) => (
                 <button
@@ -388,7 +392,7 @@ function App() {
 
         {/* Search row */}
         <div className="flex flex-col sm:flex-row gap-3 mb-10">
-          <PlanDropdown selectedPlan={selectedPlan} onSelect={handlePlanSelect} />
+          <NetworkDropdown selectedPlan={selectedPlan} onSelect={handlePlanSelect} />
 
           {/* Billing code / procedure search */}
           <div className="flex-1 relative bg-slate-900 border border-slate-800 rounded-2xl px-4 flex items-center focus-within:border-indigo-500/50 transition-all">
