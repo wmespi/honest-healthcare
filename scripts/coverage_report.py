@@ -16,11 +16,11 @@ import sys
 
 
 def psql_json(sql, schema):
-    full = f"SET search_path TO {schema}; " + sql
     out = subprocess.run(
-        ["docker", "compose", "exec", "-T", "db", "psql", "-U", "postgres",
-         "-d", "honest_healthcare", "-tAc",
-         f"SELECT coalesce(json_agg(t), '[]') FROM ({full.rstrip(';')}) t"],
+        ["docker", "compose", "exec", "-T",
+         "-e", f"PGOPTIONS=-c search_path={schema}",
+         "db", "psql", "-U", "postgres", "-d", "honest_healthcare", "-tA",
+         "-c", f"SELECT coalesce(json_agg(t), '[]') FROM ({sql.rstrip().rstrip(';')}) t"],
         capture_output=True, text=True,
     )
     if out.returncode != 0:

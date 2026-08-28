@@ -153,14 +153,35 @@ When parsing multiple files for the same plan:
 
 ## Overview
 
-This Go service ingests Anthem's CMS-mandated Machine-Readable Files (MRFs) — multi-gigabyte gzipped JSON files listing every in-network negotiated rate — and loads them into Postgres. It runs as a Docker container (`etl_go`) alongside the database.
+This Go service ingests Anthem's CMS-mandated Machine-Readable Files (MRFs) — multi-gigabyte gzipped JSON files listing every in-network negotiated rate. It runs as a Docker container (`etl_go`) alongside the database.
 
 The pipeline has two sequential phases, each triggered by a CLI flag:
 
 ```
 go run . -discover    # Phase 1: populate index_files with all rate file URLs
-go run . -parse       # Phase 2: stream each pending file directly into Postgres
+go run . -parse       # Phase 2: stream each pending file → Parquet (+ a little Postgres)
 ```
+
+> **This doc lags the code in places** (it still describes CSV output and direct
+> `negotiated_rates` inserts). Authoritative state:
+> - Phase 2 writes **Parquet** (`data/anthem/{rates,providers,codes}/{id}.parquet`, ZSTD) plus a
+>   `billing_codes` upsert and one `coverage_log` row per file. It does not write `negotiated_rates`.
+> - The streaming core is `streamMRF` in `mrf.go`, shared by `-parse` and the unit tests.
+> - **Structured attribution (no regex):** `provider_references[].network_name` (e.g.
+>   `["GA Blue Value HIX Individual Network"]`) is mapped `provider_group_id → network_name` during
+>   the provider pass and stamped onto every provider and rate row. `discover.go` also captures
+>   `plan_states` from HIOS `plan_id[5:7]` (positional state code) into `index_files`.
+> - **GA priority:** `-parse -priority` orders by `gaPriorityExpr` (`priority.go`) — individual-market
+>   Georgia files first. Signals: `market_types ∋ individual`, `plan_states ∋ GA`, GA issuer IDs
+>   `{49046,45334,44113}`, `anthem/GA_*` path. The `anthembcbsga.mrf.bcbs.com` host is the BlueCard
+>   mirror and is **not** a GA signal.
+> - **Fixtures:** `-make-fixture` writes a truncated `*.json.gz` to `testdata/fixtures/`; `-parse
+>   -fixture PATH` reads one offline. `make etl-test` / `make nppes-test` run hermetic e2e tests with
+>   full teardown.
+> - **Signed URLs expire (~30 days) and the index path carries a `YYYY-MM_` prefix** — re-run
+>   `-discover -no-cache` monthly and prune the prior month's rows.
+> - **NPPES:** `-nppes` streams the national dissemination zip and writes the GA-only subset to
+>   `data/nppes/ga_providers.parquet` (hospital = taxonomy `28x`, clinic = `261Q`).
 
 ---
 
