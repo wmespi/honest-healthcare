@@ -114,7 +114,7 @@ make sh S=backend           # shell into a container
 | Extraction — the parser, network attribution, GA NPI filter, Parquet writers | [etl-go/parse.md](etl-go/parse.md) |
 | Queue ordering, GA prioritization, recovering stuck rows | [etl-go/queue.md](etl-go/queue.md) |
 | NPPES Georgia provider subset | [etl-go/nppes.md](etl-go/nppes.md) |
-| RBCS procedure labels / NUCC specialty labels | [scripts/code-labels.md](scripts/code-labels.md) · [scripts/taxonomy-labels.md](scripts/taxonomy-labels.md) |
+| RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
 | API routes, the four consumer jobs, query-layer notes | [backend/backend.md](backend/backend.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |

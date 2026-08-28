@@ -18,15 +18,14 @@ provider search / the cost card can show "· Cardiology" instead of the useless
 "· Physician (individual)" bucket.
 
 Usage:
-  python3 scripts/build_taxonomy_labels.py [--nucc-url URL | --nucc-file PATH]
-                                           [--data-dir data] [--test]
+  python3 -m reference.taxonomy_labels [--nucc-url URL | --nucc-file PATH]
+                                       [--data-dir data] [--test]
 """
 import argparse
-import os
-import sys
-import urllib.request
 
 import duckdb
+
+from ._common import fetch_to_cache, ref_dir, write_parquet_atomic
 
 # 26.1 is the current cut (Jul 2026). NUCC re-stamps the trailing version twice a
 # year; the download page is https://nucc.org/index.php/code-sets-mainmenu-41/
@@ -37,32 +36,6 @@ NUCC_URLS = [
 ]
 
 
-def fetch_nucc(cache_path: str, url: str | None, local: str | None) -> str:
-    if local:
-        return local
-    if os.path.exists(cache_path):
-        print(f"  NUCC cache hit: {cache_path}")
-        return cache_path
-    urls = [url] if url else NUCC_URLS
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    last_err = None
-    for u in urls:
-        try:
-            print(f"  downloading NUCC taxonomy: {u}")
-            with urllib.request.urlopen(u, timeout=120) as r:
-                data = r.read()
-            if b"Code,Grouping,Classification" not in data[:200]:
-                raise ValueError("unexpected CSV header")
-            with open(cache_path, "wb") as f:
-                f.write(data)
-            print(f"  wrote {cache_path} ({len(data):,} bytes)")
-            return cache_path
-        except Exception as e:  # noqa: BLE001
-            print(f"  ({u} failed: {e})", file=sys.stderr)
-            last_err = e
-    raise SystemExit(f"could not fetch NUCC taxonomy CSV: {last_err}")
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--nucc-url", default=None)
@@ -71,18 +44,22 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    data_dir = "data-test" if args.test else args.data_dir
-    ref_dir = f"{data_dir}/reference"
-    cache = f"{ref_dir}/nucc_taxonomy.csv"
-    out_path = f"{ref_dir}/nucc_taxonomy.parquet"
+    rd = ref_dir(args.data_dir, args.test)
+    cache = f"{rd}/nucc_taxonomy.csv"
+    out_path = f"{rd}/nucc_taxonomy.parquet"
 
     print("→ NUCC taxonomy")
-    path = fetch_nucc(cache, args.nucc_url, args.nucc_file)
+    path = fetch_to_cache(
+        cache,
+        [args.nucc_url] if args.nucc_url else NUCC_URLS,
+        args.nucc_file,
+        header_check=b"Code,Grouping,Classification",
+    )
 
     con = duckdb.connect()
-    con.execute(
+    write_parquet_atomic(
+        con,
         f"""
-        COPY (
           SELECT
             "Code"                               AS taxonomy_code,
             NULLIF("Grouping", '')               AS grouping,
@@ -97,8 +74,8 @@ def main() -> None:
             ("Section" = 'Individual')            AS is_individual
           FROM read_csv_auto('{path}', header=true, all_varchar=true)
           WHERE "Code" IS NOT NULL AND "Code" != ''
-        ) TO '{out_path}' (FORMAT parquet, COMPRESSION zstd)
-        """
+        """,
+        out_path,
     )
     n = con.execute(f"SELECT count(*) FROM read_parquet('{out_path}')").fetchone()[0]
     print(f"→ wrote {out_path} — {n:,} taxonomy codes")

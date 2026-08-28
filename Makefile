@@ -82,10 +82,10 @@ nppes: _require-etl-running ## Download the NPPES national file, write data/nppe
 	docker compose exec etl_go go run . nppes $(if $(URL),-url "$(URL)",) $(if $(FILE),-file "$(FILE)",)
 
 code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + synonyms for every parsed code)
-	docker compose exec -T backend python3 /app/scripts/build_code_labels.py --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
+	docker compose exec -T -w /app backend python3 -m reference.code_labels --data-dir /app/data $(if $(RBCS_URL),--rbcs-url "$(RBCS_URL)",)
 
 taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
-	docker compose exec -T backend python3 /app/scripts/build_taxonomy_labels.py --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
+	docker compose exec -T -w /app backend python3 -m reference.taxonomy_labels --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
 
 ## ── Quality gate ────────────────────────────────────────────────────────────
 

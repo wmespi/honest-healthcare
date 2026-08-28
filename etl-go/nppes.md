@@ -27,7 +27,7 @@ address_line1 | address_line2 | city | state | postal_code
 - `is_hospital` = taxonomy prefix `28x`; `is_clinic` = `261Q` (`classifyTaxonomy`).
 - `taxonomy_group` is a coarse bucket — join `taxonomy_code` to
   `nucc_taxonomy.parquet` for the real specialty label
-  ([../scripts/taxonomy-labels.md](../scripts/taxonomy-labels.md)).
+  ([../reference/taxonomy-labels.md](../reference/taxonomy-labels.md)).
 - Consumed by the GA NPI filter in [parse.md](parse.md) and by the backend's
   provider cards.
 
