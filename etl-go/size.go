@@ -80,7 +80,7 @@ func fetchFileSizes(ctx context.Context, conn *pgx.Conn, concurrency int) {
 		err error
 	}
 
-	rows, err := conn.Query(ctx, `SELECT id, location FROM index_files ORDER BY id`)
+	rows, err := conn.Query(ctx, `SELECT id, location FROM index_files WHERE file_size_bytes IS NULL ORDER BY id`)
 	if err != nil {
 		log.Fatalf("❌ Failed to query unsized files: %v", err)
 	}

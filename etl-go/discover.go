@@ -205,8 +205,12 @@ func downloadSingle(url, destPath string) error {
 	return copyErr
 }
 
-func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int, noCache bool) {
-	log.Println("🚀 Starting Anthem Bronze Layer: Index Discovery (Go)...")
+func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnly bool) {
+	if schemaOnly {
+		log.Println("🚀 Starting Anthem Bronze Layer: Index Schema Capture (Go)...")
+	} else {
+		log.Println("🚀 Starting Anthem Bronze Layer: Index Discovery (Go)...")
+	}
 
 	cachePath := ensureIndexCached(noCache)
 
@@ -359,6 +363,11 @@ func discoverLinks(ctx context.Context, conn *pgx.Conn, limit int, noCache bool)
 			f.Close()
 			log.Printf("✅ Wrote index schema to %s", schemaPath)
 		}
+	}
+
+	if schemaOnly {
+		log.Printf("✅ Schema-only mode — wrote %s, skipping DB upsert. %d unique URLs seen.", schemaPath, len(urlToCand))
+		return
 	}
 
 	// Build candidate list from the deduplicated map.

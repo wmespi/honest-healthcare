@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	parquet "github.com/parquet-go/parquet-go"
 	"github.com/jackc/pgx/v5"
+	parquet "github.com/parquet-go/parquet-go"
 )
 
 const copyBatchSize = 1_000_000

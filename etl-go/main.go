@@ -12,6 +12,7 @@ import (
 
 func main() {
 	discoverFlag := flag.Bool("discover", false, "Run index discovery logic")
+	indexSchemaFlag := flag.Bool("index-schema", false, "Stream the master index and write a compact schema example to data/anthem/index_schema.json (no DB writes)")
 	parseFlag := flag.Bool("parse", false, "Run rate parsing logic")
 	sizeFlag := flag.Bool("size", false, "Fetch file sizes (HEAD requests) for all unsized index_files entries")
 	limitFlag := flag.Int("limit", 0, "Override the default limits for discovery or parsing")
@@ -28,10 +29,14 @@ func main() {
 	if *testFlag {
 		DatabaseURL = TestDatabaseURL
 		ExampleOutputPath = "../data-test/anthem/mrf_example.json"
+		RatesOutputDir = "../data-test/anthem/rates"
+		ProvidersOutputDir = "../data-test/anthem/providers"
+		CodesOutputDir = "../data-test/anthem/codes"
+		NPILookupPath = "../data-test/anthem/npi_lookup.parquet"
 		if *limitFlag == 0 {
 			*limitFlag = 100
 		}
-		log.Println("🧪 Test mode enabled — writing to 'test' schema")
+		log.Println("🧪 Test mode enabled — writing to 'test' schema and ../data-test/")
 	}
 
 	// 2. Set Index URL
@@ -39,6 +44,12 @@ func main() {
 		IndexURL = *indexUrlFlag
 	} else {
 		IndexURL = getDefaultIndexURL()
+	}
+
+	// 2b. Index-schema mode: stream the index, write the schema example, no DB needed.
+	if *indexSchemaFlag {
+		discoverLinks(ctx, nil, *limitFlag, *noCacheFlag, true)
+		return
 	}
 
 	// 3. Connect to DB
@@ -51,7 +62,7 @@ func main() {
 
 	// 4. Routing
 	if *discoverFlag {
-		discoverLinks(ctx, conn, *limitFlag, *noCacheFlag)
+		discoverLinks(ctx, conn, *limitFlag, *noCacheFlag, false)
 		return
 	}
 
@@ -140,5 +151,5 @@ func main() {
 		return
 	}
 
-	log.Println("⚠️ Please specify an action: -discover, -size, or -parse (and optionally -test, -no-cache)")
+	log.Println("⚠️ Please specify an action: -discover, -index-schema, -size, or -parse (and optionally -test, -no-cache)")
 }
