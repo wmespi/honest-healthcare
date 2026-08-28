@@ -71,8 +71,5 @@ issues that only bite at scale are in [../etl-go/parse.md](../etl-go/parse.md).*
 
 ## Legacy / stale
 
-- **Legacy Postgres tables.** `negotiated_rates`, `provider_mappings`,
-  `place_of_service_codes`, `vw_rates_detailed` in `db/init.sql` are neither written
-  nor read.
-- **`db/DUCKDB_DESIGN.md`** is the pre-migration design — superseded by
-  [schema.md](schema.md); kept for the DuckDB rationale.
+- **`db/SCHEMA.md`** narrates the Postgres tables; [schema.md](schema.md) is the
+  authoritative on-disk layout (Parquet + Postgres). Keep them reconciled.

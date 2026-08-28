@@ -2,10 +2,18 @@
 
 *Read this when writing a query against the data or changing what the parser
 writes. This is the single source of truth for the on-disk layout; `db/SCHEMA.md`
-and `db/DUCKDB_DESIGN.md` predate the Parquet migration.*
+narrates the Postgres side.*
 
 The backend reads **Parquet**. Postgres holds only the discovery queue and two
 small reference/log tables.
+
+**Why Parquet + DuckDB and not Postgres.** The workload is one sequential bulk
+writer (the ETL) and read-only analytical queries (the API) — the opposite of
+OLTP. Writing one Blue Value Georgia file to Postgres took ~2 hours; streaming it
+to Parquet takes ~7 minutes (the gap is WAL, index maintenance, and row-store
+overhead). Parquet's columnar ZSTD is ~10–20× smaller for repetitive rate data,
+DuckDB scans only the columns a query needs, and neither the ETL nor the API needs
+a server process.
 
 ---
 

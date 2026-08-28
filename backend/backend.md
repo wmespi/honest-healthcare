@@ -5,8 +5,8 @@
 
 FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 `read_parquet(...)` globs — no ORM, `?` placeholders. Routes and queries currently
-live inline in `main.py`; `models.py` / `database.py` are near-empty. Splitting
-`main.py` into routers + a `queries/` module is [issue #13 item 2](../docs/known-gaps.md).
+live inline in `main.py`; splitting it into routers + a `queries/` module is
+[issue #13 item 2](https://github.com/wmespi/honest-healthcare/issues/13).
 
 `PRICE_GROUPS_SRC` = `prices ⨝ group_sets` on `(file_id, group_set_id)` — the
 join that expands a price row to its provider groups. Schema:

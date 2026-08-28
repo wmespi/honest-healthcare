@@ -121,6 +121,10 @@ make sh S=backend           # shell into a container
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |
 | CMS spec | https://github.com/CMSgov/price-transparency-guide |
 
-`db/DUCKDB_DESIGN.md` is the pre-migration design, kept for rationale.
-`db/SCHEMA.md` describes the legacy Postgres model — [docs/schema.md](docs/schema.md)
-is authoritative.
+`db/SCHEMA.md` covers what Postgres holds; [docs/schema.md](docs/schema.md) is the
+authoritative on-disk schema.
+
+**Doc naming.** ALL-CAPS is reserved for repo-meta files (`README.md`, `AGENTS.md`,
+`LICENSE`). Topic and helper docs are lowercase and — where a workflow exists —
+share the name of its `make` target / `etl-go` subcommand (`parse` → `parse.md`),
+so an agent that ran `make help` can guess the filename.
