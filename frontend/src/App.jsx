@@ -606,18 +606,18 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
                           <div className="text-sm text-white font-medium truncate">
                             {r.label || `${r.billing_code_type} ${r.billing_code}`}
                           </div>
-                          <div className="text-[11px] text-slate-600 mt-0.5">
+                          <div className="text-[11px] text-slate-600 mt-0.5 flex items-center gap-2">
                             <span className="font-mono text-indigo-400">{r.billing_code}</span>
-                            {r.n_rates > 1 && <span> · {r.n_rates} rates</span>}
+                            {r.is_split && <span className="text-amber-500/80">billed in parts</span>}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
                           <div className="text-sm font-black text-white tabular-nums">
                             {r.min_rate === r.max_rate ? fmt(r.min_rate) : `${fmt(r.min_rate)}–${fmt(r.max_rate)}`}
                           </div>
-                          {r.min_rate !== r.max_rate && (
-                            <div className="text-[10px] text-slate-600">median {fmt(r.median_rate)}</div>
-                          )}
+                          <div className="text-[10px] text-slate-600">
+                            {r.min_rate !== r.max_rate ? `median ${fmt(r.median_rate)}` : (r.has_global ? 'full procedure' : 'component only')}
+                          </div>
                         </div>
                       </button>
                     ))}

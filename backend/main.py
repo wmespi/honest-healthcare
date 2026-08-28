@@ -570,19 +570,30 @@ def provider_procedures(
         menu AS (
             SELECT
                 p.billing_code, p.billing_code_type,
-                MIN(p.negotiated_rate)    AS min_rate,
-                MEDIAN(p.negotiated_rate) AS median_rate,
-                MAX(p.negotiated_rate)    AS max_rate,
+                -- range over the *global* (unmodified) rate when the code has one,
+                -- so 26/TC component fees don't widen it misleadingly
+                MIN(p.negotiated_rate)    FILTER (WHERE p.modifier = '') AS g_min,
+                MEDIAN(p.negotiated_rate) FILTER (WHERE p.modifier = '') AS g_med,
+                MAX(p.negotiated_rate)    FILTER (WHERE p.modifier = '') AS g_max,
+                COUNT(*)                  FILTER (WHERE p.modifier = '') AS g_n,
+                MIN(p.negotiated_rate)    AS a_min,
+                MEDIAN(p.negotiated_rate) AS a_med,
+                MAX(p.negotiated_rate)    AS a_max,
                 COUNT(*)                  AS n_rates,
-                COUNT(DISTINCT p.network_name) AS n_networks
+                COUNT(DISTINCT p.network_name) AS n_networks,
+                (COUNT(*) FILTER (WHERE p.modifier = '26') > 0
+                 AND COUNT(*) FILTER (WHERE p.modifier = 'TC') > 0) AS is_split
             FROM {PRICES_SRC} p
             JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
             WHERE 1=1 {net_filter} {set_filter}
             GROUP BY 1, 2
         )
         SELECT m.billing_code, m.billing_code_type,
-               ROUND(m.min_rate, 2), ROUND(m.median_rate, 2), ROUND(m.max_rate, 2),
-               m.n_rates, m.n_networks, {label_cols}
+               ROUND(COALESCE(m.g_min, m.a_min), 2),
+               ROUND(COALESCE(m.g_med, m.a_med), 2),
+               ROUND(COALESCE(m.g_max, m.a_max), 2),
+               m.n_rates, m.n_networks, m.is_split, (m.g_n > 0) AS has_global,
+               {label_cols}
         FROM menu m
         {label_join}
         {search_filter}
@@ -598,7 +609,8 @@ def provider_procedures(
                 "billing_code": r[0], "billing_code_type": r[1],
                 "min_rate": r[2], "median_rate": r[3], "max_rate": r[4],
                 "n_rates": r[5], "n_networks": r[6],
-                "label": r[7], "rbcs_category": r[8], "rbcs_subcategory": r[9],
+                "is_split": bool(r[7]), "has_global": bool(r[8]),
+                "label": r[9], "rbcs_category": r[10], "rbcs_subcategory": r[11],
             }
             for r in rows
         ],
