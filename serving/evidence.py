@@ -60,6 +60,22 @@ def did_bill(conn, npi: int, billing_code: str):
     }
 
 
+def medicare_specialty(conn, npi: int):
+    """CMS's rendering-provider specialty label for this NPI (constant across the
+    NPI's rows), or None if the file isn't built / the NPI has no Part B claims.
+    Cleaner than a vague NUCC taxonomy — folded into plausibility()."""
+    if not available():
+        return None
+    r = conn.execute(
+        f"""
+        SELECT provider_type FROM read_parquet('{CMS_UTILIZATION_PATH}')
+        WHERE npi = ? AND provider_type IS NOT NULL LIMIT 1
+        """,
+        [npi],
+    ).fetchone()
+    return r[0] if r else None
+
+
 def billed_codes(conn, npi: int, codes) -> dict:
     """{hcpcs_cd: {tot_srvcs, tot_benes, year}} for the subset of `codes` this
     NPI billed to Medicare. Empty dict when the file isn't built. One query —

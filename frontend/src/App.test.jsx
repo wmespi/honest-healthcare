@@ -170,6 +170,49 @@ describe('cross-specialty rollup caveat', () => {
   });
 });
 
+describe('Medicare utilization evidence (issue #14)', () => {
+  it('shows a "billed to Medicare" line on the cost card when the provider bills the code', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '99213', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'ABBOTT, ASHLEY', specialty: 'Family Medicine', city: 'ATLANTA' },
+      plausibility: 'typical',
+      medicare_utilization: { billed: true, year: 2024, tot_srvcs: 142, tot_benes: 90, avg_mdcr_allowed: 83.4, is_drug: false },
+      headline: { rate: 82, max_rate: 82, basis: 'global', pos_label: 'Office / telehealth' },
+      components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+        { pos_bucket: 'office', pos_label: 'Office / telehealth', min_rate: 82, max_rate: 82, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    expect(await screen.findByText(/billed this to Medicare/i)).toBeInTheDocument();
+    expect(screen.getByText(/142 times in 2024/i)).toBeInTheDocument();
+  });
+
+  it('badges menu rows the provider billed to Medicare', async () => {
+    const user = userEvent.setup();
+    api.getProviderMenu.mockResolvedValue({ data: { npi: 123, count: 1, results: [
+      { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'Evaluation & Management',
+        min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3, n_networks: 1,
+        medicare: { tot_srvcs: 210, tot_benes: 130, year: 2024 } },
+    ] } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+
+    expect(await screen.findByText('Medicare')).toBeInTheDocument();
+  });
+});
+
 describe('provider with no rates in the selected network', () => {
   it('shows an explicit empty state instead of a blank screen', async () => {
     const user = userEvent.setup();

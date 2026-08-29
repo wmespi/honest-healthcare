@@ -576,11 +576,29 @@ function ProviderCostCard({ data, loading, providerName }) {
     );
   }
   if (!data?.headline) return null;
-  const { headline, components, is_component_split, provider, plausibility } = data;
+  const { headline, components, is_component_split, provider, plausibility, medicare_utilization: mu } = data;
   const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
   const name = provider?.name || providerName;
   const sub = [provider?.specialty, provider?.address || provider?.city].filter(Boolean).join(' · ');
   const groupRate = plausibility === 'unlikely'; // rate belongs to the group, not the individual
+
+  // CMS Medicare Part B evidence (issue #14). mu is null until the utilization
+  // file is built; {billed:false} means the file is built but this NPI has no
+  // Part B row for this code (weak — <=10-beneficiary rows are dropped, and it
+  // misses pediatric / commercial / cash practice).
+  const medicareBilled = mu?.billed && (
+    <p className="mt-4 flex items-start gap-2 text-sm text-emerald-300/90 leading-relaxed max-w-lg">
+      <ShieldCheck size={15} className="mt-0.5 shrink-0 text-emerald-400" />
+      <span>
+        {name || 'This provider'} billed this to Medicare{' '}
+        <span className="font-semibold text-emerald-200">
+          {mu.tot_srvcs.toLocaleString()} time{mu.tot_srvcs === 1 ? '' : 's'} in {mu.year}
+        </span>
+        {mu.avg_mdcr_allowed ? <> · Medicare allowed ~{fmt(mu.avg_mdcr_allowed)}</> : null} — so
+        this is a procedure they actually perform.
+      </span>
+    </p>
+  );
 
   const breakdown = (
     <div className="space-y-3">
@@ -621,6 +639,12 @@ function ProviderCostCard({ data, loading, providerName }) {
             have no record of whether {name} bills it. Treat the numbers below as the <em>group&rsquo;s</em> rate,
             not {name}&rsquo;s.
           </p>
+          {mu && !mu.billed && (
+            <p className="mt-3 text-xs text-slate-500 leading-relaxed max-w-lg">
+              No Medicare Part B claims from {name || 'this provider'} for this code in {mu.year} either —
+              though that misses pediatric, commercial, and cash practice.
+            </p>
+          )}
           <details className="mt-4 group">
             <summary className="text-xs font-bold text-slate-500 cursor-pointer hover:text-slate-300 list-none">
               Show the group rate ▸
@@ -642,6 +666,7 @@ function ProviderCostCard({ data, loading, providerName }) {
                 : <>This code is billed only as separate parts — see the breakdown below</>}
             </div>
           </div>
+          {medicareBilled}
           <div className="mt-6">{breakdown}</div>
           {is_component_split && (
             <p className="text-[11px] text-slate-500 mt-4 leading-relaxed">
@@ -743,6 +768,11 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
                           <div className="text-[11px] text-slate-600 mt-0.5 flex items-center gap-2">
                             <span className="font-mono text-indigo-400">{r.billing_code}</span>
                             {r.is_split && <span className="text-amber-500/80">billed in parts</span>}
+                            {r.medicare && (
+                              <span className="flex items-center gap-1 text-emerald-500/90" title={`Billed ${r.medicare.tot_srvcs.toLocaleString()} times to Medicare in ${r.medicare.year}`}>
+                                <ShieldCheck size={11} /> Medicare
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="text-right shrink-0">

@@ -103,13 +103,21 @@ def provider_card(conn, npi: int):
     }
 
 
-def plausibility(grouping, classification, specialty, rbcs_category, rbcs_family):
+def plausibility(grouping, classification, specialty, rbcs_category, rbcs_family,
+                 medicare_type=None):
     """Coarse signal for "is this code within the provider's declared specialty?"
-    NOT proof of what they do or don't bill (we have no utilization data — see
-    GH issue #14). "unlikely" only means the code sits well outside the NUCC
-    taxonomy, so the frontend should present the number as the *group's* rate
-    rather than the individual's. Returns "unlikely" | "typical" | None."""
-    who = " ".join(x for x in (grouping, classification, specialty) if x).lower()
+    NOT proof of what they do or don't bill — for that see the CMS utilization
+    evidence layer (serving/evidence.py, GH #14), which overrides this. "unlikely"
+    only means the code sits well outside the provider's specialty, so the
+    frontend should present the number as the *group's* rate.
+
+    `medicare_type` is CMS's own rendering-provider specialty label, available for
+    the ~14% of providers with Part B claims. It's folded into the specialty text
+    because it's usually cleaner than a stale / vague self-reported NUCC taxonomy
+    ("Specialist"). Returns "unlikely" | "typical" | None."""
+    who = " ".join(
+        x for x in (grouping, classification, specialty, medicare_type) if x
+    ).lower()
     fam = (rbcs_family or "").lower()
     is_behavioral = any(t in who for t in _BEHAVIORAL)
     is_psych_code = "psychotherapy" in fam or "psychiatr" in fam or "mental health" in fam

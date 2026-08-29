@@ -32,11 +32,13 @@ issues that only bite at scale are in [../etl/parse.md](../etl/parse.md).*
   [reference/cms-utilization.md](../reference/cms-utilization.md)) adds real
   evidence: `did_bill(npi, code)` from CMS "Medicare Physician & Other
   Practitioners — by Provider and Service". When a provider demonstrably bills a
-  code, the heuristic's "unlikely" is demoted. Remaining limits: **Part B only**
-  (no pediatric / pure-commercial / cash), rows with ≤10 beneficiaries are
+  code, the heuristic's "unlikely" is demoted, and CMS's own `provider_type`
+  feeds the heuristic when a self-reported NUCC taxonomy is vague. The cost card
+  shows "billed N times to Medicare in <year>" / "no Part B claims either", and
+  the provider menu badges billed rows. Remaining limits: **Part B only** (no
+  pediatric / pure-commercial / cash), rows with ≤10 beneficiaries are
   **excluded entirely** (so `billed: False` is weak), ~2-year lag, practitioner
-  (type-1) signal. The frontend still needs to surface the
-  `medicare_utilization` field on the cost card —
+  (type-1) signal, single year (2024) — "stopped doing it" looks like "never".
   [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
 
 ## Scale / performance

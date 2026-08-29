@@ -72,9 +72,19 @@ rows — `did_bill()` aggregates over them.
 - `billed_codes(conn, npi, codes)` → `{code: {tot_srvcs, tot_benes, year}}` for
   the billed subset — one query, badges the `/providers/{npi}/procedures` menu
   (`medicare` field per row).
+- `medicare_specialty(conn, npi)` → CMS's rendering-provider specialty label,
+  folded into `plausibility()` (`serving/labels.py`) — usually cleaner than a
+  stale / vague self-reported NUCC taxonomy. Fallback only: it's null for the
+  ~86% of GA providers with no Part B claims, so it can't replace NUCC/NPPES as
+  the primary specialty source.
 
-Both no-op to `None`/`{}` until `make cms-utilization` has run, so the API works
-without it.
+All three no-op to `None`/`{}` until `make cms-utilization` has run, so the API
+works without it.
+
+The frontend (`ProviderCostCard`, `ProviderMenu`) surfaces this: a
+"billed N times to Medicare in <year>" line on the cost card (or "no Part B
+claims either" when the group-rate caveat is showing), and a "Medicare" badge on
+billed menu rows.
 
 ## Caveats (also in [docs/known-gaps.md](../docs/known-gaps.md))
 
