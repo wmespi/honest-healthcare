@@ -24,13 +24,20 @@ issues that only bite at scale are in [../etl/parse.md](../etl/parse.md).*
 
 ## Provider ↔ procedure
 
-- **`_plausibility()` is a heuristic.** A social worker in a rollup provider group
-  "has" a $14k surgical rate because Anthem's `provider_references` are
-  network-administration buckets, not practices. The serving layer flags the mismatch and
-  reframes the number as the group's rate — it cannot verify whether the individual
-  performs the procedure. Real fix: cross-reference CMS "Medicare Physician & Other
-  Practitioners: by Provider and Service" (public, one row per NPI × HCPCS actually
-  billed) — [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
+- **`plausibility()` is a heuristic; CMS utilization is the evidence layer.** A
+  social worker in a rollup provider group "has" a $14k surgical rate because
+  Anthem's `provider_references` are network-administration buckets, not
+  practices. The serving layer flags the mismatch and reframes the number as the
+  group's rate. `make cms-utilization` (→ `data/cms/ga_provider_service.parquet`,
+  [reference/cms-utilization.md](../reference/cms-utilization.md)) adds real
+  evidence: `did_bill(npi, code)` from CMS "Medicare Physician & Other
+  Practitioners — by Provider and Service". When a provider demonstrably bills a
+  code, the heuristic's "unlikely" is demoted. Remaining limits: **Part B only**
+  (no pediatric / pure-commercial / cash), rows with ≤10 beneficiaries are
+  **excluded entirely** (so `billed: False` is weak), ~2-year lag, practitioner
+  (type-1) signal. The frontend still needs to surface the
+  `medicare_utilization` field on the cost card —
+  [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
 
 ## Scale / performance
 

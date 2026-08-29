@@ -20,6 +20,7 @@ from ..data_sources import (
     network_slug,
 )
 from ..labels import nucc_bits, provider_card
+from ..evidence import billed_codes
 
 router = APIRouter()
 
@@ -109,6 +110,11 @@ def provider_procedures(
     if pcard:
         pcard.pop("_grouping", None)
         pcard.pop("_classification", None)
+
+    # Badge rows this NPI actually billed to Medicare Part B (issue #14).
+    # Empty dict until `make cms-utilization` has run.
+    billed = billed_codes(conn, npi, [r[0] for r in rows])
+
     return {
         "npi": npi,
         "provider": pcard,
@@ -120,6 +126,7 @@ def provider_procedures(
                 "n_rates": r[5], "n_networks": r[6],
                 "is_split": bool(r[7]), "has_global": bool(r[8]),
                 "label": r[9], "rbcs_category": r[10], "rbcs_subcategory": r[11],
+                "medicare": billed.get(r[0]),
             }
             for r in rows
         ],

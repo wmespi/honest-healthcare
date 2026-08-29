@@ -28,6 +28,7 @@ from ..labels import (
     pos_bucket,
     provider_card,
 )
+from ..evidence import did_bill
 
 router = APIRouter()
 
@@ -459,6 +460,14 @@ def rate_quote(
             plaus = plausibility(card.get("_grouping"), card.get("_classification"),
                                  card.get("specialty"), lab[0], lab[1])
 
+    # Medicare Part B evidence (issue #14). When the provider demonstrably bills
+    # this code, the "group's rate, not the individual's" framing that a weak
+    # cross-specialty heuristic triggers is actively misleading — demote it.
+    # `util` is None until `make cms-utilization` has run.
+    util = did_bill(conn, npi, billing_code)
+    if util and util.get("billed") and plaus == "unlikely":
+        plaus = "typical"
+
     if card:
         card.pop("_grouping", None)
         card.pop("_classification", None)
@@ -470,6 +479,7 @@ def rate_quote(
         "network_name": network_name,
         "provider": card,
         "plausibility": plaus,
+        "medicare_utilization": util,
         "headline": headline,
         "components": components,
         "is_component_split": split,

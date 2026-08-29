@@ -140,6 +140,11 @@ def test_rate_quote_shape(client, npi_with_rates):
     mods = [c["modifier"] for c in body["components"]]
     if "" in mods:
         assert mods[0] == ""
+    # CMS Medicare evidence (issue #14): key always present; null until
+    # `make cms-utilization` has run, else {"billed": bool, ...}.
+    assert "medicare_utilization" in body
+    mu = body["medicare_utilization"]
+    assert mu is None or "billed" in mu
 
 
 def test_distribution_rejects_npi_without_code(client, npi_with_rates):

@@ -87,6 +87,9 @@ code-labels: ## Build data/reference/code_labels.parquet (RBCS categories + syno
 taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty labels for provider taxonomy codes)
 	docker compose exec -T -w /app serving python3 -m reference.taxonomy_labels --data-dir /app/data $(if $(NUCC_URL),--nucc-url "$(NUCC_URL)",)
 
+cms-utilization: ## Build data/cms/ga_provider_service.parquet (CMS Medicare Part B — did this NPI bill this code)
+	docker compose exec -T -w /app serving python3 -m reference.cms_utilization --data-dir /app/data $(if $(CMS_URL),--cms-url "$(CMS_URL)",) $(if $(YEAR),--year $(YEAR),)
+
 ## ── Quality gate ────────────────────────────────────────────────────────────
 
 fmt: _require-etl-running ## Format all Go source (gofmt -w)

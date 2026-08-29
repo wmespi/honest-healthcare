@@ -22,10 +22,10 @@ code.
 |---|---|---|---|
 | Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue |
 | Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → Parquet |
-| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
+| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
 | Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | `frontend/` | Rate explorer — `localhost:5173` |
-| Storage | Parquet + ZSTD | `data/` | `data/anthem/{prices,group_sets,providers,codes}/`, `npi_lookup.parquet`; `data/nppes/`, `data/reference/` |
+| Storage | Parquet + ZSTD | `data/` | `data/anthem/{prices,group_sets,providers,codes}/`, `npi_lookup.parquet`; `data/nppes/`, `data/reference/`, `data/cms/` |
 | Queue DB | Postgres 15 + PostGIS | `db/` | `index_files` + `billing_codes` + `coverage_log` |
 
 The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
@@ -49,8 +49,10 @@ in C++.
 
 The dividing line is *"hand-rolled streaming parser vs. SQL-shaped transform"*, not
 extract-vs-serve. NPPES stays in Go even though it writes a dimension table,
-because the work is the stream. RBCS/NUCC are Python even though they're
-"extraction", because they join small CSVs against landed Parquet.
+because the work is the stream. RBCS/NUCC/CMS-utilization are Python even though
+they're "extraction" — and the CMS file is ~3 GB — because the work is a
+filter/join over a CSV that DuckDB's parallel C++ reader chews through in
+seconds, not a hand-rolled streaming parse.
 
 ---
 
@@ -95,6 +97,7 @@ make size                   # backfill index_files.file_size_bytes
 make nppes                  # NPPES national file → data/nppes/ga_providers.parquet (GA)
 make code-labels            # RBCS consumer procedure labels
 make taxonomy-labels        # NUCC provider specialty labels
+make cms-utilization        # CMS Medicare Part B — did this NPI bill this code
 
 make check                  # pre-commit gate: fmt + vet + build + Go unit tests
 make test-all               # full sweep (stack must be up)
@@ -119,6 +122,7 @@ make sh S=serving          # shell into a container
 | Queue ordering, GA prioritization, recovering stuck rows | [etl/queue.md](etl/queue.md) |
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
+| Provider↔procedure evidence (CMS Medicare utilization, `did_bill`) | [reference/cms-utilization.md](reference/cms-utilization.md) |
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |
