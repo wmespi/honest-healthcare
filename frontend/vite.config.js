@@ -8,6 +8,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // Allow the dev server to be reached over a Tailscale tailnet
+  // (tailscale serve forwards the original *.ts.net Host header).
+  server: {
+    allowedHosts: ['.ts.net'],
+  },
   test: {
     environment: 'jsdom',
     globals: true,
