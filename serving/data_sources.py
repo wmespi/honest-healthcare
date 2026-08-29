@@ -36,6 +36,11 @@ NUCC_PATH        = f"{DATA_DIR}/reference/nucc_taxonomy.parquet"
 # reference/cms-utilization.md. Absent until `make cms-utilization` runs.
 CMS_UTILIZATION_PATH = f"{DATA_DIR}/cms/ga_provider_service.parquet"
 
+# Per-specialty procedure prevalence, learned from CMS_UTILIZATION_PATH ∩ NPPES ∩
+# NUCC. Tier 2 of the provider↔procedure story: "typical for this specialty" when
+# there's no direct utilization row. Absent until `make specialty-profiles` runs.
+SPECIALTY_PROFILES_PATH = f"{DATA_DIR}/reference/specialty_procedure_profiles.parquet"
+
 # prices expanded to one row per provider group — the common join. A billing_code
 # / net filter on the outer query prunes `prices` before the join runs.
 PRICE_GROUPS_SRC = f"""(

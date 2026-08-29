@@ -15,7 +15,12 @@ So `billed: True` is strong evidence; `billed: False` is weak.
 """
 import os
 
-from .data_sources import CMS_UTILIZATION_PATH
+from .data_sources import CMS_UTILIZATION_PATH, SPECIALTY_PROFILES_PATH
+
+# Default prevalence for "typical for this specialty" (Tier 2). A code billed by
+# >= 3% of a specialty's Medicare providers counts as plausible for any provider
+# of that specialty. Tunable per-request via ?typical_threshold.
+DEFAULT_TYPICAL_THRESHOLD = 0.03
 
 
 def available() -> bool:
@@ -74,6 +79,54 @@ def medicare_specialty(conn, npi: int):
         [npi],
     ).fetchone()
     return r[0] if r else None
+
+
+def profiles_available() -> bool:
+    return os.path.exists(SPECIALTY_PROFILES_PATH)
+
+
+def typical_codes(conn, specialty: str, threshold: float = DEFAULT_TYPICAL_THRESHOLD) -> set:
+    """HCPCS codes billed by >= `threshold` of `specialty`'s Medicare providers
+    (Tier 2). Empty set when the profile file isn't built or the specialty is
+    unknown / too small to have been profiled."""
+    if not profiles_available() or not specialty:
+        return set()
+    rows = conn.execute(
+        f"""
+        SELECT hcpcs_cd FROM read_parquet('{SPECIALTY_PROFILES_PATH}')
+        WHERE specialty = ? AND prevalence >= ?
+        """,
+        [specialty, threshold],
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def all_billed_codes(conn, npi: int) -> set:
+    """Every HCPCS code this NPI billed to Medicare (any code, not menu-scoped).
+    Empty set when the file isn't built."""
+    if not available():
+        return set()
+    rows = conn.execute(
+        f"SELECT DISTINCT hcpcs_cd FROM read_parquet('{CMS_UTILIZATION_PATH}') WHERE npi = ?",
+        [npi],
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def code_tiers(conn, npi: int, specialty: str, codes,
+               threshold: float = DEFAULT_TYPICAL_THRESHOLD) -> dict:
+    """{code: "billed" | "typical" | "group"} for each of `codes`.
+      billed  — this NPI billed it to Medicare (Tier 1, strong)
+      typical — billed by >= threshold of the NPI's specialty (Tier 2)
+      group   — neither; the rate reaches this provider only through a shared
+                billing group (Tier 3, fan-out noise)
+    When neither reference file is built everything is "group"."""
+    billed = set(billed_codes(conn, npi, codes))
+    typical = typical_codes(conn, specialty, threshold)
+    out = {}
+    for c in codes:
+        out[c] = "billed" if c in billed else ("typical" if c in typical else "group")
+    return out
 
 
 def billed_codes(conn, npi: int, codes) -> dict:

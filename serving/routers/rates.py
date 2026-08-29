@@ -28,7 +28,7 @@ from ..labels import (
     pos_bucket,
     provider_card,
 )
-from ..evidence import did_bill, medicare_specialty
+from ..evidence import code_tiers, did_bill, medicare_specialty
 
 router = APIRouter()
 
@@ -472,6 +472,11 @@ def rate_quote(
     if util and util.get("billed") and plaus == "unlikely":
         plaus = "typical"
 
+    # Confidence tier for this (provider, code): billed > typical-for-specialty >
+    # group (the rate only reaches them via a shared billing group).
+    tier = code_tiers(conn, npi, card.get("_classification") if card else None,
+                      [billing_code]).get(billing_code, "group") if card else None
+
     if card:
         card.pop("_grouping", None)
         card.pop("_classification", None)
@@ -481,6 +486,7 @@ def rate_quote(
         "billing_code_type": billing_code_type,
         "npi": npi,
         "network_name": network_name,
+        "tier": tier,
         "provider": card,
         "plausibility": plaus,
         "medicare_utilization": util,

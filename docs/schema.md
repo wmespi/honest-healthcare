@@ -97,6 +97,12 @@ data/cms/ga_provider_service.parquet   (make cms-utilization — reference/cms-u
     avg_mdcr_alowd_amt | provider_type | hcpcs_drug_ind | year
     ← one row per (GA NPI × HCPCS × POS) billed to Medicare Part B; the
       did_bill() evidence layer (serving/evidence.py). ~284k rows / ~34k NPIs.
+
+data/reference/specialty_procedure_profiles.parquet  (make specialty-profiles — reference/specialty-profiles.md)
+    specialty (NUCC classification) | hcpcs_cd
+    billers | specialty_providers | prevalence
+    ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
+      NUCC). ~5.8k rules / ~51 specialties. Read by evidence.code_tiers().
 ```
 
 ---

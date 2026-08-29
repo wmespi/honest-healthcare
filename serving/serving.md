@@ -13,6 +13,7 @@ FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 | `main.py` | app + CORS + `/` health + `include_router` — nothing else |
 | `data_sources.py` | glob paths, the `*_SRC` / `PRICE_GROUPS_SRC` / `VOL_CTE` SQL fragments, `db()` (the bounded DuckDB connection), `network_slug()`, `price_filters()`, `have_prices()` / `has_parquet()` |
 | `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `nucc_bits()` / `provider_card()`, `plausibility()` |
+| `evidence.py` | provider↔procedure evidence from CMS Medicare utilization (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. All no-op until `make cms-utilization` / `make specialty-profiles` run. |
 | `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
 | `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search`, `/providers/ga` |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
@@ -28,10 +29,10 @@ that expands a price row to its provider groups. Schema:
 
 | Route | Job | Returns |
 |---|---|---|
-| `/rates/quote?billing_code&npi` | **1** — one procedure at one provider | headline rate + breakdown by component (global / `-26` professional / `-TC` technical) and place of service, + `plausibility` |
+| `/rates/quote?billing_code&npi` | **1** — one procedure at one provider | headline rate + breakdown by component (global / `-26` professional / `-TC` technical) and place of service, + `plausibility`, `medicare_utilization`, `tier` |
 | `/rates/by_network?billing_code` | **2** — same procedure across every network | one row per network, `median` + p10/p90 spread, sorted cheapest median first |
 | `/rates/providers?billing_code` | **3** — compare across providers | one row per provider group, `component=global` by default; `ROLLUP_THRESHOLD` folds the fee-schedule majority |
-| `/providers/{npi}/procedures` | **4** — the provider "menu" | every procedure this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap |
+| `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap. `tier=plausible` (default) shows only codes the NPI billed to Medicare or that are typical for their specialty + a `group_count`; `tier=all` shows every contracted code tagged `billed`/`typical`/`group` |
 
 Supporting: `/rates/distribution` (histogram — **400s on npi-without-code**, which
 would full-scan), `/networks`, `/providers/search` (+ `specialty=`),
@@ -46,10 +47,16 @@ would full-scan), `/networks`, `/providers/search` (+ `specialty=`),
 - `nucc_bits()` / `provider_card(conn, npi)` — LEFT JOIN NUCC specialty + NPPES
   practice address onto an NPI. `nppes_cols(conn)` is module-cached from
   `DESCRIBE` so `address_line1/2` is referenced only when the file has it.
-- `plausibility(...)` — a **coarse** specialty ↔ code check. NOT proof a provider
-  does or doesn't do a procedure; only flags that the code sits well outside the
-  NUCC taxonomy, so the frontend presents the number as the *group's* rate, not
-  the individual's. Real fix:
+- `plausibility(...)` — a **coarse** specialty ↔ code check (fallback heuristic).
+  Superseded by the `evidence.py` tiers when the CMS files are built; still used
+  where they're not, and feeds `medicare_type` from CMS when the NUCC taxonomy is
+  vague.
+- `evidence.code_tiers(conn, npi, specialty, codes)` → `billed` / `typical` /
+  `group` per code. `billed` = this NPI billed it to Medicare Part B; `typical` =
+  ≥3% of the NPI's specialty bills it (from
+  `data/reference/specialty_procedure_profiles.parquet`, `make specialty-profiles`);
+  `group` = reaches the provider only via a shared billing group. See
+  [../reference/cms-utilization.md](../reference/cms-utilization.md) and
   [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
 
 ## Known limits

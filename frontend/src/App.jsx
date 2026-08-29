@@ -684,7 +684,7 @@ function ProviderCostCard({ data, loading, providerName }) {
 // The provider "menu" — every procedure the selected provider has a negotiated
 // rate for, grouped by RBCS category. Shown when a provider is picked but no
 // specific procedure. Clicking a row drills into that procedure.
-function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork }) {
+function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork, onShowAll }) {
   const [expanded, setExpanded] = useState(null);
 
   if (loading) {
@@ -735,9 +735,17 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
         <p className="text-slate-500 text-xs mt-1">
           {[data?.provider?.specialty, data?.provider?.address || data?.provider?.city].filter(Boolean).join(' · ')}
           {(data?.provider?.specialty || data?.provider?.city) ? ' · ' : ''}
-          {rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.
+          {data?.tier === 'plausible' && data?.group_count > 0
+            ? <>{rows.length.toLocaleString()} procedures this provider bills or that are typical for their specialty. Tap one for the breakdown.</>
+            : <>{rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.</>}
         </p>
       </div>
+      {data?.group_rate_only && (
+        <p className="mb-4 text-xs text-amber-300/80 leading-relaxed bg-amber-500/[0.06] border border-amber-500/20 rounded-2xl px-4 py-3">
+          Every rate below reaches {providerName || 'this provider'} through a shared billing group — none is
+          verified to them individually. Treat these as the group’s rates.
+        </p>
+      )}
       <div className="space-y-1.5">
         {cats.map(([cat, items]) => (
           <div key={cat} className="rounded-2xl overflow-hidden bg-slate-900 border border-slate-800">
@@ -768,11 +776,19 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
                           <div className="text-[11px] text-slate-600 mt-0.5 flex items-center gap-2">
                             <span className="font-mono text-indigo-400">{r.billing_code}</span>
                             {r.is_split && <span className="text-amber-500/80">billed in parts</span>}
-                            {r.medicare && (
+                            {r.medicare ? (
                               <span className="flex items-center gap-1 text-emerald-500/90" title={`Billed ${r.medicare.tot_srvcs.toLocaleString()} times to Medicare in ${r.medicare.year}`}>
                                 <ShieldCheck size={11} /> Medicare
                               </span>
-                            )}
+                            ) : r.tier === 'typical' ? (
+                              <span className="text-slate-500" title={`Typical for ${data?.specialty || 'this specialty'} — not verified to this provider`}>
+                                typical for specialty
+                              </span>
+                            ) : r.tier === 'group' ? (
+                              <span className="text-slate-600" title="Reaches this provider only via a shared billing group">
+                                group rate
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
@@ -792,6 +808,21 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
           </div>
         ))}
       </div>
+      {data?.tier === 'plausible' && data?.group_count > 0 && onShowAll && (
+        <button
+          onClick={onShowAll}
+          className="mt-3 w-full rounded-2xl border border-dashed border-slate-800 px-5 py-3 text-left text-xs text-slate-500 hover:text-slate-300 hover:border-slate-700 transition-colors"
+        >
+          + {data.group_count.toLocaleString()} more rates contracted to this provider’s billing
+          group — not verified to them individually. <span className="text-indigo-400 font-bold">Show all</span>
+        </button>
+      )}
+      {data?.tier === 'all' && !data?.group_rate_only && (
+        <p className="mt-3 text-[11px] text-slate-600 px-1">
+          Showing all contracted rates, including group fan-out. Rows without a badge reach this
+          provider only through a shared billing group.
+        </p>
+      )}
     </div>
   );
 }
@@ -818,6 +849,7 @@ function App() {
 
   const [providerMenu, setProviderMenu] = useState(null);
   const [providerMenuLoading, setProviderMenuLoading] = useState(false);
+  const [menuTier, setMenuTier] = useState('plausible'); // 'plausible' | 'all'
 
   const [providerQuote, setProviderQuote] = useState(null);
   const [providerQuoteLoading, setProviderQuoteLoading] = useState(false);
@@ -872,16 +904,19 @@ function App() {
 
   // Provider "menu" — every procedure the selected provider has a rate for.
   // Shown only when a provider is chosen but no specific procedure is.
+  // Reset to the plausible view whenever the provider / plan / setting changes.
+  useEffect(() => { setMenuTier('plausible'); }, [npi, selectedPlan, setting]);
+
   useEffect(() => {
     if (!npi || selectedCode?.code) { setProviderMenu(null); return; }
     let cancelled = false;
     setProviderMenuLoading(true);
-    getProviderMenu(npi, selectedPlan || undefined, setting || undefined)
+    getProviderMenu(npi, selectedPlan || undefined, setting || undefined, '', menuTier)
       .then(res => { if (!cancelled) setProviderMenu(res.data); })
       .catch(() => { if (!cancelled) setProviderMenu(null); })
       .finally(() => { if (!cancelled) setProviderMenuLoading(false); });
     return () => { cancelled = true; };
-  }, [npi, selectedCode, selectedPlan, setting]);
+  }, [npi, selectedCode, selectedPlan, setting, menuTier]);
 
   // Procedure search. When a provider is selected, scope suggestions to that
   // provider's actual menu (via /providers/{npi}/procedures) so we never offer
@@ -1144,6 +1179,7 @@ function App() {
             providerName={npiLabel}
             network={selectedPlan}
             onClearNetwork={() => handlePlanSelect('')}
+            onShowAll={() => setMenuTier('all')}
           />
         )}
 

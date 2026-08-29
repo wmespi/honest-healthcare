@@ -20,7 +20,12 @@ from ..data_sources import (
     network_slug,
 )
 from ..labels import nucc_bits, provider_card
-from ..evidence import billed_codes
+from ..evidence import (
+    DEFAULT_TYPICAL_THRESHOLD,
+    all_billed_codes,
+    billed_codes,
+    typical_codes,
+)
 
 router = APIRouter()
 
@@ -31,15 +36,23 @@ def provider_procedures(
     network_name: Optional[str] = None,
     setting: Optional[str] = None,
     q: str = Query(default=""),
+    tier: str = Query(default="plausible", pattern="^(plausible|all)$"),
+    typical_threshold: float = Query(default=DEFAULT_TYPICAL_THRESHOLD, ge=0, le=1),
     limit: int = Query(default=500, le=2000),
 ):
-    """The provider "menu": every procedure this NPI has a negotiated rate for,
-    with the rate range, grouped-ready by RBCS category.
+    """The provider "menu": procedures this NPI has a negotiated rate for.
 
-    Resolves the NPI to its (file_id, group_set_id) sets FIRST (cheap — the
-    providers filter is selective, then a join to the small group_sets table),
-    then touches `prices`. This is what makes it affordable where a bare
-    npi filter on /rates/distribution is not.
+    Anthem's provider groups are coarse — a provider "has" a rate for every code
+    contracted to any group they sit in (issue #14). `tier` controls the noise:
+      plausible (default) — only codes this NPI billed to Medicare ("billed") or
+                            that ≥ `typical_threshold` of their specialty bills
+                            ("typical"); `group_count` reports how many were hidden
+      all                 — every contracted code, each tagged with its tier
+    Falls back to `all` (with `group_rate_only: true`) when a provider has no
+    plausible codes, or the CMS reference files aren't built.
+
+    Resolves the NPI to its (file_id, group_set_id) sets FIRST (cheap), then
+    touches `prices`.
     """
     conn = db()
 
@@ -51,14 +64,42 @@ def provider_procedures(
     if setting:
         params.append(setting)
 
+    # Provider specialty (NUCC classification) — the key into the Tier-2 profile.
+    pcard = provider_card(conn, npi)
+    specialty = (pcard or {}).get("_classification")
+    if pcard:
+        pcard.pop("_grouping", None)
+        pcard.pop("_classification", None)
+
+    billed_set = all_billed_codes(conn, npi)
+    typical_set = typical_codes(conn, specialty, typical_threshold)
+    plausible_set = billed_set | typical_set
+    # `all` when asked, when nothing to filter on, or when a search is active
+    # (the user is looking for something specific — don't hide it).
+    effective_tier = "all" if (tier == "all" or q or not plausible_set) else "plausible"
+
+    wheres = []
+    extra_params: list = []
+    if q:
+        if os.path.exists(CODE_LABELS_PATH):
+            wheres.append("(m.billing_code ILIKE ? OR l.search_text ILIKE ?)")
+            extra_params += [f"%{q}%", f"%{q}%"]
+        else:
+            wheres.append("m.billing_code ILIKE ?")
+            extra_params.append(f"%{q}%")
+    if effective_tier == "plausible":
+        placeholders = ", ".join("?" * len(plausible_set))
+        wheres.append(f"m.billing_code IN ({placeholders})")
+        extra_params += sorted(plausible_set)
+    where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+
     has_labels = os.path.exists(CODE_LABELS_PATH)
     if has_labels:
         label_join = f"LEFT JOIN read_parquet('{CODE_LABELS_PATH}') l ON l.billing_code = m.billing_code AND l.billing_code_type = m.billing_code_type"
         label_cols = "l.label, l.rbcs_category, l.rbcs_subcategory"
-        search_filter = "WHERE (m.billing_code ILIKE ? OR l.search_text ILIKE ?)" if q else ""
     else:
         label_join, label_cols = "", "NULL AS label, NULL AS rbcs_category, NULL AS rbcs_subcategory"
-        search_filter = "WHERE m.billing_code ILIKE ?" if q else ""
+    search_filter = where_sql
 
     rows = conn.execute(f"""
         WITH npi_groups AS (
@@ -104,32 +145,61 @@ def provider_procedures(
         {search_filter}
         ORDER BY m.n_rates DESC, m.billing_code
         LIMIT {limit}
-    """, params + ([f"%{q}%", f"%{q}%"] if q and has_labels else ([f"%{q}%"] if q else []))).fetchall()
+    """, params + extra_params).fetchall()
 
-    pcard = provider_card(conn, npi)
-    if pcard:
-        pcard.pop("_grouping", None)
-        pcard.pop("_classification", None)
+    # total distinct menu codes (pre-tier-filter, post-search) → how many the
+    # plausible view is hiding.
+    total_menu = conn.execute(f"""
+        WITH npi_groups AS (
+            SELECT DISTINCT file_id, provider_group_id FROM {PROVIDERS_SRC} WHERE npi = ?
+        ),
+        npi_sets AS (
+            SELECT DISTINCT gs.file_id, gs.group_set_id FROM {GROUP_SETS_SRC} gs
+            JOIN npi_groups g ON g.file_id = gs.file_id AND g.provider_group_id = gs.provider_group_id
+        )
+        SELECT COUNT(DISTINCT p.billing_code)
+        FROM {PRICES_SRC} p
+        JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
+        WHERE 1=1 {net_filter} {set_filter}
+    """, [npi] + params[1:]).fetchone()[0]
 
-    # Badge rows this NPI actually billed to Medicare Part B (issue #14).
-    # Empty dict until `make cms-utilization` has run.
     billed = billed_codes(conn, npi, [r[0] for r in rows])
 
+    def row_tier(code):
+        if code in billed_set:
+            return "billed"
+        if code in typical_set:
+            return "typical"
+        return "group"
+
+    results = [
+        {
+            "billing_code": r[0], "billing_code_type": r[1],
+            "min_rate": r[2], "median_rate": r[3], "max_rate": r[4],
+            "n_rates": r[5], "n_networks": r[6],
+            "is_split": bool(r[7]), "has_global": bool(r[8]),
+            "label": r[9], "rbcs_category": r[10], "rbcs_subcategory": r[11],
+            "medicare": billed.get(r[0]),
+            "tier": row_tier(r[0]),
+        }
+        for r in rows
+    ]
     return {
         "npi": npi,
         "provider": pcard,
-        "count": len(rows),
-        "results": [
-            {
-                "billing_code": r[0], "billing_code_type": r[1],
-                "min_rate": r[2], "median_rate": r[3], "max_rate": r[4],
-                "n_rates": r[5], "n_networks": r[6],
-                "is_split": bool(r[7]), "has_global": bool(r[8]),
-                "label": r[9], "rbcs_category": r[10], "rbcs_subcategory": r[11],
-                "medicare": billed.get(r[0]),
-            }
-            for r in rows
-        ],
+        "specialty": specialty,
+        "tier": effective_tier,
+        "count": len(results),
+        # how many contracted codes are hidden / would be Tier-3 noise
+        "group_count": (
+            max(total_menu - len(results), 0) if effective_tier == "plausible"
+            else sum(1 for x in results if x["tier"] == "group")
+        ),
+        # provider has contracted rates but none we can call plausible
+        "group_rate_only": (
+            effective_tier == "all" and not plausible_set and not q and total_menu > 0
+        ),
+        "results": results,
     }
 
 

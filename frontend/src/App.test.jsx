@@ -75,7 +75,7 @@ describe('provider selected without a procedure', () => {
 
     // The menu view loads.
     expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
-    expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined);
+    expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'plausible');
 
     // ...and the app is not stuck on the loading spinner.
     expect(screen.queryByText(/querying mrf data/i)).not.toBeInTheDocument();
@@ -194,6 +194,36 @@ describe('Medicare utilization evidence (issue #14)', () => {
 
     expect(await screen.findByText(/billed this to Medicare/i)).toBeInTheDocument();
     expect(screen.getByText(/142 times in 2024/i)).toBeInTheDocument();
+  });
+
+  it('collapses group-tier rates behind "show all" and expands on click', async () => {
+    const user = userEvent.setup();
+    api.getProviderMenu.mockImplementation((npi, net, setting, q = '', tier = 'plausible') => {
+      if (tier === 'all') return Promise.resolve({ data: {
+        npi: 123, tier: 'all', group_count: 1, specialty: 'Cardiology', count: 2,
+        results: [
+          { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'Evaluation & Management', min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3, n_networks: 1, tier: 'typical' },
+          { billing_code: '11111', billing_code_type: 'CPT', label: 'Random Surgery', rbcs_category: 'Procedure', min_rate: 900, median_rate: 900, max_rate: 900, n_rates: 1, n_networks: 1, tier: 'group' },
+        ],
+      } });
+      return Promise.resolve({ data: {
+        npi: 123, tier: 'plausible', group_count: 1, specialty: 'Cardiology', count: 1,
+        results: [
+          { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'Evaluation & Management', min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3, n_networks: 1, tier: 'typical' },
+        ],
+      } });
+    });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+
+    const showAll = await screen.findByText(/1 more rates contracted/i);
+    await user.click(showAll);
+
+    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'all'));
+    await user.click(await screen.findByText('Procedure'));
+    expect(await screen.findByText('Random Surgery')).toBeInTheDocument();
   });
 
   it('badges menu rows the provider billed to Medicare', async () => {

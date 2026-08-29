@@ -98,6 +98,7 @@ make nppes                  # NPPES national file → data/nppes/ga_providers.pa
 make code-labels            # RBCS consumer procedure labels
 make taxonomy-labels        # NUCC provider specialty labels
 make cms-utilization        # CMS Medicare Part B — did this NPI bill this code
+make specialty-profiles     #   ...and what's typical for each specialty (Tier 2)
 
 make check                  # pre-commit gate: fmt + vet + build + Go unit tests
 make test-all               # full sweep (stack must be up)
@@ -122,7 +123,7 @@ make sh S=serving          # shell into a container
 | Queue ordering, GA prioritization, recovering stuck rows | [etl/queue.md](etl/queue.md) |
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
-| Provider↔procedure evidence (CMS Medicare utilization, `did_bill`) | [reference/cms-utilization.md](reference/cms-utilization.md) |
+| Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |

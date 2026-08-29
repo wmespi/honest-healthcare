@@ -77,6 +77,14 @@ rows — `did_bill()` aggregates over them.
   stale / vague self-reported NUCC taxonomy. Fallback only: it's null for the
   ~86% of GA providers with no Part B claims, so it can't replace NUCC/NPPES as
   the primary specialty source.
+- `typical_codes()` / `code_tiers()` → Tier 2. `code_tiers` classifies each
+  (npi, code) as `billed` (Tier 1, this NPI billed it) / `typical` (≥ threshold
+  of the NPI's specialty bills it — from `make specialty-profiles`,
+  [specialty-profiles.md](specialty-profiles.md)) / `group` (fan-out noise).
+  `/providers/{npi}/procedures?tier=plausible` (default) keeps only billed +
+  typical; `/rates/quote` returns the tier. **Retention:** a strict Tier-1 filter
+  keeps only ~47% of priceable providers; Tier 1+2 keeps ~94%, trimming the menu
+  from ~17k contracted codes to ~30 plausible ones.
 
 All three no-op to `None`/`{}` until `make cms-utilization` has run, so the API
 works without it.

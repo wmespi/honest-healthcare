@@ -34,11 +34,12 @@ export const getProcedureCategories = () => api.get('/procedure_categories');
 // The provider "menu" — every procedure this NPI has a negotiated rate for, with
 // the rate range. Returns { npi, count, results: [{ billing_code, label,
 // rbcs_category, min_rate, median_rate, max_rate, n_rates }] }.
-export const getProviderMenu = (npi, network_name, setting, q = '') => {
+export const getProviderMenu = (npi, network_name, setting, q = '', tier = 'plausible') => {
     const params = {};
     if (network_name) params.network_name = network_name;
     if (setting) params.setting = setting;
     if (q) params.q = q;
+    if (tier && tier !== 'plausible') params.tier = tier;
     return api.get(`/providers/${npi}/procedures`, { params });
 };
 
