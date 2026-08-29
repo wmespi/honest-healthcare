@@ -96,8 +96,10 @@ make taxonomy-labels
 ```
 
 The API picks up new Parquet automatically — just refresh the UI. `make help`
-lists every workflow. To reach the UI from a phone on the same network, set
-`LAN_HOST=<your-ip>` in `.env` and use `http://<your-ip>:5173`.
+lists every workflow. To reach the UI from another device, open
+`http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on
+port 8000 of whatever host you loaded it from. `scripts/tailscale-up.sh` sets up
+private off-network access.
 
 ---
 
