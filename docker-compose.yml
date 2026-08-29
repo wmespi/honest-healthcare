@@ -65,9 +65,11 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # Override via .env (LAN_HOST=10.0.0.76) to reach the app from another
-      # device on the same network — e.g. a phone at http://<LAN_HOST>:5173.
-      - VITE_API_URL=http://${LAN_HOST:-localhost}:8000
+      # By default the frontend derives the API URL from window.location at
+      # runtime (src/api.js), so http://<any-host>:5173 just works — LAN IP,
+      # Tailscale name, localhost. Only set VITE_API_URL for a split deployment
+      # where the API lives on a different host.
+      - VITE_API_URL=${VITE_API_URL:-}
     depends_on:
       - serving
 
