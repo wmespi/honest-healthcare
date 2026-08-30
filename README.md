@@ -1,5 +1,7 @@
 # Honest Healthcare
 
+[![CI](https://github.com/wmespi/honest-healthcare/actions/workflows/ci.yml/badge.svg)](https://github.com/wmespi/honest-healthcare/actions/workflows/ci.yml)
+
 A rate explorer for Anthem's price-transparency data. It streams Anthem's
 multi-GB Machine-Readable Files (MRFs), stores the negotiated rates as Parquet,
 and serves a consumer UI that answers four questions: what a procedure costs at a

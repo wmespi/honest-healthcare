@@ -65,6 +65,27 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
 
 `make test-e2e` runs both.
 
+> **Ordering:** `etl_e2e_test.sh` runs first, and it only gets the clean "keep all
+> NPIs" path if `data-test/nppes/ga_providers.parquet` is absent. A stale copy
+> from a prior manual `make nppes TEST=1` makes the GA NPI filter drop every
+> synthetic row and the test fails. `make test-e2e` is fine (e2e before nppes);
+> `rm -rf data-test/*` if you hit it out of band.
+
+## CI (GitHub Actions)
+
+`.github/workflows/ci.yml` runs on every PR and on push to `main`, three jobs in
+parallel:
+
+| Job | Covers | How |
+|---|---|---|
+| `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
+| `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
+| `e2e` | `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
+
+**Not in CI yet:** `make test-api` needs a populated `data/` (multi-GB, gitignored)
+— it wants a small committed rate-Parquet fixture first. JS lint (`npm run lint`)
+has pre-existing errors — not gated until they're cleared.
+
 ## Frontend — `frontend/src/App.test.jsx`
 
 vitest + Testing Library, hermetic (`vi.mock('./api')`, jsdom). Covers the
@@ -80,4 +101,4 @@ that a **provider selected with no procedure** shows the
 |---|---|---|
 | Frontend E2E | Playwright | Real browser: histogram render, filter chips, mobile layout |
 | ETL conflict-resolution | `go test ./...` | Plan-specific-file-wins rate override (Critical Rule 5) |
-| CI | GitHub Actions | `make check` on every push (no workflow exists yet) |
+| API contract in CI | GitHub Actions | `make test-api` — blocked on a committed rate-Parquet fixture |
