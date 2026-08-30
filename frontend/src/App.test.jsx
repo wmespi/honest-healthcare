@@ -39,6 +39,10 @@ beforeEach(() => {
     status: 'ok', priceable_npis: 27470, n_codes: 20697, as_of: '2026-08-28',
     networks: ['GA Blue Value HIX Individual Network', 'TRADITIONAL HEALTH PLAN', 'PARTICIPATING NETWORK HBP SPECIALTIES'],
   } });
+  api.getPlans.mockResolvedValue({ data: [
+    { plan: 'Blue Value HMO — Individual', carrier: 'Anthem', market: 'Individual (Georgia)',
+      network_name: 'GA Blue Value HIX Individual Network', available: true },
+  ] });
   api.getProcedureCategories.mockResolvedValue({ data: [] });
   api.searchBillingCodes.mockResolvedValue({ data: [] });
   api.getRateDistribution.mockResolvedValue({ data: OVERVIEW });
@@ -314,7 +318,7 @@ describe('out-of-pocket estimator (issue #30)', () => {
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
-    await user.click(screen.getByText('Your plan'));
+    await user.click(screen.getByText('Your cost sharing'));
     const coins = await screen.findByPlaceholderText('20');
     await user.type(coins, '20');
 
@@ -332,12 +336,36 @@ describe('out-of-pocket estimator (issue #30)', () => {
     const user = userEvent.setup();
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    await user.click(screen.getByText('Your plan'));
+    await user.click(screen.getByText('Your cost sharing'));
     await user.type(await screen.findByPlaceholderText('20'), '15');
     await waitFor(() => {
       const saved = JSON.parse(localStorage.getItem('hh_plan_v1'));
       expect(saved.coinsurance).toBe('15');
     });
+  });
+});
+
+describe('friendly plan picker (issue #33)', () => {
+  it('offers the curated plan and resolves it to its network', async () => {
+    const user = userEvent.setup();
+    api.getNetworks.mockResolvedValue({ data: [
+      { network_name: 'GA Blue Value HIX Individual Network', n_rates: 76197 },
+      { network_name: 'TRADITIONAL HEALTH PLAN', n_rates: 7000000 },
+    ] });
+    render(<App />);
+    await waitFor(() => expect(api.getPlans).toHaveBeenCalled());
+
+    await user.click(screen.getByText('All Networks'));
+    expect(await screen.findByText('Your plan')).toBeInTheDocument();
+    await user.click(screen.getByText('Blue Value HMO — Individual'));
+
+    // the network filter is applied → distribution re-fetched for that network
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
+      undefined, undefined, 'GA Blue Value HIX Individual Network', undefined, undefined,
+    ));
+    // dropdown closes; the button now shows the friendly label
+    await waitFor(() => expect(screen.queryByText('Your plan')).not.toBeInTheDocument());
+    expect(screen.getByText('Blue Value HMO — Individual')).toBeInTheDocument();
   });
 });
 

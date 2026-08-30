@@ -5,15 +5,16 @@ issues that only bite at scale are in [../etl/parse.md](../etl/parse.md).*
 
 ## Attribution
 
-- **Plan-name attribution — still partial.** `network_name` is captured from
-  `provider_references` and is the reliable filter (e.g. `GA Blue Value HIX
+- **Plan-name attribution — bridged, not derived.** `network_name` is captured
+  from `provider_references` and is the reliable filter (e.g. `GA Blue Value HIX
   Individual Network`). The free-text plan *name* (`BLUE VALUE IND NETWORK HMO -
-  INDIV - ANTHEM`) never enters the pipeline; `index_files.plan_names` /
-  `idx_index_files_plan` are unused. Mapping a member's plan name →
-  network_name(s) is the remaining piece — HIOS `plan_id` + the CMS registry, or
-  the index's `reporting_plans`. The old `plan_name` column (source-file
-  `market_types`, never a real plan name) is gone; `/plans` returns `[]`; the
-  frontend filters by `network_name` and needs a Plan → Network dropdown.
+  INDIV - ANTHEM`) never enters the pipeline. **Interim (GH #33):** a
+  hand-curated `serving/plan_networks.json` maps friendly plan names → network,
+  served by `/plans` and shown as a "Your plan" section in the network picker.
+  Today it holds one entry (Blue Value). The real fix — *deriving* the map from
+  HIOS `plan_id` + a CMS public-use file, or the index's `reporting_plans` ↔
+  `in_network_files` linkage — is still open; `index_files.plan_names` /
+  `idx_index_files_plan` remain unused.
 - **`network_name` is NOT uniform across files.** `GA_JBNKMED0001` (id 21057, the
   target plan's only clean source) uses `"GA Blue Value HIX Individual Network"`;
   other `anthem/GA_*` files use config-style labels
