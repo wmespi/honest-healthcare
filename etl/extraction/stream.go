@@ -313,7 +313,7 @@ func streamMRF(
 	for decoder.More() {
 		t, err := decoder.Token()
 		if err != nil {
-			break
+			return nil, fmt.Errorf("failed to read root key: %w", err)
 		}
 		key, ok := t.(string)
 		if !ok {
@@ -323,19 +323,23 @@ func streamMRF(
 		switch key {
 		case "provider_references":
 			log.Println("    🎯 Found 'provider_references'. Streaming...")
-			decoder.Token() // '['
+			if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
+				return nil, fmt.Errorf("invalid provider_references array: %v", err)
+			}
 			for decoder.More() {
 				var ref core.ProviderReference
 				if wantSchema && res.SchemaExample["provider_references"] == nil {
 					var raw map[string]interface{}
-					if err := decoder.Decode(&raw); err == nil {
-						res.SchemaExample["provider_references"] = []interface{}{raw}
-						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &ref)
+					if err := decoder.Decode(&raw); err != nil {
+						return nil, fmt.Errorf("decode provider_reference schema sample: %w", err)
+					}
+					res.SchemaExample["provider_references"] = []interface{}{raw}
+					b, _ := json.Marshal(raw)
+					if err := json.Unmarshal(b, &ref); err != nil {
+						return nil, fmt.Errorf("decode provider_reference schema sample: %w", err)
 					}
 				} else if err := decoder.Decode(&ref); err != nil {
-					log.Printf("⚠️ decode provider_reference: %v", err)
-					continue
+					return nil, fmt.Errorf("decode provider_reference: %w", err)
 				}
 
 				rows, networkName := buildProviderRows(ref, fileID)
@@ -397,25 +401,31 @@ func streamMRF(
 					}
 				}
 			}
-			decoder.Token() // ']'
+			if token, err := decoder.Token(); err != nil || token != json.Delim(']') {
+				return nil, fmt.Errorf("invalid provider_references closing token: %v", err)
+			}
 			flushProv()
 			log.Printf("    ✅ Streamed %d provider rows. %s", res.ProviderRows, progress())
 
 		case "in_network":
 			log.Println("    🎯 Found 'in_network'. Streaming...")
-			decoder.Token() // '['
+			if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
+				return nil, fmt.Errorf("invalid in_network array: %v", err)
+			}
 			for decoder.More() {
 				var item core.InNetworkItem
 				if wantSchema && res.SchemaExample["in_network"] == nil {
 					var raw map[string]interface{}
-					if err := decoder.Decode(&raw); err == nil {
-						res.SchemaExample["in_network"] = []interface{}{raw}
-						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &item)
+					if err := decoder.Decode(&raw); err != nil {
+						return nil, fmt.Errorf("decode in_network schema sample: %w", err)
+					}
+					res.SchemaExample["in_network"] = []interface{}{raw}
+					b, _ := json.Marshal(raw)
+					if err := json.Unmarshal(b, &item); err != nil {
+						return nil, fmt.Errorf("decode in_network schema sample: %w", err)
 					}
 				} else if err := decoder.Decode(&item); err != nil {
-					log.Printf("⚠️ decode in_network item: %v", err)
-					continue
+					return nil, fmt.Errorf("decode in_network item: %w", err)
 				}
 
 				if item.BillingCodeType != "" {
@@ -456,7 +466,9 @@ func streamMRF(
 					}
 				}
 			}
-			decoder.Token() // ']'
+			if token, err := decoder.Token(); err != nil || token != json.Delim(']') {
+				return nil, fmt.Errorf("invalid in_network closing token: %v", err)
+			}
 			flushPrice()
 			flushMembers()
 			log.Printf("    ✅ Streamed %d price rows, %d group-set edges (%d sets). %s",
@@ -498,7 +510,13 @@ func streamMRF(
 			}
 		}
 	}
-	decoder.Token() // '}'
+	t, err = decoder.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read root closing token: %w", err)
+	}
+	if delim, ok := t.(json.Delim); !ok || delim != '}' {
+		return nil, fmt.Errorf("expected root closing '}', got %v", t)
+	}
 
 	return res, nil
 }

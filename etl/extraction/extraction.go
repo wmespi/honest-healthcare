@@ -231,14 +231,21 @@ func parseRates(
 		markFailed(ctx, conn, fileID, err, dryRun)
 		return nil
 	}
-	defer gz.Close()
-
 	log.Println("  🔄 Starting single-pass extract...")
 	res, err := streamMRF(gz, planName, int64(fileID), isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, w, pr)
+	_, drainErr := io.Copy(io.Discard, gz)
+	gzipErr := gz.Close()
+	if gzipErr == nil {
+		gzipErr = drainErr
+	}
 	// Parquet writers must be closed (flushed) before we read the files back or
 	// mark the row completed — close in LIFO order (writer before its file).
 	closeAll(closers)
 	if err != nil {
+		markFailed(ctx, conn, fileID, err, dryRun)
+		return nil
+	}
+	if err := validateCompleteness(pr, contentLength, gzipErr, res); err != nil {
 		markFailed(ctx, conn, fileID, err, dryRun)
 		return nil
 	}
@@ -310,6 +317,19 @@ func parseRates(
 		res.ProviderRows, res.PriceRows, res.GroupSetMemberRows, res.GroupSets,
 		res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))
 	return res
+}
+
+func validateCompleteness(pr *core.ProgressReader, contentLength int64, gzipErr error, res *mrfResult) error {
+	if gzipErr != nil {
+		return fmt.Errorf("invalid gzip stream: %w", gzipErr)
+	}
+	if contentLength > 0 && pr != nil && pr.ReadBytes.Load() < contentLength {
+		return fmt.Errorf("short read: got %d of %d bytes", pr.ReadBytes.Load(), contentLength)
+	}
+	if res != nil && res.PriceRows == 0 {
+		return fmt.Errorf("empty extraction: no rate rows produced")
+	}
+	return nil
 }
 
 func orFixture(url, fixturePath string) string {
