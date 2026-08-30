@@ -66,14 +66,17 @@ summary/code_rollup.parquet
     payer | billing_code_type | billing_code | n_provider_groups | n_rates
 ```
 
-`scripts/build_rate_summary.py` rebuilds both from `prices` (+ `group_sets` for
-the rollup) after a parse batch. The `/networks`, `/billing_codes`,
-`/procedure_categories` endpoints read these instead of scanning
-`prices ⨝ group_sets` (~1e9 rows — [issue #10](https://github.com/wmespi/honest-healthcare/issues/10));
-they fall back to the live scan when the files are absent. `n_provider_groups`
-is `approx_count_distinct` (HyperLogLog — bounded memory, and still more honest
-than the `VOL_CTE` fallback, which sums roster sizes). `payer` is `'anthem'`
-today; the column is there for multi-payer.
+`scripts/build_rate_summary.py` rebuilds both from `prices` (+ a pre-aggregated
+per-roster size table for the rollup) after a parse batch. The `/networks`,
+`/billing_codes`, `/procedure_categories` endpoints read these instead of
+scanning `prices ⨝ group_sets` (>1e9 edges at GA scale —
+[issue #10](https://github.com/wmespi/honest-healthcare/issues/10)); they fall
+back to the live scan when the files are absent. `n_rates` is exact;
+`n_provider_groups` is SUM of the code's rosters' sizes — a ranking hint that
+over-counts a group in several of a code's rosters (same as the old `VOL_CTE`),
+computed against the roster-size table so it stays bounded. `payer` is
+`'anthem'` today; the column is there for multi-payer. Build cost: ~35 s at
+645M price rows / 1.1B roster edges.
 
 `{id}` is `index_files.id`; `file_id` carries it on every row. `provider_group_id`
 is the MRF's **file-local** `provider_reference.id` — all cross-file joins key on
