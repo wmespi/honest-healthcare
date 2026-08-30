@@ -1,0 +1,46 @@
+# Keep the build context small — nothing here is needed to build any image.
+# (Each Dockerfile COPYs only what it needs; this is the belt-and-braces list.)
+
+# VCS
+.git
+.gitignore
+.github
+
+# Data — the big ones. Parquet + raw sources are mounted at runtime, never built in.
+data/
+data-test/
+data-archive/
+spark-warehouse/
+metastore_db/
+derby.log
+*.parquet
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+.venv/
+venv/
+
+# Node / frontend build output
+**/node_modules/
+frontend/dist/
+
+# Go build artifacts (the binary is produced inside the build stage)
+etl/etl
+etl/etl-parser
+
+# Editor / OS / local
+.DS_Store
+.vscode/
+.idea/
+*.swp
+scratchpad/
+.claude/settings.local.json
+
+# Docs and meta — not needed in any image
+*.md
+docs/
+LICENSE

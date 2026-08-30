@@ -1,3 +1,7 @@
+# Dev stack. Every service builds from a multi-stage Dockerfile in deploy/ whose
+# default target is the production artifact; here we select the `dev` target and
+# layer on the dev-loop conveniences (bind-mounted source, exposed ports,
+# --reload, persistent build caches). A deployable compose file lands with #17.
 services:
   db:
     image: postgis/postgis:15-3.3-alpine
@@ -17,8 +21,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./data-test:/data-test
-      - ./data:/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
@@ -29,11 +31,15 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.etl
+      target: dev
     container_name: honest-healthcare-etl
     init: true
     command: tail -f /dev/null
+    mem_limit: 6g
     volumes:
       - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
       - TEST_DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test
@@ -46,10 +52,14 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.serving
     container_name: honest-healthcare-serving
+    # image default is a prod server; --reload + the source mount are dev-only
+    command: uvicorn serving.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      # loopback only — remote access is via `tailscale serve` (scripts/tailscale-up.sh),
+      # which proxies 127.0.0.1:8000. Avoids a 0.0.0.0 bind clashing with tailscaled.
+      - "127.0.0.1:8000:8000"
     environment:
       - DATA_DIR=/app/data
 
@@ -63,7 +73,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "5173:5173"
+      # loopback only — see the serving note; `tailscale serve` proxies 127.0.0.1:5173
+      - "127.0.0.1:5173:5173"
     environment:
       # By default the frontend derives the API URL from window.location at
       # runtime (src/api.js), so http://<any-host>:5173 just works — LAN IP,
@@ -75,3 +86,5 @@ services:
 
 volumes:
   postgres_data:
+  go-mod-cache:
+  go-build-cache:

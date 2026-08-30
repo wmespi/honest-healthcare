@@ -1,3 +1,5 @@
+# Test-only deps (pytest + the TestClient's HTTP layer). Not in the runtime image.
+#   docker compose exec serving pip install -r serving/requirements-dev.txt
 -r requirements.txt
-pytest
-httpx
+pytest==9.1.1
+httpx==0.28.1

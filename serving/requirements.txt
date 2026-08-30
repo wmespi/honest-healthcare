@@ -1,4 +1,7 @@
-fastapi
-uvicorn[standard]
-duckdb
-pydantic
+# Runtime deps — pinned. Bump deliberately (Go is pinned, the frontend has a
+# lockfile; this file is the third leg). Regenerate a floor with:
+#   docker compose exec serving pip freeze
+fastapi==0.139.2
+uvicorn[standard]==0.51.0
+duckdb==1.5.5
+pydantic==2.13.4
