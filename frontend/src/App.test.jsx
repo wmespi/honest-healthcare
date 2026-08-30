@@ -112,7 +112,7 @@ describe('provider selected without a procedure', () => {
 
     await waitFor(() =>
       expect(api.getRateDistribution).toHaveBeenCalledWith(
-        '99213', 'CPT', undefined, undefined, '123',
+        '99213', 'CPT', undefined, undefined, '123', undefined,
       ),
     );
     // With a provider active, the cost card (job 1) is fetched — not the
@@ -361,7 +361,7 @@ describe('friendly plan picker (issue #33)', () => {
 
     // the network filter is applied → distribution re-fetched for that network
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
-      undefined, undefined, 'GA Blue Value HIX Individual Network', undefined, undefined,
+      undefined, undefined, 'GA Blue Value HIX Individual Network', undefined, undefined, undefined,
     ));
     // dropdown closes; the button now shows the friendly label
     await waitFor(() => expect(screen.queryByText('Your plan')).not.toBeInTheDocument());
@@ -387,26 +387,35 @@ describe('trust bar (issue #32)', () => {
   });
 });
 
-describe('provider search — specialty mode (issue #31)', () => {
-  it('switches to specialty search, picks a specialty, then a provider', async () => {
+describe('specialty scope filter (issue #31 rework)', () => {
+  it('is a separate filter from picking a provider, and scopes the results', async () => {
     const user = userEvent.setup();
-    api.searchProviders.mockImplementation((q, specialty) => Promise.resolve({
-      data: specialty
-        ? [{ npi: 555, name: 'HEART, DR', city: 'ATLANTA', specialty: 'Cardiovascular Disease', has_rates: true, entity_type: 'individual' }]
-        : [],
-    }));
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.searchBillingCodes.mockResolvedValue({ data: [
+      { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'E&M', provider_groups: 12 },
+    ] });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
-    await user.click(screen.getByRole('button', { name: 'specialty' }));
-    const input = screen.getByPlaceholderText(/e\.g\. cardiology/i);
-    await user.click(input);
-    await user.type(input, 'cardio');
+    // pick a procedure
+    const search = screen.getByPlaceholderText(/search procedure or billing code/i);
+    await user.click(search);
+    await user.type(search, 'office');
+    await user.click(await screen.findByText('Office Visit'));
 
+    // now scope to a specialty — its own dropdown, default "All specialties"
+    await user.click(screen.getByText('All specialties'));
     await user.click(await screen.findByText('Cardiovascular Disease'));
-    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease'));
-    await user.click(await screen.findByText('HEART, DR'));
-    await screen.findByText(/procedure menu/i);
+
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
+      '99213', 'CPT', undefined, undefined, undefined, 'Cardiovascular Disease',
+    ));
+    await waitFor(() => expect(api.getRatesByProvider).toHaveBeenCalledWith(
+      '99213', 'CPT', undefined, undefined, undefined,
+      expect.objectContaining({ specialty: 'Cardiovascular Disease' }),
+    ));
+    // the provider (name) search is untouched — still its own control
+    expect(screen.getByPlaceholderText(/name or NPI/i)).toBeInTheDocument();
   });
 });
 
@@ -473,7 +482,8 @@ describe('compare-across-providers view', () => {
     expect(screen.getByText(/Moon Dermatology/i)).toBeInTheDocument();
     // the rollup, which carries the standard schedule, is folded into the summary line
     expect(screen.getByText(/on the standard/i)).toBeInTheDocument();
-    expect(api.getRatesByProvider).toHaveBeenCalledWith('99213', 'CPT', undefined, undefined, undefined);
+    expect(api.getRatesByProvider).toHaveBeenCalledWith(
+      '99213', 'CPT', undefined, undefined, undefined, expect.objectContaining({ specialty: undefined }));
   });
 });
 
@@ -481,7 +491,7 @@ describe('default landing state', () => {
   it('loads the network overview without a code or npi', async () => {
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, undefined, undefined, undefined);
+    expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, undefined, undefined, undefined, undefined);
     expect(api.getProviderMenu).not.toHaveBeenCalled();
   });
 });

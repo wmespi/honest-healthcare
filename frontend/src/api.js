@@ -51,12 +51,13 @@ export const getProviderMenu = (npi, network_name, setting, q = '', tier = 'plau
     return api.get(`/providers/${npi}/procedures`, { params });
 };
 
-export const getRateDistribution = (billing_code, billing_code_type = 'CPT', network_name, setting, npi) => {
+export const getRateDistribution = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, specialty) => {
     const params = {};
     if (billing_code) { params.billing_code = billing_code; params.billing_code_type = billing_code_type; }
     if (network_name) params.network_name = network_name;
     if (setting) params.setting = setting;
     if (npi) params.npi = npi;
+    if (specialty) params.specialty = specialty;
     return api.get('/rates/distribution', { params });
 };
 
@@ -81,11 +82,12 @@ export const getRatesByNetwork = (billing_code, billing_code_type = 'CPT', setti
     return api.get('/rates/by_network', { params });
 };
 
-export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, { component = 'global' } = {}) => {
+export const getRatesByProvider = (billing_code, billing_code_type = 'CPT', network_name, setting, npi, { component = 'global', specialty } = {}) => {
     const params = { billing_code, billing_code_type, component };
     if (network_name) params.network_name = network_name;
     if (setting) params.setting = setting;
     if (npi) params.npi = npi;
+    if (specialty) params.specialty = specialty;
     return api.get('/rates/providers', { params });
 };
 

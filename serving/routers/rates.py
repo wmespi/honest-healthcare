@@ -41,6 +41,7 @@ def rate_distribution(
     network_name: Optional[str] = None,
     setting: Optional[str] = None,
     npi: Optional[int] = None,
+    specialty: Optional[str] = None,
 ):
     """
     Rate distribution. When billing_code is omitted, returns a network-wide overview
@@ -66,11 +67,15 @@ def rate_distribution(
     heavy = bool(billing_code or npi)
 
     if heavy:
-        where, params = price_filters(billing_code, billing_code_type, network_name, setting, npi)
+        # specialty scopes to groups containing a provider of that specialty —
+        # only affordable here, where billing_code/npi has already pruned prices.
+        where, params = price_filters(billing_code, billing_code_type, network_name,
+                                      setting, npi, specialty=specialty)
         src = f"{PRICE_GROUPS_SRC} pg"
         grp = "COUNT(DISTINCT (pg.file_id, pg.provider_group_id))"
     else:
         # prices-only: reuse price_filters minus the npi branch (npi ⇒ heavy).
+        # specialty is ignored on the bare overview (no code to prune the fanout).
         where, params = price_filters(None, billing_code_type, network_name, setting, None)
         src = f"{PRICES_SRC} pg"
         grp = "COUNT(DISTINCT pg.group_set_id)"
@@ -224,6 +229,7 @@ def rates_by_provider(
     network_name: Optional[str] = None,
     setting: Optional[str] = None,
     npi: Optional[int] = None,
+    specialty: Optional[str] = None,
     ga_hospitals_only: bool = False,
     component: str = "global",
     sort: str = "rate_asc",
@@ -242,7 +248,8 @@ def rates_by_provider(
     """
     conn = db()
 
-    where, params = price_filters(billing_code, billing_code_type, network_name, setting, npi)
+    where, params = price_filters(billing_code, billing_code_type, network_name,
+                                  setting, npi, specialty=specialty)
     if component == "global":
         # NULL = a file parsed before the modifier column existed; treat as global.
         where += " AND COALESCE(pg.modifier, '') = ''"

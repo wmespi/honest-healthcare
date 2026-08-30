@@ -244,14 +244,69 @@ function ProviderRow({ s, onPick }) {
   );
 }
 
-// Provider filter — search by name/NPI or by specialty ("I need cardiology").
+// Specialty scope — a filter, like Setting/Network. Default "All specialties".
+// Distinct from picking one Provider (that drills to a single NPI).
+function SpecialtyDropdown({ selected, onSelect }) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [opts, setOpts] = useState([]);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => { getSpecialties(query).then(r => setOpts(r.data || [])).catch(() => {}); }, 200);
+    return () => clearTimeout(t);
+  }, [query, open]);
+
+  return (
+    <div ref={ref} className="relative flex items-center gap-2">
+      <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest shrink-0">Specialty</span>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 bg-slate-900 border rounded-xl px-3 h-8 max-w-[200px] transition-all ${open ? 'border-indigo-500/50' : selected ? 'border-indigo-500/50' : 'border-slate-800'}`}
+      >
+        <span className={`text-xs truncate ${selected ? 'text-indigo-300 font-bold' : 'text-slate-400'}`}>{selected || 'All specialties'}</span>
+        {selected
+          ? <X size={12} className="text-slate-500 hover:text-white shrink-0" onClick={(e) => { e.stopPropagation(); onSelect(''); }} />
+          : <ChevronDown size={12} className={`text-slate-500 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
+            className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden z-[999] shadow-2xl min-w-[260px] max-h-72 overflow-y-auto">
+            <div className="p-2 border-b border-white/5">
+              <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="e.g. cardiology…"
+                className="w-full bg-slate-800/80 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-slate-500 outline-none" />
+            </div>
+            <button onClick={() => { onSelect(''); setOpen(false); }}
+              className={`w-full px-4 py-2.5 text-left text-sm border-b border-white/5 hover:bg-white/5 ${!selected ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}>
+              {!selected && '✓ '}All specialties
+            </button>
+            {opts.map((sp, i) => (
+              <button key={i} onClick={() => { onSelect(sp.specialty); setOpen(false); }}
+                className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0 flex items-center justify-between gap-3">
+                <span className={`text-sm truncate ${selected === sp.specialty ? 'text-indigo-400 font-bold' : 'text-slate-200'}`}>{sp.specialty}</span>
+                <span className="text-[10px] text-emerald-400 font-black shrink-0">{sp.n_with_rates.toLocaleString()}</span>
+              </button>
+            ))}
+            {opts.length === 0 && <div className="px-4 py-3 text-[11px] text-slate-600">No specialties match.</div>}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// Provider filter — one specific NPI by name / number. (Specialty is separate.)
 function NpiSearch({ selectedNpi, onSelect }) {
-  const [mode, setMode] = useState('name'); // 'name' | 'specialty'
   const [query, setQuery] = useState('');
   const [selectedLabel, setSelectedLabel] = useState('');
   const [providers, setProviders] = useState([]);
-  const [specialties, setSpecialties] = useState([]);
-  const [pickedSpecialty, setPickedSpecialty] = useState(null);
   const [open, setOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const ref = useRef(null);
@@ -262,22 +317,13 @@ function NpiSearch({ selectedNpi, onSelect }) {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  // Name mode: providers by text. Specialty mode: either the specialty typeahead
-  // (nothing picked) or the provider list for the picked specialty.
   useEffect(() => {
-    if (!isFocused) return;
+    if (!isFocused || query.length === 0) { setProviders([]); return; }
     const t = setTimeout(() => {
-      if (mode === 'name') {
-        if (query.length === 0) { setProviders([]); return; }
-        searchProviders(query).then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
-      } else if (pickedSpecialty) {
-        searchProviders(query, pickedSpecialty).then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
-      } else {
-        getSpecialties(query).then(r => { setSpecialties(r.data); setOpen(true); }).catch(() => {});
-      }
+      searchProviders(query).then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
-  }, [query, isFocused, mode, pickedSpecialty]);
+  }, [query, isFocused]);
 
   const pickProvider = (s) => {
     const label = s.name || String(s.npi);
@@ -285,10 +331,7 @@ function NpiSearch({ selectedNpi, onSelect }) {
     setSelectedLabel(label);
     setQuery(''); setOpen(false);
   };
-  const pickSpecialty = (sp) => { setPickedSpecialty(sp.specialty); setQuery(''); };
-  const clear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); setPickedSpecialty(null); };
-  const switchMode = (m) => { setMode(m); setQuery(''); setProviders([]); setSpecialties([]); setPickedSpecialty(null); };
-
+  const clear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); };
   const firstNoRates = providers.findIndex(s => !s.has_rates);
 
   return (
@@ -301,56 +344,31 @@ function NpiSearch({ selectedNpi, onSelect }) {
         </div>
       ) : (
         <div className="relative">
-          <div className={`flex items-center bg-slate-900 border rounded-xl pl-1 pr-3 h-8 gap-1 transition-all ${open ? 'border-indigo-500/50' : 'border-slate-800'}`}>
-            <div className="flex bg-slate-950 rounded-lg p-0.5 shrink-0">
-              {['name', 'specialty'].map(m => (
-                <button key={m} onClick={() => switchMode(m)}
-                  className={`px-1.5 py-0.5 text-[9px] font-black uppercase rounded transition-colors ${mode === m ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
-                  {m}
-                </button>
-              ))}
-            </div>
-            {mode === 'specialty' && pickedSpecialty && (
-              <button onClick={() => setPickedSpecialty(null)} className="text-indigo-300 text-[10px] font-bold shrink-0 flex items-center gap-0.5">
-                <ChevronDown size={11} className="rotate-90" />{pickedSpecialty}
-              </button>
-            )}
+          <div className={`flex items-center bg-slate-900 border rounded-xl px-3 h-8 gap-2 transition-all ${open ? 'border-indigo-500/50' : 'border-slate-800'}`}>
             <input
               type="text"
-              placeholder={mode === 'name' ? 'name or NPI…' : pickedSpecialty ? 'filter…' : 'e.g. cardiology…'}
+              placeholder="name or NPI…"
               value={query}
               onChange={e => setQuery(e.target.value)}
               onFocus={() => { setIsFocused(true); setOpen(true); }}
               onBlur={() => setTimeout(() => { setIsFocused(false); setOpen(false); }, 200)}
-              className="bg-transparent outline-none text-xs text-white placeholder:text-slate-600 w-32 min-w-0"
+              className="bg-transparent outline-none text-xs text-white placeholder:text-slate-600 w-40 min-w-0"
             />
           </div>
           <AnimatePresence>
-            {open && (
+            {open && providers.length > 0 && (
               <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
                 className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden z-[999] shadow-2xl min-w-[280px] max-h-72 overflow-y-auto">
-                {mode === 'specialty' && !pickedSpecialty
-                  ? specialties.map((sp, i) => (
-                      <button key={i} onClick={() => pickSpecialty(sp)}
-                        className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0 flex items-center justify-between gap-3">
-                        <span className="text-sm font-bold text-white truncate">{sp.specialty}</span>
-                        <span className="text-[10px] text-emerald-400 font-black shrink-0">{sp.n_with_rates.toLocaleString()}</span>
-                      </button>
-                    ))
-                  : providers.map((s, i) => (
-                      <div key={i}>
-                        {i === firstNoRates && i > 0 && (
-                          <div className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600 bg-white/[0.02] border-y border-white/5">
-                            No rate data — {providers.length - firstNoRates} more
-                          </div>
-                        )}
-                        <ProviderRow s={s} onPick={pickProvider} />
+                {providers.map((s, i) => (
+                  <div key={i}>
+                    {i === firstNoRates && i > 0 && (
+                      <div className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600 bg-white/[0.02] border-y border-white/5">
+                        No rate data — {providers.length - firstNoRates} more
                       </div>
-                    ))}
-                {((mode === 'specialty' && !pickedSpecialty && specialties.length === 0) ||
-                  ((mode === 'name' || pickedSpecialty) && providers.length === 0 && query.length > 0)) && (
-                  <div className="px-4 py-3 text-[11px] text-slate-600">No matches.</div>
-                )}
+                    )}
+                    <ProviderRow s={s} onPick={pickProvider} />
+                  </div>
+                ))}
               </motion.div>
             )}
           </AnimatePresence>
@@ -469,7 +487,7 @@ function providerLabel(r) {
 // schedule, so for most codes every provider negotiated the same rate and the
 // honest answer is "provider choice doesn't change the price". When rates do
 // vary, show the ranked list with the named practices surfaced.
-function ProviderRateTable({ data, loading }) {
+function ProviderRateTable({ data, loading, specialty }) {
   if (loading) {
     return (
       <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
@@ -488,7 +506,9 @@ function ProviderRateTable({ data, loading }) {
 
   return (
     <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
-      <h2 className="text-white font-black text-xl tracking-tight">Does the provider matter?</h2>
+      <h2 className="text-white font-black text-xl tracking-tight">
+        Does the provider matter?{specialty && <span className="text-indigo-300 font-bold text-base"> · {specialty}</span>}
+      </h2>
 
       {uniform ? (
         <div className="mt-4">
@@ -1080,6 +1100,7 @@ function App() {
   const [isFocused, setIsFocused] = useState(false);
 
   const [setting, setSetting] = useState('');
+  const [specialty, setSpecialtyState] = useState('');
   const [npi, setNpi] = useState('');
   const [npiLabel, setNpiLabel] = useState('');
 
@@ -1109,18 +1130,19 @@ function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compare-across-providers table — a code is chosen and NO provider filter
-  // (with a provider, we show the cost card instead).
+  // (with a provider, we show the cost card instead). Scoped by `specialty`.
   useEffect(() => {
     const code = selectedCode?.code;
     if (!code || npi) { setProviderRates(null); return; }
     let cancelled = false;
     setProviderRatesLoading(true);
-    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined)
+    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined,
+      { specialty: specialty || undefined })
       .then(res => { if (!cancelled) setProviderRates(res.data); })
       .catch(() => { if (!cancelled) setProviderRates(null); })
       .finally(() => { if (!cancelled) setProviderRatesLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedCode, selectedPlan, setting, npi]);
+  }, [selectedCode, selectedPlan, setting, npi, specialty]);
 
   // Job 2 — compare the selected procedure across every network.
   useEffect(() => {
@@ -1194,7 +1216,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [query, isFocused, npi, selectedPlan, setting]);
 
-  const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi, rbcsCategory) => {
+  const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi, rbcsCategory, activeSpecialty) => {
     // Provider selected but no procedure yet: that's the "menu" view, handled by
     // its own effect (ProviderMenu). Calling /rates/distribution here would
     // full-scan prices with nothing pruning the code axis — it hangs.
@@ -1210,7 +1232,7 @@ function App() {
     setError(null);
     setShowSuggestions(false);
     try {
-      const res = await getRateDistribution(code || undefined, type || undefined, planName || undefined, activeSetting || undefined, activeNpi || undefined);
+      const res = await getRateDistribution(code || undefined, type || undefined, planName || undefined, activeSetting || undefined, activeNpi || undefined, activeSpecialty || undefined);
       setDistribution(res.data);
       setSelectedCode(code ? { code, type, rbcs_category: rbcsCategory } : null);
     } catch (err) {
@@ -1234,23 +1256,29 @@ function App() {
   const handleSuggestionClick = (sug) => {
     setQuery(sug.label || cleanProcedureName(sug.name) || `${sug.billing_code} (${sug.billing_code_type})`);
     setShowSuggestions(false);
-    fetchDistribution(sug.billing_code, sug.billing_code_type, selectedPlan, setting, npi, sug.rbcs_category);
+    fetchDistribution(sug.billing_code, sug.billing_code_type, selectedPlan, setting, npi, sug.rbcs_category, specialty);
   };
 
   const handlePlanSelect = (plan) => {
     setSelectedPlan(plan);
-    fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi, undefined, specialty);
   };
 
   const handleSettingChange = (s) => {
     setSetting(s);
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, s, npi);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, s, npi, undefined, specialty);
+  };
+
+  const handleSpecialtyChange = (sp) => {
+    setSpecialtyState(sp);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, npi, undefined, sp);
   };
 
   const handleNpiSelect = (n, label) => {
     setNpi(n);
     setNpiLabel(label || '');
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n);
+    // (specialty stays as a scope; a specific provider just narrows further)
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, specialty);
   };
 
   const handleCategoryPick = (term) => {
@@ -1263,7 +1291,7 @@ function App() {
   // Drill from a provider-menu row into that procedure's full breakdown.
   const handleMenuPick = (row) => {
     setQuery(row.label || `${row.billing_code} (${row.billing_code_type})`);
-    fetchDistribution(row.billing_code, row.billing_code_type, selectedPlan, setting, npi, row.rbcs_category);
+    fetchDistribution(row.billing_code, row.billing_code_type, selectedPlan, setting, npi, row.rbcs_category, specialty);
   };
 
 
@@ -1408,7 +1436,13 @@ function App() {
           {/* Divider */}
           <div className="hidden sm:block w-px h-5 bg-slate-800" />
 
-          {/* NPI filter */}
+          {/* Specialty scope (a filter) */}
+          <SpecialtyDropdown selected={specialty} onSelect={handleSpecialtyChange} />
+
+          {/* Divider */}
+          <div className="hidden sm:block w-px h-5 bg-slate-800" />
+
+          {/* One specific provider (a drill-down) */}
           <NpiSearch selectedNpi={npi} onSelect={handleNpiSelect} />
         </div>
 
@@ -1469,6 +1503,13 @@ function App() {
                   </div>
                 ))}
               </div>
+
+              {specialty && selectedCode?.code && (
+                <p className="mb-4 text-xs text-indigo-300/90">
+                  Scoped to provider groups that include a <span className="font-semibold">{specialty}</span> provider —
+                  the rate still belongs to the whole group.
+                </p>
+              )}
 
               {/* Meta row */}
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-6 text-xs text-slate-500">
@@ -1554,7 +1595,7 @@ function App() {
                 />
               )}
               {selectedCode?.code && !npi && (
-                <ProviderRateTable data={providerRates} loading={providerRatesLoading} />
+                <ProviderRateTable data={providerRates} loading={providerRatesLoading} specialty={specialty} />
               )}
             </motion.div>
           )}

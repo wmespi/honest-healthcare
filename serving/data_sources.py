@@ -84,8 +84,15 @@ def network_slug(name: str) -> str:
     return s or "_unattributed"
 
 
-def price_filters(billing_code, billing_code_type, network_name, setting, npi):
-    """Shared WHERE for the price_groups source (alias pg). Returns (sql, params)."""
+def price_filters(billing_code, billing_code_type, network_name, setting, npi,
+                  specialty=None):
+    """Shared WHERE for the price_groups source (alias pg). Returns (sql, params).
+
+    `specialty` (a NUCC classification/specialization label) keeps only groups
+    that contain at least one provider of that specialty — a coarse but useful
+    scope ("cardiologists' contracted rates for an echo"). Cheap when a
+    billing_code is also given (prices prune to one code first).
+    """
     conditions = ["1=1"]
     params: list = []
     if billing_code:
@@ -105,6 +112,15 @@ def price_filters(billing_code, billing_code_type, network_name, setting, npi):
               AND pv.provider_group_id = pg.provider_group_id
               AND pv.npi = ?)""")
         params.append(npi)
+    if specialty and os.path.exists(GA_NPPES_PATH) and os.path.exists(NUCC_PATH):
+        conditions.append(f"""EXISTS (
+            SELECT 1 FROM {PROVIDERS_SRC} pv
+            JOIN read_parquet('{GA_NPPES_PATH}') n ON n.npi = pv.npi
+            JOIN read_parquet('{NUCC_PATH}') x ON x.taxonomy_code = n.taxonomy_code
+            WHERE pv.file_id = pg.file_id
+              AND pv.provider_group_id = pg.provider_group_id
+              AND (x.specialty ILIKE ? OR x.classification ILIKE ?))""")
+        params += [f"%{specialty}%", f"%{specialty}%"]
     return " AND ".join(conditions), params
 
 

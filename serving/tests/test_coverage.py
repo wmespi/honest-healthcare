@@ -181,6 +181,24 @@ def test_distribution_rejects_npi_without_code(client, npi_with_rates):
     assert r.status_code == 400
 
 
+def test_specialty_scope_filter(client):
+    """A specialty filter narrows to groups containing a provider of that
+    specialty (issue #31 rework). Fewer groups, same or higher floor."""
+    base = client.get("/rates/distribution",
+                      params={"billing_code": "99213", "billing_code_type": "CPT"}).json()
+    scoped = client.get("/rates/distribution",
+                        params={"billing_code": "99213", "billing_code_type": "CPT",
+                                "specialty": "Cardiovascular Disease"})
+    assert scoped.status_code == 200
+    sb = scoped.json()["summary"]
+    assert sb["provider_groups"] <= base["summary"]["provider_groups"]
+    # /rates/providers honours it too
+    rp = client.get("/rates/providers",
+                    params={"billing_code": "99213", "specialty": "Cardiovascular Disease", "limit": 5})
+    assert rp.status_code == 200
+    assert rp.json()["summary"]["n_groups"] <= base["summary"]["provider_groups"]
+
+
 def test_rates_by_network(client):
     r = client.get("/rates/by_network", params={"billing_code": "99213", "billing_code_type": "CPT"})
     assert r.status_code == 200
