@@ -1,7 +1,9 @@
 # Serving layer — FastAPI + DuckDB
 
-*Read this when adding or changing an API route. Tests: `make test-api`
-(`serving/tests/`, contract + coverage, against the running API).*
+*Read this when adding or changing an API route. Tests: `test_api_contract.py`
+(every route, hermetic — synthetic Parquet fixture in `conftest.py`, runs in CI);
+`make test-api` also runs `test_coverage.py`'s coverage basket against the live
+API with the full `data/`. Add a route → add a contract test.*
 
 FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 `read_parquet(...)` globs — no ORM, `?` placeholders.

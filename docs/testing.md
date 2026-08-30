@@ -47,6 +47,12 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
   and `test_specialty_profiles.py` run the `reference/` builders against it in
   test isolation (`data-test/cms/`, `data-test/reference/`) — hermetic, picked up
   by `make test-api`.
+- `serving/tests/conftest.py` (`api` fixture) — builds a small coherent Parquet
+  dataset (2 networks, 5 CPT codes with `-26`/`-TC` splits, 5 providers incl. a
+  hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile tables) under
+  `data-test/apifix/` and binds a FastAPI `TestClient` to it. Drives
+  `test_api_contract.py` — every route, hermetic, no live server or `data/` mount.
+  Schemas track [schema.md](schema.md); teardown removes the dir.
 - `etl/extraction/testdata/fixtures/*.json.gz` — real, heavily-truncated MRFs from `make fixture` (first 25
   provider refs, NPI lists capped at 10, first 25 in-network items that touch a
   kept group, rates/prices capped). `synthetic.json.gz` drives `make test-e2e`;
@@ -82,12 +88,13 @@ docs-only changes (`**.md`, `docs/**`, `LICENSE`).
 |---|---|---|
 | `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
 | `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
-| `integration` | hermetic serving reference-builder tests, then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
+| `integration` | `test_api_contract.py` (every route, hermetic) + the two reference-builder tests, then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
 
-**Not in CI yet:** `make test-api`'s live-API contract tests
-(`test_coverage.py`) need a populated `data/` (multi-GB, gitignored) — they want a
-small committed rate-Parquet fixture first. JS lint (`npm run lint`) has
-pre-existing errors — not gated until they're cleared.
+**Not in CI yet:** `test_coverage.py`'s coverage-basket assertions
+(`test_core_code_has_rates` etc.) run against a live API with the full `data/`
+mounted — the *contract* half of that file is now covered hermetically by
+`test_api_contract.py`. JS lint (`npm run lint`) has pre-existing errors — not
+gated until they're cleared.
 
 ## Frontend — `frontend/src/App.test.jsx`
 
@@ -104,4 +111,4 @@ that a **provider selected with no procedure** shows the
 |---|---|---|
 | Frontend E2E | Playwright | Real browser: histogram render, filter chips, mobile layout |
 | ETL conflict-resolution | `go test ./...` | Plan-specific-file-wins rate override (Critical Rule 5) |
-| API contract in CI | GitHub Actions | `make test-api` — blocked on a committed rate-Parquet fixture |
+| Live coverage basket in CI | GitHub Actions | `test_coverage.py`'s `test_core_code_has_rates` — needs the real `data/`, not the synthetic fixture |
