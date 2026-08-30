@@ -31,7 +31,7 @@ that expands a price row to its provider groups. Schema:
 |---|---|---|
 | `/rates/quote?billing_code&npi` | **1** — one procedure at one provider | headline rate + breakdown by component (global / `-26` professional / `-TC` technical) and place of service, + `plausibility`, `medicare_utilization`, `tier` |
 | `/rates/by_network?billing_code` | **2** — same procedure across every network | one row per network, `median` + p10/p90 spread, sorted cheapest median first |
-| `/rates/providers?billing_code` | **3** — compare across providers | one row per provider group, `component=global` by default; `ROLLUP_THRESHOLD` folds the fee-schedule majority |
+| `/rates/providers?billing_code` | **3** — compare across providers | one row per provider group, `component=global` by default; `ROLLUP_THRESHOLD` folds the fee-schedule majority. `specialty=` scopes to groups containing a provider of that NUCC specialty (distinct from `npi=`, which drills to one). |
 | `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap. `tier=plausible` (default) shows only codes the NPI billed to Medicare or that are typical for their specialty + a `group_count`; `tier=all` shows every contracted code tagged `billed`/`typical`/`group` |
 
 Supporting: `/rates/distribution` (histogram — **400s on npi-without-code**, which
@@ -41,6 +41,10 @@ friendly-name → network map, `serving/plan_networks.json`, GH #33).
 
 ## Key helpers
 
+- `price_filters(...)` (`data_sources.py`) — the shared WHERE for `price_groups`.
+  `npi=` → groups containing that NPI; `specialty=` → groups containing any
+  provider of that NUCC specialty (a coarse scope, cheap once a `billing_code`
+  prunes prices).
 - `network_slug()` (`data_sources.py`) — must stay identical to
   `etl/extraction/partition.go:slugifyNetwork` (partition pruning depends on it).
 - `pos_bucket(service_code)` → office / asc / er / inpatient / hosp_outpatient /
