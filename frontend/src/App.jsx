@@ -221,18 +221,20 @@ function NetworkDropdown({ selectedPlan, onSelect }) {
   );
 }
 
-// Row for one provider in the search dropdown.
-function ProviderRow({ s, onPick }) {
-  return (
-    <button
-      onClick={() => onPick(s)}
-      className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-    >
+// Row for one provider in the search dropdown. `disabled` (a provider with no
+// rate in the picked plan) renders inert — a listing, not a choice, so "is my
+// doctor in this plan?" is still answerable without the dead-end quote screen.
+function ProviderRow({ s, onPick, disabled, planLabel }) {
+  const cls = "w-full px-4 py-2.5 text-left border-b border-white/5 last:border-0";
+  const inner = (
+    <>
       <div className="flex items-center gap-2">
         <span className={`text-sm font-bold truncate ${s.has_rates ? 'text-white' : 'text-slate-500'}`}>{s.name || s.npi}</span>
         {s.has_rates
           ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
-          : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">no rate data</span>}
+          : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">
+              {planLabel ? `not in ${planLabel}` : 'no rate data'}
+            </span>}
         {s.entity_type === 'organization' && (
           <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">clinic</span>
         )}
@@ -240,8 +242,10 @@ function ProviderRow({ s, onPick }) {
       <div className={`text-[11px] mt-0.5 truncate ${s.has_rates ? 'text-slate-500' : 'text-slate-600'}`}>
         {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
       </div>
-    </button>
+    </>
   );
+  if (disabled) return <div className={`${cls} opacity-50 cursor-not-allowed`}>{inner}</div>;
+  return <button onClick={() => onPick(s)} className={`${cls} hover:bg-white/5 transition-colors`}>{inner}</button>;
 }
 
 // Specialty scope — a filter, like Setting/Network. Default "All specialties".
@@ -334,6 +338,7 @@ function NpiSearch({ selectedNpi, onSelect, network }) {
   };
   const clear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); };
   const firstNoRates = providers.findIndex(s => !s.has_rates);
+  const planLabel = network ? shortNetwork(network) : '';
 
   return (
     <div ref={ref} className="flex items-center gap-2">
@@ -364,10 +369,15 @@ function NpiSearch({ selectedNpi, onSelect, network }) {
                   <div key={i}>
                     {i === firstNoRates && i > 0 && (
                       <div className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600 bg-white/[0.02] border-y border-white/5">
-                        No rate data — {providers.length - firstNoRates} more
+                        {planLabel ? `Not in ${planLabel}` : 'No rate data'} — {providers.length - firstNoRates} more
                       </div>
                     )}
-                    <ProviderRow s={s} onPick={pickProvider} />
+                    <ProviderRow
+                      s={s}
+                      onPick={pickProvider}
+                      disabled={!s.has_rates && !!network}
+                      planLabel={planLabel}
+                    />
                   </div>
                 ))}
               </motion.div>

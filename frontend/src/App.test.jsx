@@ -293,7 +293,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
     expect(await screen.findByText('Medicare')).toBeInTheDocument();
   });
 
-  it('marks provider search results we hold no rate data for', async () => {
+  it('marks provider search results with no rate in the picked plan — and makes them unpickable', async () => {
     const user = userEvent.setup();
     api.searchProviders.mockResolvedValue({ data: [
       { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
@@ -305,9 +305,35 @@ describe('Medicare utilization evidence (issue #14)', () => {
     await user.click(input);
     await user.type(input, 'cardio');
 
+    // network is scoped to the saved plan → no-rate rows say "not in <plan>"
     expect(await screen.findByText('has rates')).toBeInTheDocument();
-    expect(screen.getByText('no rate data')).toBeInTheDocument();
+    expect(screen.getAllByText(/not in Blue Value/i).length).toBeGreaterThanOrEqual(2); // header + row
+    expect(screen.getByText(/Not in Blue Value.*1 more/i)).toBeInTheDocument();
+
+    // the out-of-plan provider is a listing, not a button — clicking it is inert
+    const deadRow = screen.getByText('CARDIOLOGY CARE CLINIC, LLC');
+    expect(deadRow.closest('button')).toBeNull();
+    await user.click(deadRow);
+    expect(screen.queryByText(/No negotiated rates for/i)).not.toBeInTheDocument();
+  });
+
+  it('still labels rows plainly "no rate data" when browsing without a plan', async () => {
+    const user = userEvent.setup();
+    try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ }
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
+      { npi: 222, name: 'CARDIOLOGY CARE CLINIC, LLC', city: 'EATONTON', specialty: 'Cardiac Facilities', has_rates: false },
+    ] });
+    render(<App />);
+    await user.click(await screen.findByText(/explore all networks without picking a plan/i));
+    const input = screen.getByPlaceholderText(/name or NPI/i);
+    await user.click(input);
+    await user.type(input, 'cardio');
+
+    expect(await screen.findByText('no rate data')).toBeInTheDocument();
     expect(screen.getByText(/No rate data — 1 more/i)).toBeInTheDocument();
+    // no plan → still pickable
+    expect(screen.getByText('CARDIOLOGY CARE CLINIC, LLC').closest('button')).not.toBeNull();
   });
 });
 
