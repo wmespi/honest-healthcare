@@ -9,13 +9,18 @@ which OOM-kill the API (issue #10).
 
   summary/rate_hist.parquet
     payer | net | network_name | billing_code_type | billing_code | setting
-      | bucket | n
+      | scope | bucket | n
     — a pre-bucketed rate histogram ($25 buckets to $5000, then one overflow
       bucket). The one heavy scan of `prices`, all-scalar (COUNT). The network
       overview's bars ARE this table; the serving layer derives p10/median/p90
       from its CDF at read time (a code has ~20-200 buckets — trivial). Exact
       per-group percentiles at build time OOM: millions of groups × any
       non-scalar accumulator (t-digest included).
+      `scope` = 'outpatient_prof' for outpatient professional fee-for-service
+      dollar rates (what the consumer views compare — see serving/data_sources
+      .outpatient_scope), 'other' for everything else. The no-code network
+      overview filters to 'outpatient_prof'; rate_summary / code_rollup roll up
+      across both (they answer "what exists", not "what does it cost").
 
   summary/rate_summary.parquet
     payer | network_name | net | billing_code_type | billing_code | setting
@@ -78,13 +83,19 @@ def build(data_dir: str) -> None:
         COPY (
             SELECT '{PAYER}' AS payer, net, network_name,
                    billing_code_type, billing_code, setting,
+                   CASE WHEN billing_class = 'professional'
+                             AND setting IN ('outpatient', 'both')
+                             AND negotiation_arrangement = 'ffs'
+                             AND negotiated_type IN ('fee schedule', 'negotiated')
+                        THEN 'outpatient_prof' ELSE 'other'
+                   END AS scope,
                    CASE WHEN negotiated_rate >= {HIST_CAP} THEN {HIST_CAP}
                         WHEN negotiated_rate < 0 THEN 0
                         ELSE FLOOR(negotiated_rate / {HIST_WIDTH}) * {HIST_WIDTH}
                    END AS bucket,
                    COUNT(*)::BIGINT AS n
             FROM {prices}
-            GROUP BY net, network_name, billing_code_type, billing_code, setting, bucket
+            GROUP BY net, network_name, billing_code_type, billing_code, setting, scope, bucket
         ) TO '{out}/rate_hist.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
     h = con.execute(f"SELECT COUNT(*), SUM(n) FROM {hist}").fetchone()

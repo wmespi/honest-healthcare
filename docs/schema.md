@@ -57,11 +57,18 @@ codes/{id}.parquet       billing_code_type | billing_code | name | description
 npi_lookup.parquet       npi | tin_value
 ```
 
+`tin_value` is the billing entity's tax id — in Anthem's files it's an **org NPI**
+(`tin_type` is always `'npi'`), so it doubles as a stable practice key: one real
+practice recurs across the MRF as many file-local `provider_group_id`s but keeps
+one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
+`/rates/providers` collapses on it ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
+
 ### `summary/` — precomputed browse layer (`make build-summary`)
 
 ```
 summary/rate_hist.parquet
-    payer | net | network_name | billing_code_type | billing_code | setting | bucket | n
+    payer | net | network_name | billing_code_type | billing_code | setting
+      | scope | bucket | n
 summary/rate_summary.parquet
     payer | network_name | net | billing_code_type | billing_code | setting
       | n_rates | min_rate | max_rate | avg_rate
@@ -78,11 +85,16 @@ pre-aggregated per-roster size table for `code_rollup`) after a parse batch:
   derives p10/median/p90 from its CDF at read time (a code spans ~20-200 buckets
   — trivial). Exact per-group percentiles at build time OOM: millions of groups
   × any non-scalar accumulator, t-digest included.
+  `scope` is `'outpatient_prof'` for outpatient professional fee-for-service
+  dollar rates (`serving/data_sources.outpatient_scope` — the slice the consumer
+  rate views compare), `'other'` otherwise. The no-code `/rates/distribution`
+  overview filters to `'outpatient_prof'`; the two rollups below sum across both.
 - **`rate_summary`** — scalar rollup of `rate_hist`, one row per priced
   `(network, code, setting)`; `min/max/avg` are bucket-approximate (± `$25`).
-  `/networks` sums `n_rates`. **No all-settings (`'*'`) rollup row** — every
-  consumer that sums `n_rates` would double-count it; roll settings up at read
-  time.
+  `/networks` sums `n_rates` **across every scope** (it answers "what's priced
+  here", not "what does an outpatient visit cost"). **No all-settings (`'*'`)
+  rollup row** — every consumer that sums `n_rates` would double-count it; roll
+  settings up at read time.
 - **`code_rollup`** — `n_provider_groups` is SUM of the code's rosters' sizes, a
   ranking hint that over-counts a group in several of a code's rosters (same as
   the old `VOL_CTE`), computed against the roster-size table so it stays bounded

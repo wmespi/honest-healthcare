@@ -51,6 +51,9 @@ def test_distribution_overview_from_summary(api):
     assert s["total_entries"] >= 5
     assert isinstance(body["distribution"], list) and body["distribution"]
     assert all({"rate", "provider_groups"} <= b.keys() for b in body["distribution"])
+    # outpatient-professional scope: the $900 institutional / $500 inpatient
+    # 99213 noise rows (conftest) are out, so the pooled max stays sane
+    assert s["max"] < 900
 
     # a network scope is a subset of the all-networks total
     scoped = api.get("/rates/distribution", params={"network_name": BLUE_VALUE}).json()
@@ -75,10 +78,52 @@ def test_distribution_specialty_scope_narrows(api):
 def test_rates_providers_shape(api):
     r = api.get("/rates/providers", params={"billing_code": "99213", "limit": 10})
     assert r.status_code == 200
-    results = r.json()["results"]
+    body = r.json()
+    results = body["results"]
     assert results
     for row in results:
-        assert {"provider_group_id", "negotiated_rate", "network_name"} <= row.keys()
+        assert {"practice_id", "practice_name", "negotiated_rate", "network_name",
+                "npi_count", "n_groups"} <= row.keys()
+    assert {"min", "max", "median", "n_practices", "n_groups", "n_providers"} <= body["summary"].keys()
+
+
+def test_rates_providers_collapses_by_practice(api):
+    # groups 10 & 20 both bill under tin_value 1000000010 → a single row for
+    # that practice, named from the org NPI, folding both file-local groups.
+    r = api.get("/rates/providers",
+                params={"billing_code": "99213", "network_name": BLUE_VALUE}).json()
+    tens = [row for row in r["results"] if row["practice_id"] == "1000000010"]
+    assert len(tens) == 1
+    prac = tens[0]
+    assert prac["practice_name"] == "Peachtree Internal Medicine LLC"
+    assert prac["n_groups"] == 2
+    assert prac["npi_count"] == 4          # NPIs 1-4, across the two folded groups
+    # one row per practice_id, not per file-local group
+    ids = [row["practice_id"] for row in r["results"]]
+    assert len(ids) == len(set(ids))
+
+
+def test_outpatient_scope_excludes_facility_and_percentage(api):
+    # conftest adds a $900 institutional, a $500 inpatient, and a 60.0
+    # "percentage" (= 60% of charges, not $60) row for 99213 in Blue Value.
+    # None may reach a dollar-comparison view — real BV 99213 tops out ~$95.
+    prov = api.get("/rates/providers",
+                   params={"billing_code": "99213", "network_name": BLUE_VALUE}).json()
+    assert prov["summary"]["max"] < 200
+    assert all(row["max_rate"] < 200 for row in prov["results"])
+
+    nets = api.get("/rates/by_network", params={"billing_code": "99213"}).json()["networks"]
+    bv = next(n for n in nets if n["network_name"] == BLUE_VALUE)
+    assert bv["max"] < 200
+
+    dist = api.get("/rates/distribution",
+                   params={"billing_code": "99213", "network_name": BLUE_VALUE}).json()
+    assert dist["summary"]["max"] < 200
+
+    # inpatient can't narrow an outpatient-scoped view — it's ignored, not empty
+    ip = api.get("/rates/providers",
+                 params={"billing_code": "99213", "setting": "inpatient"})
+    assert ip.status_code == 200 and ip.json()["results"]
 
 
 def test_rates_by_network_sorted_and_bounded(api):
@@ -176,10 +221,12 @@ def test_ga_providers_hospitals_only(api):
 
 def test_networks_endpoint(api):
     # served from the browse summary (make build-summary); n_rates is the exact
-    # price-row count per network — 9 Blue Value + 5 Open Access in the fixture.
+    # price-row count per network — 12 Blue Value (incl. the 3 out-of-scope
+    # noise rows: rate_summary counts "what exists", not the scoped view) +
+    # 5 Open Access.
     body = api.get("/networks").json()
     counts = {r["network_name"]: r["n_rates"] for r in body}
-    assert counts == {BLUE_VALUE: 9, "GA Blue Open Access POS Network": 5}
+    assert counts == {BLUE_VALUE: 12, "GA Blue Open Access POS Network": 5}
     # sorted by volume desc
     assert [r["n_rates"] for r in body] == sorted((r["n_rates"] for r in body), reverse=True)
 

@@ -25,6 +25,29 @@ the product is headed — and which of these gaps that closes — is in
   trusts the filename). Every other big `anthem/GA_*` file is a *different* GA
   individual plan, not Blue Value.
 
+## Data scope
+
+- **Consumer rate views show outpatient professional fee-for-service only.**
+  `serving/data_sources.outpatient_scope()` — `billing_class='professional' AND
+  setting IN ('outpatient','both') AND negotiation_arrangement='ffs' AND
+  negotiated_type IN ('fee schedule','negotiated')` — gates `/rates/providers`,
+  `/rates/by_network`, `/rates/quote` and the no-code `/rates/distribution`
+  overview (via `rate_hist.scope`). What's excluded and still in the store:
+  - **`negotiated_type='percentage'`** (~9M CPT rows) — `negotiated_rate` is a
+    percent of billed charges (`60.0` = 60%), not dollars. Was rendering as
+    "$60.00".
+  - **`per diem`** (per inpatient day) and **`derived`** (algorithmic fallback).
+  - **`billing_class='institutional'`** — facility/UB-04 lines.
+  - **`setting='inpatient'`** — inpatient-only rates. `setting='inpatient'` on
+    the scoped routes is *ignored*, not honoured.
+  - **`negotiation_arrangement='bundle'`** — price covers other services too.
+  A dedicated inpatient / facility view is the follow-up. Note this does **not**
+  remove the sub-$1 placeholder rates that are themselves tagged `fee schedule` /
+  `ffs` — those have no categorical tell ([GH #51](https://github.com/wmespi/honest-healthcare/issues/51)).
+- **`/networks`, `/billing_codes`, `/procedure_categories` are not scoped** —
+  `rate_summary` / `code_rollup` sum every scope. They answer "what's priced in
+  this network", not "what does an outpatient visit cost".
+
 ## Provider ↔ procedure
 
 - **`plausibility()` is a heuristic; CMS utilization is the evidence layer.** A
@@ -85,6 +108,17 @@ the product is headed — and which of these gaps that closes — is in
   ~1.1M for a common code. Ordering is fine; **never render it as "N providers".**
   A real `(payer, code) → n_providers` distinct rollup:
   [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
+- **`/rates/providers` still materialises a `_prac` temp table per request.**
+  One heavy `prices ⨝ group_sets ⨝ providers ⨝ nppes` pass, pruned to one code +
+  the outpatient scope: ~0.4 s with a `network_name`, **~15 s without** (down
+  from ~46 s — it used to make three such passes). A precomputed
+  `(code, network, tin) → rate` rollup would make the no-network case instant
+  too; deferred with the rest of #10 / #48. Per-row `n_groups` over-counts a
+  provider group that spans several TINs (it's "groups this practice's rate
+  reaches you through", not a partition) — the summary `n_groups` is the true
+  distinct count.
+- **`/rates/providers` `ga_hospitals_only` filters the rows but not `summary`** —
+  the min/median/max still describe every practice. Niche param; revisit if used.
 - **Backend opens a fresh `duckdb.connect()` per request** — bounded now
   (`memory_limit`, `temp_directory` in `db()`), but no connection reuse / zonemap
   cache. Persistent pooled connection is the remaining #10 item.
