@@ -18,7 +18,7 @@
 
 .PHONY: help \
         start up down logs \
-        discover parse size fixture \
+        discover parse size fixture seed \
         nppes code-labels taxonomy-labels \
         fmt lint test test-e2e test-api test-web check test-all \
         cov-probe cov-report smoke-web data-size \
@@ -73,6 +73,9 @@ parse: ## Phase 2 — stream pending files into Parquet. ID=<index_files.id> · 
 size: ## Backfill index_files.file_size_bytes via concurrent HEAD requests
 	docker compose exec etl go run . size
 
+seed: ## Populate data/ with the committed synthetic MRF (fresh-clone bootstrap; idempotent)
+	bash scripts/seed.sh
+
 fixture: ## Build a truncated *.json.gz fixture from a file id — usage: make fixture ID=5043 NAME=ga_small
 	docker compose exec etl go run . fixture -file-ids $(ID) $(if $(NAME),-name $(NAME),)
 
@@ -110,7 +113,7 @@ test-e2e: _require-etl-running ## Hermetic end-to-end: parse + NPPES fixtures in
 	bash scripts/nppes_test.sh
 
 test-api: ## Backend contract + coverage tests (pytest, against the running API)
-	docker compose exec -T serving sh -c "pip install -q pytest httpx && cd /app/serving && python -m pytest tests/ -q"
+	docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/ -q"
 
 test-web: ## Rate-explorer component tests (vitest + Testing Library, hermetic — mocks the API)
 	docker compose exec -T frontend sh -c "cd /app && npx vitest run"

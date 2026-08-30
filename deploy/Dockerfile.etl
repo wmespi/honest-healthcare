@@ -1,9 +1,31 @@
-FROM golang:1.24-alpine
+# ETL CLI (etl/ — one Go module). Two targets:
+#   dev  — the toolchain only; docker-compose bind-mounts the source and runs
+#          `go run . <subcommand>` on demand (see the Makefile).
+#   prod — a static binary in a minimal image; the deploy/scheduled-parse artifact.
+#
+# `go.mod` pins `toolchain go1.24.13`; the base image tag matches so no toolchain
+# is auto-downloaded at build.
 
-# Install git and other utilities if needed
-RUN apk update && apk add --no-cache git bash
-
+# ── dev: toolchain, source mounted at runtime ──────────────────────────────
+FROM golang:1.24.13-alpine AS dev
+RUN apk add --no-cache git bash
 WORKDIR /app/etl
-
-# We will mount the whole directory via docker-compose so we just need a command that keeps the container alive
 CMD ["tail", "-f", "/dev/null"]
+
+# ── build: compile the static binary ──────────────────────────────────────
+FROM golang:1.24.13-alpine AS build
+RUN apk add --no-cache git
+WORKDIR /src
+COPY etl/go.mod etl/go.sum ./
+RUN go mod download
+COPY etl/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/etl .
+
+# ── prod: minimal runtime ────────────────────────────────────────────────
+FROM alpine:3.20 AS prod
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=build /out/etl /usr/local/bin/etl
+# data/ is a runtime mount; the binary resolves paths relative to its workdir
+WORKDIR /app/etl
+ENTRYPOINT ["etl"]
+CMD ["--help"]

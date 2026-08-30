@@ -32,8 +32,9 @@ The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
 `extraction` / `nppes` / `fixture` packages; shared structs, config, and the
 progress reader live in `etl/core/`.
 
-Docker services: `db`, `etl`, `serving`, `frontend`. Full on-disk layout:
-[docs/schema.md](docs/schema.md).
+Docker services: `db`, `etl`, `serving`, `frontend` — each from a multi-stage
+Dockerfile in [deploy/](deploy/README.md) (`prod` target = deployable artifact;
+compose runs the `dev` target). Full on-disk layout: [docs/schema.md](docs/schema.md).
 
 ---
 
@@ -127,6 +128,7 @@ make sh S=serving          # shell into a container
 | Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
+| Container images — dev/prod targets, ports, what CI builds | [deploy/README.md](deploy/README.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |
 | CMS spec | https://github.com/CMSgov/price-transparency-guide |

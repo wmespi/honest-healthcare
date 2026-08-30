@@ -1,9 +1,12 @@
+# FastAPI + DuckDB over the Parquet globs. Dependencies are pure-Python wheels
+# (fastapi, uvicorn, duckdb, pydantic) — no build toolchain needed.
+#
+# The image default is a production server (no --reload, single worker).
+# docker-compose adds `--reload` and bind-mounts the source for the dev loop.
 FROM python:3.10-slim
 
 WORKDIR /app
 
-# Dependencies are pure-Python wheels (fastapi, uvicorn, duckdb, pydantic) —
-# no build toolchain needed.
 COPY serving/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -11,4 +14,4 @@ COPY serving/ ./serving/
 
 EXPOSE 8000
 
-CMD ["uvicorn", "serving.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "serving.main:app", "--host", "0.0.0.0", "--port", "8000"]

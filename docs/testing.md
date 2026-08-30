@@ -81,7 +81,7 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
 ## CI (GitHub Actions)
 
 `.github/workflows/ci.yml` runs on every PR (unless it's a draft) and on push to
-`main`, three jobs in parallel. `paths-ignore` skips the whole workflow for
+`main`, four jobs in parallel. `paths-ignore` skips the whole workflow for
 docs-only changes (`**.md`, `docs/**`, `LICENSE`).
 
 | Job | Covers | How |
@@ -89,6 +89,7 @@ docs-only changes (`**.md`, `docs/**`, `LICENSE`).
 | `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
 | `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
 | `integration` | `test_api_contract.py` (every route, hermetic) + the two reference-builder tests, then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
+| `images` | builds the three `prod` Dockerfile targets and smokes each (`etl --help`, `serving` GET /, `nginx` GET /) | raw `docker build --target prod` — catches Dockerfile / dep drift the compose `dev` targets don't |
 
 **Not in CI yet:** `test_coverage.py`'s coverage-basket assertions
 (`test_core_code_has_rates` etc.) run against a live API with the full `data/`
