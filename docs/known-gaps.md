@@ -59,6 +59,13 @@ the product is headed — and which of these gaps that closes — is in
   doesn't. The build recomputes the whole summary each run (~45s at 11.7M price
   rows, ~minutes at 20 GB); per-file partials → merge is the follow-up. It is
   also **not auto-triggered** — run it after each `make parse` batch.
+- **`code_rollup.n_provider_groups` is an inflated ranking hint, not a distinct
+  count.** It sums the code's rosters' sizes, so a provider group in several of a
+  code's rosters is counted per-roster (same as the old `VOL_CTE`; #45's
+  `approx_count_distinct` didn't scale — #47). At 645M price rows this reads
+  ~1.1M for a common code. Ordering is fine; **never render it as "N providers".**
+  A real `(payer, code) → n_providers` distinct rollup:
+  [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
 - **Backend opens a fresh `duckdb.connect()` per request** — bounded now
   (`memory_limit`, `temp_directory` in `db()`), but no connection reuse / zonemap
   cache. Persistent pooled connection is the remaining #10 item.
