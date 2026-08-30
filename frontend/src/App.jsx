@@ -589,11 +589,14 @@ function ProviderCostCard({ data, loading, providerName }) {
     );
   }
   if (!data?.headline) return null;
-  const { headline, components, is_component_split, provider, plausibility, medicare_utilization: mu } = data;
+  const { headline, components, is_component_split, provider, plausibility, tier, medicare_utilization: mu } = data;
   const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
   const name = provider?.name || providerName;
   const sub = [provider?.specialty, provider?.address || provider?.city].filter(Boolean).join(' · ');
-  const groupRate = plausibility === 'unlikely'; // rate belongs to the group, not the individual
+  // The rate belongs to the billing group, not the individual, when the CMS
+  // tier says "group" (no utilization, not typical for the specialty) or the
+  // legacy heuristic flags a cross-specialty mismatch.
+  const groupRate = tier === 'group' || plausibility === 'unlikely';
 
   // CMS Medicare Part B evidence (issue #14). mu is null until the utilization
   // file is built; {billed:false} means the file is built but this NPI has no

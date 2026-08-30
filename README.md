@@ -95,6 +95,14 @@ make code-labels
 make taxonomy-labels
 ```
 
+**7 — Provider↔procedure evidence** (optional — powers the "billed to Medicare"
+line and the plausible-vs-group menu tiering; the app works without it):
+
+```bash
+make cms-utilization      # ~3 GB — CMS Medicare Part B: did this NPI bill this code
+make specialty-profiles   # what each specialty typically bills (needs 6 + cms-utilization)
+```
+
 The API picks up new Parquet automatically — just refresh the UI. `make help`
 lists every workflow. To reach the UI from another device, open
 `http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on

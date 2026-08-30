@@ -196,6 +196,32 @@ describe('Medicare utilization evidence (issue #14)', () => {
     expect(screen.getByText(/142 times in 2024/i)).toBeInTheDocument();
   });
 
+  it('frames the cost card as a group rate when the CMS tier is "group"', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '59514', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'BACON COUNTY HEALTH SERVICES', specialty: 'General Acute Care Hospital', city: 'ALMA' },
+      plausibility: null,
+      tier: 'group',
+      medicare_utilization: { billed: false, year: 2024 },
+      headline: { rate: 207.68, max_rate: 3150, basis: 'global', pos_label: null },
+      components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+        { pos_bucket: 'any', pos_label: 'Any setting', min_rate: 207.68, max_rate: 3150, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    expect(await screen.findByText(/group-contracted rate/i)).toBeInTheDocument();
+    expect(screen.getByText(/show the group rate/i)).toBeInTheDocument();
+  });
+
   it('collapses group-tier rates behind "show all" and expands on click', async () => {
     const user = userEvent.setup();
     api.getProviderMenu.mockImplementation((npi, net, setting, q = '', tier = 'plausible') => {
