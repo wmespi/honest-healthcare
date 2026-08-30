@@ -35,6 +35,28 @@ def test_distribution_shape(api):
     assert isinstance(body["distribution"], list) and body["distribution"]
 
 
+def test_distribution_overview_from_summary(api):
+    # No billing_code → network overview, served off summary/rate_hist.parquet
+    # (never a `prices` scan). CPT-only; per-group counts aren't derivable here.
+    r = api.get("/rates/distribution")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["billing_code"] == "ALL"
+    s = body["summary"]
+    assert {"min", "max", "avg", "median", "n_codes", "total_entries"} <= s.keys()
+    assert s["provider_groups"] is None
+    assert s["n_providers"] is None
+    assert s["n_codes"] >= 1
+    assert s["min"] <= s["median"] <= s["max"]
+    assert s["total_entries"] >= 5
+    assert isinstance(body["distribution"], list) and body["distribution"]
+    assert all({"rate", "provider_groups"} <= b.keys() for b in body["distribution"])
+
+    # a network scope is a subset of the all-networks total
+    scoped = api.get("/rates/distribution", params={"network_name": BLUE_VALUE}).json()
+    assert scoped["summary"]["total_entries"] <= s["total_entries"]
+
+
 def test_distribution_rejects_npi_without_code(api):
     r = api.get("/rates/distribution", params={"npi": CARDIOLOGIST})
     assert r.status_code == 400

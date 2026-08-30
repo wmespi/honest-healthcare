@@ -17,7 +17,9 @@ from ..data_sources import (
     PRICES_SRC,
     PROVIDERS_SRC,
     GROUP_SETS_SRC,
+    RATE_HIST_PATH,
     db,
+    have_rate_hist,
     network_slug,
     price_filters,
 )
@@ -31,6 +33,77 @@ from ..labels import (
 from ..evidence import code_tiers, did_bill, medicare_specialty
 
 router = APIRouter()
+
+
+def _overview_from_summary(conn, billing_code_type, network_name, setting):
+    """Network overview from summary/rate_hist.parquet — no `prices` scan.
+
+    `distribution` = the histogram bars (rate entries per $50 band, capped at
+    $2000 to match the code-level view). `summary` = volume-weighted min / median
+    / avg / max of every negotiated rate in scope, off the pooled CDF (≤201
+    buckets — trivial). `n_codes` replaces `provider_groups` (not derivable here
+    without `prices ⨝ group_sets` — #48).
+    """
+    hsrc = f"read_parquet('{RATE_HIST_PATH}')"
+    conds, hp = ["billing_code_type = ?"], [billing_code_type]
+    if network_name:
+        conds.append("net = ?")
+        hp.append(network_slug(network_name))
+    if setting:
+        conds.append("setting = ?")
+        hp.append(setting)
+    hwhere = " AND ".join(conds)
+
+    dist = conn.execute(f"""
+        SELECT FLOOR(LEAST(bucket, 2000) / 50) * 50 AS rate,
+               'fee schedule' AS negotiated_type,
+               SUM(n) AS provider_groups
+        FROM {hsrc}
+        WHERE {hwhere}
+        GROUP BY 1, 2
+        ORDER BY 1
+    """, hp).fetchall()
+
+    if not dist:
+        raise HTTPException(404, detail=f"No {billing_code_type} rates found for this network")
+
+    srow = conn.execute(f"""
+        WITH b AS (
+            SELECT bucket, SUM(n) AS n
+            FROM {hsrc} WHERE {hwhere}
+            GROUP BY 1
+        ),
+        c AS (
+            SELECT bucket, SUM(n) OVER (ORDER BY bucket) AS cum, SUM(n) OVER () AS tot
+            FROM b
+        )
+        SELECT
+            (SELECT MIN(bucket) FROM b),
+            (SELECT MAX(bucket) FROM b),
+            (SELECT SUM(bucket * n)::DOUBLE / NULLIF(SUM(n), 0) FROM b),
+            (SELECT MIN(bucket) FROM c WHERE cum >= tot / 2.0),
+            (SELECT COUNT(DISTINCT billing_code) FROM {hsrc} WHERE {hwhere}),
+            (SELECT SUM(n) FROM b)
+    """, hp + hp).fetchone()
+
+    return {
+        "billing_code": "ALL",
+        "billing_code_type": "NETWORK",
+        "summary": {
+            "min":    round(srow[0], 2) if srow[0] is not None else None,
+            "max":    round(srow[1], 2) if srow[1] is not None else None,
+            "max_capped": srow[1] is not None and srow[1] >= 5000,  # overflow bucket
+            "avg":    round(srow[2], 2) if srow[2] is not None else None,
+            "median": round(srow[3], 2) if srow[3] is not None else None,
+            "provider_groups": None,   # not derivable without prices ⨝ group_sets — #48
+            "n_providers":     None,
+            "n_codes":       srow[4] or 0,
+            "total_entries": int(srow[5]) if srow[5] is not None else 0,
+        },
+        "distribution": [
+            {"rate": r[0], "type": r[1], "provider_groups": int(r[2])} for r in dist
+        ],
+    }
 
 
 @router.get("/rates/distribution")
@@ -58,6 +131,13 @@ def rate_distribution(
         )
 
     conn = db()
+
+    # ── Network overview (no code): read the precomputed histogram, never
+    # `prices` (645M rows → OOM at GA scale, issue #10). The bars ARE the
+    # histogram; the summary is a volume-weighted CDF over CPT only, so a $0.01
+    # revenue-code line and a $7M drug-unit outlier don't blow it up (#51).
+    if not billing_code and have_rate_hist():
+        return _overview_from_summary(conn, billing_code_type, network_name, setting)
 
     # Expanding prices → provider groups is only affordable when the filter
     # prunes prices hard (a billing_code) or the query needs per-NPI resolution
