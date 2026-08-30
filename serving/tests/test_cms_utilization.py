@@ -3,6 +3,7 @@
 No network, no live API — runs the builder against a committed 15-row CSV
 fixture in test isolation (writes data-test/cms/, never data/cms/).
 """
+import os
 import subprocess
 import sys
 
@@ -22,7 +23,13 @@ def built():
         cwd=REPO, capture_output=True, text=True,
     )
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
-    return duckdb.connect()
+    yield duckdb.connect()
+    # Leave data-test/ clean — a stale ga_providers-adjacent parquet here would
+    # otherwise perturb a later `make test-e2e` in the same environment.
+    try:
+        os.remove(OUT)
+    except FileNotFoundError:
+        pass
 
 
 def test_only_georgia_rows_kept(built):

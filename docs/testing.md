@@ -47,6 +47,12 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
   and `test_specialty_profiles.py` run the `reference/` builders against it in
   test isolation (`data-test/cms/`, `data-test/reference/`) — hermetic, picked up
   by `make test-api`.
+- `serving/tests/conftest.py` (`api` fixture) — builds a small coherent Parquet
+  dataset (2 networks, 5 CPT codes with `-26`/`-TC` splits, 5 providers incl. a
+  hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile tables) under
+  `data-test/apifix/` and binds a FastAPI `TestClient` to it. Drives
+  `test_api_contract.py` — every route, hermetic, no live server or `data/` mount.
+  Schemas track [schema.md](schema.md); teardown removes the dir.
 - `etl/extraction/testdata/fixtures/*.json.gz` — real, heavily-truncated MRFs from `make fixture` (first 25
   provider refs, NPI lists capped at 10, first 25 in-network items that touch a
   kept group, rates/prices capped). `synthetic.json.gz` drives `make test-e2e`;
@@ -65,6 +71,31 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
 
 `make test-e2e` runs both.
 
+> **Ordering:** `etl_e2e_test.sh` only gets the clean "keep all NPIs" path when
+> `data-test/nppes/ga_providers.parquet` is absent — a stale copy makes the GA NPI
+> filter drop every synthetic row. Every test that writes `data-test/` now tears
+> it down (the e2e scripts delete through the `etl` container; the serving
+> fixtures `os.remove` on teardown), so `rm -rf data-test/*` is only needed if a
+> run was killed mid-flight.
+
+## CI (GitHub Actions)
+
+`.github/workflows/ci.yml` runs on every PR (unless it's a draft) and on push to
+`main`, three jobs in parallel. `paths-ignore` skips the whole workflow for
+docs-only changes (`**.md`, `docs/**`, `LICENSE`).
+
+| Job | Covers | How |
+|---|---|---|
+| `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
+| `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
+| `integration` | `test_api_contract.py` (every route, hermetic) + the two reference-builder tests, then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
+
+**Not in CI yet:** `test_coverage.py`'s coverage-basket assertions
+(`test_core_code_has_rates` etc.) run against a live API with the full `data/`
+mounted — the *contract* half of that file is now covered hermetically by
+`test_api_contract.py`. JS lint (`npm run lint`) has pre-existing errors — not
+gated until they're cleared.
+
 ## Frontend — `frontend/src/App.test.jsx`
 
 vitest + Testing Library, hermetic (`vi.mock('./api')`, jsdom). Covers the
@@ -80,4 +111,4 @@ that a **provider selected with no procedure** shows the
 |---|---|---|
 | Frontend E2E | Playwright | Real browser: histogram render, filter chips, mobile layout |
 | ETL conflict-resolution | `go test ./...` | Plan-specific-file-wins rate override (Critical Rule 5) |
-| CI | GitHub Actions | `make check` on every push (no workflow exists yet) |
+| Live coverage basket in CI | GitHub Actions | `test_coverage.py`'s `test_core_code_has_rates` — needs the real `data/`, not the synthetic fixture |

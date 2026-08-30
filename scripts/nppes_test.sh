@@ -6,7 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 OUT=data-test/nppes/ga_providers.parquet
-cleanup() { rm -rf data-test/nppes; }
+# Delete through the etl container — it wrote the parquet as root, so a host-side
+# rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
+cleanup() { docker compose exec -T etl rm -rf /app/data-test/nppes 2>/dev/null || rm -rf data-test/nppes; }
 trap cleanup EXIT
 cleanup
 

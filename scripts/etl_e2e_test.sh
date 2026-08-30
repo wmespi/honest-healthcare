@@ -16,7 +16,9 @@ PSQL=(docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERRO
 cleanup() {
   echo "→ teardown"
   "${PSQL[@]}" -c "TRUNCATE test.index_files, test.billing_codes, test.coverage_log RESTART IDENTITY;" >/dev/null 2>&1 || true
-  rm -rf data-test/anthem
+  # Delete through the etl container — it wrote these files as root, so a host-side
+  # rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
+  docker compose exec -T etl rm -rf /app/data-test/anthem 2>/dev/null || rm -rf data-test/anthem
 }
 trap cleanup EXIT
 
