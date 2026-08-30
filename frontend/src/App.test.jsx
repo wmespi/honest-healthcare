@@ -75,7 +75,7 @@ describe('provider selected without a procedure', () => {
 
     // The menu view loads.
     expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
-    expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined);
+    expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'plausible');
 
     // ...and the app is not stuck on the loading spinner.
     expect(screen.queryByText(/querying mrf data/i)).not.toBeInTheDocument();
@@ -167,6 +167,122 @@ describe('cross-specialty rollup caveat', () => {
     expect(screen.getByText(/no record of whether/i)).toBeInTheDocument();
     // numbers are tucked behind a disclosure, not shown as the headline
     expect(screen.getByText(/show the group rate/i)).toBeInTheDocument();
+  });
+});
+
+describe('Medicare utilization evidence (issue #14)', () => {
+  it('shows a "billed to Medicare" line on the cost card when the provider bills the code', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '99213', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'ABBOTT, ASHLEY', specialty: 'Family Medicine', city: 'ATLANTA' },
+      plausibility: 'typical',
+      medicare_utilization: { billed: true, year: 2024, tot_srvcs: 142, tot_benes: 90, avg_mdcr_allowed: 83.4, is_drug: false },
+      headline: { rate: 82, max_rate: 82, basis: 'global', pos_label: 'Office / telehealth' },
+      components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+        { pos_bucket: 'office', pos_label: 'Office / telehealth', min_rate: 82, max_rate: 82, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    expect(await screen.findByText(/billed this to Medicare/i)).toBeInTheDocument();
+    expect(screen.getByText(/142 times in 2024/i)).toBeInTheDocument();
+  });
+
+  it('frames the cost card as a group rate when the CMS tier is "group"', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '59514', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'BACON COUNTY HEALTH SERVICES', specialty: 'General Acute Care Hospital', city: 'ALMA' },
+      plausibility: null,
+      tier: 'group',
+      medicare_utilization: { billed: false, year: 2024 },
+      headline: { rate: 207.68, max_rate: 3150, basis: 'global', pos_label: null },
+      components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+        { pos_bucket: 'any', pos_label: 'Any setting', min_rate: 207.68, max_rate: 3150, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    expect(await screen.findByText(/group-contracted rate/i)).toBeInTheDocument();
+    expect(screen.getByText(/show the group rate/i)).toBeInTheDocument();
+  });
+
+  it('collapses group-tier rates behind "show all" and expands on click', async () => {
+    const user = userEvent.setup();
+    api.getProviderMenu.mockImplementation((npi, net, setting, q = '', tier = 'plausible') => {
+      if (tier === 'all') return Promise.resolve({ data: {
+        npi: 123, tier: 'all', group_count: 1, specialty: 'Cardiology', count: 2,
+        results: [
+          { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'Evaluation & Management', min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3, n_networks: 1, tier: 'typical' },
+          { billing_code: '11111', billing_code_type: 'CPT', label: 'Random Surgery', rbcs_category: 'Procedure', min_rate: 900, median_rate: 900, max_rate: 900, n_rates: 1, n_networks: 1, tier: 'group' },
+        ],
+      } });
+      return Promise.resolve({ data: {
+        npi: 123, tier: 'plausible', group_count: 1, specialty: 'Cardiology', count: 1,
+        results: [
+          { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'Evaluation & Management', min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3, n_networks: 1, tier: 'typical' },
+        ],
+      } });
+    });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+
+    const showAll = await screen.findByText(/1 more rates contracted/i);
+    await user.click(showAll);
+
+    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'all'));
+    await user.click(await screen.findByText('Procedure'));
+    expect(await screen.findByText('Random Surgery')).toBeInTheDocument();
+  });
+
+  it('badges menu rows the provider billed to Medicare', async () => {
+    const user = userEvent.setup();
+    api.getProviderMenu.mockResolvedValue({ data: { npi: 123, count: 1, results: [
+      { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'Evaluation & Management',
+        min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3, n_networks: 1,
+        medicare: { tot_srvcs: 210, tot_benes: 130, year: 2024 } },
+    ] } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+
+    expect(await screen.findByText('Medicare')).toBeInTheDocument();
+  });
+
+  it('marks provider search results we hold no rate data for', async () => {
+    const user = userEvent.setup();
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
+      { npi: 222, name: 'CARDIOLOGY CARE CLINIC, LLC', city: 'EATONTON', specialty: 'Cardiac Facilities', has_rates: false },
+    ] });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    const input = screen.getByPlaceholderText(/search provider or npi/i);
+    await user.click(input);
+    await user.type(input, 'cardio');
+
+    expect(await screen.findByText('has rates')).toBeInTheDocument();
+    expect(screen.getByText('no rate data')).toBeInTheDocument();
+    expect(screen.getByText(/No rate data — 1 more/i)).toBeInTheDocument();
   });
 });
 

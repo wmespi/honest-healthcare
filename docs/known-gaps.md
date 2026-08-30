@@ -24,13 +24,28 @@ issues that only bite at scale are in [../etl/parse.md](../etl/parse.md).*
 
 ## Provider ↔ procedure
 
-- **`_plausibility()` is a heuristic.** A social worker in a rollup provider group
-  "has" a $14k surgical rate because Anthem's `provider_references` are
-  network-administration buckets, not practices. The serving layer flags the mismatch and
-  reframes the number as the group's rate — it cannot verify whether the individual
-  performs the procedure. Real fix: cross-reference CMS "Medicare Physician & Other
-  Practitioners: by Provider and Service" (public, one row per NPI × HCPCS actually
-  billed) — [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
+- **`plausibility()` is a heuristic; CMS utilization is the evidence layer.** A
+  social worker in a rollup provider group "has" a $14k surgical rate because
+  Anthem's `provider_references` are network-administration buckets, not
+  practices. Two reference builds add real evidence:
+  - `make cms-utilization` → `did_bill(npi, code)` (Tier 1) from CMS "by Provider
+    and Service" — [reference/cms-utilization.md](../reference/cms-utilization.md).
+  - `make specialty-profiles` → "typical for this specialty" (Tier 2) — codes
+    billed by ≥3% of the provider's specialty —
+    [reference/specialty-profiles.md](../reference/specialty-profiles.md).
+
+  `/providers/{npi}/procedures` defaults to `tier=plausible` (billed + typical
+  only, with a `group_count`); `/rates/quote` returns `tier` + `medicare_utilization`.
+  Frontend: cost-card evidence line, menu badges + a "show all N group-contracted
+  rates" expander. A strict Tier-1 filter keeps ~47% of priceable providers; Tier
+  1+2 keeps ~94%.
+
+  Remaining limits: **Part B only** (no pediatric / pure-commercial / cash), rows
+  with ≤10 beneficiaries are **excluded entirely** (so `billed: False` is weak),
+  ~2-year lag, practitioner (type-1) signal, **single year (2024)** — "stopped
+  doing it" looks like "never". Georgia has no All-Payer Claims Database, so
+  there's no public commercial-utilization source to widen this.
+  [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
 
 ## Scale / performance
 

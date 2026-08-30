@@ -74,7 +74,7 @@ There is no `plan_name` — `/plans` returns `[]`.
 
 ---
 
-## Parquet — `data/nppes/` and `data/reference/`
+## Parquet — `data/nppes/`, `data/reference/`, `data/cms/`
 
 ```
 data/nppes/ga_providers.parquet
@@ -90,6 +90,19 @@ data/reference/code_labels.parquet     (make code-labels — reference/code-labe
 data/reference/nucc_taxonomy.parquet   (make taxonomy-labels — reference/taxonomy-labels.md)
     taxonomy_code | grouping | classification | specialization
     display_name | specialty | is_individual
+
+data/cms/ga_provider_service.parquet   (make cms-utilization — reference/cms-utilization.md)
+    npi | hcpcs_cd | place_of_service ('F'/'O')
+    tot_benes | tot_srvcs | tot_bene_day_srvcs
+    avg_mdcr_alowd_amt | provider_type | hcpcs_drug_ind | year
+    ← one row per (GA NPI × HCPCS × POS) billed to Medicare Part B; the
+      did_bill() evidence layer (serving/evidence.py). ~284k rows / ~34k NPIs.
+
+data/reference/specialty_procedure_profiles.parquet  (make specialty-profiles — reference/specialty-profiles.md)
+    specialty (NUCC classification) | hcpcs_cd
+    billers | specialty_providers | prevalence
+    ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
+      NUCC). ~5.8k rules / ~51 specialties. Read by evidence.code_tiers().
 ```
 
 ---

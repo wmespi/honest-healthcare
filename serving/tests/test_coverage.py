@@ -118,6 +118,15 @@ def test_provider_menu_shape(client, npi_with_rates):
     for row in body["results"][:5]:
         assert {"billing_code", "min_rate", "median_rate", "max_rate", "n_rates"} <= row.keys()
         assert row["min_rate"] <= row["max_rate"]
+    # tiering (issue #14): every row tagged; group_count present; ?tier=all is a superset
+    assert {"tier", "group_count"} <= body.keys()
+    for row in body["results"]:
+        assert row["tier"] in ("billed", "typical", "group")
+    all_body = client.get(f"/providers/{npi_with_rates}/procedures",
+                          params={"network_name": "GA Blue Value HIX Individual Network",
+                                  "tier": "all", "limit": 2000}).json()
+    assert all_body["tier"] == "all"
+    assert len(all_body["results"]) >= len(body["results"])
 
 
 def test_rate_quote_shape(client, npi_with_rates):
@@ -140,6 +149,11 @@ def test_rate_quote_shape(client, npi_with_rates):
     mods = [c["modifier"] for c in body["components"]]
     if "" in mods:
         assert mods[0] == ""
+    # CMS Medicare evidence (issue #14): key always present; null until
+    # `make cms-utilization` has run, else {"billed": bool, ...}.
+    assert "medicare_utilization" in body
+    mu = body["medicare_utilization"]
+    assert mu is None or "billed" in mu
 
 
 def test_distribution_rejects_npi_without_code(client, npi_with_rates):

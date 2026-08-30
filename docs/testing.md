@@ -42,6 +42,11 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
   parser branch; `extraction/stream_test.go` runs `streamMRF` over it (hermetic —
   no network, no DB).
 - `etl/nppes/testdata/nppes_sample.csv` — ~14 rows for the NPPES GA extractor.
+- `reference/testdata/cms_sample.csv` — 15 rows for the CMS utilization builder
+  (12 GA + 1 FL + 1 TX + 1 corrupt-NPI). `serving/tests/test_cms_utilization.py`
+  and `test_specialty_profiles.py` run the `reference/` builders against it in
+  test isolation (`data-test/cms/`, `data-test/reference/`) — hermetic, picked up
+  by `make test-api`.
 - `etl/extraction/testdata/fixtures/*.json.gz` — real, heavily-truncated MRFs from `make fixture` (first 25
   provider refs, NPI lists capped at 10, first 25 in-network items that touch a
   kept group, rates/prices capped). `synthetic.json.gz` drives `make test-e2e`;
