@@ -65,26 +65,29 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
 
 `make test-e2e` runs both.
 
-> **Ordering:** `etl_e2e_test.sh` runs first, and it only gets the clean "keep all
-> NPIs" path if `data-test/nppes/ga_providers.parquet` is absent. A stale copy
-> from a prior manual `make nppes TEST=1` makes the GA NPI filter drop every
-> synthetic row and the test fails. `make test-e2e` is fine (e2e before nppes);
-> `rm -rf data-test/*` if you hit it out of band.
+> **Ordering:** `etl_e2e_test.sh` only gets the clean "keep all NPIs" path when
+> `data-test/nppes/ga_providers.parquet` is absent — a stale copy makes the GA NPI
+> filter drop every synthetic row. Every test that writes `data-test/` now tears
+> it down (the e2e scripts delete through the `etl` container; the serving
+> fixtures `os.remove` on teardown), so `rm -rf data-test/*` is only needed if a
+> run was killed mid-flight.
 
 ## CI (GitHub Actions)
 
-`.github/workflows/ci.yml` runs on every PR and on push to `main`, three jobs in
-parallel:
+`.github/workflows/ci.yml` runs on every PR (unless it's a draft) and on push to
+`main`, three jobs in parallel. `paths-ignore` skips the whole workflow for
+docs-only changes (`**.md`, `docs/**`, `LICENSE`).
 
 | Job | Covers | How |
 |---|---|---|
 | `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
 | `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
-| `e2e` | `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
+| `integration` | hermetic serving reference-builder tests, then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
 
-**Not in CI yet:** `make test-api` needs a populated `data/` (multi-GB, gitignored)
-— it wants a small committed rate-Parquet fixture first. JS lint (`npm run lint`)
-has pre-existing errors — not gated until they're cleared.
+**Not in CI yet:** `make test-api`'s live-API contract tests
+(`test_coverage.py`) need a populated `data/` (multi-GB, gitignored) — they want a
+small committed rate-Parquet fixture first. JS lint (`npm run lint`) has
+pre-existing errors — not gated until they're cleared.
 
 ## Frontend — `frontend/src/App.test.jsx`
 

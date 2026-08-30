@@ -50,7 +50,14 @@ def built():
         cwd=REPO, capture_output=True, text=True,
     )
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
-    return duckdb.connect()
+    yield duckdb.connect()
+    # Leave data-test/ clean — a stale data-test/nppes/ga_providers.parquet here
+    # makes the GA NPI filter in a later `make test-e2e` drop every synthetic row.
+    for p in (CMS, NPPES, NUCC, OUT):
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
 
 
 def test_prevalence_math(built):

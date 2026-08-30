@@ -2,17 +2,25 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore: &docs-only
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   push:
     branches: [main]
+    paths-ignore: *docs-only
 
 # One in-flight run per branch; a new push cancels the old run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Skip everything on draft PRs — CI resumes when the PR is marked ready.
+# (push-to-main events have no pull_request context, so they always run.)
 jobs:
   go:
     name: Go — fmt, vet, build, unit tests
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -37,6 +45,7 @@ jobs:
 
   web:
     name: Frontend — vitest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -51,8 +60,9 @@ jobs:
       - run: npm ci
       - run: npx vitest run
 
-  e2e:
-    name: ETL end-to-end (compose)
+  integration:
+    name: Serving + ETL (compose)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +83,12 @@ jobs:
           exit 1
       - name: Apply migrations (idempotent — keeps test.* in sync with public)
         run: make migrate
+      - name: Serving — hermetic reference-builder tests
+        run: |
+          docker compose exec -T serving pip install -q pytest
+          docker compose exec -T -w /app serving python -m pytest \
+            serving/tests/test_cms_utilization.py \
+            serving/tests/test_specialty_profiles.py -q
       - name: ETL e2e + NPPES fixtures
         run: make test-e2e
       - name: Stack logs on failure
