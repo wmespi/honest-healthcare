@@ -1,7 +1,8 @@
 """Provider endpoints.
 
   /providers/{npi}/procedures  job 4 — the provider "menu"
-  /providers/search            name / org / city / NPI search (NPPES GA subset)
+  /providers/search            name / org / city / NPI / specialty search (NPPES GA)
+  /specialties                 NUCC classifications we hold providers for
   /providers/ga                raw NPPES GA lookup
 """
 import os
@@ -13,6 +14,7 @@ from ..data_sources import (
     GA_NPPES_PATH,
     CODE_LABELS_PATH,
     NPI_LOOKUP_PATH,
+    NUCC_PATH,
     PRICES_SRC,
     PROVIDERS_SRC,
     GROUP_SETS_SRC,
@@ -262,15 +264,54 @@ def search_providers(
                         CAST(g.npi AS VARCHAR)) AS name,
                g.city, g.taxonomy_group, g.is_hospital, g.is_clinic,
                {has_rates_expr} AS has_rates,
+               g.entity_type,
                {spec_sel}
         FROM read_parquet('{GA_NPPES_PATH}') g
         {spec_join}
         WHERE {where}
-        ORDER BY has_rates DESC, g.is_hospital DESC, g.is_clinic DESC, name
+        -- individuals carry the rates; a specialty search wants doctors, not
+        -- the practice's org NPI (which is never in a roster).
+        ORDER BY has_rates DESC, (g.entity_type = 'individual') DESC,
+                 g.is_hospital DESC, g.is_clinic DESC, name
         LIMIT {limit}
     """, params).fetchall()
-    cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic", "has_rates", "specialty"]
+    cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic",
+            "has_rates", "entity_type", "specialty"]
     return [dict(zip(cols, r)) for r in rows]
+
+
+@router.get("/specialties")
+def specialties(q: str = Query(default=""), limit: int = Query(default=30, le=200)):
+    """NUCC classifications we hold GA providers for, with a provider count —
+    the typeahead behind the "by specialty" search mode. Cheap: a scan of the
+    NPPES GA subset joined to the small NUCC table."""
+    if not os.path.exists(GA_NPPES_PATH) or not os.path.exists(NUCC_PATH):
+        return []
+    conn = db()
+    have_lookup = os.path.exists(NPI_LOOKUP_PATH)
+    rated = (f"g.npi IN (SELECT npi FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true))"
+             if have_lookup else "FALSE")
+    # x.specialty = specialization else classification — the clean label a
+    # patient recognises ("Cardiovascular Disease", not the "Internal Medicine"
+    # classification that NUCC actually files cardiologists under).
+    where = "WHERE COALESCE(x.specialty, '') <> ''"
+    params: list = []
+    if q.strip():
+        where += " AND x.specialty ILIKE ?"
+        params.append(f"%{q.strip()}%")
+    rows = conn.execute(f"""
+        SELECT x.specialty AS specialty,
+               COUNT(DISTINCT g.npi) AS n_providers,
+               COUNT(DISTINCT CASE WHEN {rated} THEN g.npi END) AS n_with_rates
+        FROM read_parquet('{GA_NPPES_PATH}') g
+        JOIN read_parquet('{NUCC_PATH}') x ON x.taxonomy_code = g.taxonomy_code
+        {where}
+        GROUP BY 1
+        HAVING COUNT(DISTINCT CASE WHEN {rated} THEN g.npi END) > 0
+        ORDER BY n_with_rates DESC, specialty
+        LIMIT {limit}
+    """, params).fetchall()
+    return [{"specialty": r[0], "n_providers": r[1], "n_with_rates": r[2]} for r in rows]
 
 
 @router.get("/providers/ga")

@@ -84,7 +84,8 @@ def provider_card(conn, npi: int):
     r = conn.execute(f"""
         SELECT COALESCE(NULLIF(g.org_name, ''),
                         NULLIF(TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name), '')) AS name,
-               g.city, g.postal_code, g.is_hospital, {spec_sel}, {addr_sel}
+               g.city, g.postal_code, g.is_hospital, {spec_sel}, {addr_sel},
+               g.is_clinic, g.entity_type
         FROM read_parquet('{GA_NPPES_PATH}') g
         {spec_join}
         WHERE g.npi = ?
@@ -92,11 +93,12 @@ def provider_card(conn, npi: int):
     """, [npi]).fetchone()
     if not r:
         return None
-    # cols: name0 city1 postal2 is_hospital3 specialty4 grouping5 classification6 addr1_7 addr2_8
+    # cols: name0 city1 postal2 is_hospital3 specialty4 grouping5 classification6 addr1_7 addr2_8 is_clinic9 entity_type10
     street = ", ".join(x for x in (r[7], r[8]) if x)
     return {
         "npi": npi, "name": r[0], "city": r[1], "postal_code": r[2],
         "is_hospital": bool(r[3]), "specialty": r[4],
+        "is_clinic": bool(r[9]), "entity_type": r[10],
         "_grouping": r[5], "_classification": r[6],
         "street": street or None,
         "address": ", ".join(x for x in (street, r[1]) if x) or None,

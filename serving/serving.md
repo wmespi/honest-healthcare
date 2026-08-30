@@ -15,7 +15,7 @@ FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 | `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `nucc_bits()` / `provider_card()`, `plausibility()` |
 | `evidence.py` | provider↔procedure evidence from CMS Medicare utilization (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. All no-op until `make cms-utilization` / `make specialty-profiles` run. |
 | `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
-| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search`, `/providers/ga` |
+| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI **or** `specialty=`), `/specialties`, `/providers/ga` |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
 
 SQL still lives inline in the route handlers — moving it into a `queries/` module
@@ -35,7 +35,7 @@ that expands a price row to its provider groups. Schema:
 | `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap. `tier=plausible` (default) shows only codes the NPI billed to Medicare or that are typical for their specialty + a `group_count`; `tier=all` shows every contracted code tagged `billed`/`typical`/`group` |
 
 Supporting: `/rates/distribution` (histogram — **400s on npi-without-code**, which
-would full-scan), `/networks`, `/providers/search` (+ `specialty=`),
+would full-scan), `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
 `/procedure_categories`, `/billing_codes`, `/providers/ga`.
 
 ## Key helpers

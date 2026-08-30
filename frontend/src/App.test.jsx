@@ -50,12 +50,15 @@ beforeEach(() => {
   } });
   api.getProviderMenu.mockResolvedValue({ data: MENU });
   api.searchProviders.mockResolvedValue({
-    data: [{ npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', taxonomy_group: 'Family Medicine', has_rates: true }],
+    data: [{ npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', taxonomy_group: 'Family Medicine', has_rates: true, entity_type: 'individual' }],
+  });
+  api.getSpecialties.mockResolvedValue({
+    data: [{ specialty: 'Cardiovascular Disease', n_providers: 300, n_with_rates: 236 }],
   });
 });
 
 async function selectProvider(user) {
-  const input = screen.getByPlaceholderText(/search provider or npi/i);
+  const input = screen.getByPlaceholderText(/name or NPI/i);
   await user.click(input);
   await user.type(input, 'abbott');
   const opt = await screen.findByText('ABBOTT, ASHLEY');
@@ -278,7 +281,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
     ] });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    const input = screen.getByPlaceholderText(/search provider or npi/i);
+    const input = screen.getByPlaceholderText(/name or NPI/i);
     await user.click(input);
     await user.type(input, 'cardio');
 
@@ -331,6 +334,29 @@ describe('out-of-pocket estimator (issue #30)', () => {
       const saved = JSON.parse(localStorage.getItem('hh_plan_v1'));
       expect(saved.coinsurance).toBe('15');
     });
+  });
+});
+
+describe('provider search — specialty mode (issue #31)', () => {
+  it('switches to specialty search, picks a specialty, then a provider', async () => {
+    const user = userEvent.setup();
+    api.searchProviders.mockImplementation((q, specialty) => Promise.resolve({
+      data: specialty
+        ? [{ npi: 555, name: 'HEART, DR', city: 'ATLANTA', specialty: 'Cardiovascular Disease', has_rates: true, entity_type: 'individual' }]
+        : [],
+    }));
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: 'specialty' }));
+    const input = screen.getByPlaceholderText(/e\.g\. cardiology/i);
+    await user.click(input);
+    await user.type(input, 'cardio');
+
+    await user.click(await screen.findByText('Cardiovascular Disease'));
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease'));
+    await user.click(await screen.findByText('HEART, DR'));
+    await screen.findByText(/procedure menu/i);
   });
 });
 
