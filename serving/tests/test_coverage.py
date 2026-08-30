@@ -59,12 +59,27 @@ def test_provider_search_specialty(client):
     assert r.status_code == 200
     body = r.json()
     if body:
-        assert "specialty" in body[0]
+        assert {"specialty", "entity_type"} <= body[0].keys()
     # specialty-only filter works without a text query
     r2 = client.get("/providers/search", params={"specialty": "cardio", "limit": 5})
     assert r2.status_code == 200
     for row in r2.json():
         assert row.get("specialty")
+    # rated individuals rank ahead of no-rate orgs
+    rated = [x["has_rates"] for x in r2.json()]
+    assert rated == sorted(rated, reverse=True)
+
+
+def test_specialties_endpoint(client):
+    r = client.get("/specialties", params={"q": "cardio"})
+    assert r.status_code == 200
+    body = r.json()
+    for row in body:
+        assert {"specialty", "n_providers", "n_with_rates"} <= row.keys()
+        assert row["n_with_rates"] > 0
+        assert row["n_providers"] >= row["n_with_rates"]
+    if body:
+        assert any("cardio" in row["specialty"].lower() for row in body)
 
 
 def test_rate_quote_provider_card(client, npi_with_rates):

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getProcedureCategories } from './api';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getSpecialties, getProcedureCategories } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { estimate, estimateRange, planIsConfigured, COPAY_BUCKETS, COPAY_LABELS } from './oop';
@@ -192,41 +192,75 @@ function NetworkDropdown({ selectedPlan, onSelect }) {
   );
 }
 
+// Row for one provider in the search dropdown.
+function ProviderRow({ s, onPick }) {
+  return (
+    <button
+      onClick={() => onPick(s)}
+      className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+    >
+      <div className="flex items-center gap-2">
+        <span className={`text-sm font-bold truncate ${s.has_rates ? 'text-white' : 'text-slate-500'}`}>{s.name || s.npi}</span>
+        {s.has_rates
+          ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
+          : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">no rate data</span>}
+        {s.entity_type === 'organization' && (
+          <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">clinic</span>
+        )}
+      </div>
+      <div className={`text-[11px] mt-0.5 truncate ${s.has_rates ? 'text-slate-500' : 'text-slate-600'}`}>
+        {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
+      </div>
+    </button>
+  );
+}
+
+// Provider filter — search by name/NPI or by specialty ("I need cardiology").
 function NpiSearch({ selectedNpi, onSelect }) {
+  const [mode, setMode] = useState('name'); // 'name' | 'specialty'
   const [query, setQuery] = useState('');
   const [selectedLabel, setSelectedLabel] = useState('');
-  const [suggestions, setSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [providers, setProviders] = useState([]);
+  const [specialties, setSpecialties] = useState([]);
+  const [pickedSpecialty, setPickedSpecialty] = useState(null);
+  const [open, setOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const ref = useRef(null);
 
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setShowSuggestions(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  // Name mode: providers by text. Specialty mode: either the specialty typeahead
+  // (nothing picked) or the provider list for the picked specialty.
   useEffect(() => {
-    if (!isFocused || query.length === 0) { setSuggestions([]); setShowSuggestions(false); return; }
-    const timer = setTimeout(() => {
-      searchProviders(query)
-        .then(res => { setSuggestions(res.data); setShowSuggestions(true); })
-        .catch(() => {});
+    if (!isFocused) return;
+    const t = setTimeout(() => {
+      if (mode === 'name') {
+        if (query.length === 0) { setProviders([]); return; }
+        searchProviders(query).then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
+      } else if (pickedSpecialty) {
+        searchProviders(query, pickedSpecialty).then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
+      } else {
+        getSpecialties(query).then(r => { setSpecialties(r.data); setOpen(true); }).catch(() => {});
+      }
     }, 200);
-    return () => clearTimeout(timer);
-  }, [query, isFocused]);
+    return () => clearTimeout(t);
+  }, [query, isFocused, mode, pickedSpecialty]);
 
-  const handleSelect = (s) => {
+  const pickProvider = (s) => {
     const label = s.name || String(s.npi);
     onSelect(String(s.npi), label);
     setSelectedLabel(label);
-    setQuery('');
-    setShowSuggestions(false);
+    setQuery(''); setOpen(false);
   };
+  const pickSpecialty = (sp) => { setPickedSpecialty(sp.specialty); setQuery(''); };
+  const clear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); setPickedSpecialty(null); };
+  const switchMode = (m) => { setMode(m); setQuery(''); setProviders([]); setSpecialties([]); setPickedSpecialty(null); };
 
-  const handleClear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); };
+  const firstNoRates = providers.findIndex(s => !s.has_rates);
 
   return (
     <div ref={ref} className="flex items-center gap-2">
@@ -234,57 +268,60 @@ function NpiSearch({ selectedNpi, onSelect }) {
       {selectedNpi ? (
         <div className="flex items-center gap-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 h-8 max-w-[220px]">
           <span className="text-xs text-indigo-300 font-bold truncate">{selectedLabel || selectedNpi}</span>
-          <button onClick={handleClear} className="text-slate-500 hover:text-white transition-colors shrink-0"><X size={12} /></button>
+          <button onClick={clear} className="text-slate-500 hover:text-white transition-colors shrink-0"><X size={12} /></button>
         </div>
       ) : (
         <div className="relative">
-          <div className={`flex items-center bg-slate-900 border rounded-xl px-3 h-8 gap-2 transition-all ${showSuggestions ? 'border-indigo-500/50' : 'border-slate-800'}`}>
+          <div className={`flex items-center bg-slate-900 border rounded-xl pl-1 pr-3 h-8 gap-1 transition-all ${open ? 'border-indigo-500/50' : 'border-slate-800'}`}>
+            <div className="flex bg-slate-950 rounded-lg p-0.5 shrink-0">
+              {['name', 'specialty'].map(m => (
+                <button key={m} onClick={() => switchMode(m)}
+                  className={`px-1.5 py-0.5 text-[9px] font-black uppercase rounded transition-colors ${mode === m ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                  {m}
+                </button>
+              ))}
+            </div>
+            {mode === 'specialty' && pickedSpecialty && (
+              <button onClick={() => setPickedSpecialty(null)} className="text-indigo-300 text-[10px] font-bold shrink-0 flex items-center gap-0.5">
+                <ChevronDown size={11} className="rotate-90" />{pickedSpecialty}
+              </button>
+            )}
             <input
               type="text"
-              placeholder="Search provider or NPI…"
+              placeholder={mode === 'name' ? 'name or NPI…' : pickedSpecialty ? 'filter…' : 'e.g. cardiology…'}
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setTimeout(() => { setIsFocused(false); setShowSuggestions(false); }, 200)}
-              className="bg-transparent outline-none text-xs text-white placeholder:text-slate-600 w-44"
+              onFocus={() => { setIsFocused(true); setOpen(true); }}
+              onBlur={() => setTimeout(() => { setIsFocused(false); setOpen(false); }, 200)}
+              className="bg-transparent outline-none text-xs text-white placeholder:text-slate-600 w-32 min-w-0"
             />
           </div>
           <AnimatePresence>
-            {showSuggestions && suggestions.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 6 }}
-                className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden z-[999] shadow-2xl min-w-[280px] max-h-72 overflow-y-auto"
-              >
-                {(() => {
-                  // Backend sorts has_rates first; render a divider before the
-                  // "no rate data" group so it's clear which providers we can price.
-                  const firstNoRates = suggestions.findIndex(s => !s.has_rates);
-                  return suggestions.map((s, i) => (
-                    <div key={i}>
-                      {i === firstNoRates && i > 0 && (
-                        <div className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600 bg-white/[0.02] border-y border-white/5">
-                          No rate data — {suggestions.length - firstNoRates} more
-                        </div>
-                      )}
-                      <button
-                        onClick={() => handleSelect(s)}
-                        className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm font-bold truncate ${s.has_rates ? 'text-white' : 'text-slate-500'}`}>{s.name || s.npi}</span>
-                          {s.has_rates
-                            ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
-                            : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">no rate data</span>}
-                        </div>
-                        <div className={`text-[11px] mt-0.5 truncate ${s.has_rates ? 'text-slate-500' : 'text-slate-600'}`}>
-                          {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
-                        </div>
+            {open && (
+              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
+                className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden z-[999] shadow-2xl min-w-[280px] max-h-72 overflow-y-auto">
+                {mode === 'specialty' && !pickedSpecialty
+                  ? specialties.map((sp, i) => (
+                      <button key={i} onClick={() => pickSpecialty(sp)}
+                        className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0 flex items-center justify-between gap-3">
+                        <span className="text-sm font-bold text-white truncate">{sp.specialty}</span>
+                        <span className="text-[10px] text-emerald-400 font-black shrink-0">{sp.n_with_rates.toLocaleString()}</span>
                       </button>
-                    </div>
-                  ));
-                })()}
+                    ))
+                  : providers.map((s, i) => (
+                      <div key={i}>
+                        {i === firstNoRates && i > 0 && (
+                          <div className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600 bg-white/[0.02] border-y border-white/5">
+                            No rate data — {providers.length - firstNoRates} more
+                          </div>
+                        )}
+                        <ProviderRow s={s} onPick={pickProvider} />
+                      </div>
+                    ))}
+                {((mode === 'specialty' && !pickedSpecialty && specialties.length === 0) ||
+                  ((mode === 'name' || pickedSpecialty) && providers.length === 0 && query.length > 0)) && (
+                  <div className="px-4 py-3 text-[11px] text-slate-600">No matches.</div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -731,9 +768,11 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
           No negotiated rates for {who}{network ? <> in <span className="text-slate-300">{network}</span></> : ''}.
         </p>
         <p className="text-slate-500 text-sm mt-2 max-w-md mx-auto">
-          {network
-            ? 'This provider isn’t in that network, or has no published rates there. Try a different network.'
-            : 'We don’t hold any published rates for this provider yet.'}
+          {data?.provider?.is_hospital || data?.provider?.is_clinic
+            ? 'This is a clinic or facility — negotiated rates are contracted to individual providers. Search a provider’s name, or use the “specialty” mode.'
+            : network
+              ? 'This provider isn’t in that network, or has no published rates there. Try a different network.'
+              : 'We don’t hold any published rates for this provider yet.'}
         </p>
         {network && onClearNetwork && (
           <button
