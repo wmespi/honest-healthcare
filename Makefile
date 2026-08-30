@@ -18,11 +18,11 @@
 
 .PHONY: help \
         start up down logs \
-        discover parse size fixture seed \
+        discover parse size fixture seed build-summary \
         nppes code-labels taxonomy-labels \
         fmt lint test test-e2e test-api test-web check test-all \
         cov-probe cov-report smoke-web data-size \
-        psql migrate db-reset \
+        psql migrate db-reset db-snapshot db-restore \
         sh \
         _require-etl-running
 
@@ -75,6 +75,9 @@ size: ## Backfill index_files.file_size_bytes via concurrent HEAD requests
 
 seed: ## Populate data/ with the committed synthetic MRF (fresh-clone bootstrap; idempotent)
 	bash scripts/seed.sh
+
+build-summary: ## Rebuild the browse-layer summary parquet (run after a parse batch). TEST=1
+	docker compose exec -T -w /app serving python3 scripts/build_rate_summary.py $(if $(filter 1,$(TEST)),--test,)
 
 fixture: ## Build a truncated *.json.gz fixture from a file id — usage: make fixture ID=5043 NAME=ga_small
 	docker compose exec etl go run . fixture -file-ids $(ID) $(if $(NAME),-name $(NAME),)
@@ -141,11 +144,27 @@ data-size: ## Data-consumption scorecard — rows + bytes per Parquet table + Po
 psql: ## Open a psql shell on honest_healthcare
 	docker compose exec db psql -U postgres -d honest_healthcare
 
-migrate: ## Apply db/migrations/*.sql to the running database (idempotent)
+migrate: ## Apply db/migrations/*.sql to the running database (idempotent; each file in one transaction)
 	@for f in db/migrations/*.sql; do \
 	  echo "→ $$f"; \
-	  docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 < "$$f" || exit 1; \
+	  docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 --single-transaction < "$$f" || exit 1; \
 	done
+
+db-snapshot: ## pg_dump the queue tables (data only) to db/snapshots/<utc>.dump — take one before a risky migration
+	@mkdir -p db/snapshots
+	@ts=$$(date -u +%Y%m%dT%H%M%SZ); \
+	docker compose exec -T db pg_dump -U postgres -d honest_healthcare -Fc --data-only \
+	  -t index_files -t billing_codes -t coverage_log > db/snapshots/$$ts.dump && \
+	echo "→ db/snapshots/$$ts.dump ($$(du -h db/snapshots/$$ts.dump | cut -f1))"
+
+db-restore: ## Replace the queue tables' data from a snapshot. FILE=db/snapshots/<utc>.dump (default: newest)
+	@f="$(or $(FILE),$$(ls -t db/snapshots/*.dump 2>/dev/null | head -1))"; \
+	[ -n "$$f" ] || { echo "no snapshot — run 'make db-snapshot' first"; exit 1; }; \
+	echo "→ truncating + restoring from $$f"; \
+	docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 \
+	  -c "TRUNCATE index_files, billing_codes, coverage_log RESTART IDENTITY CASCADE;"; \
+	docker compose exec -T db pg_restore -U postgres -d honest_healthcare \
+	  --data-only --disable-triggers --no-owner < "$$f"
 
 db-reset: ## Reset index_files rows → pending. WHAT=processing (stale) | failed (transient only)
 	@case "$(WHAT)" in \
