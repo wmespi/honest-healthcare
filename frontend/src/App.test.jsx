@@ -559,8 +559,10 @@ describe('specialty-first flow', () => {
     await user.click(await screen.findByText('Cardiovascular Disease'));
 
     // provider list for that specialty, scoped to the plan
-    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40));
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV));
     expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
+    // a provider with no rates in this plan isn't a pickable row — just a count
+    expect(screen.queryByText('NO RATES CLINIC')).not.toBeInTheDocument();
     expect(screen.getByText(/1 more Cardiovascular Disease provider/i)).toBeInTheDocument();
     // no codeless network+specialty distribution scan
     for (const call of api.getRateDistribution.mock.calls) {

@@ -17,7 +17,7 @@ FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 | `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `nucc_bits()` / `provider_card()`, `plausibility()` |
 | `evidence.py` | provider↔procedure evidence from CMS Medicare utilization (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. All no-op until `make cms-utilization` / `make specialty-profiles` run. |
 | `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
-| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI **or** `specialty=`), `/specialties`, `/providers/ga` |
+| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI **or** `specialty=`; `network_name=` scopes `has_rates`), `/specialties` (`network_name=` scopes `n_with_rates`), `/providers/ga`. `_rated_npi(network_name)` → the shared "has a rate" predicate |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
 
 SQL still lives inline in the route handlers — moving it into a `queries/` module

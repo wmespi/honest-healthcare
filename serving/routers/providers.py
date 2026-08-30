@@ -16,11 +16,34 @@ from ..data_sources import (
     NPI_LOOKUP_PATH,
     NUCC_PATH,
     PRICES_SRC,
+    PROVIDERS_GLOB,
     PROVIDERS_SRC,
     GROUP_SETS_SRC,
     db,
+    has_parquet,
     network_slug,
 )
+
+
+def _rated_npi(network_name: str | None):
+    """(cte, params, predicate) for "this NPI has a negotiated rate". Scoped to
+    `network_name` when given (via the network-attributed `providers` roster —
+    `npi_lookup` is corpus-wide and overstates coverage for a narrow network like
+    Blue Value, GH #10 / known-gaps "specialty counts aren't plan-scoped").
+    Assumes the outer query exposes the NPPES row as `g`."""
+    if network_name and has_parquet(PROVIDERS_GLOB):
+        return (
+            f"rated_npi AS (SELECT DISTINCT npi FROM {PROVIDERS_SRC} WHERE network_name = ?)",
+            [network_name],
+            "g.npi IN (SELECT npi FROM rated_npi)",
+        )
+    if os.path.exists(NPI_LOOKUP_PATH):
+        return (
+            f"rated_npi AS (SELECT npi FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true))",
+            [],
+            "g.npi IN (SELECT npi FROM rated_npi)",
+        )
+    return (None, [], "FALSE")
 from ..labels import nucc_bits, provider_card
 from ..evidence import (
     DEFAULT_TYPICAL_THRESHOLD,
@@ -209,12 +232,15 @@ def provider_procedures(
 def search_providers(
     q: str = Query(default=""),
     specialty: str = Query(default=""),
+    network_name: Optional[str] = None,
     limit: int = Query(default=20, le=100),
 ):
     """Search providers by name, organization, city, or NPI against the NPPES
     Georgia subset. Providers we actually hold rate data for are returned first
     (`has_rates`). A purely numeric query is treated as an NPI prefix. `specialty`
-    filters on the NUCC label (e.g. "cardio", "orthopa")."""
+    filters on the NUCC label (e.g. "cardio", "orthopa"). `network_name` scopes
+    `has_rates` to that plan — without it, `has_rates` means "priced in some
+    Anthem network", which overstates a narrow network."""
     q = q.strip()
     specialty = specialty.strip()
     if not q and not specialty:
@@ -235,11 +261,7 @@ def search_providers(
                  "taxonomy_group": None, "is_hospital": False,
                  "is_clinic": False, "has_rates": True} for r in rows]
 
-    have_lookup = os.path.exists(NPI_LOOKUP_PATH)
-    has_rates_expr = (
-        f"g.npi IN (SELECT npi FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true))"
-        if have_lookup else "FALSE"
-    )
+    rated_cte, rated_params, has_rates_expr = _rated_npi(network_name)
 
     conds, params = [], []
     if q.isdigit():
@@ -257,7 +279,9 @@ def search_providers(
         params += ([f"%{specialty}%"] * 3 if spec_join else [f"%{specialty}%"])
     where = " AND ".join(conds) if conds else "1=1"
 
+    with_sql = f"WITH {rated_cte}" if rated_cte else ""
     rows = conn.execute(f"""
+        {with_sql}
         SELECT g.npi,
                COALESCE(NULLIF(g.org_name, ''),
                         NULLIF(TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name), ''),
@@ -274,26 +298,30 @@ def search_providers(
         ORDER BY has_rates DESC, (g.entity_type = 'individual') DESC,
                  g.is_hospital DESC, g.is_clinic DESC, name
         LIMIT {limit}
-    """, params).fetchall()
+    """, rated_params + params).fetchall()
     cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic",
             "has_rates", "entity_type", "specialty"]
     return [dict(zip(cols, r)) for r in rows]
 
 
 @router.get("/specialties")
-def specialties(q: str = Query(default=""), limit: int = Query(default=60, le=500)):
+def specialties(
+    q: str = Query(default=""),
+    network_name: Optional[str] = None,
+    limit: int = Query(default=60, le=500),
+):
     """NUCC classifications we hold GA providers for, with a provider count — the
     "pick your care" step of the plan-first flow (and the typeahead behind the
     "by specialty" search mode). Listed **alphabetically**; `n_with_rates` is
     shown, not ranked on — a patient scans for their specialty by name, and the
-    count is context, not a sort key. Cheap: a scan of the NPPES GA subset joined
-    to the small NUCC table."""
+    count is context, not a sort key. `network_name` scopes `n_with_rates` (and
+    the "has any rated provider" filter) to that plan. Cheap: a scan of the NPPES
+    GA subset joined to the small NUCC table."""
     if not os.path.exists(GA_NPPES_PATH) or not os.path.exists(NUCC_PATH):
         return []
     conn = db()
-    have_lookup = os.path.exists(NPI_LOOKUP_PATH)
-    rated = (f"g.npi IN (SELECT npi FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true))"
-             if have_lookup else "FALSE")
+    rated_cte, rated_params, rated = _rated_npi(network_name)
+    with_sql = f"WITH {rated_cte}" if rated_cte else ""
     # x.specialty = specialization else classification — the clean label a
     # patient recognises ("Cardiovascular Disease", not the "Internal Medicine"
     # classification that NUCC actually files cardiologists under).
@@ -303,6 +331,7 @@ def specialties(q: str = Query(default=""), limit: int = Query(default=60, le=50
         where += " AND x.specialty ILIKE ?"
         params.append(f"%{q.strip()}%")
     rows = conn.execute(f"""
+        {with_sql}
         SELECT x.specialty AS specialty,
                COUNT(DISTINCT g.npi) AS n_providers,
                COUNT(DISTINCT CASE WHEN {rated} THEN g.npi END) AS n_with_rates
@@ -313,7 +342,7 @@ def specialties(q: str = Query(default=""), limit: int = Query(default=60, le=50
         HAVING COUNT(DISTINCT CASE WHEN {rated} THEN g.npi END) > 0
         ORDER BY specialty
         LIMIT {limit}
-    """, params).fetchall()
+    """, rated_params + params).fetchall()
     return [{"specialty": r[0], "n_providers": r[1], "n_with_rates": r[2]} for r in rows]
 
 

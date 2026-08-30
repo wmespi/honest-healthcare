@@ -245,6 +245,29 @@ def test_specialties_endpoint(api):
     assert [r["specialty"] for r in body] == sorted(r["specialty"] for r in body)
 
 
+OPEN_ACCESS = "GA Blue Open Access POS Network"
+
+
+def test_provider_search_has_rates_is_network_scoped(api):
+    # Carter (LCSW, NPI 1000000003) is contracted only in Blue Value.
+    unscoped = api.get("/providers/search", params={"q": "carter", "limit": 5}).json()
+    assert any(p["npi"] == LCSW and p["has_rates"] for p in unscoped)
+    bv = api.get("/providers/search",
+                 params={"q": "carter", "network_name": BLUE_VALUE, "limit": 5}).json()
+    assert any(p["npi"] == LCSW and p["has_rates"] for p in bv)
+    oa = api.get("/providers/search",
+                 params={"q": "carter", "network_name": OPEN_ACCESS, "limit": 5}).json()
+    assert any(p["npi"] == LCSW and not p["has_rates"] for p in oa)
+
+
+def test_specialties_network_scoped_count(api):
+    bv = api.get("/specialties", params={"q": "social", "network_name": BLUE_VALUE}).json()
+    assert any("Social Worker" in r["specialty"] and r["n_with_rates"] >= 1 for r in bv)
+    oa = api.get("/specialties", params={"q": "social", "network_name": OPEN_ACCESS}).json()
+    # the LCSW isn't in Open Access → the specialty has no rated provider there
+    assert not any("Social Worker" in r["specialty"] for r in oa)
+
+
 def test_ga_providers_hospitals_only(api):
     body = api.get("/providers/ga", params={"q": "emory", "hospitals_only": "true", "limit": 5}).json()
     assert body["available"] is True
