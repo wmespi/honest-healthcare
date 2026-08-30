@@ -35,6 +35,10 @@ const MENU = {
 beforeEach(() => {
   vi.resetAllMocks();
   api.getNetworks.mockResolvedValue({ data: [{ network_name: 'GA Blue Value HIX Individual Network', n_rates: 76197 }] });
+  api.getHealth.mockResolvedValue({ data: {
+    status: 'ok', priceable_npis: 27470, n_codes: 20697, as_of: '2026-08-28',
+    networks: ['GA Blue Value HIX Individual Network', 'TRADITIONAL HEALTH PLAN', 'PARTICIPATING NETWORK HBP SPECIALTIES'],
+  } });
   api.getProcedureCategories.mockResolvedValue({ data: [] });
   api.searchBillingCodes.mockResolvedValue({ data: [] });
   api.getRateDistribution.mockResolvedValue({ data: OVERVIEW });
@@ -334,6 +338,24 @@ describe('out-of-pocket estimator (issue #30)', () => {
       const saved = JSON.parse(localStorage.getItem('hh_plan_v1'));
       expect(saved.coinsurance).toBe('15');
     });
+  });
+});
+
+describe('trust bar (issue #32)', () => {
+  beforeEach(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+
+  it('shows dataset coverage + the "all networks mixes data" warning, and dismisses', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(api.getHealth).toHaveBeenCalled());
+
+    expect(await screen.findByText(/27,470/)).toBeInTheDocument();
+    expect(screen.getByText(/rates as of/i)).toBeInTheDocument();
+    expect(screen.getByText(/mixes GA Blue Value with national mirror data/i)).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Dismiss'));
+    await waitFor(() => expect(screen.queryByText(/27,470/)).not.toBeInTheDocument());
+    expect(localStorage.getItem('hh_trustbar_dismissed')).toBe('1');
   });
 });
 

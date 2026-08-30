@@ -33,6 +33,11 @@ def test_health(client):
     assert body["status"] == "ok"
     assert body.get("total_prices", 0) > 0
     assert body.get("total_group_set_edges", 0) > 0
+    # trust-bar context (issue #32)
+    assert body["priceable_npis"] > 0
+    assert isinstance(body["networks"], list) and body["networks"]
+    assert body["n_codes"] > 0
+    assert body["as_of"] is None or len(body["as_of"]) == 10  # YYYY-MM-DD
 
 
 def test_distribution_shape(client):

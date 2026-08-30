@@ -13,6 +13,9 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || runtimeApiUrl;
 
 const api = axios.create({ baseURL: API_BASE_URL });
 
+// Dataset context for the trust bar: { priceable_npis, networks, n_codes, as_of, ... }.
+export const getHealth = () => api.get('/');
+
 export const getPlans = (q = '') => api.get('/plans', { params: q ? { q } : {} });
 
 // Structured network labels (from provider_references) — the reliable filter for

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getSpecialties, getProcedureCategories } from './api';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getSpecialties, getProcedureCategories, getHealth } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { estimate, estimateRange, planIsConfigured, COPAY_BUCKETS, COPAY_LABELS } from './oop';
@@ -1004,6 +1004,42 @@ function EstimateLine({ est, className = '' }) {
   );
 }
 
+// Dataset coverage + freshness — so a partial dataset announces itself (issue #32).
+function TrustBar({ selectedNetwork }) {
+  const [h, setH] = useState(null);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem('hh_trustbar_dismissed') === '1'; } catch { return false; }
+  });
+  useEffect(() => { getHealth().then(r => setH(r.data)).catch(() => {}); }, []);
+  if (dismissed || !h || h.priceable_npis == null) return null;
+
+  const asOf = h.as_of
+    ? new Date(h.as_of + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+  const nNet = (h.networks || []).length;
+  const allNets = !selectedNetwork;
+
+  return (
+    <div className="mb-8 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-2.5 text-[11px] text-slate-500 flex items-start gap-2">
+      <Info size={13} className="shrink-0 mt-0.5 text-slate-600" />
+      <div className="flex-1 leading-relaxed">
+        <span className="text-slate-400 font-semibold">{h.priceable_npis.toLocaleString()}</span> providers ·{' '}
+        <span className="text-slate-400 font-semibold">{h.n_codes?.toLocaleString()}</span> billing codes ·{' '}
+        {nNet} Anthem network{nNet === 1 ? '' : 's'}{asOf && <> · rates as of <span className="text-slate-400">{asOf}</span></>}
+        {allNets && nNet > 1 && (
+          <> — <span className="text-amber-400/80">“All Networks” mixes GA Blue Value with national mirror data;
+          pick a plan for the Georgia individual-market rates.</span></>
+        )}
+      </div>
+      <button
+        onClick={() => { setDismissed(true); try { localStorage.setItem('hh_trustbar_dismissed', '1'); } catch { /* ignore */ } }}
+        className="shrink-0 text-slate-600 hover:text-slate-300"
+        aria-label="Dismiss"
+      ><X size={12} /></button>
+    </div>
+  );
+}
+
 function App() {
   const [selectedPlan, setSelectedPlan] = useState('');
 
@@ -1213,7 +1249,7 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-200 w-full font-sans selection:bg-indigo-500/30 overflow-x-hidden">
       {/* Header */}
       <nav className="border-b border-white/5 bg-slate-950/80 backdrop-blur-3xl sticky top-0 z-[100]">
-        <div className="max-w-5xl mx-auto px-6 h-20 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 bg-gradient-to-tr from-indigo-700 to-indigo-500 rounded-xl flex items-center justify-center text-white shadow-2xl shadow-indigo-500/20 border border-white/10">
               <ShieldCheck size={24} strokeWidth={3} />
@@ -1223,24 +1259,27 @@ function App() {
               <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Anthem Rate Explorer</span>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <TrendingUp size={16} className="text-indigo-400" />
-            <span className="text-xs text-slate-400 font-medium">Georgia Blue Value HMO · MRF Data</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <TrendingUp size={16} className="text-indigo-400 shrink-0" />
+            <span className="text-xs text-slate-400 font-medium hidden sm:inline">Georgia Blue Value HMO · MRF Data</span>
+            <span className="text-xs text-slate-400 font-medium sm:hidden">MRF</span>
           </div>
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto px-6 py-16">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
         {/* Hero */}
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-12">
-          <h1 className="text-6xl font-black text-white mb-4 tracking-tighter leading-[0.9]">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-10 sm:mb-12">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tighter leading-[0.95] sm:leading-[0.9]">
             What does <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-500">your plan</span>
             <br />actually pay?
           </h1>
-          <p className="text-slate-400 text-lg max-w-xl leading-relaxed">
+          <p className="text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
             Search any billing code to see the full distribution of negotiated rates across every provider in your network.
           </p>
         </motion.div>
+
+        <TrustBar selectedNetwork={selectedPlan} />
 
         {/* Search row */}
         <div className="flex flex-col sm:flex-row gap-3 mb-10">
