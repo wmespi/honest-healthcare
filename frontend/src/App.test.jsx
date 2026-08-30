@@ -6,6 +6,8 @@ import App from './App';
 
 vi.mock('./api');
 
+const BV = 'GA Blue Value HIX Individual Network';
+
 const OVERVIEW = {
   billing_code: 'ALL',
   billing_code_type: 'NETWORK',
@@ -34,6 +36,10 @@ const MENU = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // The plan-first flow gates the whole page until a plan is chosen. Default the
+  // suite to a "returning visitor" with a saved plan so each test exercises its
+  // own subject; the gate itself has dedicated tests below.
+  try { localStorage.clear(); localStorage.setItem('hh_network_v1', BV); } catch { /* ignore */ }
   api.getNetworks.mockResolvedValue({ data: [{ network_name: 'GA Blue Value HIX Individual Network', n_rates: 76197 }] });
   api.getHealth.mockResolvedValue({ data: {
     status: 'ok', priceable_npis: 27470, n_codes: 20697, as_of: '2026-08-28',
@@ -73,8 +79,7 @@ async function selectProvider(user) {
   await user.click(opt);
 }
 
-const BV = 'GA Blue Value HIX Individual Network';
-
+// Pick the curated plan from the gate (or the network dropdown).
 async function selectPlan(user) {
   await user.click(screen.getByText('All Networks'));
   await user.click(await screen.findByText('Blue Value HMO — Individual'));
@@ -93,7 +98,7 @@ describe('provider selected without a procedure', () => {
 
     // The menu view loads.
     expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
-    expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'plausible');
+    expect(api.getProviderMenu).toHaveBeenCalledWith('123', BV, undefined, '', 'plausible');
 
     // ...and the app is not stuck on the loading spinner.
     expect(screen.queryByText(/querying mrf data/i)).not.toBeInTheDocument();
@@ -110,7 +115,6 @@ describe('provider selected without a procedure', () => {
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
-    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
 
@@ -179,7 +183,6 @@ describe('cross-specialty rollup caveat', () => {
     } });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -209,7 +212,6 @@ describe('Medicare utilization evidence (issue #14)', () => {
     } });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -236,7 +238,6 @@ describe('Medicare utilization evidence (issue #14)', () => {
     } });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -271,7 +272,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
     const showAll = await screen.findByText(/1 more rates contracted/i);
     await user.click(showAll);
 
-    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'all'));
+    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', BV, undefined, '', 'all'));
     await user.click(await screen.findByText('Procedure'));
     expect(await screen.findByText('Random Surgery')).toBeInTheDocument();
   });
@@ -311,7 +312,9 @@ describe('Medicare utilization evidence (issue #14)', () => {
 });
 
 describe('out-of-pocket estimator (issue #30)', () => {
-  beforeEach(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+  beforeEach(() => {
+    try { localStorage.clear(); localStorage.setItem('hh_network_v1', BV); } catch { /* ignore */ }
+  });
 
   it('shows "You\'d pay ≈" on the cost card once cost-sharing is entered', async () => {
     const user = userEvent.setup();
@@ -333,7 +336,6 @@ describe('out-of-pocket estimator (issue #30)', () => {
     const coins = await screen.findByPlaceholderText('20');
     await user.type(coins, '20');
 
-    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -358,6 +360,8 @@ describe('out-of-pocket estimator (issue #30)', () => {
 });
 
 describe('friendly plan picker (issue #33)', () => {
+  beforeEach(() => { try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ } });
+
   it('offers the curated plan and resolves it to its network', async () => {
     const user = userEvent.setup();
     api.getNetworks.mockResolvedValue({ data: [
@@ -408,7 +412,6 @@ describe('specialty scope filter (issue #31 rework)', () => {
     ] });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    await selectPlan(user);
 
     // pick a procedure
     const search = screen.getByPlaceholderText(/search procedure or billing code/i);
@@ -461,7 +464,7 @@ describe('procedure search scoping', () => {
     await user.click(search);
     await user.type(search, 'destruction');
 
-    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, 'destruction'));
+    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', BV, undefined, 'destruction'));
     expect(api.searchBillingCodes).not.toHaveBeenCalled();
   });
 });
@@ -490,13 +493,7 @@ describe('compare-across-providers view', () => {
     await user.type(search, 'office');
     await user.click(await screen.findByText('Office Visit'));
 
-    // the compare view is plan-specific — prompt until a plan is picked
-    expect(await screen.findByText(/pick your plan to compare providers/i)).toBeInTheDocument();
-    expect(api.getRatesByProvider).not.toHaveBeenCalled();
-
-    await user.click(screen.getByText('All Networks'));
-    await user.click(await screen.findByText('Blue Value HMO — Individual'));
-
+    // plan is already chosen (plan-first flow) — the compare view fills in
     expect(await screen.findByText(/does the provider matter/i)).toBeInTheDocument();
     expect(screen.getByText(/Moon Dermatology/i)).toBeInTheDocument();
     expect(screen.getByText(/on the standard/i)).toBeInTheDocument();
@@ -507,10 +504,72 @@ describe('compare-across-providers view', () => {
 });
 
 describe('default landing state', () => {
-  it('loads the network overview without a code or npi', async () => {
+  it('loads the overview for the saved plan, no code or npi', async () => {
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, BV, undefined, undefined, undefined);
     expect(api.getProviderMenu).not.toHaveBeenCalled();
+  });
+});
+
+describe('plan-first gate', () => {
+  beforeEach(() => { try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ } });
+
+  it('blocks the explorer until a plan is chosen, then loads it', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    // gated: the "start with your plan" step, no data call, no search box
+    expect(await screen.findByText(/start with your plan/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/search procedure or billing code/i)).not.toBeInTheDocument();
+    expect(api.getRateDistribution).not.toHaveBeenCalled();
+
+    await selectPlan(user);
+
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
+      undefined, undefined, BV, undefined, undefined, undefined));
+    expect(screen.queryByText(/start with your plan/i)).not.toBeInTheDocument();
+    // and the plan is remembered
+    expect(localStorage.getItem('hh_network_v1')).toBe(BV);
+  });
+
+  it('lets the user bypass the gate to browse all networks', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText(/explore all networks without picking a plan/i));
+
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
+      undefined, undefined, undefined, undefined, undefined, undefined));
+    expect(screen.getByPlaceholderText(/search procedure or billing code/i)).toBeInTheDocument();
+  });
+});
+
+describe('specialty-first flow', () => {
+  it('plan → specialty → a ranked provider list', async () => {
+    const user = userEvent.setup();
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', specialty: 'Cardiovascular Disease', has_rates: true, entity_type: 'individual' },
+      { npi: 456, name: 'NO RATES CLINIC', city: 'MACON', specialty: 'Cardiovascular Disease', has_rates: false, entity_type: 'organization' },
+    ] });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+
+    // the care step: alphabetical specialty list with provider counts shown
+    expect(await screen.findByText(/what kind of care do you need/i)).toBeInTheDocument();
+    await user.click(await screen.findByText('Cardiovascular Disease'));
+
+    // provider list for that specialty, scoped to the plan
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40));
+    expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
+    expect(screen.getByText(/1 more Cardiovascular Disease provider/i)).toBeInTheDocument();
+    // no codeless network+specialty distribution scan
+    for (const call of api.getRateDistribution.mock.calls) {
+      const [code, , , , , spec] = call;
+      if (spec) expect(code).toBeTruthy();
+    }
+
+    // pick a provider → their menu
+    await user.click(screen.getByText('ABBOTT, ASHLEY'));
+    expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
   });
 });

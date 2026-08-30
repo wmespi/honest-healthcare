@@ -281,10 +281,13 @@ def search_providers(
 
 
 @router.get("/specialties")
-def specialties(q: str = Query(default=""), limit: int = Query(default=30, le=200)):
-    """NUCC classifications we hold GA providers for, with a provider count —
-    the typeahead behind the "by specialty" search mode. Cheap: a scan of the
-    NPPES GA subset joined to the small NUCC table."""
+def specialties(q: str = Query(default=""), limit: int = Query(default=60, le=500)):
+    """NUCC classifications we hold GA providers for, with a provider count — the
+    "pick your care" step of the plan-first flow (and the typeahead behind the
+    "by specialty" search mode). Listed **alphabetically**; `n_with_rates` is
+    shown, not ranked on — a patient scans for their specialty by name, and the
+    count is context, not a sort key. Cheap: a scan of the NPPES GA subset joined
+    to the small NUCC table."""
     if not os.path.exists(GA_NPPES_PATH) or not os.path.exists(NUCC_PATH):
         return []
     conn = db()
@@ -308,7 +311,7 @@ def specialties(q: str = Query(default=""), limit: int = Query(default=30, le=20
         {where}
         GROUP BY 1
         HAVING COUNT(DISTINCT CASE WHEN {rated} THEN g.npi END) > 0
-        ORDER BY n_with_rates DESC, specialty
+        ORDER BY specialty
         LIMIT {limit}
     """, params).fetchall()
     return [{"specialty": r[0], "n_providers": r[1], "n_with_rates": r[2]} for r in rows]

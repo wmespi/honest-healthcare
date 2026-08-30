@@ -81,6 +81,14 @@ the product is headed — and which of these gaps that closes — is in
   there's no public commercial-utilization source to widen this.
   [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
 
+- **`/specialties` counts aren't plan-scoped.** `n_with_rates` counts GA
+  providers of that specialty who appear in `npi_lookup` — i.e. have a rate in
+  *some* network, not necessarily the plan the user picked in the plan-first
+  flow. `has_rates` on `/providers/search` has the same limitation. Both
+  overstate coverage for a narrow network like Blue Value. A per-network NPI
+  index (or a `network_name` join) would fix it; deferred with the scale work
+  ([#10](https://github.com/wmespi/honest-healthcare/issues/10)).
+
 ## Scale / performance
 
 - **Browse-layer summary is a full rebuild, not incremental.** `/networks`,

@@ -23,8 +23,12 @@ export const getPlans = (q = '') => api.get('/plans', { params: q ? { q } : {} }
 // [{ network_name, n_rates }].
 export const getNetworks = (q = '') => api.get('/networks', { params: q ? { q } : {} });
 
-export const searchProviders = (q, specialty) =>
-    api.get('/providers/search', { params: { q: q || '', ...(specialty ? { specialty } : {}) } });
+export const searchProviders = (q, specialty, limit) =>
+    api.get('/providers/search', { params: {
+        q: q || '',
+        ...(specialty ? { specialty } : {}),
+        ...(limit ? { limit } : {}),
+    } });
 
 // NUCC specialties we hold GA providers for — the "by specialty" search mode.
 export const getSpecialties = (q = '') =>

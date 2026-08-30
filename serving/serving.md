@@ -60,7 +60,7 @@ min/median/avg/max from the pooled CDF, `provider_groups`/`n_providers` → `nul
 whenever nothing prunes the live path: no code (network overview, `n_codes`
 given) **and** a code without `network_name` (the live expansion spills at GA
 scale). The live per-code path runs only with a `network_name` or an `npi`;
-**400s on npi-without-code**. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
+**400s on npi-without-code**. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "pick your care" step of the plan-first flow — NUCC specialities we hold rated GA providers for, **alphabetical**, `n_with_rates` shown not sorted on),
 `/procedure_categories`, `/billing_codes`, `/providers/ga`, `/plans` (curated
 friendly-name → network map, `serving/plan_networks.json`, GH #33).
 

@@ -241,6 +241,8 @@ def test_specialties_endpoint(api):
     for row in body:
         assert {"specialty", "n_providers", "n_with_rates"} <= row.keys()
         assert row["n_providers"] >= row["n_with_rates"] > 0
+    # listed alphabetically — the count is context, not the sort key
+    assert [r["specialty"] for r in body] == sorted(r["specialty"] for r in body)
 
 
 def test_ga_providers_hospitals_only(api):
