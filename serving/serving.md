@@ -73,7 +73,9 @@ friendly-name → network map, `serving/plan_networks.json`, GH #33).
   (`DUCKDB_TMP`, default `/tmp/duckdb_spill`). Any ad-hoc query written outside
   `db()` must set `temp_directory` itself or it can spill into the repo.
 - Browse-layer aggregates (`/networks`, `/billing_codes`, `/procedure_categories`)
-  full-scan `prices ⨝ group_sets` (`VOL_CTE`). Fine at ~76k rows for the target
-  plan; a precomputed summary table is the next step —
-  [issue #10](https://github.com/wmespi/honest-healthcare/issues/10).
+  read `anthem/summary/{rate_summary,code_rollup}.parquet` when built
+  (`have_summary()` → `_volume_src()` in `reference.py`), else fall back to the
+  live `prices ⨝ group_sets` scan (`VOL_CTE`). `make build-summary` after each
+  parse batch — it is not auto-triggered. Schema + rebuild cost:
+  [../docs/schema.md](../docs/schema.md), [issue #10](https://github.com/wmespi/honest-healthcare/issues/10).
 - Detail endpoints with a network filter partition-prune and stay fast regardless.

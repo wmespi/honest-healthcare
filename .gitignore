@@ -213,6 +213,7 @@ __marimo__/
 data/
 data-archive/
 data-test/
+db/snapshots/
 spark-warehouse/
 metastore_db/
 derby.log

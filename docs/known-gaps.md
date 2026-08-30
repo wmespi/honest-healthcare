@@ -52,12 +52,16 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Scale / performance
 
-- **Browse-layer aggregates full-scan.** `/networks`, `/billing_codes`,
-  `/procedure_categories` aggregate all of `prices ⨝ group_sets` (`VOL_CTE`). Fine
-  at 76k price rows; a precomputed summary table is the next step —
-  [GH #10](https://github.com/wmespi/honest-healthcare/issues/10).
-- **Backend opens a fresh `duckdb.connect()` per request** — no reuse, no
-  `memory_limit`, no spill dir. A heavy query can OOM-kill the process. Part of #10.
+- **Browse-layer summary is a full rebuild, not incremental.** `/networks`,
+  `/billing_codes`, `/procedure_categories` now read `anthem/summary/` when it
+  exists (`make build-summary` — [#10](https://github.com/wmespi/honest-healthcare/issues/10)),
+  falling back to the live `prices ⨝ group_sets` scan (`VOL_CTE`) when it
+  doesn't. The build recomputes the whole summary each run (~45s at 11.7M price
+  rows, ~minutes at 20 GB); per-file partials → merge is the follow-up. It is
+  also **not auto-triggered** — run it after each `make parse` batch.
+- **Backend opens a fresh `duckdb.connect()` per request** — bounded now
+  (`memory_limit`, `temp_directory` in `db()`), but no connection reuse / zonemap
+  cache. Persistent pooled connection is the remaining #10 item.
 - **`coverage_log.n_ga_hospital_npis`** is never populated (the NPPES join happens
   at query time). Backfill with a post-batch `providers ⨝ ga_providers` query if
   the number is wanted in the log.

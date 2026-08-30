@@ -57,6 +57,24 @@ codes/{id}.parquet       billing_code_type | billing_code | name | description
 npi_lookup.parquet       npi | tin_value
 ```
 
+### `summary/` — precomputed browse layer (`make build-summary`)
+
+```
+summary/rate_summary.parquet
+    payer | network_name | net | billing_code_type | billing_code | setting | n_rates
+summary/code_rollup.parquet
+    payer | billing_code_type | billing_code | n_provider_groups | n_rates
+```
+
+`scripts/build_rate_summary.py` rebuilds both from `prices` (+ `group_sets` for
+the rollup) after a parse batch. The `/networks`, `/billing_codes`,
+`/procedure_categories` endpoints read these instead of scanning
+`prices ⨝ group_sets` (~1e9 rows — [issue #10](https://github.com/wmespi/honest-healthcare/issues/10));
+they fall back to the live scan when the files are absent. `n_provider_groups`
+is `approx_count_distinct` (HyperLogLog — bounded memory, and still more honest
+than the `VOL_CTE` fallback, which sums roster sizes). `payer` is `'anthem'`
+today; the column is there for multi-payer.
+
 `{id}` is `index_files.id`; `file_id` carries it on every row. `provider_group_id`
 is the MRF's **file-local** `provider_reference.id` — all cross-file joins key on
 `(file_id, provider_group_id)`.

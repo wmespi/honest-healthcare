@@ -25,7 +25,7 @@ code.
 | Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
 | Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | `frontend/` | Rate explorer — `localhost:5173` |
-| Storage | Parquet + ZSTD | `data/` | `data/anthem/{prices,group_sets,providers,codes}/`, `npi_lookup.parquet`; `data/nppes/`, `data/reference/`, `data/cms/` |
+| Storage | Parquet + ZSTD | `data/` | `data/anthem/{prices,group_sets,providers,codes,summary}/`, `npi_lookup.parquet`; `data/nppes/`, `data/reference/`, `data/cms/` |
 | Queue DB | Postgres 15 + PostGIS | `db/` | `index_files` + `billing_codes` + `coverage_log` |
 
 The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
@@ -93,6 +93,7 @@ make parse                  # Phase 2 — stream pending files → Parquet
 make parse ID=21057         #   one file by index_files.id
 make parse GA=1             #   GA / individual-market files first
 make parse TEST=1           #   test isolation (test schema + data-test/)
+make build-summary          # rebuild the browse-layer summary (after a parse batch)
 make size                   # backfill index_files.file_size_bytes
 
 make nppes                  # NPPES national file → data/nppes/ga_providers.parquet (GA)
@@ -110,6 +111,7 @@ make cov-report             # aggregate coverage_log
 make data-size              # rows + bytes per Parquet table + Postgres queue tables
 make psql / make migrate    # DB shell / apply db/migrations/*.sql
 make db-reset WHAT=processing|failed
+make db-snapshot / db-restore  # pg_dump the queue tables before/after a risky migration
 make sh S=serving          # shell into a container
 ```
 

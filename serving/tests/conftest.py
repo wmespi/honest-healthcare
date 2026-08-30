@@ -208,6 +208,14 @@ def _build(data_dir: str) -> None:
 
     con.close()
 
+    # browse-layer summary — build it from the parquet just written, exactly as
+    # `make build-summary` would (also exercises scripts/build_rate_summary.py).
+    r = subprocess.run(
+        [sys.executable, "/app/scripts/build_rate_summary.py", "--data-dir", data_dir],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, f"build_rate_summary failed:\n{r.stdout}\n{r.stderr}"
+
 
 @pytest.fixture(scope="session")
 def api_data():

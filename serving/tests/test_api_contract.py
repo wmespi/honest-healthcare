@@ -153,23 +153,44 @@ def test_ga_providers_hospitals_only(api):
 
 
 def test_networks_endpoint(api):
+    # served from the browse summary (make build-summary); n_rates is the exact
+    # price-row count per network — 9 Blue Value + 5 Open Access in the fixture.
     body = api.get("/networks").json()
-    assert {r["network_name"] for r in body} == {BLUE_VALUE, "GA Blue Open Access POS Network"}
-    for r in body:
-        assert r["n_rates"] > 0
+    counts = {r["network_name"]: r["n_rates"] for r in body}
+    assert counts == {BLUE_VALUE: 9, "GA Blue Open Access POS Network": 5}
+    # sorted by volume desc
+    assert [r["n_rates"] for r in body] == sorted((r["n_rates"] for r in body), reverse=True)
 
 
 def test_billing_codes_search(api):
     body = api.get("/billing_codes", params={"q": "colonoscopy"}).json()
-    assert any(row["billing_code"] == "45378" for row in body)
+    row = next((r for r in body if r["billing_code"] == "45378"), None)
+    assert row is not None
+    assert row["provider_groups"] >= 1  # from code_rollup
     by_code = api.get("/billing_codes", params={"q": "99213"}).json()
-    assert any(row["billing_code"] == "99213" for row in by_code)
+    assert any(r["billing_code"] == "99213" for r in by_code)
 
 
 def test_procedure_categories(api):
-    r = api.get("/procedure_categories")
-    assert r.status_code == 200
-    assert isinstance(r.json(), list)
+    body = api.get("/procedure_categories").json()
+    assert isinstance(body, list) and body
+    for r in body:
+        assert {"category", "subcategory", "n_codes", "provider_groups"} <= r.keys()
+        assert r["n_codes"] >= 1
+    # the colonoscopy code labelled "Procedure" shows up
+    assert any(r["category"] == "Procedure" for r in body)
+
+
+def test_browse_falls_back_without_summary(api, monkeypatch):
+    """Endpoints still answer when the summary parquet is absent (the live
+    prices ⨝ group_sets scan — VOL_CTE)."""
+    from serving.routers import reference
+    monkeypatch.setattr(reference, "have_summary", lambda: False)
+    nets = api.get("/networks").json()
+    assert {r["network_name"] for r in nets} == {BLUE_VALUE, "GA Blue Open Access POS Network"}
+    assert all(r["n_rates"] > 0 for r in nets)
+    codes = api.get("/billing_codes", params={"q": "99213"}).json()
+    assert any(r["billing_code"] == "99213" for r in codes)
 
 
 def test_plans_resolves_blue_value(api):

@@ -26,6 +26,13 @@ PROVIDERS_SRC   = f"read_parquet('{PROVIDERS_GLOB}', union_by_name=true)"
 
 CODES_GLOB       = f"{DATA_DIR}/anthem/codes/*.parquet"
 NPI_LOOKUP_PATH  = f"{DATA_DIR}/anthem/npi_lookup.parquet"
+
+# Browse-layer summary (scripts/build_rate_summary.py — `make build-summary`).
+# The /networks · /billing_codes · /procedure_categories endpoints read these
+# instead of scanning prices ⨝ group_sets (~1e9 rows). Absent until the build
+# runs; the endpoints fall back to the live scan (VOL_CTE) when so.
+RATE_SUMMARY_PATH = f"{DATA_DIR}/anthem/summary/rate_summary.parquet"
+CODE_ROLLUP_PATH  = f"{DATA_DIR}/anthem/summary/code_rollup.parquet"
 GA_NPPES_PATH    = f"{DATA_DIR}/nppes/ga_providers.parquet"
 CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
 NUCC_PATH        = f"{DATA_DIR}/reference/nucc_taxonomy.parquet"
@@ -149,6 +156,11 @@ def has_parquet(glob_dir: str) -> bool:
 
 def have_prices() -> bool:
     return has_parquet(PRICES_GLOB)
+
+
+def have_summary() -> bool:
+    """Both browse-layer summary tables have been built (`make build-summary`)."""
+    return os.path.exists(RATE_SUMMARY_PATH) and os.path.exists(CODE_ROLLUP_PATH)
 
 
 _NPPES_COLS: Optional[set] = None
