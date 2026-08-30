@@ -564,7 +564,11 @@ function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork }) {
                     {n.spread <= 1.15 ? 'flat rate' : `${n.spread}× provider spread`}
                   </span>
                 )}
-                <span className="text-slate-600">{n.n_groups.toLocaleString()} groups</span>
+                <span className="text-slate-600" title="Distinct NPIs contracted for this code in this network, across the provider groups below. Groups are often facility/TIN rollups.">
+                  {n.n_providers != null
+                    ? <>{n.n_providers.toLocaleString()} providers · {n.n_groups.toLocaleString()} groups</>
+                    : <>{n.n_groups.toLocaleString()} groups</>}
+                </span>
               </div>
             </button>
           );
@@ -1126,7 +1130,7 @@ function App() {
                         {sug.min_rate != null
                           ? (sug.min_rate === sug.max_rate ? fmt(sug.min_rate) : `${fmt(sug.min_rate)}–${fmt(sug.max_rate)}`)
                           : sug.provider_groups != null
-                            ? `${sug.provider_groups.toLocaleString()} groups`
+                            ? `${sug.provider_groups.toLocaleString()} provider groups`
                             : null}
                       </span>
                     </button>
