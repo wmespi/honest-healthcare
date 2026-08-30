@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getSpecialties, getProcedureCategories, getHealth } from './api';
+import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getSpecialties, getProcedureCategories, getHealth, getPlans } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { estimate, estimateRange, planIsConfigured, COPAY_BUCKETS, COPAY_LABELS } from './oop';
@@ -90,9 +90,14 @@ const CustomTooltip = ({ active, payload, label }) => {
 function NetworkDropdown({ selectedPlan, onSelect }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [plans, setPlans] = useState([]);
+  const [plans, setPlans] = useState([]);       // raw network_name strings
+  const [namedPlans, setNamedPlans] = useState([]); // curated { plan, carrier, network_name, available }
   const ref = useRef(null);
   const inputRef = useRef(null);
+
+  useEffect(() => { getPlans().then(r => setNamedPlans(r.data || [])).catch(() => {}); }, []);
+  // If the selected network matches a curated plan, show its friendly name.
+  const selectedLabel = namedPlans.find(p => p.network_name === selectedPlan)?.plan || selectedPlan;
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -133,7 +138,7 @@ function NetworkDropdown({ selectedPlan, onSelect }) {
         className={`w-full h-14 px-4 flex items-center gap-3 bg-slate-900 border rounded-2xl text-left transition-all ${open ? 'border-indigo-500/50' : 'border-slate-800'}`}
       >
         <Layers size={18} className="text-slate-500 shrink-0" />
-        <span className="flex-1 text-sm truncate text-white">{selectedPlan || 'All Networks'}</span>
+        <span className="flex-1 text-sm truncate text-white">{selectedLabel || 'All Networks'}</span>
         {selectedPlan ? (
           <button
             onClick={(e) => { e.stopPropagation(); handleSelect(''); }}
@@ -159,7 +164,7 @@ function NetworkDropdown({ selectedPlan, onSelect }) {
                 ref={inputRef}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Search networks..."
+                placeholder="Your plan, or search networks..."
                 className="w-full bg-slate-800/80 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none"
               />
             </div>
@@ -171,6 +176,30 @@ function NetworkDropdown({ selectedPlan, onSelect }) {
                 {!selectedPlan && <span>✓</span>}
                 <span className={!selectedPlan ? 'font-bold' : ''}>All Networks</span>
               </button>
+
+              {namedPlans.filter(p => p.available && (!query ||
+                  p.plan.toLowerCase().includes(query.toLowerCase()) ||
+                  (p.carrier || '').toLowerCase().includes(query.toLowerCase()))).length > 0 && (
+                <>
+                  <div className="px-4 pt-2.5 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-600">Your plan</div>
+                  {namedPlans
+                    .filter(p => p.available && (!query ||
+                      p.plan.toLowerCase().includes(query.toLowerCase()) ||
+                      (p.carrier || '').toLowerCase().includes(query.toLowerCase())))
+                    .map((p, i) => (
+                      <button key={`np${i}`} onClick={() => handleSelect(p.network_name)}
+                        className={`w-full px-4 py-2.5 text-left text-sm flex items-start gap-2 hover:bg-white/5 transition-colors ${selectedPlan === p.network_name ? 'text-indigo-400' : 'text-slate-200'}`}>
+                        <span className="shrink-0 mt-0.5">{selectedPlan === p.network_name ? '✓' : ' '}</span>
+                        <span>
+                          <span className={selectedPlan === p.network_name ? 'font-bold' : 'font-medium'}>{p.plan}</span>
+                          <span className="block text-[10px] text-slate-500">{[p.carrier, p.market].filter(Boolean).join(' · ')}</span>
+                        </span>
+                      </button>
+                    ))}
+                  <div className="px-4 pt-2.5 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-600 border-t border-white/5">Or a network directly</div>
+                </>
+              )}
+
               {filtered.length === 0 && (
                 <div className="px-4 py-3 text-slate-500 text-sm italic">No networks match</div>
               )}
@@ -894,7 +923,9 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
   );
 }
 
-// "Your plan" — cost-sharing inputs, persisted to localStorage (issue #30).
+// "Your cost sharing" — deductible/coinsurance/copay inputs, persisted to
+// localStorage (issue #30). Distinct from the plan *identity* picker in the
+// network dropdown (issue #33).
 function PlanPanel({ form, setField, setCopay, clear, configured }) {
   const [open, setOpen] = useState(false);
   const [copaysOpen, setCopaysOpen] = useState(false);
@@ -920,10 +951,10 @@ function PlanPanel({ form, setField, setCopay, clear, configured }) {
       >
         <span className="flex items-center gap-2.5 text-sm font-bold text-slate-300">
           <ShieldCheck size={15} className="text-indigo-400" />
-          Your plan
+          Your cost sharing
           {configured
             ? <span className="text-[10px] font-black uppercase tracking-wide text-emerald-400">estimating</span>
-            : <span className="text-[10px] text-slate-600 font-normal">add cost-sharing to estimate what you'd pay</span>}
+            : <span className="text-[10px] text-slate-600 font-normal">add your deductible / copay to estimate what you'd pay</span>}
         </span>
         <ChevronDown size={15} className={`text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>

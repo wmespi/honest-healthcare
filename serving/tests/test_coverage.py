@@ -206,6 +206,24 @@ def test_networks_endpoint(client):
         assert {"network_name", "n_rates"} <= row.keys()
 
 
+def test_plans_endpoint(client):
+    """Curated plan → network map (issue #33). Blue Value must resolve, and its
+    network must exist in the loaded data."""
+    r = client.get("/plans")
+    assert r.status_code == 200
+    body = r.json()
+    assert body, "expected at least the curated Blue Value entry"
+    for row in body:
+        assert {"plan", "network_name", "available"} <= row.keys()
+    bv = next((p for p in body if "blue value" in p["plan"].lower()), None)
+    assert bv is not None
+    assert bv["available"] is True
+    assert bv["network_name"] == "GA Blue Value HIX Individual Network"
+    # alias search works
+    r2 = client.get("/plans", params={"q": "bluevalue"})
+    assert any("blue value" in p["plan"].lower() for p in r2.json())
+
+
 def test_billing_codes_search(client):
     r = client.get("/billing_codes", params={"q": "99213"})
     assert r.status_code == 200

@@ -36,7 +36,8 @@ that expands a price row to its provider groups. Schema:
 
 Supporting: `/rates/distribution` (histogram — **400s on npi-without-code**, which
 would full-scan), `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
-`/procedure_categories`, `/billing_codes`, `/providers/ga`.
+`/procedure_categories`, `/billing_codes`, `/providers/ga`, `/plans` (curated
+friendly-name → network map, `serving/plan_networks.json`, GH #33).
 
 ## Key helpers
 

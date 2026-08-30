@@ -1,0 +1,12 @@
+{
+  "_comment": "Hand-curated plan display name -> MRF network_name(s). The pipeline never carries a real plan name (docs/known-gaps.md), so this bridges 'I have Blue Value HMO' to the network_name the rate store is filtered by. Add rows as more networks are parsed. GH #33.",
+  "plans": [
+    {
+      "plan": "Blue Value HMO — Individual",
+      "carrier": "Anthem",
+      "market": "Individual / ACA exchange (Georgia)",
+      "aliases": ["blue value", "blue value hmo", "blue value ind", "bluevalue"],
+      "network_names": ["GA Blue Value HIX Individual Network"]
+    }
+  ]
+}

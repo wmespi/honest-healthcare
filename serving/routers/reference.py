@@ -3,8 +3,9 @@
   /networks              distinct network_name values (+ price-row count)
   /billing_codes         consumer-label / synonym / code search
   /procedure_categories  RBCS categories present in the data
-  /plans                 deprecated — always []
+  /plans                 friendly plan name -> network_name (curated, GH #33)
 """
+import json
 import os
 from typing import Optional
 
@@ -125,8 +126,45 @@ def procedure_categories():
     ]
 
 
+_PLAN_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plan_networks.json")
+
+
 @router.get("/plans")
-def get_plans(q: str = Query(default=""), limit: int = Query(default=50, le=200)):
-    """Deprecated. The pipeline never carried a real plan name (see
-    docs/known-gaps.md); the explorer filters by network_name via /networks."""
-    return []
+def get_plans(q: str = Query(default="")):
+    """Friendly plan names → the network_name the rate store filters by (GH #33).
+
+    The pipeline never carried a real plan name (docs/known-gaps.md), so this is
+    a hand-curated bridge in serving/plan_networks.json. Each entry is marked
+    `available` if at least one of its networks actually has rates loaded.
+    """
+    try:
+        with open(_PLAN_MAP_PATH) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+
+    have = set()
+    if have_prices():
+        conn = db()
+        have = {r[0] for r in conn.execute(
+            f"SELECT DISTINCT network_name FROM {PRICES_SRC} WHERE network_name IS NOT NULL"
+        ).fetchall()}
+
+    ql = q.strip().lower()
+    out = []
+    for p in data.get("plans", []):
+        nets = p.get("network_names", [])
+        primary = next((n for n in nets if n in have), None)
+        if ql and ql not in p["plan"].lower() and not any(ql in a for a in p.get("aliases", [])) \
+                and ql not in p.get("carrier", "").lower():
+            continue
+        out.append({
+            "plan": p["plan"],
+            "carrier": p.get("carrier"),
+            "market": p.get("market"),
+            "network_name": primary or (nets[0] if nets else None),
+            "available": primary is not None,
+        })
+    # available plans first
+    out.sort(key=lambda x: (not x["available"], x["plan"]))
+    return out
