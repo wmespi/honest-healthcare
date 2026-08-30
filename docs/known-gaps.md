@@ -1,7 +1,9 @@
 # Known gaps
 
 *The running list of things that are wrong, missing, or deferred. Parser-internal
-issues that only bite at scale are in [../etl/parse.md](../etl/parse.md).*
+issues that only bite at scale are in [../etl/parse.md](../etl/parse.md). Where
+the product is headed — and which of these gaps that closes — is in
+[direction.md](direction.md).*
 
 ## Attribution
 
