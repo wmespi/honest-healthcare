@@ -471,16 +471,17 @@ function titleCaseOrg(name) {
   }).join(' ');
 }
 
-// Name for one contracted provider group. Small groups get their real practice
-// name (NPPES org, else physician names); the big TIN/IPA rollups can't be
-// named and say so plainly.
+// Name for one billing practice — the group's tin_value resolved to an org
+// name, else a member org / physician name, else the taxonomy, else the raw id.
 function providerLabel(r) {
-  if (r.is_rollup) return 'Statewide contract group';
-  const named = (r.named_practices || []).filter(Boolean);
-  if (named.length) return titleCaseOrg(named[0]);
+  if (r.practice_name) return titleCaseOrg(r.practice_name);
+  const orgs = (r.ga_org_names || []).filter(Boolean);
+  if (orgs.length) return titleCaseOrg(orgs[0]);
+  const indiv = (r.ga_indiv_names || []).filter(Boolean);
+  if (indiv.length) return titleCaseOrg(indiv[0]);
   const tax = (r.ga_taxonomies || []).find(t => t && t !== 'Other');
   if (tax) return tax;
-  return `Provider group #${r.provider_group_id}`;
+  return `Practice ${r.practice_id}`;
 }
 
 // "Does the provider matter?" — Job 3. Blue Value is close to a network-wide fee
@@ -520,7 +521,7 @@ function ProviderRateTable({ data, loading, specialty }) {
             Picking a cheaper clinic won’t lower this price.
           </p>
           <p className="text-slate-600 text-xs mt-3">
-            {s.n_groups} contracted provider groups · {(s.n_providers ?? 0).toLocaleString()} providers
+            {(s.n_practices ?? 0).toLocaleString()} billing practices · {(s.n_providers ?? 0).toLocaleString()} providers
           </p>
         </div>
       ) : (() => {
@@ -567,8 +568,8 @@ function ProviderRateTable({ data, loading, specialty }) {
             {atModal.length > 0 && (
               <p className="text-slate-600 text-[11px] mt-4">
                 {atModal.length} contract{atModal.length > 1 ? 's' : ''} on the standard {rangeStr} schedule
-                {atModal.some(r => !r.is_rollup) && (
-                  <> — incl. {atModal.filter(r => !r.is_rollup).slice(0, 3).map(providerLabel).join(', ')}</>
+                {atModal.some(r => r.practice_name) && (
+                  <> — incl. {atModal.filter(r => r.practice_name).slice(0, 3).map(providerLabel).join(', ')}</>
                 )}
               </p>
             )}

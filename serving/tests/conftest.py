@@ -71,19 +71,23 @@ def _build(data_dir: str) -> None:
     # ── providers: NPI -> provider_group membership + network ────────────────
     # 1000000001 cardiologist, ...02 internal med, ...03 clinical social worker,
     # ...04 radiologist, 1000000005 hospital org NPI.
+    # provider_group_id → (network, npi). Groups 10 & 20 bill under the same org
+    # NPI (tin_value 1000000010) — a two-doctor practice split across two
+    # provider-reference buckets; /rates/providers must fold them into one row.
     prov = [
-        (10, BLUE_VALUE, 1000000001), (10, BLUE_VALUE, 1000000002),
-        (20, BLUE_VALUE, 1000000003), (20, BLUE_VALUE, 1000000004),
-        (30, OPEN_ACCESS, 1000000005), (30, OPEN_ACCESS, 1000000001),
-        (40, OPEN_ACCESS, 1000000002),
+        (10, BLUE_VALUE, 1000000001, 1000000010), (10, BLUE_VALUE, 1000000002, 1000000010),
+        (20, BLUE_VALUE, 1000000003, 1000000010), (20, BLUE_VALUE, 1000000004, 1000000010),
+        (30, OPEN_ACCESS, 1000000005, 1000000030), (30, OPEN_ACCESS, 1000000001, 1000000030),
+        (40, OPEN_ACCESS, 1000000002, 1000000040),
     ]
     _write(con, f"{a}/providers/1.parquet",
            "file_id, provider_group_id, network_name, npi, tin_type, tin_value",
-           [(FILE_ID, pg, f"'{net}'", npi, "'ein'", f"'58-{pg:07d}'") for pg, net, npi in prov])
+           [(FILE_ID, pg, f"'{net}'", npi, "'npi'", f"'{tin}'") for pg, net, npi, tin in prov])
 
     _write(con, f"{a}/npi_lookup.parquet", "npi, tin_value",
-           [(n, f"'58-{n % 100:07d}'") for n in
-            (1000000001, 1000000002, 1000000003, 1000000004, 1000000005)])
+           [(n, f"'{t}'") for n, t in
+            ((1000000001, 1000000010), (1000000002, 1000000010), (1000000003, 1000000010),
+             (1000000004, 1000000010), (1000000005, 1000000030))])
 
     # ── prices: one row per (network x negotiated price) ─────────────────────
     # cols: file_id group_set_id network_name billing_code_type billing_code
@@ -103,6 +107,12 @@ def _build(data_dir: str) -> None:
     price(100, BLUE_VALUE, "99213", 95.00, svc="11|02")
     price(300, OPEN_ACCESS, "99213", 108.00)
     price(200, OPEN_ACCESS, "99213", 121.00)
+    # out-of-scope noise the consumer rate views must exclude (outpatient scope):
+    # a facility line, an inpatient-only rate, and a "% of charges" row whose
+    # negotiated_rate (60.0) is a percentage, not $60.
+    price(100, BLUE_VALUE, "99213", 900.00, cls="institutional")
+    price(100, BLUE_VALUE, "99213", 500.00, setting="inpatient")
+    price(100, BLUE_VALUE, "99213", 60.00, ntype="percentage")
     # 70450 — global + professional (-26) + technical (-TC), office & hosp-outpatient
     price(100, BLUE_VALUE, "70450", 240.00)
     price(100, BLUE_VALUE, "70450", 70.00, mod="26")
@@ -139,6 +149,11 @@ def _build(data_dir: str) -> None:
          "1 Baptist Way", "", "Marietta", "GA", "30060"),
         (1000000005, "organization", "Emory University Hospital", "", "", "282N00000X", "Hospital", 1, 0,
          "1364 Clifton Rd NE", "", "Atlanta", "GA", "30322"),
+        # org NPIs used as tin_value (the billing practice) — resolve to a name
+        (1000000010, "organization", "Peachtree Internal Medicine LLC", "", "", "207R00000X", "Internal Medicine", 0, 1,
+         "1 Peachtree St", "", "Atlanta", "GA", "30303"),
+        (1000000030, "organization", "Open Access Health Partners", "", "", "193200000X", "Multi-Specialty", 0, 1,
+         "5 Access Way", "", "Macon", "GA", "31201"),
     ]
     _write(con, f"{data_dir}/nppes/ga_providers.parquet",
            "npi, entity_type, org_name, last_name, first_name, taxonomy_code, taxonomy_group, "

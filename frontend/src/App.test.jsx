@@ -462,10 +462,10 @@ describe('compare-across-providers view', () => {
     ] });
     api.getRatesByProvider.mockResolvedValue({ data: {
       billing_code: '99213', component: 'global',
-      summary: { min: 56.84, max: 123.08, median: 90.5, n_groups: 12, n_providers: 6566, modal_rate: 56.84, n_at_modal: 9, n_at_or_below_median: 8 },
+      summary: { min: 56.84, max: 123.08, median: 90.5, n_practices: 989, n_groups: 12, n_providers: 6566 },
       results: [
-        { provider_group_id: 1, min_rate: 123.08, max_rate: 123.08, median_rate: 123.08, npi_count: 1, is_rollup: false, named_practices: ['MOON DERMATOLOGY'], ga_taxonomies: [], ga_hospital_npis: 0 },
-        { provider_group_id: 2, min_rate: 56.84, max_rate: 123.08, median_rate: 90.5, npi_count: 5643, is_rollup: true, named_practices: [], ga_taxonomies: [], ga_hospital_npis: 1 },
+        { practice_id: '1', practice_name: 'MOON DERMATOLOGY', min_rate: 123.08, max_rate: 123.08, median_rate: 123.08, npi_count: 1, n_groups: 1, ga_taxonomies: [], ga_hospital_npis: 0 },
+        { practice_id: '2', practice_name: 'EMORY MEDICAL CARE FOUNDATION INC', min_rate: 56.84, max_rate: 123.08, median_rate: 90.5, npi_count: 5643, n_groups: 6, ga_taxonomies: [], ga_hospital_npis: 1 },
       ],
     } });
 
