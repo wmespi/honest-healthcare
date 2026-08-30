@@ -2,25 +2,67 @@ name: CI
 
 on:
   pull_request:
-    paths-ignore: &docs-only
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
   push:
     branches: [main]
-    paths-ignore: *docs-only
 
 # One in-flight run per branch; a new push cancels the old run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Skip everything on draft PRs — CI resumes when the PR is marked ready.
-# (push-to-main events have no pull_request context, so they always run.)
+# `CI Gate` is the single required status check (branch protection). It always
+# runs and passes only when every heavy job either succeeded or was legitimately
+# skipped — a docs-only change or a draft PR. That keeps a pure-docs PR from
+# deadlocking on checks that (by design) never start, without a `paths-ignore`
+# that leaves required checks stuck "pending" forever.
 jobs:
+  changes:
+    name: Detect change scope
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ] && [ "$DRAFT" = "true" ]; then
+            echo "draft PR — skipping the heavy jobs until it's marked ready"
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$EVENT" = "pull_request" ]; then
+            range="$BASE_SHA...$HEAD_SHA"
+          elif [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null; then
+            range="$BEFORE...$AFTER"
+          else
+            echo "no usable diff base — running everything"
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files="$(git diff --name-only "$range")"
+          echo "changed files:"; echo "$files"
+          # docs-only = every changed path is a *.md, under docs/, or LICENSE
+          if echo "$files" | grep -qvE '(\.md$|^docs/|^LICENSE$)'; then
+            echo "code paths touched — running the full CI"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs-only change — skipping the heavy jobs"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   go:
     name: Go — fmt, vet, build, unit tests
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -45,7 +87,8 @@ jobs:
 
   web:
     name: Frontend — vitest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,7 +105,8 @@ jobs:
 
   integration:
     name: Serving + ETL (compose)
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +142,8 @@ jobs:
 
   images:
     name: Production images build + smoke
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -127,3 +172,22 @@ jobs:
             sleep 1
           done
           [ "$code" = "200" ] || { docker logs hh_frontend_smoke; exit 1; }
+
+  gate:
+    name: CI Gate
+    needs: [changes, go, web, integration, images]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every upstream job to have passed or been skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "upstream results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::an upstream job did not pass ($r)"; exit 1 ;;
+            esac
+          done
+          echo "all upstream jobs passed or were intentionally skipped"
