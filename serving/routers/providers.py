@@ -103,74 +103,74 @@ def provider_procedures(
     # (the user is looking for something specific — don't hide it).
     effective_tier = "all" if (tier == "all" or q or not plausible_set) else "plausible"
 
-    wheres = []
-    extra_params: list = []
-    if q:
-        if os.path.exists(CODE_LABELS_PATH):
-            wheres.append("(m.billing_code ILIKE ? OR l.search_text ILIKE ?)")
-            extra_params += [f"%{q}%", f"%{q}%"]
-        else:
-            wheres.append("m.billing_code ILIKE ?")
-            extra_params.append(f"%{q}%")
-    if effective_tier == "plausible":
-        placeholders = ", ".join("?" * len(plausible_set))
-        wheres.append(f"m.billing_code IN ({placeholders})")
-        extra_params += sorted(plausible_set)
-    where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
-
     has_labels = os.path.exists(CODE_LABELS_PATH)
     if has_labels:
         label_join = f"LEFT JOIN read_parquet('{CODE_LABELS_PATH}') l ON l.billing_code = m.billing_code AND l.billing_code_type = m.billing_code_type"
         label_cols = "l.label, l.rbcs_category, l.rbcs_subcategory"
     else:
         label_join, label_cols = "", "NULL AS label, NULL AS rbcs_category, NULL AS rbcs_subcategory"
-    search_filter = where_sql
 
-    rows = conn.execute(f"""
-        WITH npi_groups AS (
-            SELECT DISTINCT file_id, provider_group_id
-            FROM {PROVIDERS_SRC}
-            WHERE npi = ?
-        ),
-        npi_sets AS (
-            SELECT DISTINCT gs.file_id, gs.group_set_id
-            FROM {GROUP_SETS_SRC} gs
-            JOIN npi_groups g
-              ON g.file_id = gs.file_id AND g.provider_group_id = gs.provider_group_id
-        ),
-        menu AS (
-            SELECT
-                p.billing_code, p.billing_code_type,
-                -- range over the *global* (unmodified) rate when the code has one,
-                -- so 26/TC component fees don't widen it misleadingly
-                MIN(p.negotiated_rate)    FILTER (WHERE p.modifier = '') AS g_min,
-                MEDIAN(p.negotiated_rate) FILTER (WHERE p.modifier = '') AS g_med,
-                MAX(p.negotiated_rate)    FILTER (WHERE p.modifier = '') AS g_max,
-                COUNT(*)                  FILTER (WHERE p.modifier = '') AS g_n,
-                MIN(p.negotiated_rate)    AS a_min,
-                MEDIAN(p.negotiated_rate) AS a_med,
-                MAX(p.negotiated_rate)    AS a_max,
-                COUNT(*)                  AS n_rates,
-                COUNT(DISTINCT p.network_name) AS n_networks,
-                (COUNT(*) FILTER (WHERE p.modifier = '26') > 0
-                 AND COUNT(*) FILTER (WHERE p.modifier = 'TC') > 0) AS is_split
-            FROM {PRICES_SRC} p
-            JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
-            WHERE 1=1 {net_filter} {set_filter}
-            GROUP BY 1, 2
-        )
-        SELECT m.billing_code, m.billing_code_type,
-               ROUND(COALESCE(m.g_min, m.a_min), 2),
-               ROUND(COALESCE(m.g_med, m.a_med), 2),
-               ROUND(COALESCE(m.g_max, m.a_max), 2),
-               m.n_rates, m.n_networks, m.is_split, (m.g_n > 0) AS has_global,
-               {label_cols}
-        FROM menu m
-        {label_join}
-        {search_filter}
-        ORDER BY m.n_rates DESC, m.billing_code
-        LIMIT {limit}
-    """, params + extra_params).fetchall()
+    def fetch_menu(eff_tier):
+        wheres, extra_params = [], []
+        if q:
+            if has_labels:
+                wheres.append("(m.billing_code ILIKE ? OR l.search_text ILIKE ?)")
+                extra_params += [f"%{q}%", f"%{q}%"]
+            else:
+                wheres.append("m.billing_code ILIKE ?")
+                extra_params.append(f"%{q}%")
+        if eff_tier == "plausible":
+            placeholders = ", ".join("?" * len(plausible_set))
+            wheres.append(f"m.billing_code IN ({placeholders})")
+            extra_params += sorted(plausible_set)
+        where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        return conn.execute(f"""
+            WITH npi_groups AS (
+                SELECT DISTINCT file_id, provider_group_id
+                FROM {PROVIDERS_SRC}
+                WHERE npi = ?
+            ),
+            npi_sets AS (
+                SELECT DISTINCT gs.file_id, gs.group_set_id
+                FROM {GROUP_SETS_SRC} gs
+                JOIN npi_groups g
+                  ON g.file_id = gs.file_id AND g.provider_group_id = gs.provider_group_id
+            ),
+            menu AS (
+                SELECT
+                    p.billing_code, p.billing_code_type,
+                    -- range over the *global* (unmodified) rate when the code has one,
+                    -- so 26/TC component fees don't widen it misleadingly
+                    MIN(p.negotiated_rate)    FILTER (WHERE p.modifier = '') AS g_min,
+                    MEDIAN(p.negotiated_rate) FILTER (WHERE p.modifier = '') AS g_med,
+                    MAX(p.negotiated_rate)    FILTER (WHERE p.modifier = '') AS g_max,
+                    COUNT(*)                  FILTER (WHERE p.modifier = '') AS g_n,
+                    MIN(p.negotiated_rate)    AS a_min,
+                    MEDIAN(p.negotiated_rate) AS a_med,
+                    MAX(p.negotiated_rate)    AS a_max,
+                    COUNT(*)                  AS n_rates,
+                    COUNT(DISTINCT p.network_name) AS n_networks,
+                    (COUNT(*) FILTER (WHERE p.modifier = '26') > 0
+                     AND COUNT(*) FILTER (WHERE p.modifier = 'TC') > 0) AS is_split
+                FROM {PRICES_SRC} p
+                JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
+                WHERE 1=1 {net_filter} {set_filter}
+                GROUP BY 1, 2
+            )
+            SELECT m.billing_code, m.billing_code_type,
+                   ROUND(COALESCE(m.g_min, m.a_min), 2),
+                   ROUND(COALESCE(m.g_med, m.a_med), 2),
+                   ROUND(COALESCE(m.g_max, m.a_max), 2),
+                   m.n_rates, m.n_networks, m.is_split, (m.g_n > 0) AS has_global,
+                   {label_cols}
+            FROM menu m
+            {label_join}
+            {where_sql}
+            ORDER BY m.n_rates DESC, m.billing_code
+            LIMIT {limit}
+        """, params + extra_params).fetchall()
+
+    rows = fetch_menu(effective_tier)
 
     # total distinct menu codes (pre-tier-filter, post-search) → how many the
     # plausible view is hiding.
@@ -187,6 +187,13 @@ def provider_procedures(
         JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
         WHERE 1=1 {net_filter} {set_filter}
     """, [npi] + params[1:]).fetchone()[0]
+
+    # Plausible filtered everything out but the provider *does* have contracted
+    # rates (none billed/typical for the specialty) — fall back to the full menu
+    # rather than a dead "no rates" screen.
+    if effective_tier == "plausible" and not rows and total_menu > 0:
+        effective_tier = "all"
+        rows = fetch_menu("all")
 
     billed = billed_codes(conn, npi, [r[0] for r in rows])
 
@@ -220,9 +227,11 @@ def provider_procedures(
             max(total_menu - len(results), 0) if effective_tier == "plausible"
             else sum(1 for x in results if x["tier"] == "group")
         ),
-        # provider has contracted rates but none we can call plausible
+        # provider has contracted rates but none is billed / typical for their
+        # specialty — every row reaches them only via a shared billing group
         "group_rate_only": (
-            effective_tier == "all" and not plausible_set and not q and total_menu > 0
+            effective_tier == "all" and not q and total_menu > 0
+            and not any(x["tier"] in ("billed", "typical") for x in results)
         ),
         "results": results,
     }

@@ -306,9 +306,11 @@ function SpecialtyDropdown({ selected, onSelect, network }) {
   );
 }
 
-// Provider filter — one specific NPI by name / number. Scoped to the active
-// specialty (if any) so you can't pick a provider that contradicts it.
-function NpiSearch({ selectedNpi, onSelect, network, specialty }) {
+// Provider filter — one specific NPI by name / number. A global lookup: it
+// ignores the specialty scope (you're naming a specific person), and picking one
+// clears the specialty so the two can't contradict. `label` is the parent's
+// name for the current selection (so a pick made elsewhere still shows a name).
+function NpiSearch({ selectedNpi, onSelect, network, label }) {
   const [query, setQuery] = useState('');
   const [selectedLabel, setSelectedLabel] = useState('');
   const [providers, setProviders] = useState([]);
@@ -325,11 +327,11 @@ function NpiSearch({ selectedNpi, onSelect, network, specialty }) {
   useEffect(() => {
     if (!isFocused || query.length === 0) { setProviders([]); return; }
     const t = setTimeout(() => {
-      searchProviders(query, specialty || undefined, undefined, network || undefined)
+      searchProviders(query, undefined, undefined, network || undefined)
         .then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
-  }, [query, isFocused, network, specialty]);
+  }, [query, isFocused, network]);
 
   const pickProvider = (s) => {
     const label = s.name || String(s.npi);
@@ -346,7 +348,7 @@ function NpiSearch({ selectedNpi, onSelect, network, specialty }) {
       <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest shrink-0">Provider</span>
       {selectedNpi ? (
         <div className="flex items-center gap-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 h-8 max-w-[220px]">
-          <span className="text-xs text-indigo-300 font-bold truncate">{selectedLabel || selectedNpi}</span>
+          <span className="text-xs text-indigo-300 font-bold truncate">{label || selectedLabel || selectedNpi}</span>
           <button onClick={clear} className="text-slate-500 hover:text-white transition-colors shrink-0"><X size={12} /></button>
         </div>
       ) : (
@@ -1481,8 +1483,10 @@ function App() {
   const handleNpiSelect = (n, label) => {
     setNpi(n);
     setNpiLabel(label || '');
-    // (specialty stays as a scope; a specific provider just narrows further)
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, specialty);
+    // A specific provider supersedes a specialty scope — clear it so the two
+    // can't contradict (a speech therapist under a "Psychiatry" chip).
+    if (n && specialty) setSpecialtyState('');
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, n && specialty ? '' : specialty);
   };
 
   const handleCategoryPick = (term) => {
@@ -1640,7 +1644,7 @@ function App() {
           )}
 
           {/* One specific provider (a drill-down) */}
-          <NpiSearch selectedNpi={npi} onSelect={handleNpiSelect} network={selectedPlan} specialty={specialty} />
+          <NpiSearch selectedNpi={npi} onSelect={handleNpiSelect} network={selectedPlan} label={npiLabel} />
         </div>
 
         {/* Loading */}
