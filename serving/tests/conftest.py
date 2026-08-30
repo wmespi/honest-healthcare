@@ -113,6 +113,9 @@ def _build(data_dir: str) -> None:
     price(100, BLUE_VALUE, "99213", 900.00, cls="institutional")
     price(100, BLUE_VALUE, "99213", 500.00, setting="inpatient")
     price(100, BLUE_VALUE, "99213", 60.00, ntype="percentage")
+    # in-scope by type but a placeholder: $0.50 is below the sentinel ceiling
+    # (~5% of the code's ~$92 median) — the compare / quote views drop it.
+    price(100, BLUE_VALUE, "99213", 0.50)
     # 70450 — global + professional (-26) + technical (-TC), office & hosp-outpatient
     price(100, BLUE_VALUE, "70450", 240.00)
     price(100, BLUE_VALUE, "70450", 70.00, mod="26")

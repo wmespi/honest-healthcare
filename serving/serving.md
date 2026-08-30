@@ -40,19 +40,27 @@ honoured — the inpatient view is a later addition. `/networks`,
 `/billing_codes`, `/procedure_categories` are **not** scoped (they answer "what's
 priced", not "what does it cost").
 
+Jobs 1 and 3 **require a `network_name`** (`400 {"detail": {"code":
+"network_required"}}` otherwise) — a rate is only comparable within a plan, and
+the cross-network expansion spills 15-60 GB at GA scale. The frontend gates
+those panels on plan selection. Every dollar view also drops rows at or below a
+per-code **sentinel ceiling** (`_sentinel_ceiling`) — placeholder rates Anthem
+fills for not-separately-priced codes.
+
 | Route | Job | Returns |
 |---|---|---|
-| `/rates/quote?billing_code&npi` | **1** — one procedure at one provider | headline rate + breakdown by component (global / `-26` professional / `-TC` technical) and place of service, + `plausibility`, `medicare_utilization`, `tier` |
+| `/rates/quote?billing_code&npi&network_name` | **1** — one procedure at one provider | headline rate + breakdown by component (global / `-26` professional / `-TC` technical) and place of service, + `plausibility`, `medicare_utilization`, `tier`. **Needs `network_name`.** |
 | `/rates/by_network?billing_code` | **2** — same procedure across every network | one row per network, `median` + p10/p90 spread, sorted cheapest median first |
-| `/rates/providers?billing_code` | **3** — compare across providers | one row per **billing practice** (`tin_value` → NPPES org name), `component=global` by default. `specialty=` scopes to practices with a provider of that NUCC specialty; `npi=` drills to one. Folds the file-local `provider_reference` groups a practice recurs as ([#48](https://github.com/wmespi/honest-healthcare/issues/48)); one heavy `_prac` temp table, name lookup only for the rows returned. |
+| `/rates/providers?billing_code&network_name` | **3** — compare across providers | one row per **billing practice** (`tin_value` → NPPES org name), `component=global` by default. `specialty=` scopes to practices with a provider of that NUCC specialty; `npi=` drills to one. Folds the file-local `provider_reference` groups a practice recurs as ([#48](https://github.com/wmespi/honest-healthcare/issues/48)); one heavy `_prac` temp table, name lookup only for the rows returned. **Needs `network_name`.** |
 | `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap. `tier=plausible` (default) shows only codes the NPI billed to Medicare or that are typical for their specialty + a `group_count`; `tier=all` shows every contracted code tagged `billed`/`typical`/`group` |
 
-Supporting: `/rates/distribution` — with a `billing_code` it's a live per-code
-histogram; **400s on npi-without-code**; **with no code it's the network
-overview**, served off `summary/rate_hist.parquet` filtered to
-`scope='outpatient_prof'` (CPT-only, volume-weighted min/median/avg/max from the
-pooled CDF, `provider_groups`/`n_providers` → `null`, `n_codes` instead) — never
-a `prices` scan. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
+Supporting: `/rates/distribution` — **the histogram + summary off
+`summary/rate_hist.parquet`** (`scope='outpatient_prof'`, volume-weighted
+min/median/avg/max from the pooled CDF, `provider_groups`/`n_providers` → `null`)
+whenever nothing prunes the live path: no code (network overview, `n_codes`
+given) **and** a code without `network_name` (the live expansion spills at GA
+scale). The live per-code path runs only with a `network_name` or an `npi`;
+**400s on npi-without-code**. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
 `/procedure_categories`, `/billing_codes`, `/providers/ga`, `/plans` (curated
 friendly-name → network map, `serving/plan_networks.json`, GH #33).
 
@@ -68,6 +76,12 @@ friendly-name → network map, `serving/plan_networks.json`, GH #33).
   time.
 - `network_slug()` (`data_sources.py`) — must stay identical to
   `etl/extraction/partition.go:slugifyNetwork` (partition pruning depends on it).
+- `_sentinel_ceiling(conn, code, type)` (`routers/rates.py`) — `GREATEST($1.00,
+  5% × the code's volume-weighted median)`, off `rate_hist` (consistent with the
+  overview, no `prices` scan). A rate at or below it is a placeholder Anthem
+  fills for not-separately-priced codes, not a real price. Applied in jobs 1-3.
+  Not a discrete field — the placeholders share `fee schedule` / `ffs` /
+  `professional` with real rates ([#51](https://github.com/wmespi/honest-healthcare/issues/51)).
 - `pos_bucket(service_code)` → office / asc / er / inpatient / hosp_outpatient /
   any / unspecified / facility. `MODIFIER_LABELS` labels raw `modifier`.
 - `nucc_bits()` / `provider_card(conn, npi)` — LEFT JOIN NUCC specialty + NPPES

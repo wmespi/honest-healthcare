@@ -41,9 +41,17 @@ the product is headed — and which of these gaps that closes — is in
   - **`setting='inpatient'`** — inpatient-only rates. `setting='inpatient'` on
     the scoped routes is *ignored*, not honoured.
   - **`negotiation_arrangement='bundle'`** — price covers other services too.
-  A dedicated inpatient / facility view is the follow-up. Note this does **not**
-  remove the sub-$1 placeholder rates that are themselves tagged `fee schedule` /
-  `ffs` — those have no categorical tell ([GH #51](https://github.com/wmespi/honest-healthcare/issues/51)).
+  A dedicated inpatient / facility view is the follow-up.
+- **Sentinel / placeholder rates — no discrete tell, cut by a per-code ceiling.**
+  Anthem fills the MRF-required positive `negotiated_rate` with $0.01–$1.50 (and
+  proportionally-tiny values on big-ticket codes) for not-separately-priced
+  codes. They share `fee schedule` / `ffs` / `professional` with the real rates —
+  no field distinguishes them, and the exact values are a long tail, not a fixed
+  set. Jobs 1–3 drop rows at or below `_sentinel_ceiling` = `GREATEST($1.00, 5% ×
+  the code's rate_hist median)`. The histogram / overview still show them (min
+  `$0`), and the ceiling is deliberately loose (5% × median) so a genuinely
+  cheap contract survives — a tighter cut needs the discrete signal we don't
+  have ([GH #51](https://github.com/wmespi/honest-healthcare/issues/51)).
 - **`/networks`, `/billing_codes`, `/procedure_categories` are not scoped** —
   `rate_summary` / `code_rollup` sum every scope. They answer "what's priced in
   this network", not "what does an outpatient visit cost".
@@ -108,15 +116,20 @@ the product is headed — and which of these gaps that closes — is in
   ~1.1M for a common code. Ordering is fine; **never render it as "N providers".**
   A real `(payer, code) → n_providers` distinct rollup:
   [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
-- **`/rates/providers` still materialises a `_prac` temp table per request.**
-  One heavy `prices ⨝ group_sets ⨝ providers ⨝ nppes` pass, pruned to one code +
-  the outpatient scope: ~0.4 s with a `network_name`, **~15 s without** (down
-  from ~46 s — it used to make three such passes). A precomputed
-  `(code, network, tin) → rate` rollup would make the no-network case instant
-  too; deferred with the rest of #10 / #48. Per-row `n_groups` over-counts a
-  provider group that spans several TINs (it's "groups this practice's rate
-  reaches you through", not a partition) — the summary `n_groups` is the true
-  distinct count.
+- **`/rates/providers` + `/rates/quote` require a `network_name`** (`400
+  {"code": "network_required"}`). The unpruned cross-network expansion spilled
+  15–60 GB and a precomputed `(code, network, tin) → rate` rollup is infeasible
+  here (one common code = 264k rollup rows; the build OOM'd on this box) — so the
+  view is plan-scoped instead. With a network the `_prac` temp-table pass
+  (`prices ⨝ group_sets ⨝ providers ⨝ nppes`, one code + one network) is ~0.4 s.
+  The plan-first front door ([direction.md](direction.md) Flow A) makes this the
+  natural flow anyway. Per-row `n_groups` over-counts a provider group that
+  spans several TINs (it's "groups this practice's rate reaches you through") —
+  the summary `n_groups` is the true distinct count.
+- **`/rates/distribution` for a code without a `network_name` serves off
+  `rate_hist`**, not the live expansion (which was ~27 s). `provider_groups` /
+  `n_providers` come back `null` there; the histogram bars are $25-bucket, not
+  exact-rate.
 - **`/rates/providers` `ga_hospitals_only` filters the rows but not `summary`** —
   the min/median/max still describe every practice. Niche param; revisit if used.
 - **Backend opens a fresh `duckdb.connect()` per request** — bounded now

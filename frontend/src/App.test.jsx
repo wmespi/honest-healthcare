@@ -73,6 +73,13 @@ async function selectProvider(user) {
   await user.click(opt);
 }
 
+const BV = 'GA Blue Value HIX Individual Network';
+
+async function selectPlan(user) {
+  await user.click(screen.getByText('All Networks'));
+  await user.click(await screen.findByText('Blue Value HMO — Individual'));
+}
+
 // Regression: a provider selected with no procedure must NOT trigger an
 // npi-only /rates/distribution call (it full-scans and hangs — see the
 // "QUERYING MRF DATA..." spinner that never resolves). It should show the menu.
@@ -103,6 +110,7 @@ describe('provider selected without a procedure', () => {
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
+    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
 
@@ -112,12 +120,12 @@ describe('provider selected without a procedure', () => {
 
     await waitFor(() =>
       expect(api.getRateDistribution).toHaveBeenCalledWith(
-        '99213', 'CPT', undefined, undefined, '123', undefined,
+        '99213', 'CPT', BV, undefined, '123', undefined,
       ),
     );
     // With a provider active, the cost card (job 1) is fetched — not the
     // compare-across-providers table.
-    await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', undefined));
+    await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', BV));
     expect(api.getRatesByProvider).not.toHaveBeenCalled();
     expect(await screen.findByText(/negotiated cost/i)).toBeInTheDocument();
   });
@@ -171,6 +179,7 @@ describe('cross-specialty rollup caveat', () => {
     } });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -200,6 +209,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
     } });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -226,6 +236,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
     } });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -322,6 +333,7 @@ describe('out-of-pocket estimator (issue #30)', () => {
     const coins = await screen.findByPlaceholderText('20');
     await user.type(coins, '20');
 
+    await selectPlan(user);
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
     await user.click(screen.getByText('Evaluation & Management'));
@@ -396,6 +408,7 @@ describe('specialty scope filter (issue #31 rework)', () => {
     ] });
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectPlan(user);
 
     // pick a procedure
     const search = screen.getByPlaceholderText(/search procedure or billing code/i);
@@ -408,10 +421,10 @@ describe('specialty scope filter (issue #31 rework)', () => {
     await user.click(await screen.findByText('Cardiovascular Disease'));
 
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
-      '99213', 'CPT', undefined, undefined, undefined, 'Cardiovascular Disease',
+      '99213', 'CPT', BV, undefined, undefined, 'Cardiovascular Disease',
     ));
     await waitFor(() => expect(api.getRatesByProvider).toHaveBeenCalledWith(
-      '99213', 'CPT', undefined, undefined, undefined,
+      '99213', 'CPT', BV, undefined, undefined,
       expect.objectContaining({ specialty: 'Cardiovascular Disease' }),
     ));
     // the provider (name) search is untouched — still its own control
@@ -477,13 +490,19 @@ describe('compare-across-providers view', () => {
     await user.type(search, 'office');
     await user.click(await screen.findByText('Office Visit'));
 
+    // the compare view is plan-specific — prompt until a plan is picked
+    expect(await screen.findByText(/pick your plan to compare providers/i)).toBeInTheDocument();
+    expect(api.getRatesByProvider).not.toHaveBeenCalled();
+
+    await user.click(screen.getByText('All Networks'));
+    await user.click(await screen.findByText('Blue Value HMO — Individual'));
+
     expect(await screen.findByText(/does the provider matter/i)).toBeInTheDocument();
-    // the outlier practice is surfaced individually
     expect(screen.getByText(/Moon Dermatology/i)).toBeInTheDocument();
-    // the rollup, which carries the standard schedule, is folded into the summary line
     expect(screen.getByText(/on the standard/i)).toBeInTheDocument();
     expect(api.getRatesByProvider).toHaveBeenCalledWith(
-      '99213', 'CPT', undefined, undefined, undefined, expect.objectContaining({ specialty: undefined }));
+      '99213', 'CPT', 'GA Blue Value HIX Individual Network', undefined, undefined,
+      expect.objectContaining({ specialty: undefined }));
   });
 });
 
