@@ -8,10 +8,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-  // Allow the dev server to be reached over a Tailscale tailnet
-  // (tailscale serve forwards the original *.ts.net Host header).
+  // The dev server is only reachable via loopback (compose binds 127.0.0.1) and
+  // `tailscale serve` (authenticated tailnet). Vite's host check is DNS-rebinding
+  // protection for *exposed* dev servers — moot here, and `['.ts.net']` rejected
+  // the short MagicDNS name (`http://<machine>:5173`, no domain suffix). Allow all.
   server: {
-    allowedHosts: ['.ts.net'],
+    allowedHosts: true,
   },
   test: {
     environment: 'jsdom',
