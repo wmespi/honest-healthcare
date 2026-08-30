@@ -241,6 +241,23 @@ describe('Medicare utilization evidence (issue #14)', () => {
 
     expect(await screen.findByText('Medicare')).toBeInTheDocument();
   });
+
+  it('marks provider search results we hold no rate data for', async () => {
+    const user = userEvent.setup();
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
+      { npi: 222, name: 'CARDIOLOGY CARE CLINIC, LLC', city: 'EATONTON', specialty: 'Cardiac Facilities', has_rates: false },
+    ] });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    const input = screen.getByPlaceholderText(/search provider or npi/i);
+    await user.click(input);
+    await user.type(input, 'cardio');
+
+    expect(await screen.findByText('has rates')).toBeInTheDocument();
+    expect(screen.getByText('no rate data')).toBeInTheDocument();
+    expect(screen.getByText(/No rate data — 1 more/i)).toBeInTheDocument();
+  });
 });
 
 describe('provider with no rates in the selected network', () => {

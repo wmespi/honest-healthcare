@@ -255,21 +255,34 @@ function NpiSearch({ selectedNpi, onSelect }) {
                 exit={{ opacity: 0, y: 6 }}
                 className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden z-[999] shadow-2xl min-w-[280px] max-h-72 overflow-y-auto"
               >
-                {suggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSelect(s)}
-                    className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white truncate">{s.name || s.npi}</span>
-                      {s.has_rates && <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>}
+                {(() => {
+                  // Backend sorts has_rates first; render a divider before the
+                  // "no rate data" group so it's clear which providers we can price.
+                  const firstNoRates = suggestions.findIndex(s => !s.has_rates);
+                  return suggestions.map((s, i) => (
+                    <div key={i}>
+                      {i === firstNoRates && i > 0 && (
+                        <div className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600 bg-white/[0.02] border-y border-white/5">
+                          No rate data — {suggestions.length - firstNoRates} more
+                        </div>
+                      )}
+                      <button
+                        onClick={() => handleSelect(s)}
+                        className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-bold truncate ${s.has_rates ? 'text-white' : 'text-slate-500'}`}>{s.name || s.npi}</span>
+                          {s.has_rates
+                            ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
+                            : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">no rate data</span>}
+                        </div>
+                        <div className={`text-[11px] mt-0.5 truncate ${s.has_rates ? 'text-slate-500' : 'text-slate-600'}`}>
+                          {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
+                        </div>
+                      </button>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5 truncate">
-                      {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
-                    </div>
-                  </button>
-                ))}
+                  ));
+                })()}
               </motion.div>
             )}
           </AnimatePresence>
