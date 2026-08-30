@@ -71,9 +71,13 @@ seconds, not a hand-rolled streaming parse.
    a single-plan file's rate overrides a shared-network file's for the same
    `(billing_code + provider_group)`; the lower rate wins between two shared files.
    [etl/mrf-model.md](etl/mrf-model.md#conflict-resolution-strategy).
-6. **Give regular status updates.** On any multi-step task, post a short progress
-   note as each step lands — what's done, what's next, anything that changed — not
-   just a summary at the end.
+6. **Give regular status updates — the most-missed rule here.** On any multi-step
+   task, post a short progress note *as each step lands* — what's done, what's
+   next, anything that changed — not just a summary at the end. If you've run
+   several tool calls without saying anything to the user, stop and post one. A
+   plan, a finding that changes direction, a merged PR, a failing test: each is
+   its own note, in the moment, not folded into a later recap. Err toward
+   over-communicating.
 
 ---
 
