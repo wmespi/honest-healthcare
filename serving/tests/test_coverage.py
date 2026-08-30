@@ -167,9 +167,12 @@ def test_rates_by_network(client):
     nets = r.json()["networks"]
     assert nets
     for n in nets:
-        assert {"network_name", "median", "min", "max", "typical_low", "typical_high", "spread", "n_groups"} <= n.keys()
+        assert {"network_name", "median", "min", "max", "typical_low", "typical_high",
+                "spread", "n_groups", "n_providers"} <= n.keys()
         assert n["min"] <= n["median"] <= n["max"]
         assert n["typical_low"] <= n["typical_high"]
+        # provider count (issue #11): distinct NPIs >= distinct groups for the code
+        assert n["n_providers"] is None or n["n_providers"] >= n["n_groups"]
     # sorted cheapest median first
     assert nets == sorted(nets, key=lambda x: x["median"])
 

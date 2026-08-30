@@ -168,16 +168,30 @@ def rates_by_network(
             FROM {PRICE_GROUPS_SRC} pg
             WHERE {" AND ".join(conds)}
             GROUP BY 1, 2, 3
+        ),
+        -- distinct NPIs per network for this code. Bounded (one billing code,
+        -- per_group is already tiny) so the providers join is cheap here even
+        -- though the same join over the whole store is not.
+        net_npi AS (
+            SELECT DISTINCT g.network_name, pv.npi
+            FROM per_group g
+            JOIN {PROVIDERS_SRC} pv
+              ON pv.file_id = g.file_id AND pv.provider_group_id = g.provider_group_id
+        ),
+        net_counts AS (
+            SELECT network_name, COUNT(*) AS n_providers FROM net_npi GROUP BY 1
         )
-        SELECT network_name,
-               MIN(lo), MAX(hi), MEDIAN(med),
+        SELECT pg.network_name,
+               MIN(pg.lo), MAX(pg.hi), MEDIAN(pg.med),
                -- 10th/90th percentile of per-group medians: the spread a patient
                -- realistically sees, ignoring a handful of $0.09 / $19k outliers
-               QUANTILE_CONT(med, 0.1), QUANTILE_CONT(med, 0.9),
-               COUNT(*) AS n_groups
-        FROM per_group
+               QUANTILE_CONT(pg.med, 0.1), QUANTILE_CONT(pg.med, 0.9),
+               COUNT(*) AS n_groups,
+               ANY_VALUE(nc.n_providers) AS n_providers
+        FROM per_group pg
+        LEFT JOIN net_counts nc ON nc.network_name = pg.network_name
         GROUP BY 1
-        ORDER BY MEDIAN(med)
+        ORDER BY MEDIAN(pg.med)
     """, params).fetchall()
 
     if not rows:
@@ -191,6 +205,7 @@ def rates_by_network(
             "min": round(r[1], 2), "max": round(r[2], 2), "median": round(r[3], 2),
             "typical_low": round(p10, 2), "typical_high": round(p90, 2),
             "n_groups": r[6],
+            "n_providers": r[7],
             "spread": spread,  # p90/p10 of per-group medians; ~1 = flat, >3 = provider matters a lot
         }
 

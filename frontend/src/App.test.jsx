@@ -122,8 +122,8 @@ describe('network comparison (job 2)', () => {
     api.getRatesByNetwork.mockResolvedValue({ data: {
       billing_code: '99213', billing_code_type: 'CPT',
       networks: [
-        { network_name: 'GA Blue Value HIX Individual Network', median: 253, min: 162, max: 353, typical_low: 253, typical_high: 258, spread: 1.0, n_groups: 31 },
-        { network_name: 'TRADITIONAL HEALTH PLAN', median: 363, min: 11, max: 10379, typical_low: 225, typical_high: 535, spread: 2.4, n_groups: 6286 },
+        { network_name: 'GA Blue Value HIX Individual Network', median: 253, min: 162, max: 353, typical_low: 253, typical_high: 258, spread: 1.0, n_groups: 31, n_providers: 6566 },
+        { network_name: 'TRADITIONAL HEALTH PLAN', median: 363, min: 11, max: 10379, typical_low: 225, typical_high: 535, spread: 2.4, n_groups: 6286, n_providers: 71210 },
       ],
     } });
 
@@ -139,6 +139,8 @@ describe('network comparison (job 2)', () => {
     expect(screen.getAllByText('Traditional (PPO)').length).toBeGreaterThan(0);
     expect(screen.getByText(/flat rate/i)).toBeInTheDocument();
     expect(screen.getByText(/2\.4× provider spread/i)).toBeInTheDocument();
+    // issue #11 — provider count shown alongside group count
+    expect(screen.getByText(/6,566 providers · 31 groups/)).toBeInTheDocument();
   });
 });
 
