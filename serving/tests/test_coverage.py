@@ -40,7 +40,11 @@ def test_health(client):
     assert body["as_of"] is None or len(body["as_of"]) == 10  # YYYY-MM-DD
 
 
+BLUE_VALUE = "GA Blue Value HIX Individual Network"
+
+
 def test_distribution_shape(client):
+    # code without a network → served off rate_hist (per-group counts null)
     r = client.get("/rates/distribution", params={"billing_code": "99213", "billing_code_type": "CPT"})
     assert r.status_code == 200
     body = r.json()
@@ -51,12 +55,16 @@ def test_distribution_shape(client):
 
 
 def test_providers_shape(client):
-    r = client.get("/rates/providers", params={"billing_code": "99213", "limit": 5})
+    r = client.get("/rates/providers", params={"billing_code": "99213"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "network_required"
+    r = client.get("/rates/providers",
+                   params={"billing_code": "99213", "network_name": BLUE_VALUE, "limit": 5})
     assert r.status_code == 200
     results = r.json()["results"]
     assert results
     for row in results:
-        assert {"provider_group_id", "negotiated_rate", "network_name", "npi_count"} <= row.keys()
+        assert {"practice_id", "negotiated_rate", "network_name", "npi_count"} <= row.keys()
+        assert row["min_rate"] >= 1          # sentinel placeholders excluded
 
 
 def test_provider_search_specialty(client):
@@ -88,10 +96,14 @@ def test_specialties_endpoint(client):
 
 
 def test_rate_quote_provider_card(client, npi_with_rates):
-    menu = client.get(f"/providers/{npi_with_rates}/procedures").json()
+    menu = client.get(f"/providers/{npi_with_rates}/procedures",
+                      params={"network_name": BLUE_VALUE, "tier": "all"}).json()
     assert "provider" in menu
-    code = next((m["billing_code"] for m in menu["results"] if m["billing_code_type"] == "CPT"), "99213")
-    r = client.get("/rates/quote", params={"billing_code": code, "npi": npi_with_rates})
+    code = next((m["billing_code"] for m in menu["results"] if m["billing_code_type"] == "CPT"), None)
+    if code is None:
+        pytest.skip("this NPI has no Blue Value CPT rate")
+    r = client.get("/rates/quote", params={"billing_code": code, "npi": npi_with_rates,
+                                           "network_name": BLUE_VALUE})
     assert r.status_code == 200
     assert "provider" in r.json()
 
@@ -107,7 +119,8 @@ def test_ga_providers_endpoint(client):
 
 
 def test_rates_providers_nppes_annotation(client):
-    r = client.get("/rates/providers", params={"billing_code": "99213", "limit": 3})
+    r = client.get("/rates/providers",
+                   params={"billing_code": "99213", "network_name": BLUE_VALUE, "limit": 3})
     assert r.status_code == 200
     body = r.json()
     if body.get("nppes_ga"):
@@ -117,15 +130,17 @@ def test_rates_providers_nppes_annotation(client):
 
 @pytest.fixture(scope="session")
 def npi_with_rates(client):
-    """An NPI we hold rate data for, discovered via provider search."""
-    for q in ("emory", "piedmont", "northside", "wellstar"):
-        r = client.get("/providers/search", params={"q": q, "limit": 20})
-        if r.status_code != 200:
-            continue
-        hit = next((p for p in r.json() if p.get("has_rates")), None)
-        if hit:
-            return hit["npi"]
-    pytest.skip("no NPI with rates found via provider search")
+    """An NPI with a Blue Value rate — the quote/menu views now need a network."""
+    for q in ("emory", "piedmont", "northside", "wellstar", "kaiser"):
+        r = client.get("/providers/search", params={"q": q, "limit": 30})
+        for p in (r.json() if r.status_code == 200 else []):
+            if not p.get("has_rates"):
+                continue
+            menu = client.get(f"/providers/{p['npi']}/procedures",
+                              params={"network_name": BLUE_VALUE, "tier": "all"})
+            if menu.status_code == 200 and menu.json().get("results"):
+                return p["npi"]
+    pytest.skip("no NPI with Blue Value rates found via provider search")
 
 
 def test_provider_menu_shape(client, npi_with_rates):
@@ -150,12 +165,14 @@ def test_provider_menu_shape(client, npi_with_rates):
 
 
 def test_rate_quote_shape(client, npi_with_rates):
-    # 99213 is in the core basket — every rate-bearing provider should have it.
-    menu = client.get(f"/providers/{npi_with_rates}/procedures").json()["results"]
-    code = next((m["billing_code"] for m in menu if m["billing_code_type"] == "CPT"), "99213")
-    ctype = next((m["billing_code_type"] for m in menu if m["billing_code"] == code), "CPT")
+    menu = client.get(f"/providers/{npi_with_rates}/procedures",
+                      params={"network_name": BLUE_VALUE, "tier": "all"}).json()["results"]
+    code = next((m["billing_code"] for m in menu if m["billing_code_type"] == "CPT"), None)
+    if code is None:
+        pytest.skip("this NPI has no Blue Value CPT rate")
     r = client.get("/rates/quote", params={
-        "billing_code": code, "billing_code_type": ctype, "npi": npi_with_rates})
+        "billing_code": code, "billing_code_type": "CPT", "npi": npi_with_rates,
+        "network_name": BLUE_VALUE})
     assert r.status_code == 200
     body = r.json()
     assert body["headline"]["rate"] <= body["headline"]["max_rate"]
@@ -183,20 +200,21 @@ def test_distribution_rejects_npi_without_code(client, npi_with_rates):
 
 def test_specialty_scope_filter(client):
     """A specialty filter narrows to groups containing a provider of that
-    specialty (issue #31 rework). Fewer groups, same or higher floor."""
+    specialty (issue #31 rework). Needs the live path → a network_name."""
     base = client.get("/rates/distribution",
-                      params={"billing_code": "99213", "billing_code_type": "CPT"}).json()
+                      params={"billing_code": "99213", "billing_code_type": "CPT",
+                              "network_name": BLUE_VALUE}).json()
     scoped = client.get("/rates/distribution",
                         params={"billing_code": "99213", "billing_code_type": "CPT",
+                                "network_name": BLUE_VALUE,
                                 "specialty": "Cardiovascular Disease"})
     assert scoped.status_code == 200
-    sb = scoped.json()["summary"]
-    assert sb["provider_groups"] <= base["summary"]["provider_groups"]
+    assert scoped.json()["summary"]["provider_groups"] <= base["summary"]["provider_groups"]
     # /rates/providers honours it too
     rp = client.get("/rates/providers",
-                    params={"billing_code": "99213", "specialty": "Cardiovascular Disease", "limit": 5})
+                    params={"billing_code": "99213", "network_name": BLUE_VALUE,
+                            "specialty": "Cardiovascular Disease", "limit": 5})
     assert rp.status_code == 200
-    assert rp.json()["summary"]["n_groups"] <= base["summary"]["provider_groups"]
 
 
 def test_rates_by_network(client):

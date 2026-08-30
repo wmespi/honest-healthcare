@@ -35,6 +35,11 @@ providers/facilities, blending **price on their plan**, **quality / volume**, an
 - Needs: geocoding, CMS quality (hospital + clinician), inpatient volume.
 - **Closest to shippable** — rates exist; the rest is cheap public data.
 - Ends in a "Request this appointment" action (see *explorer → navigator*).
+- **In progress:** `/rates/providers` + `/rates/quote` now require a plan
+  (they're plan-specific and were the slow paths), and the frontend prompts for
+  one. Next: make plan selection the front door — plan → **specialty** (listed
+  alphabetically, with provider counts shown, not ranked by them) → the ranked
+  provider list.
 
 ### Flow B — Pick a plan  *(open enrollment, once a year)*
 

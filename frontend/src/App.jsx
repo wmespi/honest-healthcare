@@ -484,6 +484,21 @@ function providerLabel(r) {
   return `Practice ${r.practice_id}`;
 }
 
+// Shown in place of the provider-compare table / cost card until a plan is
+// picked — those views are plan-specific (a practice's rate on an HMO isn't its
+// rate on a PPO) and the query needs the network to stay fast.
+function PickPlanPrompt({ what }) {
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
+      <p className="text-white font-black text-lg tracking-tight">Pick your plan to {what}</p>
+      <p className="text-slate-400 text-sm mt-2 max-w-md mx-auto leading-relaxed">
+        Negotiated rates are plan-specific — choose your plan in the selector above
+        and this fills in.
+      </p>
+    </div>
+  );
+}
+
 // "Does the provider matter?" — Job 3. Blue Value is close to a network-wide fee
 // schedule, so for most codes every provider negotiated the same rate and the
 // honest answer is "provider choice doesn't change the price". When rates do
@@ -1100,7 +1115,10 @@ function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
 
-  const [setting, setSetting] = useState('');
+  // Setting filter retired: the rate views are outpatient-professional by scope
+  // now (serving/data_sources.outpatient_scope). A place-of-service split
+  // (office vs hospital-outpatient) is the future refinement.
+  const setting = '';
   const [specialty, setSpecialtyState] = useState('');
   const [npi, setNpi] = useState('');
   const [npiLabel, setNpiLabel] = useState('');
@@ -1130,14 +1148,14 @@ function App() {
     fetchDistribution(null, null, '', '', '');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Compare-across-providers table — a code is chosen and NO provider filter
-  // (with a provider, we show the cost card instead). Scoped by `specialty`.
+  // Compare-across-providers table — a code is chosen, NO provider filter, and a
+  // plan is picked (rates are plan-specific; the endpoint requires a network).
   useEffect(() => {
     const code = selectedCode?.code;
-    if (!code || npi) { setProviderRates(null); return; }
+    if (!code || npi || !selectedPlan) { setProviderRates(null); return; }
     let cancelled = false;
     setProviderRatesLoading(true);
-    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined,
+    getRatesByProvider(code, selectedCode.type, selectedPlan, setting || undefined, undefined,
       { specialty: specialty || undefined })
       .then(res => { if (!cancelled) setProviderRates(res.data); })
       .catch(() => { if (!cancelled) setProviderRates(null); })
@@ -1158,13 +1176,14 @@ function App() {
     return () => { cancelled = true; };
   }, [selectedCode, setting]);
 
-  // Job 1 cost card — a provider AND a specific procedure are both selected.
+  // Job 1 cost card — a provider AND a procedure are selected AND a plan is
+  // picked (the quote is plan-specific; the endpoint requires a network).
   useEffect(() => {
     const code = selectedCode?.code;
-    if (!npi || !code) { setProviderQuote(null); return; }
+    if (!npi || !code || !selectedPlan) { setProviderQuote(null); return; }
     let cancelled = false;
     setProviderQuoteLoading(true);
-    getRateQuote(code, selectedCode.type, npi, selectedPlan || undefined)
+    getRateQuote(code, selectedCode.type, npi, selectedPlan)
       .then(res => { if (!cancelled) setProviderQuote(res.data); })
       .catch(() => { if (!cancelled) setProviderQuote(null); })
       .finally(() => { if (!cancelled) setProviderQuoteLoading(false); });
@@ -1263,11 +1282,6 @@ function App() {
   const handlePlanSelect = (plan) => {
     setSelectedPlan(plan);
     fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi, undefined, specialty);
-  };
-
-  const handleSettingChange = (s) => {
-    setSetting(s);
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, s, npi, undefined, specialty);
   };
 
   const handleSpecialtyChange = (sp) => {
@@ -1411,32 +1425,6 @@ function App() {
 
         {/* Filters row */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-8">
-          {/* Setting pills */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest mr-1">Setting</span>
-            {[
-              { label: 'All', value: '' },
-              { label: 'Outpatient', value: 'outpatient' },
-              { label: 'Inpatient', value: 'inpatient' },
-              { label: 'Ancillary', value: 'ancillary' },
-            ].map(({ label, value }) => (
-              <button
-                key={label}
-                onClick={() => handleSettingChange(value)}
-                className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
-                  setting === value
-                    ? 'bg-indigo-600 border-indigo-500 text-white'
-                    : 'bg-transparent border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Divider */}
-          <div className="hidden sm:block w-px h-5 bg-slate-800" />
-
           {/* Specialty scope (a filter) */}
           <SpecialtyDropdown selected={specialty} onSelect={handleSpecialtyChange} />
 
@@ -1589,18 +1577,23 @@ function App() {
               )}
 
               {/* Provider + procedure both chosen → the cost answer (job 1).
-                  Procedure only → the compare-across-providers table (job 3). */}
+                  Procedure only → the compare-across-providers table (job 3).
+                  Both are plan-specific — prompt for a plan first. */}
               {selectedCode?.code && npi && (
-                <ProviderCostCard
-                  data={providerQuote}
-                  loading={providerQuoteLoading}
-                  providerName={npiLabel}
-                  plan={planParams.plan}
-                  rbcsCategory={selectedCode?.rbcs_category}
-                />
+                selectedPlan
+                  ? <ProviderCostCard
+                      data={providerQuote}
+                      loading={providerQuoteLoading}
+                      providerName={npiLabel}
+                      plan={planParams.plan}
+                      rbcsCategory={selectedCode?.rbcs_category}
+                    />
+                  : <PickPlanPrompt what="see the rate at this provider" />
               )}
               {selectedCode?.code && !npi && (
-                <ProviderRateTable data={providerRates} loading={providerRatesLoading} specialty={specialty} />
+                selectedPlan
+                  ? <ProviderRateTable data={providerRates} loading={providerRatesLoading} specialty={specialty} />
+                  : <PickPlanPrompt what="compare providers for this procedure" />
               )}
             </motion.div>
           )}

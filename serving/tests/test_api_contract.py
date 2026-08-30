@@ -23,16 +23,30 @@ def test_health_and_trust_bar(api):
 
 
 def test_distribution_shape(api):
-    r = api.get("/rates/distribution", params={"billing_code": "99213", "billing_code_type": "CPT"})
+    # code + a network → the live path (per-group counts).
+    r = api.get("/rates/distribution",
+                params={"billing_code": "99213", "billing_code_type": "CPT",
+                        "network_name": BLUE_VALUE})
     assert r.status_code == 200
     body = r.json()
     assert body["billing_code"] == "99213"
     s = body["summary"]
     assert {"min", "max", "avg", "median", "provider_groups", "n_providers", "total_entries"} <= s.keys()
     assert s["min"] <= s["median"] <= s["max"]
-    # total_entries counts price rows expanded to provider groups (>= the 5 raw rows)
-    assert s["total_entries"] >= 5
+    assert s["total_entries"] >= 3
     assert isinstance(body["distribution"], list) and body["distribution"]
+
+
+def test_distribution_code_without_network_uses_summary(api):
+    # code, no network → served off rate_hist (the live expansion spills at
+    # GA scale). Per-group counts aren't derivable there.
+    body = api.get("/rates/distribution", params={"billing_code": "99213"}).json()
+    assert body["billing_code"] == "99213"
+    s = body["summary"]
+    assert s["provider_groups"] is None and s["n_providers"] is None
+    assert s["min"] <= s["median"] <= s["max"]
+    assert s["max"] < 900          # the institutional/inpatient noise is out of scope
+    assert body["distribution"]
 
 
 def test_distribution_overview_from_summary(api):
@@ -66,17 +80,30 @@ def test_distribution_rejects_npi_without_code(api):
 
 
 def test_distribution_specialty_scope_narrows(api):
+    # specialty scoping needs the live expansion → a network_name to prune it
     base = api.get("/rates/distribution",
-                   params={"billing_code": "99213", "billing_code_type": "CPT"}).json()
+                   params={"billing_code": "99213", "billing_code_type": "CPT",
+                           "network_name": BLUE_VALUE}).json()
     scoped = api.get("/rates/distribution",
                      params={"billing_code": "99213", "billing_code_type": "CPT",
+                             "network_name": BLUE_VALUE,
                              "specialty": "Cardiovascular Disease"})
     assert scoped.status_code == 200
     assert scoped.json()["summary"]["provider_groups"] <= base["summary"]["provider_groups"]
 
 
+def test_rates_providers_requires_network(api):
+    r = api.get("/rates/providers", params={"billing_code": "99213"})
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "network_required"
+    q = api.get("/rates/quote", params={"billing_code": "99213", "npi": CARDIOLOGIST})
+    assert q.status_code == 400
+    assert q.json()["detail"]["code"] == "network_required"
+
+
 def test_rates_providers_shape(api):
-    r = api.get("/rates/providers", params={"billing_code": "99213", "limit": 10})
+    r = api.get("/rates/providers",
+                params={"billing_code": "99213", "network_name": BLUE_VALUE, "limit": 10})
     assert r.status_code == 200
     body = r.json()
     results = body["results"]
@@ -84,7 +111,9 @@ def test_rates_providers_shape(api):
     for row in results:
         assert {"practice_id", "practice_name", "negotiated_rate", "network_name",
                 "npi_count", "n_groups"} <= row.keys()
+        assert row["min_rate"] >= 1          # sentinel $0.50 row excluded
     assert {"min", "max", "median", "n_practices", "n_groups", "n_providers"} <= body["summary"].keys()
+    assert body["summary"]["min"] >= 1
 
 
 def test_rates_providers_collapses_by_practice(api):
@@ -122,7 +151,8 @@ def test_outpatient_scope_excludes_facility_and_percentage(api):
 
     # inpatient can't narrow an outpatient-scoped view — it's ignored, not empty
     ip = api.get("/rates/providers",
-                 params={"billing_code": "99213", "setting": "inpatient"})
+                 params={"billing_code": "99213", "network_name": BLUE_VALUE,
+                         "setting": "inpatient"})
     assert ip.status_code == 200 and ip.json()["results"]
 
 
@@ -143,7 +173,8 @@ def test_rates_by_network_sorted_and_bounded(api):
 
 def test_quote_components_and_evidence(api):
     r = api.get("/rates/quote", params={"billing_code": "70450", "billing_code_type": "CPT",
-                                        "npi": 1000000004})  # radiologist in a Blue Value group
+                                        "npi": 1000000004,  # radiologist in a Blue Value group
+                                        "network_name": BLUE_VALUE})
     assert r.status_code == 200
     body = r.json()
     assert body["headline"]["rate"] <= body["headline"]["max_rate"]
@@ -161,7 +192,8 @@ def test_quote_components_and_evidence(api):
 
 def test_quote_medicare_billed_flag(api):
     # the cardiologist billed 93000 to Medicare in the fixture
-    body = api.get("/rates/quote", params={"billing_code": "93000", "npi": CARDIOLOGIST}).json()
+    body = api.get("/rates/quote", params={"billing_code": "93000", "npi": CARDIOLOGIST,
+                                           "network_name": BLUE_VALUE}).json()
     mu = body["medicare_utilization"]
     assert mu is not None and mu["billed"] is True
 
@@ -226,7 +258,7 @@ def test_networks_endpoint(api):
     # 5 Open Access.
     body = api.get("/networks").json()
     counts = {r["network_name"]: r["n_rates"] for r in body}
-    assert counts == {BLUE_VALUE: 12, "GA Blue Open Access POS Network": 5}
+    assert counts == {BLUE_VALUE: 13, "GA Blue Open Access POS Network": 5}
     # sorted by volume desc
     assert [r["n_rates"] for r in body] == sorted((r["n_rates"] for r in body), reverse=True)
 

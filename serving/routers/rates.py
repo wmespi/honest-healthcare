@@ -53,20 +53,54 @@ def _hist_has_scope(conn) -> bool:
     return _HIST_HAS_SCOPE
 
 
-def _overview_from_summary(conn, billing_code_type, network_name, setting):
-    """Network overview from summary/rate_hist.parquet — no `prices` scan.
+def _sentinel_ceiling(conn, billing_code, billing_code_type) -> float:
+    """A rate at or below this, for this code, is a placeholder — not a real
+    negotiated price. Anthem fills the MRF-required positive `negotiated_rate`
+    with $0.01–$1.50 for not-separately-priced codes, and with proportionally
+    tiny values on big-ticket codes. `ceiling = max($1.00, 5% of the code's
+    volume-weighted median rate)`, off `rate_hist` so it stays consistent with
+    the overview. Codes absent from `rate_hist` get the $1.00 floor.
+    """
+    if not have_rate_hist():
+        return 1.0
+    scope = "AND scope = 'outpatient_prof'" if _hist_has_scope(conn) else ""
+    rows = conn.execute(f"""
+        SELECT bucket, SUM(n) AS n
+        FROM read_parquet('{RATE_HIST_PATH}')
+        WHERE billing_code = ? AND billing_code_type = ? {scope}
+        GROUP BY bucket ORDER BY bucket
+    """, [billing_code, billing_code_type]).fetchall()
+    if not rows:
+        return 1.0
+    total = sum(n for _, n in rows)
+    cum, median = 0, rows[-1][0]
+    for b, n in rows:
+        cum += n
+        if cum >= total / 2:
+            median = b + 12.5   # $25 bucket midpoint
+            break
+    return max(1.0, round(0.05 * median, 2))
 
-    `distribution` = the histogram bars (rate entries per $50 band, capped at
-    $2000 to match the code-level view). `summary` = volume-weighted min / median
-    / avg / max of every negotiated rate in scope, off the pooled CDF (≤201
-    buckets — trivial). `n_codes` replaces `provider_groups` (not derivable here
-    without `prices ⨝ group_sets` — #48).
+
+def _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting):
+    """Rate distribution off summary/rate_hist.parquet — no `prices` scan. Serves
+    the no-code network overview *and* the code-level view when no `network_name`
+    prunes the live path (issue #10 — the unpruned `prices ⨝ group_sets`
+    expansion spills 15-60 GB at GA scale).
+
+    `distribution` = the histogram bars (rate entries per $50 band). `summary` =
+    volume-weighted min / median / avg / max off the pooled CDF. Per-group /
+    per-provider counts aren't derivable here (no `prices ⨝ group_sets`) — they
+    come back `null`, with `n_codes` on the overview.
     """
     hsrc = f"read_parquet('{RATE_HIST_PATH}')"
     conds, hp = ["billing_code_type = ?"], [billing_code_type]
     if _hist_has_scope(conn):
         # outpatient professional fee-for-service only — matches the drill-downs
         conds.append("scope = 'outpatient_prof'")
+    if billing_code:
+        conds.append("billing_code = ?")
+        hp.append(billing_code)
     if network_name:
         conds.append("net = ?")
         hp.append(network_slug(network_name))
@@ -75,8 +109,9 @@ def _overview_from_summary(conn, billing_code_type, network_name, setting):
         hp.append(setting)
     hwhere = " AND ".join(conds)
 
+    bar_cap = 5000 if billing_code else 2000
     dist = conn.execute(f"""
-        SELECT FLOOR(LEAST(bucket, 2000) / 50) * 50 AS rate,
+        SELECT FLOOR(LEAST(bucket, {bar_cap}) / 50) * 50 AS rate,
                'fee schedule' AS negotiated_type,
                SUM(n) AS provider_groups
         FROM {hsrc}
@@ -86,7 +121,8 @@ def _overview_from_summary(conn, billing_code_type, network_name, setting):
     """, hp).fetchall()
 
     if not dist:
-        raise HTTPException(404, detail=f"No {billing_code_type} rates found for this network")
+        label = f"{billing_code_type}:{billing_code}" if billing_code else billing_code_type
+        raise HTTPException(404, detail=f"No rates found for {label}")
 
     srow = conn.execute(f"""
         WITH b AS (
@@ -108,8 +144,8 @@ def _overview_from_summary(conn, billing_code_type, network_name, setting):
     """, hp + hp).fetchone()
 
     return {
-        "billing_code": "ALL",
-        "billing_code_type": "NETWORK",
+        "billing_code": billing_code or "ALL",
+        "billing_code_type": billing_code_type if billing_code else "NETWORK",
         "summary": {
             "min":    round(srow[0], 2) if srow[0] is not None else None,
             "max":    round(srow[1], 2) if srow[1] is not None else None,
@@ -118,7 +154,7 @@ def _overview_from_summary(conn, billing_code_type, network_name, setting):
             "median": round(srow[3], 2) if srow[3] is not None else None,
             "provider_groups": None,   # not derivable without prices ⨝ group_sets — #48
             "n_providers":     None,
-            "n_codes":       srow[4] or 0,
+            "n_codes":       None if billing_code else (srow[4] or 0),
             "total_entries": int(srow[5]) if srow[5] is not None else 0,
         },
         "distribution": [
@@ -153,18 +189,17 @@ def rate_distribution(
 
     conn = db()
 
-    # ── Network overview (no code): read the precomputed histogram, never
-    # `prices` (645M rows → OOM at GA scale, issue #10). The bars ARE the
-    # histogram; the summary is a volume-weighted CDF over CPT only, so a $0.01
-    # revenue-code line and a $7M drug-unit outlier don't blow it up (#51).
-    if not billing_code and have_rate_hist():
-        return _overview_from_summary(conn, billing_code_type, network_name, setting)
+    # ── Read the precomputed histogram, never `prices`, whenever nothing prunes
+    # the live path: the no-code overview, and the code-level view without a
+    # `network_name` (the unpruned `prices ⨝ group_sets` expansion spills
+    # 15-60 GB at GA scale — issue #10). The live path runs only when a
+    # `network_name` partition-prunes it or an `npi` anchors it.
+    if have_rate_hist() and not (network_name or npi):
+        return _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting)
 
     # Expanding prices → provider groups is only affordable when the filter
-    # prunes prices hard (a billing_code) or the query needs per-NPI resolution
-    # (an npi filter). The bare overview (no code, maybe a network) aggregates
-    # over `prices` alone — bars/counts are distinct provider *rosters*, not the
-    # fully-expanded group count.
+    # prunes prices hard (a billing_code + network) or the query needs per-NPI
+    # resolution (an npi filter).
     heavy = bool(billing_code or npi)
 
     if heavy:
@@ -260,9 +295,10 @@ def rates_by_network(
     varies by provider (n_distinct_rates). Answers "does my plan choice matter
     for this procedure" — a tight fee-schedule HMO vs. a wide-spread PPO."""
     conn = db()
+    ceiling = _sentinel_ceiling(conn, billing_code, billing_code_type)
     conds = ["pg.billing_code = ?", "pg.billing_code_type = ?", "COALESCE(pg.modifier,'') = ''",
-             outpatient_scope("pg")]
-    params: list = [billing_code, billing_code_type]
+             "pg.negotiated_rate > ?", outpatient_scope("pg")]
+    params: list = [billing_code, billing_code_type, ceiling]
     if setting in ("outpatient", "both"):
         conds.append("pg.setting = ?")
         params.append(setting)
@@ -352,13 +388,27 @@ def rates_by_provider(
     group-rate distribution — supports a headline like "most contracts ~$82".
 
     One heavy pass materialises `_prac` (prices ⨝ group_sets ⨝ providers, pruned
-    to one code + the outpatient scope); the rest aggregate that temp table. The
-    NPPES name lookup runs only for the practices actually returned.
+    to one code + one network + the outpatient scope); the rest aggregate that
+    temp table. The NPPES name lookup runs only for the practices actually
+    returned.
+
+    **A `network_name` is required** — a practice's rate is only comparable
+    within a plan, and the unpruned cross-network expansion spills 15-60 GB at
+    GA scale (issue #10). The frontend gates this panel on plan selection.
     """
+    if not network_name:
+        raise HTTPException(
+            400,
+            detail={"code": "network_required",
+                    "message": "Pick your plan to compare providers for this procedure."},
+        )
     conn = db()
+    ceiling = _sentinel_ceiling(conn, billing_code, billing_code_type)
 
     where, params = price_filters(billing_code, billing_code_type, network_name,
                                   setting, npi, specialty=specialty)
+    where += " AND pg.negotiated_rate > ?"
+    params = params + [ceiling]
     if component == "global":
         # NULL = a file parsed before the modifier column existed; treat as global.
         where += " AND COALESCE(pg.modifier, '') = ''"
@@ -521,13 +571,20 @@ def rate_quote(
     """Job 1 — "what will this procedure cost at this provider". Resolves the NPI
     to its group-sets first (cheap), then the code's prices, and organises them
     by component modifier (global / professional / technical) and place of
-    service. Returns a headline rate + the breakdown."""
-    conn = db()
+    service. Returns a headline rate + the breakdown.
 
-    net_filter = "AND p.net = ?" if network_name else ""
-    params: list = [npi, billing_code, billing_code_type]
-    if network_name:
-        params.append(network_slug(network_name))
+    **A `network_name` is required** — the rate is plan-specific, and without the
+    partition prune this scans every network for the code (~8 s vs ~0.2 s)."""
+    if not network_name:
+        raise HTTPException(
+            400,
+            detail={"code": "network_required",
+                    "message": "Pick your plan to see the rate at this provider."},
+        )
+    conn = db()
+    ceiling = _sentinel_ceiling(conn, billing_code, billing_code_type)
+
+    params: list = [npi, billing_code, billing_code_type, ceiling, network_slug(network_name)]
 
     rows = conn.execute(f"""
         WITH npi_groups AS (
@@ -544,7 +601,8 @@ def rate_quote(
                MIN(p.negotiated_rate), MAX(p.negotiated_rate), COUNT(*)
         FROM {PRICES_SRC} p
         JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
-        WHERE p.billing_code = ? AND p.billing_code_type = ? {net_filter}
+        WHERE p.billing_code = ? AND p.billing_code_type = ?
+          AND p.negotiated_rate > ? AND p.net = ?
           AND {outpatient_scope("p")}
         GROUP BY 1, 2, 3, 4
     """, params).fetchall()
