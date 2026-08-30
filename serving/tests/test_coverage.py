@@ -209,8 +209,13 @@ def test_rates_by_network(client):
                 "spread", "n_groups", "n_providers"} <= n.keys()
         assert n["min"] <= n["median"] <= n["max"]
         assert n["typical_low"] <= n["typical_high"]
-        # provider count (issue #11): distinct NPIs >= distinct groups for the code
-        assert n["n_providers"] is None or n["n_providers"] >= n["n_groups"]
+        # n_providers = distinct NPIs; n_groups = distinct *file-local* group
+        # instances. Neither bounds the other at corpus scale — one practice
+        # recurs as a group across many files (inflates n_groups), and rollup
+        # groups name few NPIs (deflates n_providers). See docs/known-gaps.md
+        # "code_rollup.n_provider_groups" / GH #48.
+        assert n["n_groups"] >= 1
+        assert n["n_providers"] is None or n["n_providers"] >= 0
     # sorted cheapest median first
     assert nets == sorted(nets, key=lambda x: x["median"])
 

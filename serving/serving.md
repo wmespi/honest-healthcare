@@ -36,8 +36,11 @@ that expands a price row to its provider groups. Schema:
 | `/rates/providers?billing_code` | **3** — compare across providers | one row per provider group, `component=global` by default; `ROLLUP_THRESHOLD` folds the fee-schedule majority. `specialty=` scopes to groups containing a provider of that NUCC specialty (distinct from `npi=`, which drills to one). |
 | `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap. `tier=plausible` (default) shows only codes the NPI billed to Medicare or that are typical for their specialty + a `group_count`; `tier=all` shows every contracted code tagged `billed`/`typical`/`group` |
 
-Supporting: `/rates/distribution` (histogram — **400s on npi-without-code**, which
-would full-scan), `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
+Supporting: `/rates/distribution` — with a `billing_code` it's a live per-code
+histogram; **400s on npi-without-code**; **with no code it's the network
+overview**, served off `summary/rate_hist.parquet` (CPT-only, volume-weighted
+min/median/avg/max from the pooled CDF, `provider_groups`/`n_providers` → `null`,
+`n_codes` instead) — never a `prices` scan. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
 `/procedure_categories`, `/billing_codes`, `/providers/ga`, `/plans` (curated
 friendly-name → network map, `serving/plan_networks.json`, GH #33).
 
@@ -72,10 +75,12 @@ friendly-name → network map, `serving/plan_networks.json`, GH #33).
   `memory_limit` (`DUCKDB_MEMORY_LIMIT`, default 4GB) and a spill dir
   (`DUCKDB_TMP`, default `/tmp/duckdb_spill`). Any ad-hoc query written outside
   `db()` must set `temp_directory` itself or it can spill into the repo.
-- Browse-layer aggregates (`/networks`, `/billing_codes`, `/procedure_categories`)
-  read `anthem/summary/{rate_summary,code_rollup}.parquet` when built
-  (`have_summary()` → `_volume_src()` in `reference.py`), else fall back to the
-  live `prices ⨝ group_sets` scan (`VOL_CTE`). `make build-summary` after each
+- Browse-layer aggregates (`/networks`, `/billing_codes`, `/procedure_categories`,
+  the no-code `/rates/distribution`) read
+  `anthem/summary/{rate_hist,rate_summary,code_rollup}.parquet` when built
+  (`have_summary()` requires all three; `_volume_src()` in `reference.py`,
+  `_overview_from_summary()` in `rates.py`), else fall back to the live `prices` /
+  `prices ⨝ group_sets` scan (`VOL_CTE`). `make build-summary` after each
   parse batch — it is not auto-triggered. Schema + rebuild cost:
   [../docs/schema.md](../docs/schema.md), [issue #10](https://github.com/wmespi/honest-healthcare/issues/10).
 - Detail endpoints with a network filter partition-prune and stay fast regardless.

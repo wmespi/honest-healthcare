@@ -60,23 +60,41 @@ npi_lookup.parquet       npi | tin_value
 ### `summary/` — precomputed browse layer (`make build-summary`)
 
 ```
+summary/rate_hist.parquet
+    payer | net | network_name | billing_code_type | billing_code | setting | bucket | n
 summary/rate_summary.parquet
-    payer | network_name | net | billing_code_type | billing_code | setting | n_rates
+    payer | network_name | net | billing_code_type | billing_code | setting
+      | n_rates | min_rate | max_rate | avg_rate
 summary/code_rollup.parquet
     payer | billing_code_type | billing_code | n_provider_groups | n_rates
 ```
 
-`scripts/build_rate_summary.py` rebuilds both from `prices` (+ a pre-aggregated
-per-roster size table for the rollup) after a parse batch. The `/networks`,
-`/billing_codes`, `/procedure_categories` endpoints read these instead of
-scanning `prices ⨝ group_sets` (>1e9 edges at GA scale —
+`scripts/build_rate_summary.py` rebuilds all three from `prices` (+ a
+pre-aggregated per-roster size table for `code_rollup`) after a parse batch:
+
+- **`rate_hist`** — a pre-bucketed rate histogram: `$25` buckets to `$5000`,
+  then one overflow bucket at `5000`. The one heavy scan of `prices`, all-scalar
+  `COUNT`. The network overview's bars *are* this table, and the serving layer
+  derives p10/median/p90 from its CDF at read time (a code spans ~20-200 buckets
+  — trivial). Exact per-group percentiles at build time OOM: millions of groups
+  × any non-scalar accumulator, t-digest included.
+- **`rate_summary`** — scalar rollup of `rate_hist`, one row per priced
+  `(network, code, setting)`; `min/max/avg` are bucket-approximate (± `$25`).
+  `/networks` sums `n_rates`. **No all-settings (`'*'`) rollup row** — every
+  consumer that sums `n_rates` would double-count it; roll settings up at read
+  time.
+- **`code_rollup`** — `n_provider_groups` is SUM of the code's rosters' sizes, a
+  ranking hint that over-counts a group in several of a code's rosters (same as
+  the old `VOL_CTE`), computed against the roster-size table so it stays bounded
+  at 1e9+ edges. `n_rates` is exact.
+
+The `/networks`, `/billing_codes`, `/procedure_categories` and the no-code
+`/rates/distribution` (network overview) endpoints read these instead of
+scanning `prices` / `prices ⨝ group_sets` (645M rows / >1e9 edges at GA scale —
 [issue #10](https://github.com/wmespi/honest-healthcare/issues/10)); they fall
-back to the live scan when the files are absent. `n_rates` is exact;
-`n_provider_groups` is SUM of the code's rosters' sizes — a ranking hint that
-over-counts a group in several of a code's rosters (same as the old `VOL_CTE`),
-computed against the roster-size table so it stays bounded. `payer` is
-`'anthem'` today; the column is there for multi-payer. Build cost: ~35 s at
-645M price rows / 1.1B roster edges.
+back to the live scan when the files are absent. `payer` is `'anthem'` today;
+the column is there for multi-payer. Build cost: ~3 min at 645M price rows /
+1.1B roster edges (`rate_hist` ~80 s, the rest scalar).
 
 `{id}` is `index_files.id`; `file_id` carries it on every row. `provider_group_id`
 is the MRF's **file-local** `provider_reference.id` — all cross-file joins key on

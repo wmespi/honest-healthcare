@@ -53,12 +53,31 @@ the product is headed — and which of these gaps that closes — is in
 ## Scale / performance
 
 - **Browse-layer summary is a full rebuild, not incremental.** `/networks`,
-  `/billing_codes`, `/procedure_categories` now read `anthem/summary/` when it
-  exists (`make build-summary` — [#10](https://github.com/wmespi/honest-healthcare/issues/10)),
-  falling back to the live `prices ⨝ group_sets` scan (`VOL_CTE`) when it
-  doesn't. The build recomputes the whole summary each run (~45s at 11.7M price
-  rows, ~minutes at 20 GB); per-file partials → merge is the follow-up. It is
-  also **not auto-triggered** — run it after each `make parse` batch.
+  `/billing_codes`, `/procedure_categories` and the no-code `/rates/distribution`
+  (network overview) read `anthem/summary/` when it exists (`make build-summary`
+  — [#10](https://github.com/wmespi/honest-healthcare/issues/10)), falling back
+  to the live `prices` / `prices ⨝ group_sets` scan when it doesn't. The build
+  recomputes the whole summary each run (~3 min at 645M price rows — the
+  `rate_hist` scan dominates); per-file partials → merge is the follow-up. It is
+  also **not auto-triggered** — run it after each `make parse` batch, or the
+  overview 404s / the browse counts go stale. The overview is **CPT-only** (the
+  `rate_hist` scan keeps every code type, but the endpoint filters to CPT) —
+  revenue codes (`RC`, e.g. `0510` at up to $7.2M) and per-unit drug J-codes
+  otherwise blow the summary spread to nonsense
+  ([GH #51](https://github.com/wmespi/honest-healthcare/issues/51)).
+- **`/rates/by_network` still scans `prices ⨝ group_sets` live.** It prunes hard
+  on the required `billing_code` so it doesn't OOM (~6 s at 645M rows), but it's
+  the one consumer endpoint not yet on the summary. Moving it to per-network CDF
+  reads off `rate_hist` + a `(net, code) → n_groups` rollup is the remaining
+  slice-2 item ([#10](https://github.com/wmespi/honest-healthcare/issues/10)).
+- **`/rates/by_network` `n_groups` and `n_providers` measure different things
+  and neither bounds the other.** `n_groups` counts distinct *file-local*
+  `(file_id, provider_group_id)` instances — one practice recurs as a group
+  across every file that lists it — so at corpus scale it far exceeds
+  `n_providers` (distinct NPIs) for the big networks, and rollup-heavy small
+  networks (Military/VA, retail clinics) go the other way. Same root cause as
+  `code_rollup.n_provider_groups`; a real distinct rollup is
+  [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
 - **`code_rollup.n_provider_groups` is an inflated ranking hint, not a distinct
   count.** It sums the code's rosters' sizes, so a provider group in several of a
   code's rosters is counted per-roster (same as the old `VOL_CTE`; #45's

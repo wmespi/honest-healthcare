@@ -1495,7 +1495,7 @@ function App() {
                   { label: 'Min',    value: fmt(summary.min),    color: 'text-emerald-400' },
                   { label: 'Median', value: fmt(summary.median), color: 'text-indigo-400'  },
                   { label: 'Average',value: fmt(summary.avg),    color: 'text-violet-400'  },
-                  { label: 'Max',    value: fmt(summary.max),    color: 'text-rose-400'    },
+                  { label: 'Max',    value: summary.max_capped ? `${fmt(summary.max)}+` : fmt(summary.max), color: 'text-rose-400' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                     <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">{label}</div>
@@ -1523,9 +1523,13 @@ function App() {
                     <span className="text-white font-black">{summary.n_providers.toLocaleString()}</span> providers
                   </span>
                 )}
-                <span><span className="text-white font-black">{summary.provider_groups?.toLocaleString()}</span> provider groups</span>
+                {summary.provider_groups != null
+                  ? <span><span className="text-white font-black">{summary.provider_groups.toLocaleString()}</span> provider groups</span>
+                  : summary.n_codes != null && (
+                      <span><span className="text-white font-black">{summary.n_codes.toLocaleString()}</span> procedures priced</span>
+                    )}
                 <span><span className="text-white font-black">{summary.total_entries.toLocaleString()}</span> rate entries</span>
-                {summary.min > 0 && summary.max / summary.min >= 1.05 && (
+                {summary.min > 0 && !summary.max_capped && summary.max / summary.min >= 1.05 && (
                   <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
                 )}
               </div>
@@ -1536,7 +1540,7 @@ function App() {
                   <div>
                     <h2 className="text-white font-black text-xl tracking-tight">Rate Distribution</h2>
                     <p className="text-slate-500 text-xs mt-1">
-                      Provider groups per price range ·{' '}
+                      {selectedCode?.code ? 'Provider groups' : 'Negotiated rate lines'} per price range ·{' '}
                       <span className="text-indigo-400">— median {fmt(summary.median)}</span>
                     </p>
                   </div>

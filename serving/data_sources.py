@@ -32,6 +32,7 @@ NPI_LOOKUP_PATH  = f"{DATA_DIR}/anthem/npi_lookup.parquet"
 # instead of scanning prices ⨝ group_sets (~1e9 rows). Absent until the build
 # runs; the endpoints fall back to the live scan (VOL_CTE) when so.
 RATE_SUMMARY_PATH = f"{DATA_DIR}/anthem/summary/rate_summary.parquet"
+RATE_HIST_PATH    = f"{DATA_DIR}/anthem/summary/rate_hist.parquet"
 CODE_ROLLUP_PATH  = f"{DATA_DIR}/anthem/summary/code_rollup.parquet"
 GA_NPPES_PATH    = f"{DATA_DIR}/nppes/ga_providers.parquet"
 CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
@@ -159,8 +160,17 @@ def have_prices() -> bool:
 
 
 def have_summary() -> bool:
-    """Both browse-layer summary tables have been built (`make build-summary`)."""
+    """The browse-layer rollups have been built (`make build-summary`) — what
+    `/networks`, `/billing_codes`, `/procedure_categories` read."""
     return os.path.exists(RATE_SUMMARY_PATH) and os.path.exists(CODE_ROLLUP_PATH)
+
+
+def have_rate_hist() -> bool:
+    """The pre-bucketed histogram is present — gates the no-code network
+    overview (`/rates/distribution`) onto the summary path. Written by the same
+    build; split out so an older summary without it doesn't also knock the
+    rollup endpoints off their fast path."""
+    return os.path.exists(RATE_HIST_PATH)
 
 
 _NPPES_COLS: Optional[set] = None
