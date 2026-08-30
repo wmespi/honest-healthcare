@@ -78,9 +78,11 @@ friendly-name → network map, `serving/plan_networks.json`, GH #33).
 - Browse-layer aggregates (`/networks`, `/billing_codes`, `/procedure_categories`,
   the no-code `/rates/distribution`) read
   `anthem/summary/{rate_hist,rate_summary,code_rollup}.parquet` when built
-  (`have_summary()` requires all three; `_volume_src()` in `reference.py`,
-  `_overview_from_summary()` in `rates.py`), else fall back to the live `prices` /
-  `prices ⨝ group_sets` scan (`VOL_CTE`). `make build-summary` after each
+  (`have_summary()` → `rate_summary`+`code_rollup`, `_volume_src()` in
+  `reference.py`; `have_rate_hist()` → the histogram, `_overview_from_summary()`
+  in `rates.py` — split so an older summary without `rate_hist` only knocks the
+  overview off its fast path, not the rollup endpoints), else fall back to the
+  live `prices` / `prices ⨝ group_sets` scan (`VOL_CTE`). `make build-summary` after each
   parse batch — it is not auto-triggered. Schema + rebuild cost:
   [../docs/schema.md](../docs/schema.md), [issue #10](https://github.com/wmespi/honest-healthcare/issues/10).
 - Detail endpoints with a network filter partition-prune and stay fast regardless.
