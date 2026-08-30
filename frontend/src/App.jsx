@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getProcedureCategories } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { estimate, estimateRange, planIsConfigured, COPAY_BUCKETS, COPAY_LABELS } from './oop';
+import { usePlanParams } from './usePlanParams';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -502,7 +504,7 @@ function shortNetwork(name) {
 
 // Job 2 — the same procedure priced across every network we hold. The headline
 // finding is usually "the HMO is cheaper and far more predictable than the PPO".
-function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork }) {
+function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork, plan, rbcsCategory }) {
   if (loading) {
     return (
       <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
@@ -557,6 +559,7 @@ function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork }) {
               <div className="mt-2 h-1.5 rounded-full bg-slate-800 overflow-hidden">
                 <div className="h-full bg-indigo-500/70 rounded-full" style={{ width: `${maxMed ? (n.median / maxMed) * 100 : 0}%` }} />
               </div>
+              <EstimateLine className="mt-1.5" est={estimate(n.median, plan, { rbcsCategory })} />
               <div className="mt-2 text-[11px] text-slate-500 flex items-center gap-x-3 flex-wrap">
                 <span>typically {fmt(n.typical_low)}–{fmt(n.typical_high)}</span>
                 {n.spread != null && (
@@ -584,7 +587,7 @@ function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork }) {
 // Job 1 — the cost answer for one procedure at one provider. Shows a headline
 // rate (a range when it varies by setting) and the breakdown by component
 // (full procedure / professional fee / technical fee) and place of service.
-function ProviderCostCard({ data, loading, providerName }) {
+function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
   if (loading) {
     return (
       <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
@@ -685,6 +688,10 @@ function ProviderCostCard({ data, loading, providerName }) {
                     : <>Full procedure — varies by where it’s performed</>)
                 : <>This code is billed only as separate parts — see the breakdown below</>}
             </div>
+            <EstimateLine
+              className="mt-2"
+              est={estimateRange(headline.rate, headline.max_rate, plan, { rbcsCategory })}
+            />
           </div>
           {medicareBilled}
           <div className="mt-6">{breakdown}</div>
@@ -704,7 +711,7 @@ function ProviderCostCard({ data, loading, providerName }) {
 // The provider "menu" — every procedure the selected provider has a negotiated
 // rate for, grouped by RBCS category. Shown when a provider is picked but no
 // specific procedure. Clicking a row drills into that procedure.
-function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork, onShowAll }) {
+function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork, onShowAll, plan }) {
   const [expanded, setExpanded] = useState(null);
 
   if (loading) {
@@ -815,6 +822,7 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
                           <div className="text-sm font-black text-white tabular-nums">
                             {r.min_rate === r.max_rate ? fmt(r.min_rate) : `${fmt(r.min_rate)}–${fmt(r.max_rate)}`}
                           </div>
+                          <EstimateLine className="mt-0.5" est={estimateRange(r.min_rate, r.max_rate, plan, { rbcsCategory: r.rbcs_category })} />
                           <div className="text-[10px] text-slate-600">
                             {r.min_rate !== r.max_rate ? `median ${fmt(r.median_rate)}` : (r.has_global ? 'full procedure' : 'component only')}
                           </div>
@@ -847,6 +855,116 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
   );
 }
 
+// "Your plan" — cost-sharing inputs, persisted to localStorage (issue #30).
+function PlanPanel({ form, setField, setCopay, clear, configured }) {
+  const [open, setOpen] = useState(false);
+  const [copaysOpen, setCopaysOpen] = useState(false);
+  const field = (k, label, ph) => (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{label}</span>
+      <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg px-2.5 h-9">
+        <span className="text-slate-600 text-xs">$</span>
+        <input
+          type="number" inputMode="decimal" min="0" placeholder={ph}
+          value={form[k]} onChange={(e) => setField(k, e.target.value)}
+          className="w-full bg-transparent outline-none text-sm text-white pl-1 placeholder:text-slate-700"
+        />
+      </div>
+    </label>
+  );
+
+  return (
+    <div className="mb-6 border border-slate-800 rounded-2xl bg-slate-900/40 overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-white/[0.02] transition-colors"
+      >
+        <span className="flex items-center gap-2.5 text-sm font-bold text-slate-300">
+          <ShieldCheck size={15} className="text-indigo-400" />
+          Your plan
+          {configured
+            ? <span className="text-[10px] font-black uppercase tracking-wide text-emerald-400">estimating</span>
+            : <span className="text-[10px] text-slate-600 font-normal">add cost-sharing to estimate what you'd pay</span>}
+        </span>
+        <ChevronDown size={15} className={`text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+            <div className="px-5 pb-5 pt-1 space-y-4 border-t border-slate-800">
+              <div className="grid grid-cols-2 gap-3">
+                {field('deductibleTotal', 'Deductible', '2,000')}
+                {field('deductibleMet', 'Deductible met', '0')}
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">Coinsurance</span>
+                  <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg px-2.5 h-9">
+                    <input
+                      type="number" inputMode="decimal" min="0" max="100" placeholder="20"
+                      value={form.coinsurance} onChange={(e) => setField('coinsurance', e.target.value)}
+                      className="w-full bg-transparent outline-none text-sm text-white placeholder:text-slate-700"
+                    />
+                    <span className="text-slate-600 text-xs">%</span>
+                  </div>
+                </label>
+                <div />
+                {field('oopMax', 'Out-of-pocket max', '8,000')}
+                {field('oopMet', 'Out-of-pocket met', '0')}
+              </div>
+
+              <div>
+                <button onClick={() => setCopaysOpen((o) => !o)} className="text-[11px] font-bold text-slate-500 hover:text-slate-300 flex items-center gap-1">
+                  Flat copays (optional) <ChevronDown size={12} className={copaysOpen ? 'rotate-180' : ''} />
+                </button>
+                {copaysOpen && (
+                  <div className="grid grid-cols-2 gap-3 mt-2">
+                    {COPAY_BUCKETS.map((b) => (
+                      <label key={b} className="flex flex-col gap-1">
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{COPAY_LABELS[b]}</span>
+                        <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg px-2.5 h-9">
+                          <span className="text-slate-600 text-xs">$</span>
+                          <input
+                            type="number" inputMode="decimal" min="0" placeholder="—"
+                            value={form.copays[b] ?? ''} onChange={(e) => setCopay(b, e.target.value)}
+                            className="w-full bg-transparent outline-none text-sm text-white pl-1 placeholder:text-slate-700"
+                          />
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <p className="text-[11px] text-slate-600 leading-relaxed max-w-md">
+                  Estimate only — real claims apply bundling, prior auth, out-of-network rules, and
+                  separate facility fees we don't model.
+                </p>
+                {configured && (
+                  <button onClick={clear} className="text-[11px] text-slate-500 hover:text-white shrink-0 ml-3">Clear</button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// "You'd pay ≈ $X" line under a rate. `est` is from oop.estimate/estimateRange.
+function EstimateLine({ est, className = '' }) {
+  if (!est) return null;
+  const amt = est.low != null
+    ? (Math.round(est.low) === Math.round(est.high) ? fmt(est.low) : `${fmt(est.low)}–${fmt(est.high)}`)
+    : fmt(est.amount);
+  return (
+    <div className={`text-[11px] text-emerald-300/90 ${className}`}>
+      You'd pay ≈ <span className="font-bold text-emerald-200">{amt}</span>
+      <span className="text-slate-600"> · {est.assumption}</span>
+    </div>
+  );
+}
+
 function App() {
   const [selectedPlan, setSelectedPlan] = useState('');
 
@@ -870,6 +988,8 @@ function App() {
   const [providerMenu, setProviderMenu] = useState(null);
   const [providerMenuLoading, setProviderMenuLoading] = useState(false);
   const [menuTier, setMenuTier] = useState('plausible'); // 'plausible' | 'all'
+  const planParams = usePlanParams();
+  const planConfigured = planIsConfigured(planParams.plan);
 
   const [providerQuote, setProviderQuote] = useState(null);
   const [providerQuoteLoading, setProviderQuoteLoading] = useState(false);
@@ -968,7 +1088,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [query, isFocused, npi, selectedPlan, setting]);
 
-  const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi) => {
+  const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi, rbcsCategory) => {
     // Provider selected but no procedure yet: that's the "menu" view, handled by
     // its own effect (ProviderMenu). Calling /rates/distribution here would
     // full-scan prices with nothing pruning the code axis — it hangs.
@@ -986,7 +1106,7 @@ function App() {
     try {
       const res = await getRateDistribution(code || undefined, type || undefined, planName || undefined, activeSetting || undefined, activeNpi || undefined);
       setDistribution(res.data);
-      setSelectedCode(code ? { code, type } : null);
+      setSelectedCode(code ? { code, type, rbcs_category: rbcsCategory } : null);
     } catch (err) {
       setDistribution(null);
       if (err.response?.status === 404) {
@@ -1008,7 +1128,7 @@ function App() {
   const handleSuggestionClick = (sug) => {
     setQuery(sug.label || cleanProcedureName(sug.name) || `${sug.billing_code} (${sug.billing_code_type})`);
     setShowSuggestions(false);
-    fetchDistribution(sug.billing_code, sug.billing_code_type, selectedPlan, setting, npi);
+    fetchDistribution(sug.billing_code, sug.billing_code_type, selectedPlan, setting, npi, sug.rbcs_category);
   };
 
   const handlePlanSelect = (plan) => {
@@ -1037,7 +1157,7 @@ function App() {
   // Drill from a provider-menu row into that procedure's full breakdown.
   const handleMenuPick = (row) => {
     setQuery(row.label || `${row.billing_code} (${row.billing_code_type})`);
-    fetchDistribution(row.billing_code, row.billing_code_type, selectedPlan, setting, npi);
+    fetchDistribution(row.billing_code, row.billing_code_type, selectedPlan, setting, npi, row.rbcs_category);
   };
 
 
@@ -1141,6 +1261,14 @@ function App() {
           </div>
         </div>
 
+        <PlanPanel
+          form={planParams.form}
+          setField={planParams.setField}
+          setCopay={planParams.setCopay}
+          clear={planParams.clear}
+          configured={planConfigured}
+        />
+
         <CategoryBrowser onPick={handleCategoryPick} />
 
         {/* Filters row */}
@@ -1200,6 +1328,7 @@ function App() {
             network={selectedPlan}
             onClearNetwork={() => handlePlanSelect('')}
             onShowAll={() => setMenuTier('all')}
+            plan={planParams.plan}
           />
         )}
 
@@ -1299,6 +1428,8 @@ function App() {
                   loading={networkCompareLoading}
                   selectedNetwork={selectedPlan}
                   onPickNetwork={handlePlanSelect}
+                  plan={planParams.plan}
+                  rbcsCategory={selectedCode?.rbcs_category}
                 />
               )}
 
@@ -1309,6 +1440,8 @@ function App() {
                   data={providerQuote}
                   loading={providerQuoteLoading}
                   providerName={npiLabel}
+                  plan={planParams.plan}
+                  rbcsCategory={selectedCode?.rbcs_category}
                 />
               )}
               {selectedCode?.code && !npi && (
