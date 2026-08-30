@@ -288,6 +288,52 @@ describe('Medicare utilization evidence (issue #14)', () => {
   });
 });
 
+describe('out-of-pocket estimator (issue #30)', () => {
+  beforeEach(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+
+  it('shows "You\'d pay ≈" on the cost card once cost-sharing is entered', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '99213', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'ABBOTT, ASHLEY', specialty: 'Family Medicine', city: 'ATLANTA' },
+      plausibility: 'typical', tier: 'typical',
+      headline: { rate: 200, max_rate: 200, basis: 'global', pos_label: 'Office / telehealth' },
+      components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+        { pos_bucket: 'office', pos_label: 'Office / telehealth', min_rate: 200, max_rate: 200, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+
+    await user.click(screen.getByText('Your plan'));
+    const coins = await screen.findByPlaceholderText('20');
+    await user.type(coins, '20');
+
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    // deductible unset -> 20% of $200
+    expect(await screen.findByText(/You'd pay ≈/)).toBeInTheDocument();
+    expect(screen.getAllByText(/\$40\.00/).length).toBeGreaterThan(0);
+  });
+
+  it('persists plan params to localStorage', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await user.click(screen.getByText('Your plan'));
+    await user.type(await screen.findByPlaceholderText('20'), '15');
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem('hh_plan_v1'));
+      expect(saved.coinsurance).toBe('15');
+    });
+  });
+});
+
 describe('provider with no rates in the selected network', () => {
   it('shows an explicit empty state instead of a blank screen', async () => {
     const user = userEvent.setup();
