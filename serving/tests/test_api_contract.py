@@ -235,6 +235,18 @@ def test_provider_search_by_specialty(api):
     assert rated == sorted(rated, reverse=True)  # rated providers rank first
 
 
+def test_provider_search_specialty_does_not_bleed_across_classification(api):
+    # Evans (Psychiatry) and Foster (Neurology) share NUCC classification
+    # "Psychiatry & Neurology"; a "Psychiatry" pick must not return the neurologist.
+    names = lambda b: {p["name"] for p in b}
+    psych = api.get("/providers/search", params={"specialty": "Psychiatry", "limit": 50}).json()
+    assert "Evans, Grace" in names(psych)
+    assert "Foster, Henry" not in names(psych)
+    neuro = api.get("/providers/search", params={"specialty": "Neurology", "limit": 50}).json()
+    assert "Foster, Henry" in names(neuro)
+    assert "Evans, Grace" not in names(neuro)
+
+
 def test_specialties_endpoint(api):
     body = api.get("/specialties", params={"q": "cardio"}).json()
     assert body

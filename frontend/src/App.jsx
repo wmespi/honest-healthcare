@@ -306,8 +306,9 @@ function SpecialtyDropdown({ selected, onSelect, network }) {
   );
 }
 
-// Provider filter — one specific NPI by name / number. (Specialty is separate.)
-function NpiSearch({ selectedNpi, onSelect, network }) {
+// Provider filter — one specific NPI by name / number. Scoped to the active
+// specialty (if any) so you can't pick a provider that contradicts it.
+function NpiSearch({ selectedNpi, onSelect, network, specialty }) {
   const [query, setQuery] = useState('');
   const [selectedLabel, setSelectedLabel] = useState('');
   const [providers, setProviders] = useState([]);
@@ -324,11 +325,11 @@ function NpiSearch({ selectedNpi, onSelect, network }) {
   useEffect(() => {
     if (!isFocused || query.length === 0) { setProviders([]); return; }
     const t = setTimeout(() => {
-      searchProviders(query, undefined, undefined, network || undefined)
+      searchProviders(query, specialty || undefined, undefined, network || undefined)
         .then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
-  }, [query, isFocused, network]);
+  }, [query, isFocused, network, specialty]);
 
   const pickProvider = (s) => {
     const label = s.name || String(s.npi);
@@ -1639,7 +1640,7 @@ function App() {
           )}
 
           {/* One specific provider (a drill-down) */}
-          <NpiSearch selectedNpi={npi} onSelect={handleNpiSelect} network={selectedPlan} />
+          <NpiSearch selectedNpi={npi} onSelect={handleNpiSelect} network={selectedPlan} specialty={specialty} />
         </div>
 
         {/* Loading */}

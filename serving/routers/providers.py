@@ -273,10 +273,16 @@ def search_providers(
         params += [f"%{q}%", f"%{q}%", f"%{q}%"]
     spec_sel, spec_join = nucc_bits()
     if specialty:
-        conds.append("(COALESCE(nx.specialty, '') ILIKE ? OR COALESCE(nx.classification, '') ILIKE ? "
-                     "OR COALESCE(nx.grouping, '') ILIKE ?)" if spec_join
-                     else "g.taxonomy_group ILIKE ?")
-        params += ([f"%{specialty}%"] * 3 if spec_join else [f"%{specialty}%"])
+        # Match the *displayed* specialty label only — NOT the NUCC `classification`
+        # / `grouping`, which lump distinct specialities together ("Psychiatry &
+        # Neurology" would return every neurologist for a "Psychiatry" pick, and
+        # the grouping is broader still). Same COALESCE the SELECT uses so the
+        # filter and the label agree.
+        conds.append(
+            "COALESCE(nx.specialty, NULLIF(g.taxonomy_group, 'Other'), '') ILIKE ?"
+            if spec_join else "g.taxonomy_group ILIKE ?"
+        )
+        params.append(f"%{specialty}%")
     where = " AND ".join(conds) if conds else "1=1"
 
     with_sql = f"WITH {rated_cte}" if rated_cte else ""
