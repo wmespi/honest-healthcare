@@ -131,6 +131,7 @@ make sh S=serving          # shell into a container
 | Container images — dev/prod targets, ports, what CI builds | [deploy/README.md](deploy/README.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |
+| Where the product is headed — the two flows, the navigator direction, the data roadmap | [docs/direction.md](docs/direction.md) |
 | CMS spec | https://github.com/CMSgov/price-transparency-guide |
 
 `db/SCHEMA.md` covers what Postgres holds; [docs/schema.md](docs/schema.md) is the
