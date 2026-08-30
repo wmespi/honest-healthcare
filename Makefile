@@ -130,8 +130,8 @@ cov-report: ## Aggregate coverage_log — what each parsed file contributed. SCH
 smoke-web: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py
 
-data-size: ## Data-consumption scorecard — rows + bytes per Parquet table + Postgres queue tables
-	bash scripts/data_size.sh $(if $(JSON),--json,)
+data-size: ## Data-consumption scorecard — rows + bytes per Parquet table + Postgres queue tables. JSON=1 for machine output
+	@bash scripts/data_size.sh $(if $(JSON),--json,)
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 

@@ -108,6 +108,9 @@ def main():
         for p in parts:
             print(f"  {p['net'][:40]:<40} {p['files']:>7} {p['rows']:>15,} {human(p['bytes']):>12}")
 
+    # machine-readable trailer for scripts/data_size.sh (stripped before display)
+    print(f"__TOTALS__ parquet_bytes={tot_bytes} parquet_rows={tot_rows}")
+
 
 if __name__ == "__main__":
     main()
