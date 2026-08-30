@@ -111,19 +111,19 @@ jobs:
         run: docker run --rm hh-etl:ci --help | grep -q "discover"
       - name: Smoke — serving answers /
         run: |
-          docker run -d --name s -p 8000:8000 hh-serving:ci
+          docker run -d --name hh_serving_smoke -p 8000:8000 hh-serving:ci
           for _ in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/ || true)
             [ "$code" = "200" ] && break
             sleep 1
           done
-          [ "$code" = "200" ] || { docker logs s; exit 1; }
+          [ "$code" = "200" ] || { docker logs hh_serving_smoke; exit 1; }
       - name: Smoke — frontend serves index.html
         run: |
-          docker run -d --name f -p 8080:80 hh-frontend:ci
+          docker run -d --name hh_frontend_smoke -p 8080:80 hh-frontend:ci
           for _ in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ || true)
             [ "$code" = "200" ] && break
             sleep 1
           done
-          [ "$code" = "200" ] || { docker logs f; exit 1; }
+          [ "$code" = "200" ] || { docker logs hh_frontend_smoke; exit 1; }
