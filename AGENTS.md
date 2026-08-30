@@ -106,6 +106,7 @@ make test-api / test-web / test-e2e
 
 make cov-probe LABEL=before # coverage scorecard for the target plan
 make cov-report             # aggregate coverage_log
+make data-size              # rows + bytes per Parquet table + Postgres queue tables
 make psql / make migrate    # DB shell / apply db/migrations/*.sql
 make db-reset WHAT=processing|failed
 make sh S=serving          # shell into a container

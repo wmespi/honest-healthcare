@@ -7,6 +7,11 @@ narrates the Postgres side.*
 The serving layer reads **Parquet**. Postgres holds only the discovery queue and two
 small reference/log tables.
 
+`make data-size` prints the current inventory — rows + on-disk bytes per Parquet
+table (with an `anthem/prices` breakdown by network partition) and per Postgres
+table. Use it to track the GA corpus toward the ~20 GB target and to spot
+`index_files` bloat (parse status churn — `VACUUM (FULL)` reclaims it).
+
 **Why Parquet + DuckDB and not Postgres.** The workload is one sequential bulk
 writer (the ETL) and read-only analytical queries (the API) — the opposite of
 OLTP. Writing one Blue Value Georgia file to Postgres took ~2 hours; streaming it

@@ -21,7 +21,7 @@
         discover parse size fixture \
         nppes code-labels taxonomy-labels \
         fmt lint test test-e2e test-api test-web check test-all \
-        cov-probe cov-report smoke-web \
+        cov-probe cov-report smoke-web data-size \
         psql migrate db-reset \
         sh \
         _require-etl-running
@@ -129,6 +129,9 @@ cov-report: ## Aggregate coverage_log — what each parsed file contributed. SCH
 
 smoke-web: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py
+
+data-size: ## Data-consumption scorecard — rows + bytes per Parquet table + Postgres queue tables
+	bash scripts/data_size.sh $(if $(JSON),--json,)
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 
