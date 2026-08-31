@@ -67,6 +67,23 @@ def test_providers_shape(client):
         assert row["min_rate"] >= 1          # sentinel placeholders excluded
 
 
+def test_menu_never_dead_ends_a_rated_provider(client):
+    """A provider /providers/search reports as HAS RATES in a plan must not get an
+    empty default menu — the plausible-tier filter falls back to the full list
+    rather than a dead "no negotiated rates" screen (regression: a psychiatrist
+    contracted only for codes no psychiatrist bills)."""
+    hits = client.get("/providers/search",
+                      params={"specialty": "Psychiatry", "network_name": BLUE_VALUE,
+                              "limit": 25}).json()
+    rated = [p for p in hits if p.get("has_rates")][:8]
+    if not rated:
+        pytest.skip("no rated psychiatry providers in the loaded data")
+    for p in rated:
+        m = client.get(f"/providers/{p['npi']}/procedures",
+                       params={"network_name": BLUE_VALUE}).json()
+        assert m["count"] > 0, f"{p['name']} ({p['npi']}) has_rates but an empty default menu"
+
+
 def test_provider_search_specialty(client):
     r = client.get("/providers/search", params={"q": "emory", "limit": 5})
     assert r.status_code == 200

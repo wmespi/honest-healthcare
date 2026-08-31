@@ -190,11 +190,15 @@ def rate_distribution(
     conn = db()
 
     # ── Read the precomputed histogram, never `prices`, whenever nothing prunes
-    # the live path: the no-code overview, and the code-level view without a
-    # `network_name` (the unpruned `prices ⨝ group_sets` expansion spills
-    # 15-60 GB at GA scale — issue #10). The live path runs only when a
-    # `network_name` partition-prunes it or an `npi` anchors it.
-    if have_rate_hist() and not (network_name or npi):
+    # the live path OR the query is a browse-level overview: any no-code view
+    # (network-scoped or not), and the code-level view without a `network_name`
+    # (the unpruned `prices ⨝ group_sets` expansion spills 15-60 GB at GA scale —
+    # issue #10). rate_hist is Hive-partitioned by network and its buckets cap at
+    # $5k, so a network overview off it is both fast and immune to the
+    # million-dollar HCPCS drug rates (gene therapies, biologics — priced per
+    # course, not shoppable) that otherwise blow out the live min/max/avg. The
+    # live path runs only for a code+network drill-down or an `npi` anchor.
+    if have_rate_hist() and (not billing_code or not (network_name or npi)):
         return _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting)
 
     # Expanding prices → provider groups is only affordable when the filter

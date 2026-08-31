@@ -23,12 +23,21 @@ export const getPlans = (q = '') => api.get('/plans', { params: q ? { q } : {} }
 // [{ network_name, n_rates }].
 export const getNetworks = (q = '') => api.get('/networks', { params: q ? { q } : {} });
 
-export const searchProviders = (q, specialty) =>
-    api.get('/providers/search', { params: { q: q || '', ...(specialty ? { specialty } : {}) } });
+export const searchProviders = (q, specialty, limit, network_name) =>
+    api.get('/providers/search', { params: {
+        q: q || '',
+        ...(specialty ? { specialty } : {}),
+        ...(limit ? { limit } : {}),
+        ...(network_name ? { network_name } : {}),
+    } });
 
-// NUCC specialties we hold GA providers for — the "by specialty" search mode.
-export const getSpecialties = (q = '') =>
-    api.get('/specialties', { params: q ? { q } : {} });
+// NUCC specialties we hold GA providers for — the "pick your care" step.
+// `network_name` scopes the provider count to that plan.
+export const getSpecialties = (q = '', network_name) =>
+    api.get('/specialties', { params: {
+        ...(q ? { q } : {}),
+        ...(network_name ? { network_name } : {}),
+    } });
 
 export const searchBillingCodes = (q = '', billing_code_type) => {
     const params = { q };

@@ -69,9 +69,12 @@ def test_distribution_overview_from_summary(api):
     # 99213 noise rows (conftest) are out, so the pooled max stays sane
     assert s["max"] < 900
 
-    # a network scope is a subset of the all-networks total
-    scoped = api.get("/rates/distribution", params={"network_name": BLUE_VALUE}).json()
-    assert scoped["summary"]["total_entries"] <= s["total_entries"]
+    # a network-scoped overview is also served off rate_hist (not a live prices
+    # scan) — subset of the all-networks total, per-group counts null, bounded max
+    scoped = api.get("/rates/distribution", params={"network_name": BLUE_VALUE}).json()["summary"]
+    assert scoped["total_entries"] <= s["total_entries"]
+    assert scoped["provider_groups"] is None and scoped["n_providers"] is None
+    assert scoped["max"] <= 5000
 
 
 def test_distribution_rejects_npi_without_code(api):
@@ -235,12 +238,49 @@ def test_provider_search_by_specialty(api):
     assert rated == sorted(rated, reverse=True)  # rated providers rank first
 
 
+def test_provider_search_specialty_does_not_bleed_across_classification(api):
+    # Evans (Psychiatry) and Foster (Neurology) share NUCC classification
+    # "Psychiatry & Neurology"; a "Psychiatry" pick must not return the neurologist.
+    names = lambda b: {p["name"] for p in b}
+    psych = api.get("/providers/search", params={"specialty": "Psychiatry", "limit": 50}).json()
+    assert "Evans, Grace" in names(psych)
+    assert "Foster, Henry" not in names(psych)
+    neuro = api.get("/providers/search", params={"specialty": "Neurology", "limit": 50}).json()
+    assert "Foster, Henry" in names(neuro)
+    assert "Evans, Grace" not in names(neuro)
+
+
 def test_specialties_endpoint(api):
     body = api.get("/specialties", params={"q": "cardio"}).json()
     assert body
     for row in body:
         assert {"specialty", "n_providers", "n_with_rates"} <= row.keys()
         assert row["n_providers"] >= row["n_with_rates"] > 0
+    # listed alphabetically — the count is context, not the sort key
+    assert [r["specialty"] for r in body] == sorted(r["specialty"] for r in body)
+
+
+OPEN_ACCESS = "GA Blue Open Access POS Network"
+
+
+def test_provider_search_has_rates_is_network_scoped(api):
+    # Carter (LCSW, NPI 1000000003) is contracted only in Blue Value.
+    unscoped = api.get("/providers/search", params={"q": "carter", "limit": 5}).json()
+    assert any(p["npi"] == LCSW and p["has_rates"] for p in unscoped)
+    bv = api.get("/providers/search",
+                 params={"q": "carter", "network_name": BLUE_VALUE, "limit": 5}).json()
+    assert any(p["npi"] == LCSW and p["has_rates"] for p in bv)
+    oa = api.get("/providers/search",
+                 params={"q": "carter", "network_name": OPEN_ACCESS, "limit": 5}).json()
+    assert any(p["npi"] == LCSW and not p["has_rates"] for p in oa)
+
+
+def test_specialties_network_scoped_count(api):
+    bv = api.get("/specialties", params={"q": "social", "network_name": BLUE_VALUE}).json()
+    assert any("Social Worker" in r["specialty"] and r["n_with_rates"] >= 1 for r in bv)
+    oa = api.get("/specialties", params={"q": "social", "network_name": OPEN_ACCESS}).json()
+    # the LCSW isn't in Open Access → the specialty has no rated provider there
+    assert not any("Social Worker" in r["specialty"] for r in oa)
 
 
 def test_ga_providers_hospitals_only(api):

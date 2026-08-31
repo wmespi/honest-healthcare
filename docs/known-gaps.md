@@ -42,6 +42,14 @@ the product is headed — and which of these gaps that closes — is in
     the scoped routes is *ignored*, not honoured.
   - **`negotiation_arrangement='bundle'`** — price covers other services too.
   A dedicated inpatient / facility view is the follow-up.
+- **HCPCS drug codes (J-codes) inflate pooled means.** `outpatient_scope()` does
+  *not* exclude physician-administered drugs — some are gene therapies /
+  biologics priced $3–4.5M per course (`J1411`, `J1413`, `J3391`…). The no-code
+  network overview is served off `rate_hist` (buckets cap at $5k) so its
+  min/median/max stay sane, but the volume-weighted `avg` still skews high and a
+  code-level drill-down on a J-code shows the real millions. Not shoppable care —
+  a `drug` scope flag (or dropping HCPCS J/Q from the consumer views) is the
+  proper fix; deferred.
 - **Sentinel / placeholder rates — no discrete tell, cut by a per-code ceiling.**
   Anthem fills the MRF-required positive `negotiated_rate` with $0.01–$1.50 (and
   proportionally-tiny values on big-ticket codes) for not-separately-priced
@@ -80,6 +88,16 @@ the product is headed — and which of these gaps that closes — is in
   doing it" looks like "never". Georgia has no All-Payer Claims Database, so
   there's no public commercial-utilization source to widen this.
   [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
+
+- **`has_rates` / `n_with_rates` are corpus-wide unless a `network_name` is
+  passed.** `/providers/search` and `/specialties` default to the `npi_lookup`
+  (any-Anthem-network) signal; pass `network_name` and they scope to that
+  plan's `providers` roster instead (`_rated_npi()`). The plan-first frontend
+  always passes it. The `providers`-roster proxy is "the NPI sits in a
+  network-attributed provider group", not "a priced row was verified for this
+  NPI in this network" — close but not identical; the exact check would join
+  `prices ⨝ group_sets`. Deferred with the scale work
+  ([#10](https://github.com/wmespi/honest-healthcare/issues/10)).
 
 ## Scale / performance
 

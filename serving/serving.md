@@ -17,7 +17,7 @@ FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 | `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `nucc_bits()` / `provider_card()`, `plausibility()` |
 | `evidence.py` | provider↔procedure evidence from CMS Medicare utilization (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. All no-op until `make cms-utilization` / `make specialty-profiles` run. |
 | `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
-| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI **or** `specialty=`), `/specialties`, `/providers/ga` |
+| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI **or** `specialty=` — matches the displayed specialty label only, **not** the NUCC `classification` / `grouping`, which lump distinct specialities like "Psychiatry & Neurology"; `network_name=` scopes `has_rates`), `/specialties` (`network_name=` scopes `n_with_rates`), `/providers/ga`. `_rated_npi(network_name)` → the shared "has a rate" predicate |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
 
 SQL still lives inline in the route handlers — moving it into a `queries/` module
@@ -52,15 +52,16 @@ fills for not-separately-priced codes.
 | `/rates/quote?billing_code&npi&network_name` | **1** — one procedure at one provider | headline rate + breakdown by component (global / `-26` professional / `-TC` technical) and place of service, + `plausibility`, `medicare_utilization`, `tier`. **Needs `network_name`.** |
 | `/rates/by_network?billing_code` | **2** — same procedure across every network | one row per network, `median` + p10/p90 spread, sorted cheapest median first |
 | `/rates/providers?billing_code&network_name` | **3** — compare across providers | one row per **billing practice** (`tin_value` → NPPES org name), `component=global` by default. `specialty=` scopes to practices with a provider of that NUCC specialty; `npi=` drills to one. Folds the file-local `provider_reference` groups a practice recurs as ([#48](https://github.com/wmespi/honest-healthcare/issues/48)); one heavy `_prac` temp table, name lookup only for the rows returned. **Needs `network_name`.** |
-| `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap. `tier=plausible` (default) shows only codes the NPI billed to Medicare or that are typical for their specialty + a `group_count`; `tier=all` shows every contracted code tagged `billed`/`typical`/`group` |
+| `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, with the range; resolves NPI → group_sets first so it stays cheap. `tier=plausible` (default) shows only codes the NPI billed to Medicare or that are typical for their specialty + a `group_count` — but **falls back to the full list** (`tier:"all"`, `group_rate_only:true`) when that filter would hide every contracted code, so a rated provider never dead-ends. `tier=all` shows every contracted code tagged `billed`/`typical`/`group` |
 
 Supporting: `/rates/distribution` — **the histogram + summary off
 `summary/rate_hist.parquet`** (`scope='outpatient_prof'`, volume-weighted
 min/median/avg/max from the pooled CDF, `provider_groups`/`n_providers` → `null`)
-whenever nothing prunes the live path: no code (network overview, `n_codes`
-given) **and** a code without `network_name` (the live expansion spills at GA
-scale). The live per-code path runs only with a `network_name` or an `npi`;
-**400s on npi-without-code**. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "by specialty" typeahead),
+for **every no-code overview** (network-scoped or not — `rate_hist` is
+partitioned by network, and its $5k bucket cap keeps the million-dollar HCPCS
+drug rates from blowing out min/max/avg) **and** a code without `network_name`
+(the live expansion spills at GA scale). The live per-code path runs only for a
+code **with** a `network_name`, or with an `npi`; **400s on npi-without-code**. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "pick your care" step of the plan-first flow — NUCC specialities we hold rated GA providers for, **alphabetical**, `n_with_rates` shown not sorted on),
 `/procedure_categories`, `/billing_codes`, `/providers/ga`, `/plans` (curated
 friendly-name → network map, `serving/plan_networks.json`, GH #33).
 

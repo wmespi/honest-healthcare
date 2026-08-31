@@ -150,6 +150,13 @@ def _build(data_dir: str) -> None:
          "12 Clairmont Ave", "Ste 200", "Decatur", "GA", "30030"),
         (1000000004, "individual", "", "Diaz", "Frank", "2085R0202X", "Radiology", 0, 0,
          "1 Baptist Way", "", "Marietta", "GA", "30060"),
+        # psychiatrist + neurologist share the NUCC classification "Psychiatry &
+        # Neurology" — a /providers/search?specialty=Psychiatry must not return
+        # the neurologist (the classification/grouping over-match bug).
+        (1000000006, "individual", "", "Evans", "Grace", "2084P0800X", "Psychiatry", 0, 0,
+         "2 Mind Way", "", "Atlanta", "GA", "30307"),
+        (1000000007, "individual", "", "Foster", "Henry", "2084N0400X", "Neurology", 0, 0,
+         "3 Brain Ct", "", "Atlanta", "GA", "30306"),
         (1000000005, "organization", "Emory University Hospital", "", "", "282N00000X", "Hospital", 1, 0,
          "1364 Clifton Rd NE", "", "Atlanta", "GA", "30322"),
         # org NPIs used as tin_value (the billing practice) — resolve to a name
@@ -176,6 +183,10 @@ def _build(data_dir: str) -> None:
          "Clinical", "Clinical", "Social Worker, Clinical", 1),
         ("2085R0202X", "Allopathic & Osteopathic Physicians", "Radiology",
          "Diagnostic Radiology", "Diagnostic Radiology", "Diagnostic Radiology", 1),
+        ("2084P0800X", "Allopathic & Osteopathic Physicians", "Psychiatry & Neurology",
+         "", "Psychiatry", "Psychiatry", 1),
+        ("2084N0400X", "Allopathic & Osteopathic Physicians", "Psychiatry & Neurology",
+         "", "Neurology", "Neurology", 1),
         ("282N00000X", "Hospitals", "General Acute Care Hospital",
          "", "General Acute Care Hospital", "General Acute Care Hospital", 0),
     ]
