@@ -69,9 +69,12 @@ def test_distribution_overview_from_summary(api):
     # 99213 noise rows (conftest) are out, so the pooled max stays sane
     assert s["max"] < 900
 
-    # a network scope is a subset of the all-networks total
-    scoped = api.get("/rates/distribution", params={"network_name": BLUE_VALUE}).json()
-    assert scoped["summary"]["total_entries"] <= s["total_entries"]
+    # a network-scoped overview is also served off rate_hist (not a live prices
+    # scan) — subset of the all-networks total, per-group counts null, bounded max
+    scoped = api.get("/rates/distribution", params={"network_name": BLUE_VALUE}).json()["summary"]
+    assert scoped["total_entries"] <= s["total_entries"]
+    assert scoped["provider_groups"] is None and scoped["n_providers"] is None
+    assert scoped["max"] <= 5000
 
 
 def test_distribution_rejects_npi_without_code(api):

@@ -42,6 +42,14 @@ the product is headed — and which of these gaps that closes — is in
     the scoped routes is *ignored*, not honoured.
   - **`negotiation_arrangement='bundle'`** — price covers other services too.
   A dedicated inpatient / facility view is the follow-up.
+- **HCPCS drug codes (J-codes) inflate pooled means.** `outpatient_scope()` does
+  *not* exclude physician-administered drugs — some are gene therapies /
+  biologics priced $3–4.5M per course (`J1411`, `J1413`, `J3391`…). The no-code
+  network overview is served off `rate_hist` (buckets cap at $5k) so its
+  min/median/max stay sane, but the volume-weighted `avg` still skews high and a
+  code-level drill-down on a J-code shows the real millions. Not shoppable care —
+  a `drug` scope flag (or dropping HCPCS J/Q from the consumer views) is the
+  proper fix; deferred.
 - **Sentinel / placeholder rates — no discrete tell, cut by a per-code ceiling.**
   Anthem fills the MRF-required positive `negotiated_rate` with $0.01–$1.50 (and
   proportionally-tiny values on big-ticket codes) for not-separately-priced

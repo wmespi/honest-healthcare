@@ -57,10 +57,11 @@ fills for not-separately-priced codes.
 Supporting: `/rates/distribution` — **the histogram + summary off
 `summary/rate_hist.parquet`** (`scope='outpatient_prof'`, volume-weighted
 min/median/avg/max from the pooled CDF, `provider_groups`/`n_providers` → `null`)
-whenever nothing prunes the live path: no code (network overview, `n_codes`
-given) **and** a code without `network_name` (the live expansion spills at GA
-scale). The live per-code path runs only with a `network_name` or an `npi`;
-**400s on npi-without-code**. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "pick your care" step of the plan-first flow — NUCC specialities we hold rated GA providers for, **alphabetical**, `n_with_rates` shown not sorted on),
+for **every no-code overview** (network-scoped or not — `rate_hist` is
+partitioned by network, and its $5k bucket cap keeps the million-dollar HCPCS
+drug rates from blowing out min/max/avg) **and** a code without `network_name`
+(the live expansion spills at GA scale). The live per-code path runs only for a
+code **with** a `network_name`, or with an `npi`; **400s on npi-without-code**. Also `/networks`, `/providers/search` (+ `specialty=`), `/specialties` (the "pick your care" step of the plan-first flow — NUCC specialities we hold rated GA providers for, **alphabetical**, `n_with_rates` shown not sorted on),
 `/procedure_categories`, `/billing_codes`, `/providers/ga`, `/plans` (curated
 friendly-name → network map, `serving/plan_networks.json`, GH #33).
 
