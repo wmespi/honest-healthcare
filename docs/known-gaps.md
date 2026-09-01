@@ -159,6 +159,17 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Operational
 
+- **Extraction completeness — core checks in, watchdog + cross-checks still open
+  ([#52](https://github.com/wmespi/honest-healthcare/issues/52)).** A truncated
+  download, a bad gzip trailer, a malformed `provider_references` / `in_network`
+  entry, or a document with neither section now marks the file `failed` instead
+  of landing as `completed` with partial Parquet (`etl/parse.md` "Completeness
+  gate"). Still open: a body-read **stall watchdog** (a hung connection with no
+  bytes still blocks that file), a **HEAD-vs-GET `Content-Length` cross-check**,
+  and a `coverage_log` **sanity report** (flag 0-row / sub-10 KB / duplicate
+  `(n_rate_rows, n_provider_rows)` completions). Historic suspects to re-parse
+  once the watchdog lands: file_ids `{23005, 23346, 23355, 23923, 24045, 24454}`
+  and `{22763, 24031}` (byte-identical coverage stats across distinct files).
 - **`make nppes` write is not atomic** — `ga_providers.parquet` is briefly 0 bytes
   during a re-extract and serving-layer queries touching it 500. Run when the API is
   idle.

@@ -48,6 +48,17 @@ CLI-only flags (no `make` var yet): `-all-npis`, `-networks "GA *"`, `-all-netwo
 8. Mark the row `completed` (+ `completed_at`, + per-file `reporting_entity_*`), or
    `failed` (+ `failure_reason`).
 
+**Completeness gate (before step 8, issue #52).** The JSON decoder stops at the
+document's closing brace, so on its own it can't tell a whole file from one whose
+download was cut short in the trailing bytes. After the decoder returns, the rest
+of the compressed body is drained so gzip verifies its CRC-32 + ISIZE and the
+HTTP layer surfaces a short body, and the bytes read are reconciled against
+`Content-Length`. A truncated stream, a malformed `provider_references` /
+`in_network` entry, a document that never closes, or one with neither section
+(an error page served 200, an empty shard) is now marked `failed`, not
+`completed`. `short read` / `stream truncated` failures are retryable
+(`make db-reset WHAT=failed`); `corrupt gzip` / `malformed MRF` are kept failed.
+
 While a parse runs, everything for the file is written under
 `anthem/.inflight/{id}/` and promoted with an atomic rename only on a clean
 stream — the serving layer never reads a half-written file.
@@ -74,9 +85,17 @@ Harmless for a single-operator sequential run; real at scale.
 - **`pending → processing` is not atomic** — SELECT then UPDATE in two statements.
   Two concurrent parse containers could double-process. Fix: `SELECT … FOR UPDATE
   SKIP LOCKED`.
-- **No retry on transient errors** — a mid-stream timeout / 5xx marks the file
-  `failed`. Recovery is `make db-reset WHAT=failed`.
+- **No automatic retry.** A mid-stream timeout / 5xx / short read marks the file
+  `failed`; recovery is a manual `make db-reset WHAT=failed` (which re-queues the
+  retryable reasons and leaves `corrupt gzip` / `malformed MRF` / `HTTP 4xx`
+  failed). The fetch client now bounds connect / TLS / response-header waits, but
+  there is **no body-read stall watchdog** — a connection that hangs mid-download
+  with no bytes and no reset still blocks that file until killed ([#52](https://github.com/wmespi/honest-healthcare/issues/52) follow-up).
+- **No HEAD-vs-GET size cross-check.** `make size` (HEAD) and the parse GET can
+  report different `Content-Length`; the parse value silently wins. Only a GET
+  shorter than its *own* advertised length is caught ([#52](https://github.com/wmespi/honest-healthcare/issues/52) follow-up).
 - **Single `pgx.Conn`, not a pool** — fine sequential; serializes if parsing is
   parallelized.
 - **First-file schema capture is fragile** — double JSON round-trip; a first file
-  with unusual fields silently zero-values struct fields.
+  with an unusual *type* on a known field now hard-fails the parse (was: silently
+  zero-valued the field). Unknown extra fields are still ignored.

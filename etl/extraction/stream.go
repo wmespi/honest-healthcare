@@ -54,6 +54,13 @@ type mrfResult struct {
 	ReportingEntityType string
 	SchemaExample       map[string]interface{}
 
+	// Completeness signals (issue #52). streamMRF errors on a truncated or
+	// malformed document, so a non-nil result already means the stream closed
+	// cleanly; these two are the raw section counts, used for the "neither
+	// section present" guard and available for coverage logging.
+	InNetworkItems int64 // in_network entries seen (before any filter)
+	ProviderRefs   int64 // provider_references entries seen (before any filter)
+
 	// Filter accounting (0 when the filters are off). Covers both the GA NPI
 	// filter and the network_name allowlist — a group dropped by either counts here.
 	ProviderRowsDropped int64
@@ -313,7 +320,7 @@ func streamMRF(
 	for decoder.More() {
 		t, err := decoder.Token()
 		if err != nil {
-			break
+			return nil, fmt.Errorf("malformed MRF: reading root key: %w", err)
 		}
 		key, ok := t.(string)
 		if !ok {
@@ -323,20 +330,25 @@ func streamMRF(
 		switch key {
 		case "provider_references":
 			log.Println("    🎯 Found 'provider_references'. Streaming...")
-			decoder.Token() // '['
+			if _, err := decoder.Token(); err != nil { // '['
+				return nil, fmt.Errorf("malformed MRF: provider_references opening: %w", err)
+			}
 			for decoder.More() {
 				var ref core.ProviderReference
 				if wantSchema && res.SchemaExample["provider_references"] == nil {
 					var raw map[string]interface{}
-					if err := decoder.Decode(&raw); err == nil {
-						res.SchemaExample["provider_references"] = []interface{}{raw}
-						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &ref)
+					if err := decoder.Decode(&raw); err != nil {
+						return nil, fmt.Errorf("malformed MRF: provider_references[0]: %w", err)
+					}
+					res.SchemaExample["provider_references"] = []interface{}{raw}
+					b, _ := json.Marshal(raw)
+					if err := json.Unmarshal(b, &ref); err != nil {
+						return nil, fmt.Errorf("malformed MRF: provider_references[0]: %w", err)
 					}
 				} else if err := decoder.Decode(&ref); err != nil {
-					log.Printf("⚠️ decode provider_reference: %v", err)
-					continue
+					return nil, fmt.Errorf("malformed MRF: provider_references[%d]: %w", res.ProviderRefs, err)
 				}
+				res.ProviderRefs++
 
 				rows, networkName := buildProviderRows(ref, fileID)
 
@@ -397,26 +409,33 @@ func streamMRF(
 					}
 				}
 			}
-			decoder.Token() // ']'
+			if _, err := decoder.Token(); err != nil { // ']'
+				return nil, fmt.Errorf("malformed MRF: provider_references not closed: %w", err)
+			}
 			flushProv()
 			log.Printf("    ✅ Streamed %d provider rows. %s", res.ProviderRows, progress())
 
 		case "in_network":
 			log.Println("    🎯 Found 'in_network'. Streaming...")
-			decoder.Token() // '['
+			if _, err := decoder.Token(); err != nil { // '['
+				return nil, fmt.Errorf("malformed MRF: in_network opening: %w", err)
+			}
 			for decoder.More() {
 				var item core.InNetworkItem
 				if wantSchema && res.SchemaExample["in_network"] == nil {
 					var raw map[string]interface{}
-					if err := decoder.Decode(&raw); err == nil {
-						res.SchemaExample["in_network"] = []interface{}{raw}
-						b, _ := json.Marshal(raw)
-						json.Unmarshal(b, &item)
+					if err := decoder.Decode(&raw); err != nil {
+						return nil, fmt.Errorf("malformed MRF: in_network[0]: %w", err)
+					}
+					res.SchemaExample["in_network"] = []interface{}{raw}
+					b, _ := json.Marshal(raw)
+					if err := json.Unmarshal(b, &item); err != nil {
+						return nil, fmt.Errorf("malformed MRF: in_network[0]: %w", err)
 					}
 				} else if err := decoder.Decode(&item); err != nil {
-					log.Printf("⚠️ decode in_network item: %v", err)
-					continue
+					return nil, fmt.Errorf("malformed MRF: in_network[%d]: %w", res.InNetworkItems, err)
 				}
+				res.InNetworkItems++
 
 				if item.BillingCodeType != "" {
 					res.BillingCodeTypes[item.BillingCodeType] = struct{}{}
@@ -456,7 +475,9 @@ func streamMRF(
 					}
 				}
 			}
-			decoder.Token() // ']'
+			if _, err := decoder.Token(); err != nil { // ']'
+				return nil, fmt.Errorf("malformed MRF: in_network not closed: %w", err)
+			}
 			flushPrice()
 			flushMembers()
 			log.Printf("    ✅ Streamed %d price rows, %d group-set edges (%d sets). %s",
@@ -476,11 +497,17 @@ func streamMRF(
 
 		default:
 			if wantSchema {
-				tPeek, _ := decoder.Token()
+				tPeek, err := decoder.Token()
+				if err != nil {
+					return nil, fmt.Errorf("malformed MRF: reading %q: %w", key, err)
+				}
 				if delim, ok := tPeek.(json.Delim); ok && (delim == '[' || delim == '{') {
 					depth := 1
 					for depth > 0 {
-						tSkip, _ := decoder.Token()
+						tSkip, err := decoder.Token()
+						if err != nil {
+							return nil, fmt.Errorf("malformed MRF: skipping %q: %w", key, err)
+						}
 						if dSkip, ok := tSkip.(json.Delim); ok {
 							if dSkip == '{' || dSkip == '[' {
 								depth++
@@ -498,7 +525,16 @@ func streamMRF(
 			}
 		}
 	}
-	decoder.Token() // '}'
+	if _, err := decoder.Token(); err != nil { // '}'
+		return nil, fmt.Errorf("malformed MRF: document not closed (truncated stream): %w", err)
+	}
+
+	// A real in-network-rates MRF carries both sections. Neither present means an
+	// empty shard, an error page served with a 200, or a truncated header —
+	// never a file worth marking `completed`.
+	if res.InNetworkItems == 0 && res.ProviderRefs == 0 {
+		return nil, fmt.Errorf("malformed MRF: no in_network or provider_references entries")
+	}
 
 	return res, nil
 }

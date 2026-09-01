@@ -176,7 +176,7 @@ db-reset: ## Reset index_files rows → pending. WHAT=processing (stale) | faile
 	      -c "UPDATE index_files SET status = 'pending', failure_reason = NULL \
 	          WHERE status = 'failed' \
 	            AND (failure_reason IS NULL \
-	              OR failure_reason NOT SIMILAR TO '%(gzip|unexpected EOF|invalid header|HTTP 4%)%');" ;; \
+	              OR failure_reason NOT SIMILAR TO '%(gzip|unexpected EOF|invalid header|HTTP 4%|malformed MRF)%');" ;; \
 	  *) echo "usage: make db-reset WHAT=processing|failed" && exit 1 ;; \
 	esac
 

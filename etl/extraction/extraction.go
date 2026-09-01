@@ -4,19 +4,37 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	parquet "github.com/parquet-go/parquet-go"
 	"github.com/wmespi/honest-healthcare/etl/core"
 )
+
+// mrfHTTPClient fetches MRFs. There is deliberately no Client.Timeout — a
+// multi-GB body legitimately streams for hours — but the connection setup and
+// the wait for response headers are bounded so a dead endpoint fails fast
+// instead of hanging the queue (issue #52). A mid-body stall is still caught
+// downstream by the byte-count reconciliation in validateStreamComplete.
+var mrfHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 2 * time.Minute,
+		IdleConnTimeout:       90 * time.Second,
+	},
+}
 
 const copyBatchSize = 1_000_000
 
@@ -94,7 +112,7 @@ func openMRF(url, fixturePath string) (io.ReadCloser, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := mrfHTTPClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -103,6 +121,31 @@ func openMRF(url, fixturePath string) (io.ReadCloser, int64, error) {
 		return nil, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return resp.Body, resp.ContentLength, nil
+}
+
+// validateStreamComplete runs after the JSON decoder has stopped. The decoder
+// reads only as far as the document's closing brace, so it can miss a body that
+// was cut off in the trailing bytes (or a gzip trailer that never arrived).
+// Draining the rest forces gzip to verify its CRC-32 + ISIZE and forces the
+// HTTP layer to surface a short body, then the compressed byte count is
+// reconciled against Content-Length. Truncation-shaped failures use wording the
+// `make db-reset WHAT=failed` filter treats as retryable; genuine corruption
+// ("corrupt gzip") is kept failed. Issue #52.
+func validateStreamComplete(gz *gzip.Reader, pr *core.ProgressReader, contentLength int64) error {
+	_, drainErr := io.Copy(io.Discard, gz)
+	closeErr := gz.Close()
+	read := pr.ReadBytes.Load()
+	switch {
+	case contentLength > 0 && read < contentLength:
+		return fmt.Errorf("short read: got %d of %d compressed bytes — download truncated", read, contentLength)
+	case drainErr != nil && errors.Is(drainErr, io.ErrUnexpectedEOF):
+		return fmt.Errorf("stream truncated after %d bytes — download incomplete", read)
+	case drainErr != nil:
+		return fmt.Errorf("corrupt gzip after %d bytes: %w", read, drainErr)
+	case closeErr != nil:
+		return fmt.Errorf("corrupt gzip trailer: %w", closeErr)
+	}
+	return nil
 }
 
 // parseRates streams one MRF (by URL, or from fixturePath when set) into
@@ -235,6 +278,12 @@ func parseRates(
 
 	log.Println("  🔄 Starting single-pass extract...")
 	res, err := streamMRF(gz, planName, int64(fileID), isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, w, pr)
+	// The document parsed — now confirm the whole compressed body arrived and the
+	// gzip trailer checks out before anything is promoted (issue #52). Only for a
+	// real download: a fixture is a local file and always complete.
+	if err == nil && fixturePath == "" {
+		err = validateStreamComplete(gz, pr, contentLength)
+	}
 	// Parquet writers must be closed (flushed) before we read the files back or
 	// mark the row completed — close in LIFO order (writer before its file).
 	closeAll(closers)
