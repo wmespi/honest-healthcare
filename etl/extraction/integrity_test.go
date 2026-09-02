@@ -5,7 +5,9 @@ import (
 	"compress/gzip"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/wmespi/honest-healthcare/etl/core"
 )
@@ -144,5 +146,41 @@ func TestValidateStreamComplete_CorruptTrailer(t *testing.T) {
 	err = validateStreamComplete(r, pr, int64(len(corrupt)))
 	if err == nil || !strings.Contains(err.Error(), "corrupt gzip") {
 		t.Fatalf("error = %v, want 'corrupt gzip'", err)
+	}
+}
+
+// A download that stops delivering bytes is aborted after stallTimeout.
+func TestWatchStall_AbortsIdleDownload(t *testing.T) {
+	pr := core.NewProgressReader(strings.NewReader(""), 100)
+	var cancelled atomic.Bool
+	stop, stalled := watchStall(func() { cancelled.Store(true) }, pr, 150*time.Millisecond)
+	defer stop()
+
+	deadline := time.After(3 * time.Second)
+	for {
+		if stalled() && cancelled.Load() {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("watchStall never aborted an idle download")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// A download that keeps moving is left alone even past the timeout.
+func TestWatchStall_LeavesActiveDownloadAlone(t *testing.T) {
+	pr := core.NewProgressReader(strings.NewReader(""), 0)
+	var cancelled atomic.Bool
+	stop, stalled := watchStall(func() { cancelled.Store(true) }, pr, 150*time.Millisecond)
+	defer stop()
+
+	for i := 0; i < 15; i++ {
+		pr.ReadBytes.Add(4096)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if stalled() || cancelled.Load() {
+		t.Error("watchStall aborted a download that was still making progress")
 	}
 }

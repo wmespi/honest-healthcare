@@ -85,12 +85,14 @@ Harmless for a single-operator sequential run; real at scale.
 - **`pending → processing` is not atomic** — SELECT then UPDATE in two statements.
   Two concurrent parse containers could double-process. Fix: `SELECT … FOR UPDATE
   SKIP LOCKED`.
-- **No automatic retry.** A mid-stream timeout / 5xx / short read marks the file
-  `failed`; recovery is a manual `make db-reset WHAT=failed` (which re-queues the
-  retryable reasons and leaves `corrupt gzip` / `malformed MRF` / `HTTP 4xx`
-  failed). The fetch client now bounds connect / TLS / response-header waits, but
-  there is **no body-read stall watchdog** — a connection that hangs mid-download
-  with no bytes and no reset still blocks that file until killed ([#52](https://github.com/wmespi/honest-healthcare/issues/52) follow-up).
+- **No automatic retry.** A mid-stream timeout / 5xx / short read / stall marks
+  the file `failed`; recovery is a manual `make db-reset WHAT=failed` (which
+  re-queues the retryable reasons and leaves `corrupt gzip` / `malformed MRF` /
+  `HTTP 4xx` failed). The fetch client bounds connect / TLS / response-header
+  waits, and `watchStall` aborts a body transfer that delivers zero bytes for
+  `stallTimeout` (3 min) — so a hung socket fails the file instead of blocking
+  the queue. There is deliberately no *total* timeout: a multi-GB body streams
+  for hours.
 - **No HEAD-vs-GET size cross-check.** `make size` (HEAD) and the parse GET can
   report different `Content-Length`; the parse value silently wins. Only a GET
   shorter than its *own* advertised length is caught ([#52](https://github.com/wmespi/honest-healthcare/issues/52) follow-up).
