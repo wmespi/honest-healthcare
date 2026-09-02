@@ -113,6 +113,29 @@ private off-network access.
 
 ---
 
+## Developing in parallel (worktrees)
+
+The quickstart above needs no host runtimes. To run **more than one branch at
+once** — a feature per session, without the Docker stack / ports / data store
+colliding — add one tool:
+
+```bash
+brew install mise          # pins python/node/go per-repo; your system installs are untouched
+# add the shell hook once:  https://mise.jdx.dev/getting-started.html
+scripts/dev-setup.sh       # .venv + npm ci; run once in the canonical checkout
+
+make worktree TOPIC=my-thing        # → ../hh-my-thing on a new branch, fully set up
+cd ../hh-my-thing
+make check-local                    # gofmt · vet · build · go test · pytest · vitest — no Docker
+```
+
+The canonical checkout keeps running the stable stack (what `tailscale serve`
+points at); feature worktrees test on host toolchains and spin their own stack
+(`make stack-up`, own ports) only for a live check. Full runbook:
+[docs/worktrees.md](docs/worktrees.md).
+
+---
+
 ## Stack
 
 | Layer | Tech |

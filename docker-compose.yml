@@ -2,10 +2,16 @@
 # default target is the production artifact; here we select the `dev` target and
 # layer on the dev-loop conveniences (bind-mounted source, exposed ports,
 # --reload, persistent build caches). A deployable compose file lands with #17.
+#
+# Multi-stack (GH #59): container names are unset so the project name
+# (COMPOSE_PROJECT_NAME, default = directory name) scopes everything, and the
+# host ports + data root are env-driven. Copy .env.example → .env in a worktree
+# to run a second stack alongside the canonical one; see docs/worktrees.md.
+# With no .env this behaves exactly as before (project `honest-healthcare`,
+# ports 5432/8000/5173, ./data).
 services:
   db:
     image: postgis/postgis:15-3.3-alpine
-    container_name: honest-healthcare-db
     command: >
       postgres
       -c max_wal_size=4GB
@@ -17,7 +23,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -32,12 +38,15 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.etl
       target: dev
-    container_name: honest-healthcare-etl
     init: true
     command: tail -f /dev/null
     mem_limit: 6g
     volumes:
       - .:/app
+      # Parquet store — this worktree's ./data by default; point HH_DATA_ROOT at
+      # the canonical checkout's data/ to read a shared store. ETL that *writes*
+      # (parse/discover) should leave this unset or use TEST=1.
+      - ${HH_DATA_ROOT:-./data}:/app/data
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     environment:
@@ -51,35 +60,36 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.serving
-    container_name: honest-healthcare-serving
     # image default is a prod server; --reload + the source mount are dev-only
     command: uvicorn serving.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
+      - ${HH_DATA_ROOT:-./data}:/app/data
     ports:
       # loopback only — remote access is via `tailscale serve` (scripts/tailscale-up.sh),
-      # which proxies 127.0.0.1:8000. Avoids a 0.0.0.0 bind clashing with tailscaled.
-      - "127.0.0.1:8000:8000"
+      # which proxies 127.0.0.1:$API_PORT. Avoids a 0.0.0.0 bind clashing with tailscaled.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       - DATA_DIR=/app/data
+      - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
+      - DUCKDB_TMP=${DUCKDB_TMP:-/tmp/duckdb_spill}
 
   frontend:
     build:
       context: .
       dockerfile: deploy/Dockerfile.frontend
       target: dev
-    container_name: honest-healthcare-frontend
     volumes:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      # loopback only — see the serving note; `tailscale serve` proxies 127.0.0.1:5173
-      - "127.0.0.1:5173:5173"
+      # loopback only — see the serving note; `tailscale serve` proxies 127.0.0.1:$WEB_PORT
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
     environment:
       # By default the frontend derives the API URL from window.location at
       # runtime (src/api.js), so http://<any-host>:5173 just works — LAN IP,
-      # Tailscale name, localhost. Only set VITE_API_URL for a split deployment
-      # where the API lives on a different host.
+      # Tailscale name, localhost. Set VITE_API_URL for a split deployment, or
+      # when this stack's API_PORT isn't 8000 (a second stack — see .env.example).
       - VITE_API_URL=${VITE_API_URL:-}
     depends_on:
       - serving

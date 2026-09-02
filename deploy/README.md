@@ -41,3 +41,13 @@ scoping is a follow-up on [#21](https://github.com/wmespi/honest-healthcare/issu
 (`scripts/tailscale-up.sh`), which proxies `127.0.0.1:<port>` onto the tailnet —
 so loopback binding is the intended path, and it avoids a `0.0.0.0` clash with
 `tailscaled`. For plain-LAN access, change the mappings back to `"8000:8000"`.
+
+## Multiple stacks (GH #59)
+
+`container_name:` is unset, so the **project name**
+(`COMPOSE_PROJECT_NAME`, default = directory name) scopes every container,
+network and named volume. The host ports and the data root are env-driven —
+`DB_PORT` / `API_PORT` / `WEB_PORT` (defaults `5432` / `8000` / `5173`) and
+`HH_DATA_ROOT` (default `./data`). Copy `.env.example` → `.env` in a worktree to
+run a second stack alongside the canonical one; with no `.env` the behaviour is
+unchanged. Runbook: [../docs/worktrees.md](../docs/worktrees.md).

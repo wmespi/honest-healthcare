@@ -1,0 +1,22 @@
+# Pinned host toolchains for parallel / worktree development (GH #59).
+#
+# `mise` is one static binary; it installs these into ~/.local/share/mise and
+# shims them for this repo only — your system Python / Node / Go are untouched.
+# Versions match the container images so host tests behave like CI:
+#   python -> deploy/Dockerfile.serving (python:3.10-slim)
+#   node   -> deploy/Dockerfile.frontend (node:20-slim)
+#   go     -> etl/go.mod `toolchain go1.24.13` / golang:1.24.13-alpine
+#
+# Setup:  brew install mise  (then add `mise activate` to your shell — see
+#         https://mise.jdx.dev/getting-started.html), then `scripts/dev-setup.sh`.
+# The container-only quickstart in README.md needs none of this.
+
+[tools]
+python = "3.10"
+node = "20"
+go = "1.24.13"
+uv = "latest"
+
+[env]
+# Auto-create + activate a per-worktree venv on `cd` (deps: scripts/dev-setup.sh).
+_.python.venv = { path = ".venv", create = true }
