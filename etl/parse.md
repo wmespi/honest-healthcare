@@ -96,9 +96,11 @@ Harmless for a single-operator sequential run; real at scale.
   `stallTimeout` (3 min) — so a hung socket fails the file instead of blocking
   the queue. There is deliberately no *total* timeout: a multi-GB body streams
   for hours.
-- **No HEAD-vs-GET size cross-check.** `make size` (HEAD) and the parse GET can
-  report different `Content-Length`; the parse value silently wins. Only a GET
-  shorter than its *own* advertised length is caught ([#52](https://github.com/wmespi/honest-healthcare/issues/52) follow-up).
+- **HEAD size is a hint, not verified.** `make size` (HEAD) and the parse GET can
+  report different `Content-Length`; the parse GET is authoritative — it fetches
+  the bytes actually parsed and overwrites `file_size_bytes` — and its body is
+  reconciled against its own length. A deliberate non-check: a HEAD/GET mismatch
+  on a CDN is a signed-URL rotation, not a corrupt file.
 - **Single `pgx.Conn`, not a pool** — fine sequential; serializes if parsing is
   parallelized.
 - **First-file schema capture is fragile** — double JSON round-trip; a first file
