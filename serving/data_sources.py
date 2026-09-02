@@ -11,38 +11,51 @@ from typing import Optional
 
 DATA_DIR = os.getenv("DATA_DIR", "/app/data")
 
+# Sub-store roots. Each defaults under DATA_DIR, but can be pointed independently
+# so a worktree reads the shared corpus (ANTHEM_DIR, NPPES_DIR → the canonical
+# checkout's data/) while a rebuild it's iterating on lands locally (REFERENCE_DIR
+# / CMS_DIR / SUMMARY_DIR → ./data-local/…). GH #59 Part C. `reference/_common.py`
+# mirrors these for the builders. With nothing set this is exactly DATA_DIR.
+# `or` not the getenv default: Compose passes an unset var through as "" and
+# os.getenv would return that empty string.
+ANTHEM_DIR    = os.getenv("ANTHEM_DIR")    or f"{DATA_DIR}/anthem"
+NPPES_DIR     = os.getenv("NPPES_DIR")     or f"{DATA_DIR}/nppes"
+REFERENCE_DIR = os.getenv("REFERENCE_DIR") or f"{DATA_DIR}/reference"
+CMS_DIR       = os.getenv("CMS_DIR")       or f"{DATA_DIR}/cms"
+SUMMARY_DIR   = os.getenv("SUMMARY_DIR")   or f"{ANTHEM_DIR}/summary"
+
 # Normalized rate store:
 #   prices/net=<slug>/<id>.parquet  — one row per (network × negotiated price),
 #     Hive-partitioned by network; carries file_id + group_set_id.
 #   group_sets/<id>.parquet         — file_id | group_set_id | provider_group_id,
 #     the deduplicated provider-group rosters. Join prices → group_sets on
 #     (file_id, group_set_id) to expand a price to its provider groups.
-PRICES_GLOB     = f"{DATA_DIR}/anthem/prices/**/*.parquet"
+PRICES_GLOB     = f"{ANTHEM_DIR}/prices/**/*.parquet"
 PRICES_SRC      = f"read_parquet('{PRICES_GLOB}', union_by_name=true, hive_partitioning=1)"
-GROUP_SETS_GLOB = f"{DATA_DIR}/anthem/group_sets/*.parquet"
+GROUP_SETS_GLOB = f"{ANTHEM_DIR}/group_sets/*.parquet"
 GROUP_SETS_SRC  = f"read_parquet('{GROUP_SETS_GLOB}', union_by_name=true)"
-PROVIDERS_GLOB  = f"{DATA_DIR}/anthem/providers/*.parquet"
+PROVIDERS_GLOB  = f"{ANTHEM_DIR}/providers/*.parquet"
 PROVIDERS_SRC   = f"read_parquet('{PROVIDERS_GLOB}', union_by_name=true)"
 
-CODES_GLOB       = f"{DATA_DIR}/anthem/codes/*.parquet"
-NPI_LOOKUP_PATH  = f"{DATA_DIR}/anthem/npi_lookup.parquet"
+CODES_GLOB       = f"{ANTHEM_DIR}/codes/*.parquet"
+NPI_LOOKUP_PATH  = f"{ANTHEM_DIR}/npi_lookup.parquet"
 
 # Browse-layer summary (scripts/build_rate_summary.py — `make build-summary`).
 # The /networks · /billing_codes · /procedure_categories endpoints read these
 # instead of scanning prices ⨝ group_sets (~1e9 rows). Absent until the build
 # runs; the endpoints fall back to the live scan (VOL_CTE) when so.
-RATE_SUMMARY_PATH = f"{DATA_DIR}/anthem/summary/rate_summary.parquet"
-RATE_HIST_PATH    = f"{DATA_DIR}/anthem/summary/rate_hist.parquet"
-CODE_ROLLUP_PATH  = f"{DATA_DIR}/anthem/summary/code_rollup.parquet"
-GA_NPPES_PATH    = f"{DATA_DIR}/nppes/ga_providers.parquet"
-CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
-NUCC_PATH        = f"{DATA_DIR}/reference/nucc_taxonomy.parquet"
+RATE_SUMMARY_PATH = f"{SUMMARY_DIR}/rate_summary.parquet"
+RATE_HIST_PATH    = f"{SUMMARY_DIR}/rate_hist.parquet"
+CODE_ROLLUP_PATH  = f"{SUMMARY_DIR}/code_rollup.parquet"
+GA_NPPES_PATH    = f"{NPPES_DIR}/ga_providers.parquet"
+CODE_LABELS_PATH = f"{REFERENCE_DIR}/code_labels.parquet"
+NUCC_PATH        = f"{REFERENCE_DIR}/nucc_taxonomy.parquet"
 
 # CMS "Medicare Physician & Other Practitioners — by Provider and Service":
 # one row per (GA NPI × HCPCS × place-of-service) actually billed to Medicare
 # Part B. The evidence layer behind did_bill() — see serving/evidence.py and
 # reference/cms-utilization.md. Absent until `make cms-utilization` runs.
-CMS_UTILIZATION_PATH = f"{DATA_DIR}/cms/ga_provider_service.parquet"
+CMS_UTILIZATION_PATH = f"{CMS_DIR}/ga_provider_service.parquet"
 
 # CMS Medicare Physician Fee Schedule allowed amount per (code × modifier ×
 # facility/non-facility × Georgia locality) — the per-code benchmark / fallback
@@ -53,7 +66,7 @@ MPFS_GA_PATH = f"{DATA_DIR}/reference/mpfs_ga.parquet"
 # Per-specialty procedure prevalence, learned from CMS_UTILIZATION_PATH ∩ NPPES ∩
 # NUCC. Tier 2 of the provider↔procedure story: "typical for this specialty" when
 # there's no direct utilization row. Absent until `make specialty-profiles` runs.
-SPECIALTY_PROFILES_PATH = f"{DATA_DIR}/reference/specialty_procedure_profiles.parquet"
+SPECIALTY_PROFILES_PATH = f"{REFERENCE_DIR}/specialty_procedure_profiles.parquet"
 
 # CMS Doctors & Clinicians (Care Compare / Provider Data Catalog) — a real
 # practice identity + a hospital-affiliation (CCN↔NPI) bridge, independent of
