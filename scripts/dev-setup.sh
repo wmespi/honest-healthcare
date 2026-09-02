@@ -29,7 +29,7 @@ say() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!  \033[0m %s\n' "$*" >&2; }
 
 # ── canonical checkout (first worktree git knows about) ──────────────────────
-CANONICAL="${HH_CANONICAL:-$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')}"
+CANONICAL="${HH_CANONICAL:-$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)}"
 IS_CANONICAL=0
 [ "$ROOT" = "$CANONICAL" ] && IS_CANONICAL=1
 

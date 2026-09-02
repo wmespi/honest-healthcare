@@ -62,7 +62,7 @@ worktree: ## New sibling worktree + branch off origin/main, fully set up. TOPIC=
 
 worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override). TOPIC=<name>
 	@test -n "$(TOPIC)" || { echo "usage: make worktree-rm TOPIC=<name>"; exit 1; }
-	git worktree remove $(if $(filter 1,$(FORCE)),--force,) "$$(dirname "$$(git worktree list --porcelain | awk '/^worktree /{print $$2; exit}')")/hh-$(TOPIC)"
+	git worktree remove $(if $(filter 1,$(FORCE)),--force,) "$$(dirname "$$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)")/hh-$(TOPIC)"
 
 check-local: ## Hermetic gate on host toolchains (no Docker) — gofmt, vet, build, go test, pytest contract, vitest
 	@command -v go >/dev/null || { echo "no host 'go' — run scripts/dev-setup.sh"; exit 1; }
@@ -81,7 +81,7 @@ stack-down: ## Stop this worktree's stack
 	docker compose down
 
 promote: ## CANONICAL CHECKOUT ONLY — advance the stable/Tailscale stack to origin/main HEAD
-	@test "$$PWD" = "$$(git worktree list --porcelain | awk '/^worktree /{print $$2; exit}')" \
+	@test "$$PWD" = "$$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)" \
 	  || { echo "run this in the canonical checkout, not a worktree"; exit 1; }
 	git checkout main && git pull --ff-only && docker compose up -d --build
 	@echo "stable stack now at $$(git rev-parse --short HEAD)"
