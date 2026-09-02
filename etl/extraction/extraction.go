@@ -4,19 +4,39 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	parquet "github.com/parquet-go/parquet-go"
 	"github.com/wmespi/honest-healthcare/etl/core"
 )
+
+// mrfHTTPClient fetches MRFs. There is deliberately no Client.Timeout — a
+// multi-GB body legitimately streams for hours — but the connection setup and
+// the wait for response headers are bounded so a dead endpoint fails fast
+// instead of hanging the queue (issue #52). A mid-body stall is still caught
+// downstream by the byte-count reconciliation in validateStreamComplete.
+var mrfHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 2 * time.Minute,
+		IdleConnTimeout:       90 * time.Second,
+	},
+}
 
 const copyBatchSize = 1_000_000
 
@@ -80,29 +100,104 @@ func writeNPILookup(seenNPIs map[int64]string) {
 }
 
 // openMRF returns a reader for the raw (still gzipped) MRF bytes, its size, and a
-// cleanup func. A fixturePath reads from disk (offline); otherwise it GETs url.
-func openMRF(url, fixturePath string) (io.ReadCloser, int64, error) {
+// cancel func that aborts the in-flight request (a no-op for a fixture). A
+// fixturePath reads from disk (offline); otherwise it GETs url under a
+// cancellable context so watchStall can kill a dead transfer.
+func openMRF(ctx context.Context, url, fixturePath string) (io.ReadCloser, int64, context.CancelFunc, error) {
 	if fixturePath != "" {
 		f, err := os.Open(fixturePath)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		fi, _ := f.Stat()
-		return f, fi.Size(), nil
+		return f, fi.Size(), func() {}, nil
 	}
-	req, err := http.NewRequest("GET", url, nil)
+	reqCtx, cancel := context.WithCancel(ctx)
+	req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
 	if err != nil {
-		return nil, 0, err
+		cancel()
+		return nil, 0, nil, err
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := mrfHTTPClient.Do(req)
 	if err != nil {
-		return nil, 0, err
+		cancel()
+		return nil, 0, nil, err
 	}
 	if resp.StatusCode != 200 {
 		resp.Body.Close()
-		return nil, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+		cancel()
+		return nil, 0, nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return resp.Body, resp.ContentLength, nil
+	return resp.Body, resp.ContentLength, cancel, nil
+}
+
+// stallTimeout is how long a download may deliver zero bytes before watchStall
+// aborts it. A healthy transfer always moves; minutes of silence means the
+// connection is dead (issue #52 — the "hung parse" failure mode).
+const stallTimeout = 3 * time.Minute
+
+// watchStall aborts a download that stops delivering bytes. Unlike a total
+// timeout it tolerates a multi-hour transfer as long as it keeps moving: it
+// samples the compressed-byte counter and, if it has not advanced for timeout,
+// calls cancel — unblocking the body Read with an error. Call the returned stop
+// func once the stream is done; stalled() reports whether the abort fired, so
+// the caller can label the failure a (retryable) stall rather than corruption.
+func watchStall(cancel context.CancelFunc, pr *core.ProgressReader, timeout time.Duration) (stop func(), stalled func() bool) {
+	done := make(chan struct{})
+	var fired atomic.Bool
+	interval := timeout / 4
+	if interval > 15*time.Second {
+		interval = 15 * time.Second
+	}
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		last := pr.ReadBytes.Load()
+		lastMoved := time.Now()
+		for {
+			select {
+			case <-done:
+				return
+			case now := <-t.C:
+				switch n := pr.ReadBytes.Load(); {
+				case n != last:
+					last, lastMoved = n, now
+				case now.Sub(lastMoved) >= timeout:
+					log.Printf("  ⏱️  download stalled — no bytes for %s, aborting", timeout)
+					fired.Store(true)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }, fired.Load
+}
+
+// validateStreamComplete runs after the JSON decoder has stopped. The decoder
+// reads only as far as the document's closing brace, so it can miss a body that
+// was cut off in the trailing bytes (or a gzip trailer that never arrived).
+// Draining the rest forces gzip to verify its CRC-32 + ISIZE and forces the
+// HTTP layer to surface a short body, then the compressed byte count is
+// reconciled against Content-Length. Truncation-shaped failures use wording the
+// `make db-reset WHAT=failed` filter treats as retryable; genuine corruption
+// ("corrupt gzip") is kept failed. Issue #52.
+func validateStreamComplete(gz *gzip.Reader, pr *core.ProgressReader, contentLength int64) error {
+	_, drainErr := io.Copy(io.Discard, gz)
+	closeErr := gz.Close()
+	read := pr.ReadBytes.Load()
+	switch {
+	case contentLength > 0 && read < contentLength:
+		return fmt.Errorf("short read: got %d of %d compressed bytes — download truncated", read, contentLength)
+	case drainErr != nil && errors.Is(drainErr, io.ErrUnexpectedEOF):
+		return fmt.Errorf("stream truncated after %d bytes — download incomplete", read)
+	case drainErr != nil:
+		return fmt.Errorf("corrupt gzip after %d bytes: %w", read, drainErr)
+	case closeErr != nil:
+		return fmt.Errorf("corrupt gzip trailer: %w", closeErr)
+	}
+	return nil
 }
 
 // parseRates streams one MRF (by URL, or from fixturePath when set) into
@@ -130,14 +225,24 @@ func parseRates(
 		}
 	}
 
-	body, contentLength, err := openMRF(url, fixturePath)
+	body, contentLength, cancelDownload, err := openMRF(ctx, url, fixturePath)
 	if err != nil {
 		markFailed(ctx, conn, fileID, err, dryRun)
 		return nil
 	}
 	defer body.Close()
+	defer cancelDownload()
 
 	pr := core.NewProgressReader(body, contentLength)
+
+	// Kill a download that goes silent mid-transfer (a hung socket that never
+	// resets) so the queue moves on instead of blocking on this file (issue #52).
+	stalled := func() bool { return false }
+	if fixturePath == "" {
+		var stopStall func()
+		stopStall, stalled = watchStall(cancelDownload, pr, stallTimeout)
+		defer stopStall()
+	}
 
 	if contentLength > 0 && fixturePath == "" {
 		gb := float64(contentLength) / 1e9
@@ -235,6 +340,18 @@ func parseRates(
 
 	log.Println("  🔄 Starting single-pass extract...")
 	res, err := streamMRF(gz, planName, int64(fileID), isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, w, pr)
+	// The document parsed — now confirm the whole compressed body arrived and the
+	// gzip trailer checks out before anything is promoted (issue #52). Only for a
+	// real download: a fixture is a local file and always complete.
+	if err == nil && fixturePath == "" {
+		err = validateStreamComplete(gz, pr, contentLength)
+	}
+	// A watchStall abort surfaces as a context-cancelled read somewhere in the
+	// two steps above — relabel it so the reason reads as a (retryable) stall,
+	// not "malformed MRF" / "corrupt gzip".
+	if err != nil && stalled() {
+		err = fmt.Errorf("download stalled — no data for %s, aborted", stallTimeout)
+	}
 	// Parquet writers must be closed (flushed) before we read the files back or
 	// mark the row completed — close in LIFO order (writer before its file).
 	closeAll(closers)
@@ -339,7 +456,10 @@ func newParquetWriter[T any](path string) (*parquet.GenericWriter[T], io.Closer,
 }
 
 // writeCoverageLog records one row summarizing what this file contributed. The
-// index_files metadata (market_types etc.) is joined in from the row itself.
+// index_files metadata (market_types etc.) is joined in from the row itself. A
+// re-parse replaces the file's prior row (DELETE + INSERT in one statement) so
+// coverage_log stays one-row-per-file — the `make cov-report` sanity check keys
+// on that to spot distinct files that parsed to identical counts (issue #52).
 func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location string, compressedBytes int64, totalCodesBefore int, note string, res *mrfResult) {
 	if note == "" {
 		note = "unfiltered"
@@ -349,6 +469,7 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 			note, res.PriceRowsDropped, res.ProviderRowsDropped, res.GroupsDropped)
 	}
 	_, err := conn.Exec(ctx, `
+		WITH prior AS (DELETE FROM coverage_log WHERE file_id = $1)
 		INSERT INTO coverage_log (
 			file_id, location, compressed_bytes,
 			n_rate_rows, n_provider_rows,

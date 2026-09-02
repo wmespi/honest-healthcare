@@ -169,7 +169,7 @@ data/reference/specialty_procedure_profiles.parquet  (make specialty-profiles �
 |---|---|---|
 | `index_files` | `make discover` / `make parse` | The parse queue — URLs, `status`, `file_size_bytes`, `market_types`, `hios_issuer_ids`, `plan_states`, per-file `reporting_entity_*`, `completed_at` |
 | `billing_codes` | `make parse` | Reference upsert — `billing_code` PK, `name`, `description` |
-| `coverage_log` | `make parse` | One observational row per parsed file (row counts, new codes/NPIs/TINs, distinct networks/settings) — never read by the ETL |
+| `coverage_log` | `make parse` | One row per parsed file (row counts, new codes/NPIs/TINs, distinct networks/settings); a re-parse replaces it. The ETL never reads it, but `make cov-report` flags partial-looking `completed` files from it (#52) |
 
 `negotiated_rates`, `provider_mappings`, `place_of_service_codes`, and the
 `vw_rates_detailed` view still exist in `db/init.sql` but are **neither written nor
