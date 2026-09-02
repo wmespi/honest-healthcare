@@ -51,9 +51,15 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
   and `test_specialty_profiles.py` run the `reference/` builders against it in
   test isolation (`data-test/cms/`, `data-test/reference/`) — hermetic, picked up
   by `make test-api`.
+- `reference/testdata/mpfs_sample.csv` + `mpfs_gpci_sample.csv` — a PPRRVU-shaped
+  RVU file (plain code, 26/TC split, facility-`NA` code, bundled `B`,
+  carrier-priced `C`) and a GPCI file (GA localities 01/99 + a Florida row to
+  filter). `serving/tests/test_mpfs.py` runs `reference/mpfs.py` against them in
+  test isolation (`data-test/reference/mpfs_ga.parquet`) — hermetic; checks the
+  RVU formula, the fac/non-fac PE split, and status handling.
 - `serving/tests/conftest.py` (`api` fixture) — builds a small coherent Parquet
   dataset (2 networks, 5 CPT codes with `-26`/`-TC` splits, 5 providers incl. a
-  hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile tables) under
+  hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile/MPFS tables) under
   `data-test/apifix/` and binds a FastAPI `TestClient` to it. Drives
   `test_api_contract.py` — every route, hermetic, no live server or `data/` mount.
   Schemas track [schema.md](schema.md); teardown removes the dir.
@@ -97,7 +103,7 @@ which left the required checks stuck "pending" forever on a docs-only PR.
 | `changes` | diffs the PR → `run` output (docs-only / draft ⇒ `false`) | `git diff --name-only`, no deps |
 | `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
 | `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
-| `integration` | `test_api_contract.py` (every route, hermetic) + the two reference-builder tests, then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
+| `integration` | `test_api_contract.py` (every route, hermetic) + the three reference-builder tests (CMS utilization, specialty profiles, MPFS), then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
 | `images` | builds the three `prod` Dockerfile targets and smokes each (`etl --help`, `serving` GET /, `nginx` GET /) | raw `docker build --target prod` — catches Dockerfile / dep drift the compose `dev` targets don't |
 | `gate` (`CI Gate`) | asserts no upstream job failed / was cancelled | `join(needs.*.result)` |
 

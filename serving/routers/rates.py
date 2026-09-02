@@ -32,6 +32,7 @@ from ..labels import (
     provider_card,
 )
 from ..evidence import code_tiers, did_bill, medicare_specialty
+from ..benchmark import medicare_allowed as _medicare_allowed
 
 router = APIRouter()
 
@@ -662,6 +663,16 @@ def rate_quote(
                     "basis": "component", "pos_label": None}
 
     split = "26" in comps and "TC" in comps
+
+    # Medicare Physician Fee Schedule benchmark (issue #61) — the GA allowed
+    # amount for this code + a headline/Medicare ratio. Both None until
+    # `make mpfs` has run; never fail the quote when the file is absent.
+    med_allowed = _medicare_allowed(conn, billing_code, billing_code_type,
+                                    modifier="", pos="nonfacility")
+    vs_medicare = None
+    if med_allowed and headline.get("rate"):
+        vs_medicare = round(headline["rate"] / med_allowed, 2)
+
     card = provider_card(conn, npi)
 
     # Medicare Part B evidence (issue #14). `util` and `med_spec` are None until
@@ -705,6 +716,8 @@ def rate_quote(
         "provider": card,
         "plausibility": plaus,
         "medicare_utilization": util,
+        "medicare_allowed": med_allowed,
+        "vs_medicare": vs_medicare,
         "headline": headline,
         "components": components,
         "is_component_split": split,

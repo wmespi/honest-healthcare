@@ -19,7 +19,7 @@
 .PHONY: help \
         start up down logs \
         discover parse size fixture seed build-summary \
-        nppes code-labels taxonomy-labels \
+        nppes code-labels taxonomy-labels mpfs \
         fmt lint test test-e2e test-api test-web check test-all \
         check-local \
         worktree worktree-rm stack-up stack-down promote \
@@ -71,7 +71,8 @@ check-local: ## Hermetic gate on host toolchains (no Docker) — gofmt, vet, bui
 	@out=$$(gofmt -l etl); [ -z "$$out" ] || { printf 'gofmt needed:\n%s\n' "$$out"; exit 1; }
 	cd etl && go vet ./... && go build ./... && go test ./...
 	.venv/bin/python -m pytest serving/tests/test_api_contract.py \
-	  serving/tests/test_cms_utilization.py serving/tests/test_specialty_profiles.py -q
+	  serving/tests/test_cms_utilization.py serving/tests/test_specialty_profiles.py \
+	  serving/tests/test_mpfs.py -q
 	cd frontend && npx vitest run
 
 stack-up: ## Start THIS worktree's stack (own project + ports from .env). Build on first run.
@@ -132,6 +133,9 @@ cms-utilization: ## Build data/cms/ga_provider_service.parquet (CMS Medicare Par
 
 specialty-profiles: ## Build data/reference/specialty_procedure_profiles.parquet (what each specialty typically bills — needs cms-utilization + nppes + taxonomy-labels)
 	docker compose exec -T -w /app serving python3 -m reference.specialty_profiles --data-dir /app/data
+
+mpfs: ## Build data/reference/mpfs_ga.parquet (CMS Medicare Physician Fee Schedule allowed $ per code — the per-code benchmark). CMS_URL= / YEAR= / CF= to override.
+	docker compose exec -T -w /app serving python3 -m reference.mpfs --data-dir /app/data $(if $(CMS_URL),--cms-url "$(CMS_URL)",) $(if $(YEAR),--year $(YEAR),) $(if $(CF),--cf $(CF),)
 
 ## ── Quality gate ────────────────────────────────────────────────────────────
 

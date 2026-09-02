@@ -105,6 +105,13 @@ make cms-utilization      # ~3 GB — CMS Medicare Part B: did this NPI bill thi
 make specialty-profiles   # what each specialty typically bills (needs 6 + cms-utilization)
 ```
 
+**8 — Medicare benchmark** (optional — adds `medicare_allowed` + a `vs_medicare`
+ratio to a cost quote, a sanity check on group rates):
+
+```bash
+make mpfs                 # ~15 MB — CMS Physician Fee Schedule allowed $ per code (GA)
+```
+
 The API picks up new Parquet automatically — just refresh the UI. `make help`
 lists every workflow. To reach the UI from another device, open
 `http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on

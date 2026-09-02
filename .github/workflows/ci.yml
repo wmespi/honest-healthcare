@@ -136,7 +136,8 @@ jobs:
           docker compose exec -T -w /app serving python -m pytest \
             serving/tests/test_api_contract.py \
             serving/tests/test_cms_utilization.py \
-            serving/tests/test_specialty_profiles.py -q
+            serving/tests/test_specialty_profiles.py \
+            serving/tests/test_mpfs.py -q
       - name: ETL e2e + NPPES fixtures
         run: make test-e2e
       - name: Stack logs on failure
