@@ -5,13 +5,17 @@
 | Command | Scope | Stack? |
 |---|---|---|
 | `make check` | Pre-commit gate — `fmt` + `lint` (vet + build) + Go unit tests | etl up |
+| `make check-local` | Same gate + the hermetic `pytest` contract suite + `vitest`, on **host toolchains** | **none** (host go / `.venv` / node — `scripts/dev-setup.sh`) |
 | `make test` | Go unit slice only — hermetic, fixture-driven | etl up |
 | `make test-e2e` | Hermetic end-to-end: parse + NPPES fixtures in test isolation, with teardown | full stack |
 | `make test-api` | Backend contract + coverage (pytest, against the running API) | full stack |
 | `make test-web` | Rate-explorer component tests (vitest + Testing Library, mocks the API) | frontend up |
 | `make test-all` | `check` + `test-e2e` + `test-api` + `test-web` | full stack |
 
-Run `make check` before every commit (Critical Rule — fast, no full stack).
+Run `make check` (canonical checkout) or `make check-local` (a worktree, no
+Docker — [worktrees.md](worktrees.md)) before every commit (Critical Rule — fast).
+`check-local` covers everything CI gates *except* the live-data coverage sweep;
+that (and `test-e2e`) still needs a stack.
 
 ---
 

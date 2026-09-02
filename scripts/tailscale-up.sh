@@ -12,8 +12,16 @@
 # http://<this-machine>.<tailnet>.ts.net:5173 just works.
 #
 # Requires: `brew install tailscale`, Docker stack up (`make up`).
+#
+# Ports default to the canonical stack (5173 / 8000). To also expose a second
+# stack (e.g. ../hh-staging), run again with its ports:
+#   TS_WEB_PORT=5183 TS_API_PORT=8010 scripts/tailscale-up.sh
+# (the staging frontend needs VITE_API_URL set to its own API port — see .env.example.)
 
 set -euo pipefail
+
+WEB_PORT="${TS_WEB_PORT:-5173}"
+API_PORT="${TS_API_PORT:-8000}"
 
 TS=/opt/homebrew/opt/tailscale/bin/tailscale
 TSD=/opt/homebrew/opt/tailscale/bin/tailscaled
@@ -33,19 +41,20 @@ sudo "$TS" up
 HOST="$("$TS" status --json | /usr/bin/python3 -c 'import sys,json; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
 [[ -n "$HOST" ]] || { echo "Could not read this machine's tailnet name — check \`tailscale status\`." >&2; exit 1; }
 
-echo "==> Serving ports 5173 (frontend) and 8000 (API) on the tailnet…"
-sudo "$TS" serve --bg --http=5173 http://127.0.0.1:5173
-sudo "$TS" serve --bg --http=8000 http://127.0.0.1:8000
+echo "==> Serving ports $WEB_PORT (frontend) and $API_PORT (API) on the tailnet…"
+sudo "$TS" serve --bg --http="$WEB_PORT" "http://127.0.0.1:$WEB_PORT"
+sudo "$TS" serve --bg --http="$API_PORT" "http://127.0.0.1:$API_PORT"
 
 cat <<EOF
 
 Done. From any device signed into your tailnet:
 
-    http://$HOST:5173
+    http://$HOST:$WEB_PORT
 
 Notes:
   - The desktop must stay powered on with the Docker stack running.
-  - CORS is open ("*") and the frontend finds the API on port 8000 of whatever
-    host you loaded it from — no rebuild needed.
-  - Stop exposing it:  sudo $TS serve --http=5173 off; sudo $TS serve --http=8000 off
+  - CORS is open ("*") and the frontend finds the API on port $API_PORT of whatever
+    host you loaded it from — no rebuild needed (unless API_PORT != 8000, then set
+    VITE_API_URL for that stack).
+  - Stop exposing it:  sudo $TS serve --http=$WEB_PORT off; sudo $TS serve --http=$API_PORT off
 EOF

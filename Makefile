@@ -21,6 +21,8 @@
         discover parse size fixture seed build-summary \
         nppes code-labels taxonomy-labels \
         fmt lint test test-e2e test-api test-web check test-all \
+        check-local \
+        worktree worktree-rm stack-up stack-down promote \
         cov-probe cov-report smoke-web data-size \
         psql migrate db-reset db-snapshot db-restore \
         sh \
@@ -51,6 +53,38 @@ down: ## Stop all containers
 
 logs: ## Follow logs from all services
 	@bash -c 'trap "echo \"\nLogs stopped — run make logs to resume\"" EXIT; docker compose logs -f'
+
+## ── Worktrees / parallel dev (GH #59 · docs/worktrees.md) ────────────────────
+
+worktree: ## New sibling worktree + branch off origin/main, fully set up. TOPIC=<name> [TYPE=feat]
+	@test -n "$(TOPIC)" || { echo "usage: make worktree TOPIC=<name> [TYPE=feat]"; exit 1; }
+	bash scripts/worktree-new.sh "$(TOPIC)" "$(or $(TYPE),feat)"
+
+worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override). TOPIC=<name>
+	@test -n "$(TOPIC)" || { echo "usage: make worktree-rm TOPIC=<name>"; exit 1; }
+	git worktree remove $(if $(filter 1,$(FORCE)),--force,) "$$(dirname "$$(git worktree list --porcelain | awk '/^worktree /{print $$2; exit}')")/hh-$(TOPIC)"
+
+check-local: ## Hermetic gate on host toolchains (no Docker) — gofmt, vet, build, go test, pytest contract, vitest
+	@command -v go >/dev/null || { echo "no host 'go' — run scripts/dev-setup.sh"; exit 1; }
+	@test -x .venv/bin/python || { echo "no .venv — run scripts/dev-setup.sh"; exit 1; }
+	@test -d frontend/node_modules || { echo "no frontend/node_modules — run scripts/dev-setup.sh"; exit 1; }
+	@out=$$(gofmt -l etl); [ -z "$$out" ] || { printf 'gofmt needed:\n%s\n' "$$out"; exit 1; }
+	cd etl && go vet ./... && go build ./... && go test ./...
+	.venv/bin/python -m pytest serving/tests/test_api_contract.py \
+	  serving/tests/test_cms_utilization.py serving/tests/test_specialty_profiles.py -q
+	cd frontend && npx vitest run
+
+stack-up: ## Start THIS worktree's stack (own project + ports from .env). Build on first run.
+	docker compose up -d --build
+
+stack-down: ## Stop this worktree's stack
+	docker compose down
+
+promote: ## CANONICAL CHECKOUT ONLY — advance the stable/Tailscale stack to origin/main HEAD
+	@test "$$PWD" = "$$(git worktree list --porcelain | awk '/^worktree /{print $$2; exit}')" \
+	  || { echo "run this in the canonical checkout, not a worktree"; exit 1; }
+	git checkout main && git pull --ff-only && docker compose up -d --build
+	@echo "stable stack now at $$(git rev-parse --short HEAD)"
 
 ## ── Pipeline: discover → parse ───────────────────────────────────────────────
 
