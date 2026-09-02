@@ -170,6 +170,21 @@ data/reference/mpfs_ga.parquet         (make mpfs — reference/mpfs.md)
       are dropped. Read by serving/benchmark.medicare_allowed() → /rates/quote's
       `medicare_allowed` + `vs_medicare`. Physician fee schedule only — facility
       fees (OPPS/ASC/IPPS) are separate schedules, not modelled.
+data/reference/dac_ga.parquet          (make doctors-clinicians — reference/doctors-clinicians.md)
+    npi | last_name | first_name | credential | primary_specialty
+    org_pac_id | org_name | grad_year | med_school | gender
+    ← one row per NPI, from CMS Doctors & Clinicians (Care Compare). A real
+      group-practice identity (org_pac_id + name) independent of Anthem's
+      buckets, plus demographics. Read by labels.provider_card() /
+      /providers/search. GA-scoped (npi_lookup, else State='GA').
+
+data/reference/dac_hospital_affiliations.parquet   (make doctors-clinicians — reference/doctors-clinicians.md)
+    npi | ccn | facility_name
+    ← many rows per NPI; the CCN↔NPI bridge for the Hospital Care Compare
+      quality layer (roadmap step 2). ccn =
+      facility_affiliations_certification_number; facility_name is the
+      facility_type label unless the source carried hosp_afl_lbn_* names.
+      Scoped to the NPIs in dac_ga.parquet.
 ```
 
 ---

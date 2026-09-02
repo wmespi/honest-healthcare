@@ -55,6 +55,13 @@ MPFS_GA_PATH = f"{DATA_DIR}/reference/mpfs_ga.parquet"
 # there's no direct utilization row. Absent until `make specialty-profiles` runs.
 SPECIALTY_PROFILES_PATH = f"{DATA_DIR}/reference/specialty_procedure_profiles.parquet"
 
+# CMS Doctors & Clinicians (Care Compare / Provider Data Catalog) — a real
+# practice identity + a hospital-affiliation (CCN↔NPI) bridge, independent of
+# Anthem's coarse provider_references buckets. Read by serving/labels.py
+# (provider_card). Absent until `make doctors-clinicians` runs.
+DAC_GA_PATH             = f"{DATA_DIR}/reference/dac_ga.parquet"
+DAC_HOSPITAL_AFFIL_PATH = f"{DATA_DIR}/reference/dac_hospital_affiliations.parquet"
+
 # prices expanded to one row per provider group — the common join. A billing_code
 # / net filter on the outer query prunes `prices` before the join runs.
 PRICE_GROUPS_SRC = f"""(

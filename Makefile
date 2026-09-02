@@ -19,7 +19,7 @@
 .PHONY: help \
         start up down logs \
         discover parse size fixture seed build-summary \
-        nppes code-labels taxonomy-labels mpfs \
+        nppes code-labels taxonomy-labels mpfs doctors-clinicians \
         fmt lint test test-e2e test-api test-web check test-all \
         check-local \
         worktree worktree-rm stack-up stack-down promote \
@@ -72,7 +72,7 @@ check-local: ## Hermetic gate on host toolchains (no Docker) — gofmt, vet, bui
 	cd etl && go vet ./... && go build ./... && go test ./...
 	.venv/bin/python -m pytest serving/tests/test_api_contract.py \
 	  serving/tests/test_cms_utilization.py serving/tests/test_specialty_profiles.py \
-	  serving/tests/test_mpfs.py -q
+	  serving/tests/test_mpfs.py serving/tests/test_doctors_clinicians.py -q
 	cd frontend && npx vitest run
 
 stack-up: ## Start THIS worktree's stack (own project + ports from .env). Build on first run.
@@ -130,6 +130,9 @@ taxonomy-labels: ## Build data/reference/nucc_taxonomy.parquet (NUCC specialty l
 
 cms-utilization: ## Build data/cms/ga_provider_service.parquet (CMS Medicare Part B — did this NPI bill this code)
 	docker compose exec -T -w /app serving python3 -m reference.cms_utilization --data-dir /app/data $(if $(CMS_URL),--cms-url "$(CMS_URL)",) $(if $(YEAR),--year $(YEAR),)
+
+doctors-clinicians: ## Build data/reference/dac_ga.parquet + dac_hospital_affiliations.parquet (CMS Doctors & Clinicians — real practice identity + CCN↔NPI bridge)
+	docker compose exec -T -w /app serving python3 -m reference.doctors_clinicians --data-dir /app/data $(if $(DAC_URL),--dac-url "$(DAC_URL)",) $(if $(AFFIL_URL),--affiliations-url "$(AFFIL_URL)",)
 
 specialty-profiles: ## Build data/reference/specialty_procedure_profiles.parquet (what each specialty typically bills — needs cms-utilization + nppes + taxonomy-labels)
 	docker compose exec -T -w /app serving python3 -m reference.specialty_profiles --data-dir /app/data

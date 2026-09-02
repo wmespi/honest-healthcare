@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from ..data_sources import (
+    DAC_GA_PATH,
     GA_NPPES_PATH,
     CODE_LABELS_PATH,
     NPI_LOOKUP_PATH,
@@ -44,7 +45,7 @@ def _rated_npi(network_name: str | None):
             "g.npi IN (SELECT npi FROM rated_npi)",
         )
     return (None, [], "FALSE")
-from ..labels import nucc_bits, provider_card
+from ..labels import dac_bits, nucc_bits, provider_card
 from ..evidence import (
     DEFAULT_TYPICAL_THRESHOLD,
     all_billed_codes,
@@ -294,6 +295,16 @@ def search_providers(
         params.append(f"%{specialty}%")
     where = " AND ".join(conds) if conds else "1=1"
 
+    # Annotate each row with the CMS Doctors & Clinicians group name — the real
+    # practice identity, independent of Anthem's buckets. Light touch: a guarded
+    # LEFT JOIN, NULL when `make doctors-clinicians` hasn't run.
+    has_dac, _ = dac_bits()
+    if has_dac:
+        dac_join = f"LEFT JOIN read_parquet('{DAC_GA_PATH}') d ON d.npi = g.npi"
+        dac_sel = "d.org_name AS group_name"
+    else:
+        dac_join, dac_sel = "", "NULL AS group_name"
+
     with_sql = f"WITH {rated_cte}" if rated_cte else ""
     rows = conn.execute(f"""
         {with_sql}
@@ -304,9 +315,11 @@ def search_providers(
                g.city, g.taxonomy_group, g.is_hospital, g.is_clinic,
                {has_rates_expr} AS has_rates,
                g.entity_type,
+               {dac_sel},
                {spec_sel}
         FROM read_parquet('{GA_NPPES_PATH}') g
         {spec_join}
+        {dac_join}
         WHERE {where}
         -- individuals carry the rates; a specialty search wants doctors, not
         -- the practice's org NPI (which is never in a roster).
@@ -315,7 +328,7 @@ def search_providers(
         LIMIT {limit}
     """, rated_params + params).fetchall()
     cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic",
-            "has_rates", "entity_type", "specialty"]
+            "has_rates", "entity_type", "group_name", "specialty"]
     return [dict(zip(cols, r)) for r in rows]
 
 

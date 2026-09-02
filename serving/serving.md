@@ -14,11 +14,11 @@ FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 |---|---|
 | `main.py` | app + CORS + `include_router` + `/` (health **and** trust-bar context: `priceable_npis`, `networks`, `n_codes`, `as_of` = newest prices Parquet mtime) |
 | `data_sources.py` | glob paths, the `*_SRC` / `PRICE_GROUPS_SRC` / `VOL_CTE` SQL fragments, `db()` (the bounded DuckDB connection), `network_slug()`, `price_filters()`, `have_prices()` / `has_parquet()` |
-| `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `nucc_bits()` / `provider_card()`, `plausibility()` |
+| `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `nucc_bits()` / `provider_card()` (NPPES + NUCC + CMS Doctors & Clinicians `group_name` / `years_in_practice` / `hospital_affiliations`), `dac_bits()`, `plausibility()` |
 | `evidence.py` | provider↔procedure evidence from CMS Medicare utilization (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. All no-op until `make cms-utilization` / `make specialty-profiles` run. |
 | `benchmark.py` | `medicare_allowed(conn, code, type, modifier, pos)` — the CMS Physician Fee Schedule allowed $ for a code in Georgia (issue #61). No-op (`None`) until `make mpfs` runs. |
 | `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
-| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI **or** `specialty=` — matches the displayed specialty label only, **not** the NUCC `classification` / `grouping`, which lump distinct specialities like "Psychiatry & Neurology"; `network_name=` scopes `has_rates`), `/specialties` (`network_name=` scopes `n_with_rates`), `/providers/ga`. `_rated_npi(network_name)` → the shared "has a rate" predicate |
+| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI **or** `specialty=` — matches the displayed specialty label only, **not** the NUCC `classification` / `grouping`, which lump distinct specialities like "Psychiatry & Neurology"; `network_name=` scopes `has_rates`; each row annotated with the CMS Doctors & Clinicians `group_name`), `/specialties` (`network_name=` scopes `n_with_rates`), `/providers/ga`. `_rated_npi(network_name)` → the shared "has a rate" predicate |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
 
 SQL still lives inline in the route handlers — moving it into a `queries/` module
@@ -89,6 +89,11 @@ friendly-name → network map, `serving/plan_networks.json`, GH #33).
 - `nucc_bits()` / `provider_card(conn, npi)` — LEFT JOIN NUCC specialty + NPPES
   practice address onto an NPI. `nppes_cols(conn)` is module-cached from
   `DESCRIBE` so `address_line1/2` is referenced only when the file has it.
+  When `make doctors-clinicians` has run, the card also carries `group_name`,
+  `years_in_practice` (from CMS `grad_year`), and `hospital_affiliations`
+  (`[{ccn, facility_name}]`) — `dac_bits()` module-caches the presence check.
+  Embedded in `/rates/quote` and `/providers/{npi}/procedures`. See
+  [../reference/doctors-clinicians.md](../reference/doctors-clinicians.md).
 - `plausibility(...)` — a **coarse** specialty ↔ code check (fallback heuristic).
   Superseded by the `evidence.py` tiers when the CMS files are built; still used
   where they're not, and feeds `medicare_type` from CMS when the NUCC taxonomy is

@@ -1,0 +1,15 @@
+NPI,Ind_PAC_ID,Provider Last Name,Provider First Name,gndr,Cred,Med_sch,Grd_yr,pri_spec,Facility Name,org_pac_id,num_org_mem,adr_ln_1,City/Town,State,ZIP Code,hosp_afl_1,hosp_afl_lbn_1,hosp_afl_2,hosp_afl_lbn_2
+1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,Peachtree Internal Medicine LLC,1111111111,40,1 Peachtree St,Atlanta,GA,30303,110001,Emory University Hospital,110002,Grady Memorial Hospital
+1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,Peachtree Internal Medicine LLC,1111111111,40,200 Main St,Decatur,GA,30030,110001,Emory University Hospital,,
+1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,Midtown Primary Care,2222222222,8,55 10th St,Atlanta,GA,30309,110002,Grady Memorial Hospital,,
+1000000002,I002,Baker,David,M,M.D.,Medical College of Georgia,1999,Cardiology,Atlanta Heart Associates,3333333333,25,10 Cardio Way,Atlanta,GA,30308,110001,Emory University Hospital,,
+1000000003,I003,Carter,Ellen,F,LCSW,University of Georgia,2012,Clinical Social Worker,Decatur Behavioral Health,4444444444,6,12 Clairmont Ave,Decatur,GA,30030,,,,
+1000000004,I004,Diaz,Frank,M,M.D.,Duke University School of Medicine,2008,Diagnostic Radiology,Atlanta Heart Associates,3333333333,25,1 Baptist Way,Marietta,GA,30060,110003,Northside Hospital,,
+1000000005,I005,Nolan,Amy,F,M.D.,Emory University School of Medicine,2010,Gastroenterology,Georgia Digestive Care,6666666666,15,900 Broad St,Augusta,GA,30901,110002,Grady Memorial Hospital,,
+1000000006,I006,Evans,Grace,F,M.D.,Yale School of Medicine,2001,Psychiatry,,,,2 Mind Way,Atlanta,GA,30307,,,,
+1000000008,I008,Green,Ivan,M,D.P.M.,Kent State University College of Podiatric Medicine,1998,Podiatry,Marietta Foot & Ankle,7777777777,5,88 Marietta St,Marietta,GA,30060,,,,
+1000000009,I009,Hill,Jane,F,N.P.,Emory University,2015,Nurse Practitioner,Peachtree Internal Medicine LLC,1111111111,40,1 Peachtree St,Atlanta,GA,30303,110001,Emory University Hospital,,
+3000000001,I010,Young,Sam,M,M.D.,,,Family Practice,Southside Family Medicine,8888888888,12,15 South Ave,Atlanta,GA,30315,,,,
+2000000001,I011,Wilson,Henry,M,M.D.,University of Florida College of Medicine,2003,Internal Medicine,Orlando Primary Care,9999999999,30,100 Main St,Orlando,FL,32801,120001,Orlando Health,,
+2000000002,I012,Moore,Kate,F,M.D.,UT Southwestern Medical School,2007,Cardiology,Austin Cardiology,1010101010,20,200 Congress Ave,Austin,TX,78701,130001,Dell Seton Medical Center,,
+NOTANPI0,I013,Broken,Row,,M.D.,Somewhere,2000,Internal Medicine,Ghost Clinic,1212121212,3,0 Nowhere,Atlanta,GA,30303,,,,

@@ -57,9 +57,14 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
   filter). `serving/tests/test_mpfs.py` runs `reference/mpfs.py` against them in
   test isolation (`data-test/reference/mpfs_ga.parquet`) — hermetic; checks the
   RVU formula, the fac/non-fac PE split, and status handling.
+- `reference/testdata/dac_sample.csv` — 14 rows for the CMS Doctors & Clinicians
+  builder (9 GA clinicians incl. one with two groups + two hospitals, 2
+  out-of-state, 1 corrupt NPI), in the wide single-file layout so `--dac-file`
+  builds both outputs offline. `serving/tests/test_doctors_clinicians.py` runs it
+  in test isolation — hermetic, picked up by `make check-local` and `make test-api`.
 - `serving/tests/conftest.py` (`api` fixture) — builds a small coherent Parquet
   dataset (2 networks, 5 CPT codes with `-26`/`-TC` splits, 5 providers incl. a
-  hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile/MPFS tables) under
+  hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile/MPFS/DAC tables) under
   `data-test/apifix/` and binds a FastAPI `TestClient` to it. Drives
   `test_api_contract.py` — every route, hermetic, no live server or `data/` mount.
   Schemas track [schema.md](schema.md); teardown removes the dir.

@@ -7,8 +7,8 @@ docs/schema.md; the row values are chosen so every contract assertion in
 test_api_contract.py has something real to check.
 
 The other test files here (test_cms_utilization, test_specialty_profiles,
-test_mpfs) run the reference/ builders against their own data-test/ paths
-(repo-root relative) and ignore this fixture.
+test_mpfs, test_doctors_clinicians) run the reference/ builders against their own
+data-test/ paths (repo-root relative) and ignore this fixture.
 """
 import os
 import subprocess
@@ -258,6 +258,46 @@ def _build(data_dir: str) -> None:
            [(f"'{bc}'", f"'{t}'", f"'{m}'", f"'{p}'", f"'{loc}'",
              "NULL" if amt is None else amt, f"'{st}'")
             for bc, t, m, p, loc, amt, st in mpfs])
+
+    # ── CMS Doctors & Clinicians (make doctors-clinicians) ────────────────
+    # one row per NPI: real group identity + demographics
+    dac = [
+        (1000000001, "Adams", "Carol", "M.D.", "Cardiology",
+         "G0000001", "Peachtree Cardiology Associates", 2005,
+         "Emory University School of Medicine", "F"),
+        (1000000002, "Baker", "David", "M.D.", "Internal Medicine",
+         "G0000001", "Peachtree Cardiology Associates", 2000,
+         "Medical College of Georgia", "M"),
+        (1000000003, "Carter", "Ellen", "LCSW", "Clinical Social Worker",
+         "G0000002", "Decatur Behavioral Health", 2012,
+         "University of Georgia", "F"),
+        (1000000004, "Diaz", "Frank", "M.D.", "Diagnostic Radiology",
+         "G0000003", "Marietta Imaging Partners", 2008,
+         "Duke University School of Medicine", "M"),
+        (1000000006, "Evans", "Grace", "M.D.", "Psychiatry",
+         None, None, 2001, "Yale School of Medicine", "F"),
+    ]
+
+    def _s(v):
+        return "NULL" if v is None else f"'{v}'"
+
+    _write(con, f"{data_dir}/reference/dac_ga.parquet",
+           "npi, last_name, first_name, credential, primary_specialty, "
+           "org_pac_id, org_name, grad_year, med_school, gender",
+           [(n[0], _s(n[1]), _s(n[2]), _s(n[3]), _s(n[4]), _s(n[5]), _s(n[6]),
+             "NULL" if n[7] is None else f"CAST({n[7]} AS INTEGER)", _s(n[8]), _s(n[9]))
+            for n in dac])
+
+    # the CCN↔NPI bridge — many rows per NPI
+    affil = [
+        (1000000001, "110001", "Emory University Hospital"),
+        (1000000001, "110002", "Grady Memorial Hospital"),
+        (1000000002, "110001", "Emory University Hospital"),
+        (1000000004, "110003", "Northside Hospital"),
+    ]
+    _write(con, f"{data_dir}/reference/dac_hospital_affiliations.parquet",
+           "npi, ccn, facility_name",
+           [(n, f"'{c}'", f"'{fn}'") for n, c, fn in affil])
 
     con.close()
 

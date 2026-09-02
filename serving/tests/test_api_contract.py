@@ -240,6 +240,30 @@ def test_provider_search_by_name(api):
     hit = next((p for p in body if p["npi"] == CARDIOLOGIST), None)
     assert hit and {"specialty", "entity_type", "has_rates"} <= hit.keys()
     assert hit["has_rates"] is True
+    # CMS Doctors & Clinicians group name is annotated onto each row
+    assert hit["group_name"] == "Peachtree Cardiology Associates"
+
+
+def test_provider_card_carries_dac_identity(api):
+    # /providers/{npi}/procedures and /rates/quote both embed provider_card,
+    # which gains group_name / years_in_practice / hospital_affiliations when
+    # `make doctors-clinicians` has run (the conftest fixture builds it).
+    import datetime
+
+    card = api.get(f"/providers/{CARDIOLOGIST}/procedures",
+                   params={"network_name": BLUE_VALUE}).json()["provider"]
+    assert card["group_name"] == "Peachtree Cardiology Associates"
+    assert card["years_in_practice"] == datetime.date.today().year - 2005
+    hosp = card["hospital_affiliations"]
+    assert isinstance(hosp, list) and len(hosp) == 2
+    assert all({"ccn", "facility_name"} <= h.keys() for h in hosp)
+    assert {h["ccn"] for h in hosp} == {"110001", "110002"}
+
+    # a solo clinician (no group in the DAC fixture) → group_name null, key
+    # still present, affiliations an empty list
+    solo = api.get("/providers/1000000006/procedures").json()["provider"]
+    assert solo["group_name"] is None
+    assert solo["hospital_affiliations"] == []
 
 
 def test_provider_search_by_specialty(api):
