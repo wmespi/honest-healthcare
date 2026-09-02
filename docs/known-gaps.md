@@ -159,17 +159,16 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Operational
 
-- **Extraction completeness — checks in, reporting still open
-  ([#52](https://github.com/wmespi/honest-healthcare/issues/52)).** A truncated
-  download, a stalled transfer, a bad gzip trailer, a malformed
+- **Extraction completeness ([#52](https://github.com/wmespi/honest-healthcare/issues/52)).**
+  A truncated download, a stalled transfer, a bad gzip trailer, a malformed
   `provider_references` / `in_network` entry, or a document with neither section
-  now marks the file `failed` instead of landing as `completed` with partial
-  Parquet (`etl/parse.md` "Completeness gate" + "Known parser issues"). Still
-  open: a **HEAD-vs-GET `Content-Length` cross-check**, and a `coverage_log`
-  **sanity report** (flag 0-row / sub-10 KB / duplicate `(n_rate_rows,
-  n_provider_rows)` completions). Historic suspects to re-parse: file_ids
-  `{23005, 23346, 23355, 23923, 24045, 24454}` and `{22763, 24031}`
-  (byte-identical coverage stats across distinct files).
+  now marks the file `failed`, not `completed` with partial Parquet
+  (`etl/parse.md`). `coverage_log` is one-row-per-file (a re-parse replaces the
+  row) and `make cov-report` flags — and exits non-zero on — `completed` files
+  that parsed to zero rows, from a sub-10 KB payload, or with `(n_rate_rows,
+  n_provider_rows)` shared with another file. **Still open:** a **HEAD-vs-GET
+  `Content-Length` cross-check** (`make size`'s HEAD value and the parse GET can
+  disagree; only a GET short of its *own* length is caught).
 - **`make nppes` write is not atomic** — `ga_providers.parquet` is briefly 0 bytes
   during a re-extract and serving-layer queries touching it 500. Run when the API is
   idle.

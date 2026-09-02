@@ -130,8 +130,8 @@ test-all: check test-e2e test-api test-web ## Full sweep — gate + e2e + servin
 cov-probe: ## Coverage scorecard for the target plan — usage: make cov-probe LABEL=before
 	python3 scripts/coverage_probe.py --label $(or $(LABEL),probe)
 
-cov-report: ## Aggregate coverage_log — what each parsed file contributed. SCHEMA=test to read test.*
-	python3 scripts/coverage_report.py --schema $(or $(SCHEMA),public)
+cov-report: ## Aggregate coverage_log + flag partial-looking completions (exit 1 if any). SCHEMA=test · NO_FAIL=1
+	python3 scripts/coverage_report.py --schema $(or $(SCHEMA),public) $(if $(filter 1,$(NO_FAIL)),--no-fail,)
 
 smoke-web: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py

@@ -456,7 +456,10 @@ func newParquetWriter[T any](path string) (*parquet.GenericWriter[T], io.Closer,
 }
 
 // writeCoverageLog records one row summarizing what this file contributed. The
-// index_files metadata (market_types etc.) is joined in from the row itself.
+// index_files metadata (market_types etc.) is joined in from the row itself. A
+// re-parse replaces the file's prior row (DELETE + INSERT in one statement) so
+// coverage_log stays one-row-per-file — the `make cov-report` sanity check keys
+// on that to spot distinct files that parsed to identical counts (issue #52).
 func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location string, compressedBytes int64, totalCodesBefore int, note string, res *mrfResult) {
 	if note == "" {
 		note = "unfiltered"
@@ -466,6 +469,7 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 			note, res.PriceRowsDropped, res.ProviderRowsDropped, res.GroupsDropped)
 	}
 	_, err := conn.Exec(ctx, `
+		WITH prior AS (DELETE FROM coverage_log WHERE file_id = $1)
 		INSERT INTO coverage_log (
 			file_id, location, compressed_bytes,
 			n_rate_rows, n_provider_rows,

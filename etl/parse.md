@@ -41,8 +41,9 @@ CLI-only flags (no `make` var yet): `-all-npis`, `-networks "GA *"`, `-all-netwo
    `(network × price)` pointing at the `group_set_id`.
 5. Upsert each new billing code into Postgres `billing_codes`
    (`ON CONFLICT (billing_code) DO NOTHING`).
-6. Write one `coverage_log` row (row counts, new codes/NPIs/TINs, distinct
-   networks/settings/billing-classes) — observational, never read by the ETL.
+6. Write the file's `coverage_log` row (row counts, new codes/NPIs/TINs, distinct
+   networks/settings/billing-classes) — one row per file, a re-parse replaces it.
+   Observational: the ETL never reads it, but `make cov-report` gates on it.
 7. After the whole run, write `npi_lookup.parquet` (dedup NPI → TIN across all
    files parsed this run).
 8. Mark the row `completed` (+ `completed_at`, + per-file `reporting_entity_*`), or
@@ -79,9 +80,11 @@ another). A user-set `-networks` value applies everywhere. `-all-networks` disab
 
 Harmless for a single-operator sequential run; real at scale.
 
-- **No dedup on re-parse.** Parquet is keyed by `index_files.id` — re-parsing a
-  file overwrites its files cleanly. But the Postgres `billing_codes` upsert and
-  `coverage_log` append are not transactional with the Parquet write.
+- **Re-parse writes aren't transactional with the Parquet.** Parquet is keyed by
+  `index_files.id` (overwritten cleanly) and `coverage_log` is replaced per file,
+  but the `billing_codes` upsert and the `coverage_log` DELETE+INSERT aren't in a
+  transaction with the Parquet promote — a crash between them leaves them
+  briefly inconsistent.
 - **`pending → processing` is not atomic** — SELECT then UPDATE in two statements.
   Two concurrent parse containers could double-process. Fix: `SELECT … FOR UPDATE
   SKIP LOCKED`.
