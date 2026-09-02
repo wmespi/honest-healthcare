@@ -221,18 +221,20 @@ function NetworkDropdown({ selectedPlan, onSelect }) {
   );
 }
 
-// Row for one provider in the search dropdown.
-function ProviderRow({ s, onPick }) {
-  return (
-    <button
-      onClick={() => onPick(s)}
-      className="w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0"
-    >
+// Row for one provider in the search dropdown. `disabled` (a provider with no
+// rate in the picked plan) renders inert — a listing, not a choice, so "is my
+// doctor in this plan?" is still answerable without the dead-end quote screen.
+function ProviderRow({ s, onPick, disabled, planLabel }) {
+  const cls = "w-full px-4 py-2.5 text-left border-b border-white/5 last:border-0";
+  const inner = (
+    <>
       <div className="flex items-center gap-2">
         <span className={`text-sm font-bold truncate ${s.has_rates ? 'text-white' : 'text-slate-500'}`}>{s.name || s.npi}</span>
         {s.has_rates
           ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
-          : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">no rate data</span>}
+          : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">
+              {planLabel ? `not in ${planLabel}` : 'no rate data'}
+            </span>}
         {s.entity_type === 'organization' && (
           <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">clinic</span>
         )}
@@ -240,13 +242,15 @@ function ProviderRow({ s, onPick }) {
       <div className={`text-[11px] mt-0.5 truncate ${s.has_rates ? 'text-slate-500' : 'text-slate-600'}`}>
         {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
       </div>
-    </button>
+    </>
   );
+  if (disabled) return <div className={`${cls} opacity-50 cursor-not-allowed`}>{inner}</div>;
+  return <button onClick={() => onPick(s)} className={`${cls} hover:bg-white/5 transition-colors`}>{inner}</button>;
 }
 
 // Specialty scope — a filter, like Setting/Network. Default "All specialties".
 // Distinct from picking one Provider (that drills to a single NPI).
-function SpecialtyDropdown({ selected, onSelect }) {
+function SpecialtyDropdown({ selected, onSelect, network }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [opts, setOpts] = useState([]);
@@ -259,9 +263,9 @@ function SpecialtyDropdown({ selected, onSelect }) {
   }, []);
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(() => { getSpecialties(query).then(r => setOpts(r.data || [])).catch(() => {}); }, 200);
+    const t = setTimeout(() => { getSpecialties(query, network || undefined).then(r => setOpts(r.data || [])).catch(() => {}); }, 200);
     return () => clearTimeout(t);
-  }, [query, open]);
+  }, [query, open, network]);
 
   return (
     <div ref={ref} className="relative flex items-center gap-2">
@@ -302,8 +306,11 @@ function SpecialtyDropdown({ selected, onSelect }) {
   );
 }
 
-// Provider filter — one specific NPI by name / number. (Specialty is separate.)
-function NpiSearch({ selectedNpi, onSelect }) {
+// Provider filter — one specific NPI by name / number. A global lookup: it
+// ignores the specialty scope (you're naming a specific person), and picking one
+// clears the specialty so the two can't contradict. `label` is the parent's
+// name for the current selection (so a pick made elsewhere still shows a name).
+function NpiSearch({ selectedNpi, onSelect, network, label }) {
   const [query, setQuery] = useState('');
   const [selectedLabel, setSelectedLabel] = useState('');
   const [providers, setProviders] = useState([]);
@@ -320,10 +327,11 @@ function NpiSearch({ selectedNpi, onSelect }) {
   useEffect(() => {
     if (!isFocused || query.length === 0) { setProviders([]); return; }
     const t = setTimeout(() => {
-      searchProviders(query).then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
+      searchProviders(query, undefined, undefined, network || undefined)
+        .then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
-  }, [query, isFocused]);
+  }, [query, isFocused, network]);
 
   const pickProvider = (s) => {
     const label = s.name || String(s.npi);
@@ -333,13 +341,14 @@ function NpiSearch({ selectedNpi, onSelect }) {
   };
   const clear = () => { onSelect('', ''); setQuery(''); setSelectedLabel(''); };
   const firstNoRates = providers.findIndex(s => !s.has_rates);
+  const planLabel = network ? shortNetwork(network) : '';
 
   return (
     <div ref={ref} className="flex items-center gap-2">
       <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest shrink-0">Provider</span>
       {selectedNpi ? (
         <div className="flex items-center gap-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 h-8 max-w-[220px]">
-          <span className="text-xs text-indigo-300 font-bold truncate">{selectedLabel || selectedNpi}</span>
+          <span className="text-xs text-indigo-300 font-bold truncate">{label || selectedLabel || selectedNpi}</span>
           <button onClick={clear} className="text-slate-500 hover:text-white transition-colors shrink-0"><X size={12} /></button>
         </div>
       ) : (
@@ -363,10 +372,15 @@ function NpiSearch({ selectedNpi, onSelect }) {
                   <div key={i}>
                     {i === firstNoRates && i > 0 && (
                       <div className="px-4 py-1 text-[9px] font-black uppercase tracking-widest text-slate-600 bg-white/[0.02] border-y border-white/5">
-                        No rate data — {providers.length - firstNoRates} more
+                        {planLabel ? `Not in ${planLabel}` : 'No rate data'} — {providers.length - firstNoRates} more
                       </div>
                     )}
-                    <ProviderRow s={s} onPick={pickProvider} />
+                    <ProviderRow
+                      s={s}
+                      onPick={pickProvider}
+                      disabled={!s.has_rates && !!network}
+                      planLabel={planLabel}
+                    />
                   </div>
                 ))}
               </motion.div>
@@ -471,16 +485,32 @@ function titleCaseOrg(name) {
   }).join(' ');
 }
 
-// Name for one contracted provider group. Small groups get their real practice
-// name (NPPES org, else physician names); the big TIN/IPA rollups can't be
-// named and say so plainly.
+// Name for one billing practice — the group's tin_value resolved to an org
+// name, else a member org / physician name, else the taxonomy, else the raw id.
 function providerLabel(r) {
-  if (r.is_rollup) return 'Statewide contract group';
-  const named = (r.named_practices || []).filter(Boolean);
-  if (named.length) return titleCaseOrg(named[0]);
+  if (r.practice_name) return titleCaseOrg(r.practice_name);
+  const orgs = (r.ga_org_names || []).filter(Boolean);
+  if (orgs.length) return titleCaseOrg(orgs[0]);
+  const indiv = (r.ga_indiv_names || []).filter(Boolean);
+  if (indiv.length) return titleCaseOrg(indiv[0]);
   const tax = (r.ga_taxonomies || []).find(t => t && t !== 'Other');
   if (tax) return tax;
-  return `Provider group #${r.provider_group_id}`;
+  return `Practice ${r.practice_id}`;
+}
+
+// Shown in place of the provider-compare table / cost card until a plan is
+// picked — those views are plan-specific (a practice's rate on an HMO isn't its
+// rate on a PPO) and the query needs the network to stay fast.
+function PickPlanPrompt({ what }) {
+  return (
+    <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
+      <p className="text-white font-black text-lg tracking-tight">Pick your plan to {what}</p>
+      <p className="text-slate-400 text-sm mt-2 max-w-md mx-auto leading-relaxed">
+        Negotiated rates are plan-specific — choose your plan in the selector above
+        and this fills in.
+      </p>
+    </div>
+  );
 }
 
 // "Does the provider matter?" — Job 3. Blue Value is close to a network-wide fee
@@ -520,7 +550,7 @@ function ProviderRateTable({ data, loading, specialty }) {
             Picking a cheaper clinic won’t lower this price.
           </p>
           <p className="text-slate-600 text-xs mt-3">
-            {s.n_groups} contracted provider groups · {(s.n_providers ?? 0).toLocaleString()} providers
+            {(s.n_practices ?? 0).toLocaleString()} billing practices · {(s.n_providers ?? 0).toLocaleString()} providers
           </p>
         </div>
       ) : (() => {
@@ -567,8 +597,8 @@ function ProviderRateTable({ data, loading, specialty }) {
             {atModal.length > 0 && (
               <p className="text-slate-600 text-[11px] mt-4">
                 {atModal.length} contract{atModal.length > 1 ? 's' : ''} on the standard {rangeStr} schedule
-                {atModal.some(r => !r.is_rollup) && (
-                  <> — incl. {atModal.filter(r => !r.is_rollup).slice(0, 3).map(providerLabel).join(', ')}</>
+                {atModal.some(r => r.practice_name) && (
+                  <> — incl. {atModal.filter(r => r.practice_name).slice(0, 3).map(providerLabel).join(', ')}</>
                 )}
               </p>
             )}
@@ -1091,15 +1121,173 @@ function TrustBar({ selectedNetwork }) {
   );
 }
 
+// The plan-first front door (issue: Flow A). Negotiated rates are meaningless
+// without a plan — every rate view is scoped to one network — so we ask for the
+// plan before anything else. Reuses the curated picker; a link drops the gate
+// for the "just show me the data" case (the trust bar already warns that
+// "All Networks" mixes GA Blue Value with national mirror rows).
+function PlanGate({ selectedPlan, onSelect, onBrowseAll }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      className="mt-4 mb-10 bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 text-center"
+    >
+      <div className="w-12 h-12 mx-auto mb-5 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl flex items-center justify-center">
+        <ShieldCheck size={22} className="text-indigo-400" />
+      </div>
+      <h2 className="text-white font-black text-2xl tracking-tight">Start with your plan</h2>
+      <p className="text-slate-400 text-sm mt-2.5 max-w-sm mx-auto leading-relaxed">
+        Negotiated rates are plan-specific — a provider&rsquo;s price on an HMO isn&rsquo;t
+        their price on a PPO. Pick your plan and everything on this page is scoped to it.
+      </p>
+      <div className="mt-6 flex justify-center">
+        <NetworkDropdown selectedPlan={selectedPlan} onSelect={onSelect} />
+      </div>
+      <button
+        onClick={onBrowseAll}
+        className="mt-6 text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
+      >
+        Explore all networks without picking a plan
+      </button>
+    </motion.div>
+  );
+}
+
+// Ranked provider list for a specialty within the selected plan — the step
+// between "pick your care" and a specific provider. Rated providers first
+// (that ranking is the endpoint's job).
+function SpecialtyProviderList({ specialty, providers, loading, onPick }) {
+  if (loading) {
+    return (
+      <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+        Finding {specialty} providers…
+      </div>
+    );
+  }
+  const rows = providers || [];
+  if (!rows.length) {
+    return (
+      <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
+        <p className="text-white font-bold">No {specialty} providers with rates in this plan.</p>
+        <p className="text-slate-500 text-sm mt-2">Try another specialty, or search a provider by name.</p>
+      </div>
+    );
+  }
+  const withRates = rows.filter(r => r.has_rates);
+  const noRates = rows.filter(r => !r.has_rates);
+  const pick = (s) => onPick(String(s.npi), s.name || String(s.npi));
+  return (
+    <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
+      <h2 className="text-white font-black text-xl tracking-tight">{specialty}</h2>
+      {withRates.length > 0 ? (
+        <>
+          <p className="text-slate-500 text-xs mt-1">
+            {withRates.length.toLocaleString()} provider{withRates.length === 1 ? '' : 's'} with negotiated
+            rates in your plan. Pick one to see what they charge.
+          </p>
+          <div className="mt-4 divide-y divide-slate-800/60">
+            {withRates.map((s, i) => <ProviderRow key={i} s={s} onPick={pick} />)}
+          </div>
+        </>
+      ) : (
+        <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
+          None of the {specialty} providers we can see have published rates in this plan.
+          Try a related specialty, or search a provider by name.
+        </p>
+      )}
+      {noRates.length > 0 && (
+        <p className="text-slate-600 text-[11px] mt-4">
+          + {noRates.length.toLocaleString()} more {specialty} provider{noRates.length === 1 ? '' : 's'} in
+          NPPES we hold no rate data for in this plan.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// "Pick your care" — the specialty step, between plan and providers. An
+// always-open searchable list, alphabetical (the endpoint's order), with the
+// provider count shown as context, not a sort key.
+function SpecialtyBrowser({ onSelect, network }) {
+  const [query, setQuery] = useState('');
+  const [opts, setOpts] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(() => {
+      getSpecialties(query, network || undefined)
+        .then(r => { if (!cancelled) setOpts(r.data || []); })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setLoaded(true); });
+    }, 200);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [query, network]);
+
+  return (
+    <div className="mb-10">
+      <h2 className="text-white font-black text-xl tracking-tight">What kind of care do you need?</h2>
+      <p className="text-slate-500 text-xs mt-1">
+        Pick a specialty to see its providers and their rates on your plan — or search a procedure above.
+      </p>
+      <div className="mt-4 bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden">
+        <div className="p-3 border-b border-slate-800">
+          <input
+            value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="e.g. cardiology, dermatology, physical therapy…"
+            className="w-full bg-slate-800/80 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-500 outline-none"
+          />
+        </div>
+        <div className="max-h-96 overflow-y-auto divide-y divide-slate-800/60">
+          {!loaded && opts.length === 0 && (
+            <div className="px-5 py-4 text-[10px] text-slate-600 uppercase tracking-widest font-black animate-pulse">
+              Loading specialties…
+            </div>
+          )}
+          {opts.map((sp, i) => (
+            <button
+              key={i} onClick={() => onSelect(sp.specialty)}
+              className="w-full px-5 py-3 text-left hover:bg-indigo-500/[0.06] transition-colors flex items-center justify-between gap-4"
+            >
+              <span className="text-sm text-white font-medium truncate">{sp.specialty}</span>
+              <span className="text-[11px] text-slate-500 shrink-0 tabular-nums">
+                {sp.n_with_rates.toLocaleString()} provider{sp.n_with_rates === 1 ? '' : 's'}
+              </span>
+            </button>
+          ))}
+          {loaded && opts.length === 0 && (
+            <div className="px-5 py-4 text-xs text-slate-600">No specialties match “{query}”.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
-  const [selectedPlan, setSelectedPlan] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState(() => {
+    try { return localStorage.getItem('hh_network_v1') || ''; } catch { return ''; }
+  });
+  // Drops the plan gate for "just browse the data" — distinct from having a plan.
+  const [bypassGate, setBypassGate] = useState(false);
+  const gated = !selectedPlan && !bypassGate;
+
+  useEffect(() => {
+    try {
+      if (selectedPlan) localStorage.setItem('hh_network_v1', selectedPlan);
+      else localStorage.removeItem('hh_network_v1');
+    } catch { /* private mode — the plan just won't persist */ }
+  }, [selectedPlan]);
 
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
 
-  const [setting, setSetting] = useState('');
+  // Setting filter retired: the rate views are outpatient-professional by scope
+  // now (serving/data_sources.outpatient_scope). A place-of-service split
+  // (office vs hospital-outpatient) is the future refinement.
+  const setting = '';
   const [specialty, setSpecialtyState] = useState('');
   const [npi, setNpi] = useState('');
   const [npiLabel, setNpiLabel] = useState('');
@@ -1124,19 +1312,40 @@ function App() {
   const [networkCompare, setNetworkCompare] = useState(null);
   const [networkCompareLoading, setNetworkCompareLoading] = useState(false);
 
-  useEffect(() => {
-    // Load the network-wide overview immediately on mount.
-    fetchDistribution(null, null, '', '', '');
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [specialtyProviders, setSpecialtyProviders] = useState(null);
+  const [specialtyProvidersLoading, setSpecialtyProvidersLoading] = useState(false);
 
-  // Compare-across-providers table — a code is chosen and NO provider filter
-  // (with a provider, we show the cost card instead). Scoped by `specialty`.
+  // Load the overview once a plan is in play — either restored from a previous
+  // visit (on mount) or after the gate is dismissed. Picking a plan fetches via
+  // handlePlanSelect, so this must not also fire on selectedPlan.
+  useEffect(() => {
+    if (gated) return;
+    fetchDistribution(undefined, undefined, selectedPlan || undefined, '', '', undefined, '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bypassGate]);
+
+  // Ranked provider list for the chosen specialty — the step between "pick your
+  // care" and a specific provider. Only when a specialty is set with no provider
+  // or procedure yet.
+  useEffect(() => {
+    if (!specialty || npi || selectedCode?.code) { setSpecialtyProviders(null); return; }
+    let cancelled = false;
+    setSpecialtyProvidersLoading(true);
+    searchProviders('', specialty, 40, selectedPlan || undefined)
+      .then(res => { if (!cancelled) setSpecialtyProviders(res.data); })
+      .catch(() => { if (!cancelled) setSpecialtyProviders(null); })
+      .finally(() => { if (!cancelled) setSpecialtyProvidersLoading(false); });
+    return () => { cancelled = true; };
+  }, [specialty, npi, selectedCode, selectedPlan]);
+
+  // Compare-across-providers table — a code is chosen, NO provider filter, and a
+  // plan is picked (rates are plan-specific; the endpoint requires a network).
   useEffect(() => {
     const code = selectedCode?.code;
-    if (!code || npi) { setProviderRates(null); return; }
+    if (!code || npi || !selectedPlan) { setProviderRates(null); return; }
     let cancelled = false;
     setProviderRatesLoading(true);
-    getRatesByProvider(code, selectedCode.type, selectedPlan || undefined, setting || undefined, undefined,
+    getRatesByProvider(code, selectedCode.type, selectedPlan, setting || undefined, undefined,
       { specialty: specialty || undefined })
       .then(res => { if (!cancelled) setProviderRates(res.data); })
       .catch(() => { if (!cancelled) setProviderRates(null); })
@@ -1157,13 +1366,14 @@ function App() {
     return () => { cancelled = true; };
   }, [selectedCode, setting]);
 
-  // Job 1 cost card — a provider AND a specific procedure are both selected.
+  // Job 1 cost card — a provider AND a procedure are selected AND a plan is
+  // picked (the quote is plan-specific; the endpoint requires a network).
   useEffect(() => {
     const code = selectedCode?.code;
-    if (!npi || !code) { setProviderQuote(null); return; }
+    if (!npi || !code || !selectedPlan) { setProviderQuote(null); return; }
     let cancelled = false;
     setProviderQuoteLoading(true);
-    getRateQuote(code, selectedCode.type, npi, selectedPlan || undefined)
+    getRateQuote(code, selectedCode.type, npi, selectedPlan)
       .then(res => { if (!cancelled) setProviderQuote(res.data); })
       .catch(() => { if (!cancelled) setProviderQuote(null); })
       .finally(() => { if (!cancelled) setProviderQuoteLoading(false); });
@@ -1217,10 +1427,11 @@ function App() {
   }, [query, isFocused, npi, selectedPlan, setting]);
 
   const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi, rbcsCategory, activeSpecialty) => {
-    // Provider selected but no procedure yet: that's the "menu" view, handled by
-    // its own effect (ProviderMenu). Calling /rates/distribution here would
-    // full-scan prices with nothing pruning the code axis — it hangs.
-    if (activeNpi && !code) {
+    // No code yet, but a provider or a specialty is chosen: those are the "menu"
+    // / "specialty provider list" views, each handled by its own effect. Calling
+    // /rates/distribution here would scan prices with nothing pruning the code
+    // axis (and a network+specialty codeless scan is the slow path) — skip it.
+    if (!code && (activeNpi || activeSpecialty)) {
       setDistribution(null);
       setSelectedCode(null);
       setError(null);
@@ -1264,11 +1475,6 @@ function App() {
     fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi, undefined, specialty);
   };
 
-  const handleSettingChange = (s) => {
-    setSetting(s);
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, s, npi, undefined, specialty);
-  };
-
   const handleSpecialtyChange = (sp) => {
     setSpecialtyState(sp);
     fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, npi, undefined, sp);
@@ -1277,8 +1483,10 @@ function App() {
   const handleNpiSelect = (n, label) => {
     setNpi(n);
     setNpiLabel(label || '');
-    // (specialty stays as a scope; a specific provider just narrows further)
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, specialty);
+    // A specific provider supersedes a specialty scope — clear it so the two
+    // can't contradict (a speech therapist under a "Psychiatry" chip).
+    if (n && specialty) setSpecialtyState('');
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, n && specialty ? '' : specialty);
   };
 
   const handleCategoryPick = (term) => {
@@ -1334,12 +1542,22 @@ function App() {
             <br />actually pay?
           </h1>
           <p className="text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
-            Search any billing code to see the full distribution of negotiated rates across every provider in your network.
+            Choose your plan, pick the kind of care you need, and see what each provider
+            has negotiated — before your benefits apply.
           </p>
         </motion.div>
 
         <TrustBar selectedNetwork={selectedPlan} />
 
+        {gated && (
+          <PlanGate
+            selectedPlan={selectedPlan}
+            onSelect={handlePlanSelect}
+            onBrowseAll={() => setBypassGate(true)}
+          />
+        )}
+
+        {!gated && <>
         {/* Search row */}
         <div className="flex flex-col sm:flex-row gap-3 mb-10">
           <NetworkDropdown selectedPlan={selectedPlan} onSelect={handlePlanSelect} />
@@ -1408,42 +1626,25 @@ function App() {
 
         <CategoryBrowser onPick={handleCategoryPick} />
 
+        {/* "Pick your care" — the specialty step. Shown until a specialty,
+            provider, or procedure narrows the view. */}
+        {!specialty && !npi && !selectedCode?.code && (
+          <SpecialtyBrowser onSelect={handleSpecialtyChange} network={selectedPlan} />
+        )}
+
         {/* Filters row */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-8">
-          {/* Setting pills */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest mr-1">Setting</span>
-            {[
-              { label: 'All', value: '' },
-              { label: 'Outpatient', value: 'outpatient' },
-              { label: 'Inpatient', value: 'inpatient' },
-              { label: 'Ancillary', value: 'ancillary' },
-            ].map(({ label, value }) => (
-              <button
-                key={label}
-                onClick={() => handleSettingChange(value)}
-                className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
-                  setting === value
-                    ? 'bg-indigo-600 border-indigo-500 text-white'
-                    : 'bg-transparent border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Divider */}
-          <div className="hidden sm:block w-px h-5 bg-slate-800" />
-
-          {/* Specialty scope (a filter) */}
-          <SpecialtyDropdown selected={specialty} onSelect={handleSpecialtyChange} />
-
-          {/* Divider */}
-          <div className="hidden sm:block w-px h-5 bg-slate-800" />
+          {/* Specialty scope (a filter) — the SpecialtyBrowser above is the
+              picker on the empty landing; here it's the change / clear control. */}
+          {(specialty || npi || selectedCode?.code) && (
+            <>
+              <SpecialtyDropdown selected={specialty} onSelect={handleSpecialtyChange} network={selectedPlan} />
+              <div className="hidden sm:block w-px h-5 bg-slate-800" />
+            </>
+          )}
 
           {/* One specific provider (a drill-down) */}
-          <NpiSearch selectedNpi={npi} onSelect={handleNpiSelect} />
+          <NpiSearch selectedNpi={npi} onSelect={handleNpiSelect} network={selectedPlan} label={npiLabel} />
         </div>
 
         {/* Loading */}
@@ -1461,6 +1662,16 @@ function App() {
           <div className="py-10 text-center text-rose-400 font-medium">{error}</div>
         )}
 
+        {/* Specialty chosen, no provider or procedure yet → the ranked provider list */}
+        {specialty && !npi && !selectedCode?.code && !loading && (
+          <SpecialtyProviderList
+            specialty={specialty}
+            providers={specialtyProviders}
+            loading={specialtyProvidersLoading}
+            onPick={handleNpiSelect}
+          />
+        )}
+
         {/* Provider menu — provider chosen, no procedure yet */}
         {npi && !selectedCode?.code && !loading && (
           <ProviderMenu
@@ -1469,7 +1680,7 @@ function App() {
             onPick={handleMenuPick}
             providerName={npiLabel}
             network={selectedPlan}
-            onClearNetwork={() => handlePlanSelect('')}
+            onClearNetwork={() => { setBypassGate(true); handlePlanSelect(''); }}
             onShowAll={() => setMenuTier('all')}
             plan={planParams.plan}
           />
@@ -1495,7 +1706,7 @@ function App() {
                   { label: 'Min',    value: fmt(summary.min),    color: 'text-emerald-400' },
                   { label: 'Median', value: fmt(summary.median), color: 'text-indigo-400'  },
                   { label: 'Average',value: fmt(summary.avg),    color: 'text-violet-400'  },
-                  { label: 'Max',    value: fmt(summary.max),    color: 'text-rose-400'    },
+                  { label: 'Max',    value: summary.max_capped ? `${fmt(summary.max)}+` : fmt(summary.max), color: 'text-rose-400' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                     <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">{label}</div>
@@ -1523,9 +1734,13 @@ function App() {
                     <span className="text-white font-black">{summary.n_providers.toLocaleString()}</span> providers
                   </span>
                 )}
-                <span><span className="text-white font-black">{summary.provider_groups?.toLocaleString()}</span> provider groups</span>
+                {summary.provider_groups != null
+                  ? <span><span className="text-white font-black">{summary.provider_groups.toLocaleString()}</span> provider groups</span>
+                  : summary.n_codes != null && (
+                      <span><span className="text-white font-black">{summary.n_codes.toLocaleString()}</span> procedures priced</span>
+                    )}
                 <span><span className="text-white font-black">{summary.total_entries.toLocaleString()}</span> rate entries</span>
-                {summary.min > 0 && summary.max / summary.min >= 1.05 && (
+                {summary.min > 0 && !summary.max_capped && summary.max / summary.min >= 1.05 && (
                   <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
                 )}
               </div>
@@ -1536,7 +1751,7 @@ function App() {
                   <div>
                     <h2 className="text-white font-black text-xl tracking-tight">Rate Distribution</h2>
                     <p className="text-slate-500 text-xs mt-1">
-                      Provider groups per price range ·{' '}
+                      {selectedCode?.code ? 'Provider groups' : 'Negotiated rate lines'} per price range ·{' '}
                       <span className="text-indigo-400">— median {fmt(summary.median)}</span>
                     </p>
                   </div>
@@ -1584,22 +1799,28 @@ function App() {
               )}
 
               {/* Provider + procedure both chosen → the cost answer (job 1).
-                  Procedure only → the compare-across-providers table (job 3). */}
+                  Procedure only → the compare-across-providers table (job 3).
+                  Both are plan-specific — prompt for a plan first. */}
               {selectedCode?.code && npi && (
-                <ProviderCostCard
-                  data={providerQuote}
-                  loading={providerQuoteLoading}
-                  providerName={npiLabel}
-                  plan={planParams.plan}
-                  rbcsCategory={selectedCode?.rbcs_category}
-                />
+                selectedPlan
+                  ? <ProviderCostCard
+                      data={providerQuote}
+                      loading={providerQuoteLoading}
+                      providerName={npiLabel}
+                      plan={planParams.plan}
+                      rbcsCategory={selectedCode?.rbcs_category}
+                    />
+                  : <PickPlanPrompt what="see the rate at this provider" />
               )}
               {selectedCode?.code && !npi && (
-                <ProviderRateTable data={providerRates} loading={providerRatesLoading} specialty={specialty} />
+                selectedPlan
+                  ? <ProviderRateTable data={providerRates} loading={providerRatesLoading} specialty={specialty} />
+                  : <PickPlanPrompt what="compare providers for this procedure" />
               )}
             </motion.div>
           )}
         </AnimatePresence>
+        </>}
 
       </main>
     </div>

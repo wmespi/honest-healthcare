@@ -17,8 +17,11 @@ from ..data_sources import (
     PRICES_SRC,
     PROVIDERS_SRC,
     GROUP_SETS_SRC,
+    RATE_HIST_PATH,
     db,
+    have_rate_hist,
     network_slug,
+    outpatient_scope,
     price_filters,
 )
 from ..labels import (
@@ -31,6 +34,133 @@ from ..labels import (
 from ..evidence import code_tiers, did_bill, medicare_specialty
 
 router = APIRouter()
+
+_HIST_HAS_SCOPE: Optional[bool] = None
+
+
+def _hist_has_scope(conn) -> bool:
+    """Whether rate_hist.parquet carries the `scope` column (builds since the
+    outpatient-scope change). An older summary without it: fall back to the
+    unscoped overview rather than 500."""
+    global _HIST_HAS_SCOPE
+    if _HIST_HAS_SCOPE is None:
+        try:
+            cols = {r[0] for r in conn.execute(
+                f"DESCRIBE SELECT * FROM read_parquet('{RATE_HIST_PATH}')").fetchall()}
+            _HIST_HAS_SCOPE = "scope" in cols
+        except Exception:
+            _HIST_HAS_SCOPE = False
+    return _HIST_HAS_SCOPE
+
+
+def _sentinel_ceiling(conn, billing_code, billing_code_type) -> float:
+    """A rate at or below this, for this code, is a placeholder — not a real
+    negotiated price. Anthem fills the MRF-required positive `negotiated_rate`
+    with $0.01–$1.50 for not-separately-priced codes, and with proportionally
+    tiny values on big-ticket codes. `ceiling = max($1.00, 5% of the code's
+    volume-weighted median rate)`, off `rate_hist` so it stays consistent with
+    the overview. Codes absent from `rate_hist` get the $1.00 floor.
+    """
+    if not have_rate_hist():
+        return 1.0
+    scope = "AND scope = 'outpatient_prof'" if _hist_has_scope(conn) else ""
+    rows = conn.execute(f"""
+        SELECT bucket, SUM(n) AS n
+        FROM read_parquet('{RATE_HIST_PATH}')
+        WHERE billing_code = ? AND billing_code_type = ? {scope}
+        GROUP BY bucket ORDER BY bucket
+    """, [billing_code, billing_code_type]).fetchall()
+    if not rows:
+        return 1.0
+    total = sum(n for _, n in rows)
+    cum, median = 0, rows[-1][0]
+    for b, n in rows:
+        cum += n
+        if cum >= total / 2:
+            median = b + 12.5   # $25 bucket midpoint
+            break
+    return max(1.0, round(0.05 * median, 2))
+
+
+def _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting):
+    """Rate distribution off summary/rate_hist.parquet — no `prices` scan. Serves
+    the no-code network overview *and* the code-level view when no `network_name`
+    prunes the live path (issue #10 — the unpruned `prices ⨝ group_sets`
+    expansion spills 15-60 GB at GA scale).
+
+    `distribution` = the histogram bars (rate entries per $50 band). `summary` =
+    volume-weighted min / median / avg / max off the pooled CDF. Per-group /
+    per-provider counts aren't derivable here (no `prices ⨝ group_sets`) — they
+    come back `null`, with `n_codes` on the overview.
+    """
+    hsrc = f"read_parquet('{RATE_HIST_PATH}')"
+    conds, hp = ["billing_code_type = ?"], [billing_code_type]
+    if _hist_has_scope(conn):
+        # outpatient professional fee-for-service only — matches the drill-downs
+        conds.append("scope = 'outpatient_prof'")
+    if billing_code:
+        conds.append("billing_code = ?")
+        hp.append(billing_code)
+    if network_name:
+        conds.append("net = ?")
+        hp.append(network_slug(network_name))
+    if setting in ("outpatient", "both"):
+        conds.append("setting = ?")
+        hp.append(setting)
+    hwhere = " AND ".join(conds)
+
+    bar_cap = 5000 if billing_code else 2000
+    dist = conn.execute(f"""
+        SELECT FLOOR(LEAST(bucket, {bar_cap}) / 50) * 50 AS rate,
+               'fee schedule' AS negotiated_type,
+               SUM(n) AS provider_groups
+        FROM {hsrc}
+        WHERE {hwhere}
+        GROUP BY 1, 2
+        ORDER BY 1
+    """, hp).fetchall()
+
+    if not dist:
+        label = f"{billing_code_type}:{billing_code}" if billing_code else billing_code_type
+        raise HTTPException(404, detail=f"No rates found for {label}")
+
+    srow = conn.execute(f"""
+        WITH b AS (
+            SELECT bucket, SUM(n) AS n
+            FROM {hsrc} WHERE {hwhere}
+            GROUP BY 1
+        ),
+        c AS (
+            SELECT bucket, SUM(n) OVER (ORDER BY bucket) AS cum, SUM(n) OVER () AS tot
+            FROM b
+        )
+        SELECT
+            (SELECT MIN(bucket) FROM b),
+            (SELECT MAX(bucket) FROM b),
+            (SELECT SUM(bucket * n)::DOUBLE / NULLIF(SUM(n), 0) FROM b),
+            (SELECT MIN(bucket) FROM c WHERE cum >= tot / 2.0),
+            (SELECT COUNT(DISTINCT billing_code) FROM {hsrc} WHERE {hwhere}),
+            (SELECT SUM(n) FROM b)
+    """, hp + hp).fetchone()
+
+    return {
+        "billing_code": billing_code or "ALL",
+        "billing_code_type": billing_code_type if billing_code else "NETWORK",
+        "summary": {
+            "min":    round(srow[0], 2) if srow[0] is not None else None,
+            "max":    round(srow[1], 2) if srow[1] is not None else None,
+            "max_capped": srow[1] is not None and srow[1] >= 5000,  # overflow bucket
+            "avg":    round(srow[2], 2) if srow[2] is not None else None,
+            "median": round(srow[3], 2) if srow[3] is not None else None,
+            "provider_groups": None,   # not derivable without prices ⨝ group_sets — #48
+            "n_providers":     None,
+            "n_codes":       None if billing_code else (srow[4] or 0),
+            "total_entries": int(srow[5]) if srow[5] is not None else 0,
+        },
+        "distribution": [
+            {"rate": r[0], "type": r[1], "provider_groups": int(r[2])} for r in dist
+        ],
+    }
 
 
 @router.get("/rates/distribution")
@@ -59,11 +189,21 @@ def rate_distribution(
 
     conn = db()
 
+    # ── Read the precomputed histogram, never `prices`, whenever nothing prunes
+    # the live path OR the query is a browse-level overview: any no-code view
+    # (network-scoped or not), and the code-level view without a `network_name`
+    # (the unpruned `prices ⨝ group_sets` expansion spills 15-60 GB at GA scale —
+    # issue #10). rate_hist is Hive-partitioned by network and its buckets cap at
+    # $5k, so a network overview off it is both fast and immune to the
+    # million-dollar HCPCS drug rates (gene therapies, biologics — priced per
+    # course, not shoppable) that otherwise blow out the live min/max/avg. The
+    # live path runs only for a code+network drill-down or an `npi` anchor.
+    if have_rate_hist() and (not billing_code or not (network_name or npi)):
+        return _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting)
+
     # Expanding prices → provider groups is only affordable when the filter
-    # prunes prices hard (a billing_code) or the query needs per-NPI resolution
-    # (an npi filter). The bare overview (no code, maybe a network) aggregates
-    # over `prices` alone — bars/counts are distinct provider *rosters*, not the
-    # fully-expanded group count.
+    # prunes prices hard (a billing_code + network) or the query needs per-NPI
+    # resolution (an npi filter).
     heavy = bool(billing_code or npi)
 
     if heavy:
@@ -159,9 +299,11 @@ def rates_by_network(
     varies by provider (n_distinct_rates). Answers "does my plan choice matter
     for this procedure" — a tight fee-schedule HMO vs. a wide-spread PPO."""
     conn = db()
-    conds = ["pg.billing_code = ?", "pg.billing_code_type = ?", "COALESCE(pg.modifier,'') = ''"]
-    params: list = [billing_code, billing_code_type]
-    if setting:
+    ceiling = _sentinel_ceiling(conn, billing_code, billing_code_type)
+    conds = ["pg.billing_code = ?", "pg.billing_code_type = ?", "COALESCE(pg.modifier,'') = ''",
+             "pg.negotiated_rate > ?", outpatient_scope("pg")]
+    params: list = [billing_code, billing_code_type, ceiling]
+    if setting in ("outpatient", "both"):
         conds.append("pg.setting = ?")
         params.append(setting)
 
@@ -236,20 +378,41 @@ def rates_by_provider(
     limit: int = Query(default=200, le=1000),
 ):
     """
-    "Compare across providers" — one row per contracted provider group for a
-    code, ordered by price. Defaults to the global (unmodified) rate so groups
-    are compared like-for-like; `component=all` keeps every modifier, or pass a
-    specific one ("26", "TC").
+    "Compare across providers" — one row per **billing practice** (the group's
+    `tin_value`, an org NPI that resolves to a real practice name), ordered by
+    price. Defaults to the global (unmodified) rate so practices compare
+    like-for-like; `component=all` keeps every modifier, or pass a specific one
+    ("26", "TC").
 
-    Each row carries the named practices behind the group (org + individual
-    names) and its size; the frontend collapses the big TIN/IPA rollups and
-    surfaces the nameable ones. `summary` (min/median/max/modal rate, computed
-    over every matching group) supports a headline like "most contracts ~$82".
+    A practice recurs across the MRF as many file-local `provider_reference`
+    groups; folding on `tin_value` collapses those to one row (issue #48). Per-
+    row `n_groups` counts the groups a practice's rate reaches you through, so
+    it can exceed the summary's distinct `n_groups` (a group spanning several
+    TINs counts once per practice). `summary` min/median/max is over the
+    group-rate distribution — supports a headline like "most contracts ~$82".
+
+    One heavy pass materialises `_prac` (prices ⨝ group_sets ⨝ providers, pruned
+    to one code + one network + the outpatient scope); the rest aggregate that
+    temp table. The NPPES name lookup runs only for the practices actually
+    returned.
+
+    **A `network_name` is required** — a practice's rate is only comparable
+    within a plan, and the unpruned cross-network expansion spills 15-60 GB at
+    GA scale (issue #10). The frontend gates this panel on plan selection.
     """
+    if not network_name:
+        raise HTTPException(
+            400,
+            detail={"code": "network_required",
+                    "message": "Pick your plan to compare providers for this procedure."},
+        )
     conn = db()
+    ceiling = _sentinel_ceiling(conn, billing_code, billing_code_type)
 
     where, params = price_filters(billing_code, billing_code_type, network_name,
                                   setting, npi, specialty=specialty)
+    where += " AND pg.negotiated_rate > ?"
+    params = params + [ceiling]
     if component == "global":
         # NULL = a file parsed before the modifier column existed; treat as global.
         where += " AND COALESCE(pg.modifier, '') = ''"
@@ -257,127 +420,148 @@ def rates_by_provider(
         where += " AND pg.modifier = ?"
         params = params + [component]
     has_nppes = os.path.exists(GA_NPPES_PATH)
-    order_by = "pg.negotiated_rate DESC" if sort == "rate_desc" else "pg.negotiated_rate"
 
-    # Summary over ALL matching (group × rate) rows, before the LIMIT. Blue Value
-    # has ~30 groups/code so this is cheap; the billing_code filter prunes prices
-    # to a single code's partition slice first.
-    summary = conn.execute(f"""
-        WITH grp AS (
-            SELECT pg.file_id, pg.provider_group_id, pg.negotiated_rate
-            FROM {PRICE_GROUPS_SRC} pg
-            WHERE {where}
-            GROUP BY 1, 2, 3
-        ),
-        modal AS (
-            SELECT negotiated_rate, COUNT(*) AS n
-            FROM grp GROUP BY 1 ORDER BY n DESC, negotiated_rate LIMIT 1
-        )
-        SELECT MIN(g.negotiated_rate), MAX(g.negotiated_rate),
-               AVG(g.negotiated_rate), MEDIAN(g.negotiated_rate),
-               COUNT(*),
-               COUNT(DISTINCT (g.file_id, g.provider_group_id)),
-               (SELECT negotiated_rate FROM modal),
-               (SELECT n FROM modal),
-               COUNT(*) FILTER (WHERE g.negotiated_rate <= (SELECT MEDIAN(negotiated_rate) FROM grp))
-        FROM grp g
-    """, params).fetchone()
+    ga_join = ga_cols = ""
+    if has_nppes:
+        ga_join = f"LEFT JOIN read_parquet('{GA_NPPES_PATH}') ga ON ga.npi = p.npi"
+        ga_cols = (", COALESCE(ga.is_hospital, FALSE) AS is_hospital,"
+                   "  COALESCE(ga.is_clinic, FALSE)   AS is_clinic")
 
-    n_providers = conn.execute(f"""
-        SELECT COUNT(DISTINCT p.npi)
+    conn.execute(f"""
+        CREATE TEMP TABLE _prac AS
+        SELECT p.tin_value, pg.network_name, pg.file_id, pg.provider_group_id,
+               pg.negotiated_rate, pg.negotiated_type, p.npi{ga_cols}
         FROM {PRICE_GROUPS_SRC} pg
         JOIN {PROVIDERS_SRC} p
           ON p.file_id = pg.file_id AND p.provider_group_id = pg.provider_group_id
-        WHERE {where}
-    """, params).fetchone()[0]
-
-    if has_nppes:
-        ga_select = """,
-            COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_hospital) AS ga_hospital_npis,
-            COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_clinic)   AS ga_clinic_npis,
-            COUNT(DISTINCT ga.npi)                               AS ga_npi_count,
-            LIST(DISTINCT ga.org_name) FILTER (WHERE ga.org_name IS NOT NULL AND ga.org_name != '') AS ga_org_names,
-            LIST(DISTINCT TRIM(BOTH ', ' FROM ga.last_name || ', ' || ga.first_name))
-              FILTER (WHERE ga.entity_type = 'individual' AND ga.last_name IS NOT NULL AND ga.last_name != '') AS ga_indiv_names,
-            LIST(DISTINCT ga.taxonomy_group) FILTER (WHERE ga.taxonomy_group IS NOT NULL AND ga.taxonomy_group != '') AS ga_taxonomies"""
-        ga_join = f"LEFT JOIN read_parquet('{GA_NPPES_PATH}') ga ON p.npi = ga.npi"
-        ga_having = "HAVING COUNT(DISTINCT ga.npi) FILTER (WHERE ga.is_hospital) > 0" if ga_hospitals_only else ""
-    else:
-        ga_select, ga_join, ga_having = "", "", ""
-
-    # One row per contracted provider group — its rate RANGE for this code
-    # (min–max across settings), not one row per (group × rate). Lets the
-    # frontend rank practices without a practice appearing three times.
-    grp_order = "grp_max_rate DESC, grp_min_rate DESC" if sort == "rate_desc" else "grp_min_rate, grp_max_rate"
-    rows = conn.execute(f"""
-        SELECT
-            pg.provider_group_id,
-            MIN(pg.negotiated_rate) AS grp_min_rate,
-            MAX(pg.negotiated_rate) AS grp_max_rate,
-            MEDIAN(pg.negotiated_rate) AS grp_median_rate,
-            ANY_VALUE(pg.negotiated_type) AS negotiated_type,
-            ANY_VALUE(pg.network_name) AS network_name,
-            COUNT(DISTINCT p.npi) AS npi_count{ga_select}
-        FROM {PRICE_GROUPS_SRC} pg
-        LEFT JOIN {PROVIDERS_SRC} p
-            ON p.file_id = pg.file_id AND p.provider_group_id = pg.provider_group_id
         {ga_join}
         WHERE {where}
-        GROUP BY pg.file_id, pg.provider_group_id
-        {ga_having}
-        ORDER BY {grp_order}
-        LIMIT {limit}
-    """, params).fetchall()
+    """, params)
 
-    ROLLUP_THRESHOLD = 40  # groups bigger than this can't be meaningfully named
+    try:
+        summary = conn.execute("""
+            WITH pg_rate AS (
+                SELECT DISTINCT tin_value, network_name, file_id, provider_group_id,
+                                negotiated_rate
+                FROM _prac
+            )
+            SELECT MIN(negotiated_rate), MAX(negotiated_rate),
+                   AVG(negotiated_rate), MEDIAN(negotiated_rate),
+                   COUNT(*),
+                   COUNT(DISTINCT (file_id, provider_group_id)),
+                   (SELECT COUNT(DISTINCT npi) FROM _prac)
+            FROM pg_rate
+        """).fetchone()
 
-    def row(r):
+        hosp_cols = (", COUNT(DISTINCT npi) FILTER (WHERE is_hospital) AS hosp_npis,"
+                     "  COUNT(DISTINCT npi) FILTER (WHERE is_clinic)   AS clinic_npis") if has_nppes else ""
+        hosp_sel = ", COALESCE(n.hosp_npis, 0), COALESCE(n.clinic_npis, 0)" if has_nppes else ""
+        tin_rows = conn.execute(f"""
+            WITH pg_rate AS (
+                SELECT DISTINCT tin_value, network_name, file_id, provider_group_id,
+                                negotiated_rate, negotiated_type
+                FROM _prac
+            ),
+            rate_lvl AS (
+                SELECT tin_value, network_name,
+                       MIN(negotiated_rate) AS mn, MAX(negotiated_rate) AS mx,
+                       MEDIAN(negotiated_rate) AS md, ANY_VALUE(negotiated_type) AS nt,
+                       COUNT(DISTINCT (file_id, provider_group_id)) AS n_groups
+                FROM pg_rate GROUP BY 1, 2
+            ),
+            npi_lvl AS (
+                SELECT tin_value, network_name, COUNT(DISTINCT npi) AS npi_count{hosp_cols}
+                FROM _prac GROUP BY 1, 2
+            )
+            SELECT r.tin_value, r.network_name, r.mn, r.mx, r.md, r.nt, r.n_groups,
+                   COALESCE(n.npi_count, 0){hosp_sel}
+            FROM rate_lvl r
+            LEFT JOIN npi_lvl n USING (tin_value, network_name)
+        """).fetchall()
+    finally:
+        conn.execute("DROP TABLE _prac")
+
+    if not tin_rows:
+        raise HTTPException(404, detail=f"No rates for {billing_code_type}:{billing_code}")
+
+    # dict per practice: (mn, mx, md, nt, n_groups, npi_count[, hosp, clinic])
+    practices = []
+    for t in tin_rows:
+        d = {"practice_id": t[0], "network_name": t[1], "mn": t[2], "mx": t[3],
+             "md": t[4], "nt": t[5], "n_groups": t[6], "npi_count": t[7]}
+        if has_nppes:
+            d["hosp"], d["clinic"] = t[8], t[9]
+        practices.append(d)
+
+    if ga_hospitals_only:
+        practices = [p for p in practices if p.get("hosp", 0) > 0]
+
+    practices.sort(key=lambda p: (-p["mx"], -p["mn"]) if sort == "rate_desc"
+                   else (p["mn"], p["mx"]))
+    shown = practices[:limit]
+
+    # ── name the practices actually shown: the TIN's own org NPI, plus the org /
+    # individual names of its member providers. One bounded scan of `providers`.
+    names: dict = {}
+    if has_nppes and shown:
+        ids = [p["practice_id"] for p in shown]
+        ph = ", ".join("?" * len(ids))
+        for e in conn.execute(f"""
+            SELECT p.tin_value,
+                   ANY_VALUE(tn.org_name) FILTER (WHERE tn.org_name IS NOT NULL AND tn.org_name != ''),
+                   LIST(DISTINCT ga.org_name) FILTER (WHERE ga.org_name IS NOT NULL AND ga.org_name != ''),
+                   LIST(DISTINCT TRIM(BOTH ', ' FROM ga.last_name || ', ' || ga.first_name))
+                     FILTER (WHERE ga.entity_type = 'individual' AND ga.last_name IS NOT NULL AND ga.last_name != ''),
+                   LIST(DISTINCT ga.taxonomy_group) FILTER (WHERE ga.taxonomy_group IS NOT NULL AND ga.taxonomy_group != '')
+            FROM {PROVIDERS_SRC} p
+            LEFT JOIN read_parquet('{GA_NPPES_PATH}') ga ON ga.npi = p.npi
+            LEFT JOIN read_parquet('{GA_NPPES_PATH}') tn ON tn.npi = TRY_CAST(p.tin_value AS BIGINT)
+            WHERE p.tin_value IN ({ph})
+            GROUP BY p.tin_value
+        """, ids).fetchall():
+            names[e[0]] = e
+
+    def row(p):
         d = {
-            "provider_group_id": r[0],
-            "min_rate":          round(r[1], 2) if r[1] is not None else None,
-            "max_rate":          round(r[2], 2) if r[2] is not None else None,
-            "median_rate":       round(r[3], 2) if r[3] is not None else None,
-            "negotiated_rate":   round(r[1], 2) if r[1] is not None else None,  # back-compat
-            "negotiated_type":   r[4],
-            "network_name":      r[5],
-            "npi_count":         r[6],
+            "practice_id":     p["practice_id"],
+            "practice_name":   None,
+            "min_rate":        round(p["mn"], 2) if p["mn"] is not None else None,
+            "max_rate":        round(p["mx"], 2) if p["mx"] is not None else None,
+            "median_rate":     round(p["md"], 2) if p["md"] is not None else None,
+            "negotiated_rate": round(p["mn"], 2) if p["mn"] is not None else None,  # back-compat
+            "negotiated_type": p["nt"],
+            "network_name":    p["network_name"],
+            "npi_count":       p["npi_count"],
+            "n_groups":        p["n_groups"],
         }
         if has_nppes:
-            # ga_select order: hospital_npis, clinic_npis, npi_count, org_names,
-            #                  indiv_names, taxonomies  →  r[7..12]
-            npi_count = r[6] or 0
-            orgs = r[10] or []
-            indiv = r[11] or []
-            d["ga_hospital_npis"] = r[7]
-            d["ga_clinic_npis"] = r[8]
-            d["ga_npi_count"] = r[9]
+            e = names.get(p["practice_id"])
+            orgs = (e[2] if e else None) or []
+            indiv = (e[3] if e else None) or []
+            d["practice_name"] = (e[1] if e else None) or (orgs[0] if orgs else None)
+            d["ga_hospital_npis"] = p["hosp"]
+            d["ga_clinic_npis"] = p["clinic"]
             d["ga_org_names"] = orgs[:5]
             d["ga_indiv_names"] = indiv[:5]
-            d["ga_taxonomies"] = (r[12] or [])[:4]
-            d["is_rollup"] = npi_count > ROLLUP_THRESHOLD
-            d["named_practices"] = ([] if d["is_rollup"]
-                                    else (orgs[:3] or [n.title() for n in indiv[:3]]))
+            d["ga_taxonomies"] = ((e[4] if e else None) or [])[:4]
         return d
 
-    median = round(summary[3], 2) if summary[3] is not None else None
     return {
         "billing_code":      billing_code,
         "billing_code_type": billing_code_type,
         "component":         component,
         "nppes_ga": has_nppes,
         "summary": {
-            "min":       round(summary[0], 2) if summary[0] is not None else None,
-            "max":       round(summary[1], 2) if summary[1] is not None else None,
-            "avg":       round(summary[2], 2) if summary[2] is not None else None,
-            "median":    median,
-            "n_rows":    summary[4] or 0,
-            "n_groups":  summary[5] or 0,
-            "n_providers": n_providers or 0,
-            "modal_rate": round(summary[6], 2) if summary[6] is not None else None,
-            "n_at_modal": summary[7] or 0,
-            "n_at_or_below_median": summary[8] or 0,
+            "min":         round(summary[0], 2) if summary[0] is not None else None,
+            "max":         round(summary[1], 2) if summary[1] is not None else None,
+            "avg":         round(summary[2], 2) if summary[2] is not None else None,
+            "median":      round(summary[3], 2) if summary[3] is not None else None,
+            "n_rows":      summary[4] or 0,
+            "n_groups":    summary[5] or 0,
+            "n_providers": summary[6] or 0,
+            "n_practices": len(practices),
         },
-        "results": [row(r) for r in rows],
+        "results": [row(p) for p in shown],
     }
 
 
@@ -391,13 +575,20 @@ def rate_quote(
     """Job 1 — "what will this procedure cost at this provider". Resolves the NPI
     to its group-sets first (cheap), then the code's prices, and organises them
     by component modifier (global / professional / technical) and place of
-    service. Returns a headline rate + the breakdown."""
-    conn = db()
+    service. Returns a headline rate + the breakdown.
 
-    net_filter = "AND p.net = ?" if network_name else ""
-    params: list = [npi, billing_code, billing_code_type]
-    if network_name:
-        params.append(network_slug(network_name))
+    **A `network_name` is required** — the rate is plan-specific, and without the
+    partition prune this scans every network for the code (~8 s vs ~0.2 s)."""
+    if not network_name:
+        raise HTTPException(
+            400,
+            detail={"code": "network_required",
+                    "message": "Pick your plan to see the rate at this provider."},
+        )
+    conn = db()
+    ceiling = _sentinel_ceiling(conn, billing_code, billing_code_type)
+
+    params: list = [npi, billing_code, billing_code_type, ceiling, network_slug(network_name)]
 
     rows = conn.execute(f"""
         WITH npi_groups AS (
@@ -414,7 +605,9 @@ def rate_quote(
                MIN(p.negotiated_rate), MAX(p.negotiated_rate), COUNT(*)
         FROM {PRICES_SRC} p
         JOIN npi_sets s ON s.file_id = p.file_id AND s.group_set_id = p.group_set_id
-        WHERE p.billing_code = ? AND p.billing_code_type = ? {net_filter}
+        WHERE p.billing_code = ? AND p.billing_code_type = ?
+          AND p.negotiated_rate > ? AND p.net = ?
+          AND {outpatient_scope("p")}
         GROUP BY 1, 2, 3, 4
     """, params).fetchall()
 

@@ -25,6 +25,45 @@ the product is headed — and which of these gaps that closes — is in
   trusts the filename). Every other big `anthem/GA_*` file is a *different* GA
   individual plan, not Blue Value.
 
+## Data scope
+
+- **Consumer rate views show outpatient professional fee-for-service only.**
+  `serving/data_sources.outpatient_scope()` — `billing_class='professional' AND
+  setting IN ('outpatient','both') AND negotiation_arrangement='ffs' AND
+  negotiated_type IN ('fee schedule','negotiated')` — gates `/rates/providers`,
+  `/rates/by_network`, `/rates/quote` and the no-code `/rates/distribution`
+  overview (via `rate_hist.scope`). What's excluded and still in the store:
+  - **`negotiated_type='percentage'`** (~9M CPT rows) — `negotiated_rate` is a
+    percent of billed charges (`60.0` = 60%), not dollars. Was rendering as
+    "$60.00".
+  - **`per diem`** (per inpatient day) and **`derived`** (algorithmic fallback).
+  - **`billing_class='institutional'`** — facility/UB-04 lines.
+  - **`setting='inpatient'`** — inpatient-only rates. `setting='inpatient'` on
+    the scoped routes is *ignored*, not honoured.
+  - **`negotiation_arrangement='bundle'`** — price covers other services too.
+  A dedicated inpatient / facility view is the follow-up.
+- **HCPCS drug codes (J-codes) inflate pooled means.** `outpatient_scope()` does
+  *not* exclude physician-administered drugs — some are gene therapies /
+  biologics priced $3–4.5M per course (`J1411`, `J1413`, `J3391`…). The no-code
+  network overview is served off `rate_hist` (buckets cap at $5k) so its
+  min/median/max stay sane, but the volume-weighted `avg` still skews high and a
+  code-level drill-down on a J-code shows the real millions. Not shoppable care —
+  a `drug` scope flag (or dropping HCPCS J/Q from the consumer views) is the
+  proper fix; deferred.
+- **Sentinel / placeholder rates — no discrete tell, cut by a per-code ceiling.**
+  Anthem fills the MRF-required positive `negotiated_rate` with $0.01–$1.50 (and
+  proportionally-tiny values on big-ticket codes) for not-separately-priced
+  codes. They share `fee schedule` / `ffs` / `professional` with the real rates —
+  no field distinguishes them, and the exact values are a long tail, not a fixed
+  set. Jobs 1–3 drop rows at or below `_sentinel_ceiling` = `GREATEST($1.00, 5% ×
+  the code's rate_hist median)`. The histogram / overview still show them (min
+  `$0`), and the ceiling is deliberately loose (5% × median) so a genuinely
+  cheap contract survives — a tighter cut needs the discrete signal we don't
+  have ([GH #51](https://github.com/wmespi/honest-healthcare/issues/51)).
+- **`/networks`, `/billing_codes`, `/procedure_categories` are not scoped** —
+  `rate_summary` / `code_rollup` sum every scope. They answer "what's priced in
+  this network", not "what does an outpatient visit cost".
+
 ## Provider ↔ procedure
 
 - **`plausibility()` is a heuristic; CMS utilization is the evidence layer.** A
@@ -50,15 +89,44 @@ the product is headed — and which of these gaps that closes — is in
   there's no public commercial-utilization source to widen this.
   [GH #14](https://github.com/wmespi/honest-healthcare/issues/14).
 
+- **`has_rates` / `n_with_rates` are corpus-wide unless a `network_name` is
+  passed.** `/providers/search` and `/specialties` default to the `npi_lookup`
+  (any-Anthem-network) signal; pass `network_name` and they scope to that
+  plan's `providers` roster instead (`_rated_npi()`). The plan-first frontend
+  always passes it. The `providers`-roster proxy is "the NPI sits in a
+  network-attributed provider group", not "a priced row was verified for this
+  NPI in this network" — close but not identical; the exact check would join
+  `prices ⨝ group_sets`. Deferred with the scale work
+  ([#10](https://github.com/wmespi/honest-healthcare/issues/10)).
+
 ## Scale / performance
 
 - **Browse-layer summary is a full rebuild, not incremental.** `/networks`,
-  `/billing_codes`, `/procedure_categories` now read `anthem/summary/` when it
-  exists (`make build-summary` — [#10](https://github.com/wmespi/honest-healthcare/issues/10)),
-  falling back to the live `prices ⨝ group_sets` scan (`VOL_CTE`) when it
-  doesn't. The build recomputes the whole summary each run (~45s at 11.7M price
-  rows, ~minutes at 20 GB); per-file partials → merge is the follow-up. It is
-  also **not auto-triggered** — run it after each `make parse` batch.
+  `/billing_codes`, `/procedure_categories` and the no-code `/rates/distribution`
+  (network overview) read `anthem/summary/` when it exists (`make build-summary`
+  — [#10](https://github.com/wmespi/honest-healthcare/issues/10)), falling back
+  to the live `prices` / `prices ⨝ group_sets` scan when it doesn't. The build
+  recomputes the whole summary each run (~3 min at 645M price rows — the
+  `rate_hist` scan dominates); per-file partials → merge is the follow-up. It is
+  also **not auto-triggered** — run it after each `make parse` batch, or the
+  overview 404s / the browse counts go stale. The overview is **CPT-only** (the
+  `rate_hist` scan keeps every code type, but the endpoint filters to CPT) —
+  revenue codes (`RC`, e.g. `0510` at up to $7.2M) and per-unit drug J-codes
+  otherwise blow the summary spread to nonsense
+  ([GH #51](https://github.com/wmespi/honest-healthcare/issues/51)).
+- **`/rates/by_network` still scans `prices ⨝ group_sets` live.** It prunes hard
+  on the required `billing_code` so it doesn't OOM (~6 s at 645M rows), but it's
+  the one consumer endpoint not yet on the summary. Moving it to per-network CDF
+  reads off `rate_hist` + a `(net, code) → n_groups` rollup is the remaining
+  slice-2 item ([#10](https://github.com/wmespi/honest-healthcare/issues/10)).
+- **`/rates/by_network` `n_groups` and `n_providers` measure different things
+  and neither bounds the other.** `n_groups` counts distinct *file-local*
+  `(file_id, provider_group_id)` instances — one practice recurs as a group
+  across every file that lists it — so at corpus scale it far exceeds
+  `n_providers` (distinct NPIs) for the big networks, and rollup-heavy small
+  networks (Military/VA, retail clinics) go the other way. Same root cause as
+  `code_rollup.n_provider_groups`; a real distinct rollup is
+  [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
 - **`code_rollup.n_provider_groups` is an inflated ranking hint, not a distinct
   count.** It sums the code's rosters' sizes, so a provider group in several of a
   code's rosters is counted per-roster (same as the old `VOL_CTE`; #45's
@@ -66,6 +134,22 @@ the product is headed — and which of these gaps that closes — is in
   ~1.1M for a common code. Ordering is fine; **never render it as "N providers".**
   A real `(payer, code) → n_providers` distinct rollup:
   [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
+- **`/rates/providers` + `/rates/quote` require a `network_name`** (`400
+  {"code": "network_required"}`). The unpruned cross-network expansion spilled
+  15–60 GB and a precomputed `(code, network, tin) → rate` rollup is infeasible
+  here (one common code = 264k rollup rows; the build OOM'd on this box) — so the
+  view is plan-scoped instead. With a network the `_prac` temp-table pass
+  (`prices ⨝ group_sets ⨝ providers ⨝ nppes`, one code + one network) is ~0.4 s.
+  The plan-first front door ([direction.md](direction.md) Flow A) makes this the
+  natural flow anyway. Per-row `n_groups` over-counts a provider group that
+  spans several TINs (it's "groups this practice's rate reaches you through") —
+  the summary `n_groups` is the true distinct count.
+- **`/rates/distribution` for a code without a `network_name` serves off
+  `rate_hist`**, not the live expansion (which was ~27 s). `provider_groups` /
+  `n_providers` come back `null` there; the histogram bars are $25-bucket, not
+  exact-rate.
+- **`/rates/providers` `ga_hospitals_only` filters the rows but not `summary`** —
+  the min/median/max still describe every practice. Niche param; revisit if used.
 - **Backend opens a fresh `duckdb.connect()` per request** — bounded now
   (`memory_limit`, `temp_directory` in `db()`), but no connection reuse / zonemap
   cache. Persistent pooled connection is the remaining #10 item.

@@ -6,6 +6,8 @@ import App from './App';
 
 vi.mock('./api');
 
+const BV = 'GA Blue Value HIX Individual Network';
+
 const OVERVIEW = {
   billing_code: 'ALL',
   billing_code_type: 'NETWORK',
@@ -34,6 +36,10 @@ const MENU = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // The plan-first flow gates the whole page until a plan is chosen. Default the
+  // suite to a "returning visitor" with a saved plan so each test exercises its
+  // own subject; the gate itself has dedicated tests below.
+  try { localStorage.clear(); localStorage.setItem('hh_network_v1', BV); } catch { /* ignore */ }
   api.getNetworks.mockResolvedValue({ data: [{ network_name: 'GA Blue Value HIX Individual Network', n_rates: 76197 }] });
   api.getHealth.mockResolvedValue({ data: {
     status: 'ok', priceable_npis: 27470, n_codes: 20697, as_of: '2026-08-28',
@@ -73,6 +79,12 @@ async function selectProvider(user) {
   await user.click(opt);
 }
 
+// Pick the curated plan from the gate (or the network dropdown).
+async function selectPlan(user) {
+  await user.click(screen.getByText('All Networks'));
+  await user.click(await screen.findByText('Blue Value HMO — Individual'));
+}
+
 // Regression: a provider selected with no procedure must NOT trigger an
 // npi-only /rates/distribution call (it full-scans and hangs — see the
 // "QUERYING MRF DATA..." spinner that never resolves). It should show the menu.
@@ -86,7 +98,7 @@ describe('provider selected without a procedure', () => {
 
     // The menu view loads.
     expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
-    expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'plausible');
+    expect(api.getProviderMenu).toHaveBeenCalledWith('123', BV, undefined, '', 'plausible');
 
     // ...and the app is not stuck on the loading spinner.
     expect(screen.queryByText(/querying mrf data/i)).not.toBeInTheDocument();
@@ -112,12 +124,12 @@ describe('provider selected without a procedure', () => {
 
     await waitFor(() =>
       expect(api.getRateDistribution).toHaveBeenCalledWith(
-        '99213', 'CPT', undefined, undefined, '123', undefined,
+        '99213', 'CPT', BV, undefined, '123', undefined,
       ),
     );
     // With a provider active, the cost card (job 1) is fetched — not the
     // compare-across-providers table.
-    await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', undefined));
+    await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', BV));
     expect(api.getRatesByProvider).not.toHaveBeenCalled();
     expect(await screen.findByText(/negotiated cost/i)).toBeInTheDocument();
   });
@@ -260,7 +272,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
     const showAll = await screen.findByText(/1 more rates contracted/i);
     await user.click(showAll);
 
-    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, '', 'all'));
+    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', BV, undefined, '', 'all'));
     await user.click(await screen.findByText('Procedure'));
     expect(await screen.findByText('Random Surgery')).toBeInTheDocument();
   });
@@ -281,7 +293,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
     expect(await screen.findByText('Medicare')).toBeInTheDocument();
   });
 
-  it('marks provider search results we hold no rate data for', async () => {
+  it('marks provider search results with no rate in the picked plan — and makes them unpickable', async () => {
     const user = userEvent.setup();
     api.searchProviders.mockResolvedValue({ data: [
       { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
@@ -293,14 +305,42 @@ describe('Medicare utilization evidence (issue #14)', () => {
     await user.click(input);
     await user.type(input, 'cardio');
 
+    // network is scoped to the saved plan → no-rate rows say "not in <plan>"
     expect(await screen.findByText('has rates')).toBeInTheDocument();
-    expect(screen.getByText('no rate data')).toBeInTheDocument();
+    expect(screen.getAllByText(/not in Blue Value/i).length).toBeGreaterThanOrEqual(2); // header + row
+    expect(screen.getByText(/Not in Blue Value.*1 more/i)).toBeInTheDocument();
+
+    // the out-of-plan provider is a listing, not a button — clicking it is inert
+    const deadRow = screen.getByText('CARDIOLOGY CARE CLINIC, LLC');
+    expect(deadRow.closest('button')).toBeNull();
+    await user.click(deadRow);
+    expect(screen.queryByText(/No negotiated rates for/i)).not.toBeInTheDocument();
+  });
+
+  it('still labels rows plainly "no rate data" when browsing without a plan', async () => {
+    const user = userEvent.setup();
+    try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ }
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
+      { npi: 222, name: 'CARDIOLOGY CARE CLINIC, LLC', city: 'EATONTON', specialty: 'Cardiac Facilities', has_rates: false },
+    ] });
+    render(<App />);
+    await user.click(await screen.findByText(/explore all networks without picking a plan/i));
+    const input = screen.getByPlaceholderText(/name or NPI/i);
+    await user.click(input);
+    await user.type(input, 'cardio');
+
+    expect(await screen.findByText('no rate data')).toBeInTheDocument();
     expect(screen.getByText(/No rate data — 1 more/i)).toBeInTheDocument();
+    // no plan → still pickable
+    expect(screen.getByText('CARDIOLOGY CARE CLINIC, LLC').closest('button')).not.toBeNull();
   });
 });
 
 describe('out-of-pocket estimator (issue #30)', () => {
-  beforeEach(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+  beforeEach(() => {
+    try { localStorage.clear(); localStorage.setItem('hh_network_v1', BV); } catch { /* ignore */ }
+  });
 
   it('shows "You\'d pay ≈" on the cost card once cost-sharing is entered', async () => {
     const user = userEvent.setup();
@@ -346,6 +386,8 @@ describe('out-of-pocket estimator (issue #30)', () => {
 });
 
 describe('friendly plan picker (issue #33)', () => {
+  beforeEach(() => { try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ } });
+
   it('offers the curated plan and resolves it to its network', async () => {
     const user = userEvent.setup();
     api.getNetworks.mockResolvedValue({ data: [
@@ -408,10 +450,10 @@ describe('specialty scope filter (issue #31 rework)', () => {
     await user.click(await screen.findByText('Cardiovascular Disease'));
 
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
-      '99213', 'CPT', undefined, undefined, undefined, 'Cardiovascular Disease',
+      '99213', 'CPT', BV, undefined, undefined, 'Cardiovascular Disease',
     ));
     await waitFor(() => expect(api.getRatesByProvider).toHaveBeenCalledWith(
-      '99213', 'CPT', undefined, undefined, undefined,
+      '99213', 'CPT', BV, undefined, undefined,
       expect.objectContaining({ specialty: 'Cardiovascular Disease' }),
     ));
     // the provider (name) search is untouched — still its own control
@@ -448,7 +490,7 @@ describe('procedure search scoping', () => {
     await user.click(search);
     await user.type(search, 'destruction');
 
-    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', undefined, undefined, 'destruction'));
+    await waitFor(() => expect(api.getProviderMenu).toHaveBeenCalledWith('123', BV, undefined, 'destruction'));
     expect(api.searchBillingCodes).not.toHaveBeenCalled();
   });
 });
@@ -462,10 +504,10 @@ describe('compare-across-providers view', () => {
     ] });
     api.getRatesByProvider.mockResolvedValue({ data: {
       billing_code: '99213', component: 'global',
-      summary: { min: 56.84, max: 123.08, median: 90.5, n_groups: 12, n_providers: 6566, modal_rate: 56.84, n_at_modal: 9, n_at_or_below_median: 8 },
+      summary: { min: 56.84, max: 123.08, median: 90.5, n_practices: 989, n_groups: 12, n_providers: 6566 },
       results: [
-        { provider_group_id: 1, min_rate: 123.08, max_rate: 123.08, median_rate: 123.08, npi_count: 1, is_rollup: false, named_practices: ['MOON DERMATOLOGY'], ga_taxonomies: [], ga_hospital_npis: 0 },
-        { provider_group_id: 2, min_rate: 56.84, max_rate: 123.08, median_rate: 90.5, npi_count: 5643, is_rollup: true, named_practices: [], ga_taxonomies: [], ga_hospital_npis: 1 },
+        { practice_id: '1', practice_name: 'MOON DERMATOLOGY', min_rate: 123.08, max_rate: 123.08, median_rate: 123.08, npi_count: 1, n_groups: 1, ga_taxonomies: [], ga_hospital_npis: 0 },
+        { practice_id: '2', practice_name: 'EMORY MEDICAL CARE FOUNDATION INC', min_rate: 56.84, max_rate: 123.08, median_rate: 90.5, npi_count: 5643, n_groups: 6, ga_taxonomies: [], ga_hospital_npis: 1 },
       ],
     } });
 
@@ -477,21 +519,85 @@ describe('compare-across-providers view', () => {
     await user.type(search, 'office');
     await user.click(await screen.findByText('Office Visit'));
 
+    // plan is already chosen (plan-first flow) — the compare view fills in
     expect(await screen.findByText(/does the provider matter/i)).toBeInTheDocument();
-    // the outlier practice is surfaced individually
     expect(screen.getByText(/Moon Dermatology/i)).toBeInTheDocument();
-    // the rollup, which carries the standard schedule, is folded into the summary line
     expect(screen.getByText(/on the standard/i)).toBeInTheDocument();
     expect(api.getRatesByProvider).toHaveBeenCalledWith(
-      '99213', 'CPT', undefined, undefined, undefined, expect.objectContaining({ specialty: undefined }));
+      '99213', 'CPT', 'GA Blue Value HIX Individual Network', undefined, undefined,
+      expect.objectContaining({ specialty: undefined }));
   });
 });
 
 describe('default landing state', () => {
-  it('loads the network overview without a code or npi', async () => {
+  it('loads the overview for the saved plan, no code or npi', async () => {
     render(<App />);
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
-    expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, BV, undefined, undefined, undefined);
     expect(api.getProviderMenu).not.toHaveBeenCalled();
+  });
+});
+
+describe('plan-first gate', () => {
+  beforeEach(() => { try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ } });
+
+  it('blocks the explorer until a plan is chosen, then loads it', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    // gated: the "start with your plan" step, no data call, no search box
+    expect(await screen.findByText(/start with your plan/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/search procedure or billing code/i)).not.toBeInTheDocument();
+    expect(api.getRateDistribution).not.toHaveBeenCalled();
+
+    await selectPlan(user);
+
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
+      undefined, undefined, BV, undefined, undefined, undefined));
+    expect(screen.queryByText(/start with your plan/i)).not.toBeInTheDocument();
+    // and the plan is remembered
+    expect(localStorage.getItem('hh_network_v1')).toBe(BV);
+  });
+
+  it('lets the user bypass the gate to browse all networks', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText(/explore all networks without picking a plan/i));
+
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
+      undefined, undefined, undefined, undefined, undefined, undefined));
+    expect(screen.getByPlaceholderText(/search procedure or billing code/i)).toBeInTheDocument();
+  });
+});
+
+describe('specialty-first flow', () => {
+  it('plan → specialty → a ranked provider list', async () => {
+    const user = userEvent.setup();
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', specialty: 'Cardiovascular Disease', has_rates: true, entity_type: 'individual' },
+      { npi: 456, name: 'NO RATES CLINIC', city: 'MACON', specialty: 'Cardiovascular Disease', has_rates: false, entity_type: 'organization' },
+    ] });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+
+    // the care step: alphabetical specialty list with provider counts shown
+    expect(await screen.findByText(/what kind of care do you need/i)).toBeInTheDocument();
+    await user.click(await screen.findByText('Cardiovascular Disease'));
+
+    // provider list for that specialty, scoped to the plan
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV));
+    expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
+    // a provider with no rates in this plan isn't a pickable row — just a count
+    expect(screen.queryByText('NO RATES CLINIC')).not.toBeInTheDocument();
+    expect(screen.getByText(/1 more Cardiovascular Disease provider/i)).toBeInTheDocument();
+    // no codeless network+specialty distribution scan
+    for (const call of api.getRateDistribution.mock.calls) {
+      const [code, , , , , spec] = call;
+      if (spec) expect(code).toBeTruthy();
+    }
+
+    // pick a provider → their menu
+    await user.click(screen.getByText('ABBOTT, ASHLEY'));
+    expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
   });
 });

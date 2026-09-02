@@ -32,6 +32,7 @@ NPI_LOOKUP_PATH  = f"{DATA_DIR}/anthem/npi_lookup.parquet"
 # instead of scanning prices ⨝ group_sets (~1e9 rows). Absent until the build
 # runs; the endpoints fall back to the live scan (VOL_CTE) when so.
 RATE_SUMMARY_PATH = f"{DATA_DIR}/anthem/summary/rate_summary.parquet"
+RATE_HIST_PATH    = f"{DATA_DIR}/anthem/summary/rate_hist.parquet"
 CODE_ROLLUP_PATH  = f"{DATA_DIR}/anthem/summary/code_rollup.parquet"
 GA_NPPES_PATH    = f"{DATA_DIR}/nppes/ga_providers.parquet"
 CODE_LABELS_PATH = f"{DATA_DIR}/reference/code_labels.parquet"
@@ -91,17 +92,43 @@ def network_slug(name: str) -> str:
     return s or "_unattributed"
 
 
+def outpatient_scope(alias: str = "pg") -> str:
+    """The slice the consumer rate views compare: outpatient professional
+    fee-for-service dollar amounts.
+
+    Drops institutional/facility lines, inpatient-only rates, `bundle` /
+    `capitation` arrangements, and `percentage` / `per diem` / `derived` types —
+    whose `negotiated_rate` is not a per-visit dollar figure (a "60.0" means 60%
+    of billed charges, not $60). `setting = 'both'` stays: it applies in either
+    setting, outpatient included. Inpatient and the other types remain in the
+    store for a later dedicated view — see docs/known-gaps.md.
+    """
+    a = f"{alias}." if alias else ""
+    return (
+        f"{a}billing_class = 'professional' "
+        f"AND {a}setting IN ('outpatient', 'both') "
+        f"AND {a}negotiation_arrangement = 'ffs' "
+        f"AND {a}negotiated_type IN ('fee schedule', 'negotiated')"
+    )
+
+
 def price_filters(billing_code, billing_code_type, network_name, setting, npi,
-                  specialty=None):
+                  specialty=None, scope=True):
     """Shared WHERE for the price_groups source (alias pg). Returns (sql, params).
 
     `specialty` (a NUCC classification/specialization label) keeps only groups
     that contain at least one provider of that specialty — a coarse but useful
     scope ("cardiologists' contracted rates for an echo"). Cheap when a
     billing_code is also given (prices prune to one code first).
+
+    `scope=True` appends `outpatient_scope()` — the default for every consumer
+    rate view. Pass `scope=False` only for a view that deliberately spans
+    settings / arrangements.
     """
     conditions = ["1=1"]
     params: list = []
+    if scope:
+        conditions.append(outpatient_scope("pg"))
     if billing_code:
         conditions += ["pg.billing_code = ?", "pg.billing_code_type = ?"]
         params += [billing_code, billing_code_type]
@@ -109,6 +136,10 @@ def price_filters(billing_code, billing_code_type, network_name, setting, npi,
         # net is the Hive partition key — prunes the scan to one directory.
         conditions.append("pg.net = ?")
         params.append(network_slug(network_name))
+    if scope and setting not in (None, "", "outpatient", "both"):
+        # `inpatient` / `ancillary` can't narrow an outpatient-scoped view —
+        # ignore rather than return an empty screen (the inpatient view is #TBD).
+        setting = None
     if setting:
         conditions.append("pg.setting = ?")
         params.append(setting)
@@ -159,8 +190,17 @@ def have_prices() -> bool:
 
 
 def have_summary() -> bool:
-    """Both browse-layer summary tables have been built (`make build-summary`)."""
+    """The browse-layer rollups have been built (`make build-summary`) — what
+    `/networks`, `/billing_codes`, `/procedure_categories` read."""
     return os.path.exists(RATE_SUMMARY_PATH) and os.path.exists(CODE_ROLLUP_PATH)
+
+
+def have_rate_hist() -> bool:
+    """The pre-bucketed histogram is present — gates the no-code network
+    overview (`/rates/distribution`) onto the summary path. Written by the same
+    build; split out so an older summary without it doesn't also knock the
+    rollup endpoints off their fast path."""
+    return os.path.exists(RATE_HIST_PATH)
 
 
 _NPPES_COLS: Optional[set] = None

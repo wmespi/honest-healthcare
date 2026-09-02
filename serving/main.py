@@ -12,7 +12,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .data_sources import (
-    GROUP_SETS_SRC, NPI_LOOKUP_PATH, PRICES_GLOB, PRICES_SRC, PROVIDERS_SRC, db,
+    GROUP_SETS_SRC, NPI_LOOKUP_PATH, PRICES_GLOB, PRICES_SRC, PROVIDERS_SRC,
+    RATE_SUMMARY_PATH, db, have_summary,
 )
 from .routers import providers, rates, reference
 
@@ -46,23 +47,35 @@ def _data_as_of():
 def health():
     conn = db()
     try:
-        prices    = conn.execute(f"SELECT COUNT(*) FROM {PRICES_SRC}").fetchone()[0]
+        # COUNT(*) over the parquet globs is footer-only (fast even at 1e9 rows).
         edges     = conn.execute(f"SELECT COUNT(*) FROM {GROUP_SETS_SRC}").fetchone()[0]
         providers = conn.execute(f"SELECT COUNT(*) FROM {PROVIDERS_SRC}").fetchone()[0]
-        # context for the trust bar (issue #32) — priceable NPIs (npi_lookup, the
-        # same set /providers/search flags has_rates against), the network list,
-        # code coverage, and the data date.
+
         if _os.path.exists(NPI_LOOKUP_PATH):
             priceable_npis = conn.execute(
                 f"SELECT COUNT(DISTINCT npi) FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true)"
             ).fetchone()[0]
         else:
-            priceable_npis = conn.execute(f"SELECT COUNT(DISTINCT npi) FROM {PROVIDERS_SRC}").fetchone()[0]
+            priceable_npis = 0
+
+        # trust bar (issue #32): total rate rows, the network list, code coverage.
+        # The DISTINCT aggregates would full-scan `prices` (645M+ rows → OOM), so
+        # read them from the browse summary when it's built (#10).
+        if have_summary():
+            src = f"read_parquet('{RATE_SUMMARY_PATH}')"
+            prices = conn.execute(f"SELECT COALESCE(SUM(n_rates), 0) FROM {src}").fetchone()[0]
+            n_codes = conn.execute(f"SELECT COUNT(DISTINCT billing_code) FROM {src}").fetchone()[0]
+            net_src = src
+        else:
+            prices = conn.execute(f"SELECT COUNT(*) FROM {PRICES_SRC}").fetchone()[0]
+            n_codes = conn.execute(f"SELECT COUNT(DISTINCT billing_code) FROM {PRICES_SRC}").fetchone()[0]
+            net_src = PRICES_SRC
         networks = [r[0] for r in conn.execute(
-            f"SELECT DISTINCT network_name FROM {PRICES_SRC} ORDER BY 1"
+            f"SELECT DISTINCT network_name FROM {net_src} "
+            f"WHERE network_name IS NOT NULL AND network_name != '' ORDER BY 1"
         ).fetchall()]
-        n_codes = conn.execute(f"SELECT COUNT(DISTINCT billing_code) FROM {PRICES_SRC}").fetchone()[0]
-        return {"status": "ok", "total_prices": prices,
+
+        return {"status": "ok", "total_prices": int(prices),
                 "total_group_set_edges": edges, "total_providers": providers,
                 "priceable_npis": priceable_npis, "networks": networks,
                 "n_codes": n_codes, "as_of": _data_as_of()}

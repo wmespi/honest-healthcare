@@ -80,16 +80,22 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
 
 ## CI (GitHub Actions)
 
-`.github/workflows/ci.yml` runs on every PR (unless it's a draft) and on push to
-`main`, four jobs in parallel. `paths-ignore` skips the whole workflow for
-docs-only changes (`**.md`, `docs/**`, `LICENSE`).
+`.github/workflows/ci.yml` runs on every PR and on push to `main`. A `changes`
+job diffs the PR and sets `run` — `false` for a docs-only change (every path is a
+`*.md`, under `docs/`, or `LICENSE`) or a draft PR, `true` otherwise. The four
+heavy jobs are gated on `run == 'true'`; `CI Gate` (`if: always()`, `needs` all
+four) is the **single required status check** and passes only when every heavy
+job succeeded or was legitimately skipped. That replaces the old `paths-ignore` —
+which left the required checks stuck "pending" forever on a docs-only PR.
 
 | Job | Covers | How |
 |---|---|---|
+| `changes` | diffs the PR → `run` output (docs-only / draft ⇒ `false`) | `git diff --name-only`, no deps |
 | `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
 | `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
 | `integration` | `test_api_contract.py` (every route, hermetic) + the two reference-builder tests, then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
 | `images` | builds the three `prod` Dockerfile targets and smokes each (`etl --help`, `serving` GET /, `nginx` GET /) | raw `docker build --target prod` — catches Dockerfile / dep drift the compose `dev` targets don't |
+| `gate` (`CI Gate`) | asserts no upstream job failed / was cancelled | `join(needs.*.result)` |
 
 **Not in CI yet:** `test_coverage.py`'s coverage-basket assertions
 (`test_core_code_has_rates` etc.) run against a live API with the full `data/`
