@@ -6,8 +6,9 @@ and points the FastAPI app at it via a `TestClient`. Schemas track
 docs/schema.md; the row values are chosen so every contract assertion in
 test_api_contract.py has something real to check.
 
-The other test files here (test_cms_utilization, test_specialty_profiles) use
-hard-coded /app/data-test paths and ignore this.
+The other test files here (test_cms_utilization, test_specialty_profiles) run the
+reference/ builders against their own data-test/ paths (repo-root relative) and
+ignore this fixture.
 """
 import os
 import subprocess
@@ -18,7 +19,10 @@ import pytest
 
 # DATA_DIR must be set before `serving.*` is imported (data_sources.py freezes
 # the glob paths at import time). conftest.py is loaded before any test module.
-FIX_DIR = "/app/data-test/apifix"
+# Repo-root relative (not "/app/…") so this also runs on the host under
+# `make check-local` — in the container the root resolves to /app. GH #59.
+_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+FIX_DIR = os.path.join(_REPO, "data-test", "apifix")
 os.environ["DATA_DIR"] = FIX_DIR
 
 BLUE_VALUE = "GA Blue Value HIX Individual Network"
@@ -240,7 +244,8 @@ def _build(data_dir: str) -> None:
     # browse-layer summary — build it from the parquet just written, exactly as
     # `make build-summary` would (also exercises scripts/build_rate_summary.py).
     r = subprocess.run(
-        [sys.executable, "/app/scripts/build_rate_summary.py", "--data-dir", data_dir],
+        [sys.executable, os.path.join(_REPO, "scripts/build_rate_summary.py"),
+         "--data-dir", data_dir],
         capture_output=True, text=True,
     )
     assert r.returncode == 0, f"build_rate_summary failed:\n{r.stdout}\n{r.stderr}"
