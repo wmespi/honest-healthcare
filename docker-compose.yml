@@ -74,9 +74,11 @@ services:
       - .:/app
       - ${HH_DATA_ROOT:-./data}:/app/data
     ports:
-      # loopback only — remote access is via `tailscale serve` (scripts/tailscale-up.sh),
-      # which proxies 127.0.0.1:$API_PORT. Avoids a 0.0.0.0 bind clashing with tailscaled.
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+      # loopback by default — remote access is via `tailscale serve`
+      # (scripts/tailscale-up.sh), which proxies 127.0.0.1:$API_PORT, and a 0.0.0.0
+      # bind would clash with tailscaled. BIND_HOST=0.0.0.0 opts a non-tailnet
+      # stack (e.g. `make preview LAN=1`) into plain-LAN access.
+      - "${BIND_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
     environment:
       - DATA_DIR=/app/data
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
@@ -97,8 +99,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      # loopback only — see the serving note; `tailscale serve` proxies 127.0.0.1:$WEB_PORT
-      - "127.0.0.1:${WEB_PORT:-5173}:5173"
+      # loopback by default — see the serving note; BIND_HOST=0.0.0.0 for LAN preview
+      - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-5173}:5173"
     environment:
       # By default the frontend derives the API URL from window.location at
       # runtime (src/api.js), so http://<any-host>:5173 just works — LAN IP,

@@ -144,10 +144,12 @@ cd ../hh-my-thing
 make check-local                    # gofmt · vet · build · go test · pytest · vitest — no Docker
 ```
 
-The canonical checkout keeps running the stable stack (what `tailscale serve`
-points at); feature worktrees test on host toolchains and spin their own stack
-(`make stack-up`, own ports) only for a live check. Full runbook:
-[docs/worktrees.md](docs/worktrees.md).
+The canonical checkout keeps running the one Tailscale-served stack, pinned to a
+`tailnet` branch that moves only via `make promote` — so merging to `main` never
+surprises the people on your tailnet. `make tiers` shows the gap; `make preview
+REF=<branch>` renders a candidate on an ephemeral stack first. Feature worktrees
+test on host toolchains and spin their own stack (`make stack-up`) only for a
+live check. Full runbook: [docs/worktrees.md](docs/worktrees.md).
 
 ---
 

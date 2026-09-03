@@ -37,10 +37,20 @@ scoping is a follow-up on [#21](https://github.com/wmespi/honest-healthcare/issu
 ## Ports
 
 `docker-compose.yml` binds `serving` (8000) and `frontend` (5173) to
-**`127.0.0.1` only**. Remote access is via `tailscale serve`
-(`scripts/tailscale-up.sh`), which proxies `127.0.0.1:<port>` onto the tailnet —
-so loopback binding is the intended path, and it avoids a `0.0.0.0` clash with
-`tailscaled`. For plain-LAN access, change the mappings back to `"8000:8000"`.
+**`${BIND_HOST:-127.0.0.1}`** — loopback by default. Remote access to the tailnet
+stack is via `tailscale serve` (`scripts/tailscale-up.sh`), which proxies
+`127.0.0.1:<port>` onto the tailnet; a `0.0.0.0` bind there would clash with
+`tailscaled`. Set `BIND_HOST=0.0.0.0` for a **non-tailnet** stack that needs
+plain-LAN access — `make preview LAN=1` does this for reviewing a branch from a
+laptop.
+
+## Tiers — `main` vs. what the tailnet sees
+
+One always-up stack (the canonical checkout). It runs the local `tailnet`
+branch, moved only by `make promote` — so a merge to `main` doesn't reach the
+people on your tailnet until you promote. `make tiers` shows the gap; `make
+preview REF=<ref>` shows a candidate on an ephemeral stack first. Full runbook:
+[../docs/worktrees.md](../docs/worktrees.md#the-two-tiers-main-and-the-tailnet).
 
 ## Multiple stacks (GH #59)
 
