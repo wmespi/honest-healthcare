@@ -240,7 +240,7 @@ function ProviderRow({ s, onPick, disabled, planLabel }) {
         )}
       </div>
       <div className={`text-[11px] mt-0.5 truncate ${s.has_rates ? 'text-slate-500' : 'text-slate-600'}`}>
-        {[s.specialty, s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
+        {[s.specialty, s.group_name && titleCaseOrg(s.group_name), s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
       </div>
     </>
   );
@@ -712,10 +712,28 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
     );
   }
   if (!data?.headline) return null;
-  const { headline, components, is_component_split, provider, plausibility, tier, medicare_utilization: mu } = data;
+  const { headline, components, is_component_split, provider, plausibility, tier,
+          medicare_utilization: mu, medicare_allowed: mcr, vs_medicare } = data;
   const range = (lo, hi) => (lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`);
   const name = provider?.name || providerName;
-  const sub = [provider?.specialty, provider?.address || provider?.city].filter(Boolean).join(' · ');
+  const hospCount = (provider?.hospital_affiliations || []).filter(a => a.facility_name === 'Hospital').length;
+  const sub = [
+    provider?.specialty,
+    provider?.group_name && titleCaseOrg(provider.group_name),
+    provider?.years_in_practice ? `${provider.years_in_practice} yrs in practice` : null,
+    hospCount ? `${hospCount} hospital affiliation${hospCount > 1 ? 's' : ''}` : null,
+    provider?.address || provider?.city,
+  ].filter(Boolean).join(' · ');
+
+  // CMS Physician Fee Schedule benchmark (issue #61) — mcr is null until
+  // `make mpfs` runs. Anchors the negotiated rate: <1.2× Medicare = in line,
+  // higher = worth noticing. Only meaningful for the full (global) rate.
+  const medicareBenchmark = mcr && headline.basis === 'global' && (
+    <p className={`mt-2 text-[11px] ${vs_medicare > 1.5 ? 'text-amber-400/90' : 'text-slate-500'}`}>
+      Medicare allows <span className="font-semibold">{fmt(mcr)}</span> for this
+      {vs_medicare ? <> — this plan pays <span className="font-semibold">{vs_medicare}×</span> that</> : null}
+    </p>
+  );
   // The rate belongs to the billing group, not the individual, when the CMS
   // tier says "group" (no utilization, not typical for the specialty) or the
   // legacy heuristic flags a cross-specialty mismatch.
@@ -784,6 +802,7 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
               though that misses pediatric, commercial, and cash practice.
             </p>
           )}
+          {medicareBenchmark}
           <details className="mt-4 group">
             <summary className="text-xs font-bold text-slate-500 cursor-pointer hover:text-slate-300 list-none">
               Show the group rate ▸
@@ -808,6 +827,7 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
               className="mt-2"
               est={estimateRange(headline.rate, headline.max_rate, plan, { rbcsCategory })}
             />
+            {medicareBenchmark}
           </div>
           {medicareBilled}
           <div className="mt-6">{breakdown}</div>
@@ -878,8 +898,13 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
           {data?.provider?.name ? `${data.provider.name} — procedure menu` : 'Procedure menu'}
         </h2>
         <p className="text-slate-500 text-xs mt-1">
-          {[data?.provider?.specialty, data?.provider?.address || data?.provider?.city].filter(Boolean).join(' · ')}
-          {(data?.provider?.specialty || data?.provider?.city) ? ' · ' : ''}
+          {[
+            data?.provider?.specialty,
+            data?.provider?.group_name && titleCaseOrg(data.provider.group_name),
+            data?.provider?.years_in_practice ? `${data.provider.years_in_practice} yrs` : null,
+            data?.provider?.address || data?.provider?.city,
+          ].filter(Boolean).join(' · ')}
+          {(data?.provider?.specialty || data?.provider?.city || data?.provider?.group_name) ? ' · ' : ''}
           {data?.tier === 'plausible' && data?.group_count > 0
             ? <>{rows.length.toLocaleString()} procedures this provider bills or that are typical for their specialty. Tap one for the breakdown.</>
             : <>{rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.</>}
