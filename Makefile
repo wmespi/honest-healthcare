@@ -184,7 +184,7 @@ cov-report: ## Aggregate coverage_log + flag partial-looking completions (exit 1
 smoke-web: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py
 
-journeys: ## Assert the named user journeys still produce the right answer (docs/journeys.md). Needs the real corpus. JSON=1
+journeys: ## Assert the named user journeys + report per-journey latency (docs/journeys.md). Needs the real corpus. JSON=1
 	python3 scripts/journeys.py $(if $(filter 1,$(JSON)),--json,)
 
 data-size: ## Data-consumption scorecard — rows + bytes per Parquet table + Postgres queue tables. JSON=1 for machine output

@@ -9,9 +9,11 @@ the sanity check a PR author walks before merge (`Journeys touched:` in the PR
 body), it's what `make journeys` asserts against the live API, and the status
 table below is the "how are the full flows doing" dashboard.
 
-`make journeys` runs the **API-level** assertions (fast, needs the real corpus —
-local only, not CI). Browser-level Playwright specs that walk the actual clickpath
-are a follow-up ([#72](https://github.com/wmespi/honest-healthcare/issues/72)).
+`make journeys` runs the **API-level** assertions (needs the real corpus — local
+only, not CI) and reports **latency** per journey: total wall time, call count,
+and the single slowest call (flagged `⚠` over ~1.5s — informational, not a
+failure). Browser-level Playwright specs that walk the actual clickpath are a
+follow-up ([#72](https://github.com/wmespi/honest-healthcare/issues/72)).
 
 Keep the status column honest — it's what the API returned *today*, not what a PR
 claimed. If a journey regresses, that's the headline of the next
@@ -69,7 +71,7 @@ footnote.
 | **Clickpath** | plan set → "Gastroenterology" → provider → `45378` (diagnostic colonoscopy) |
 | **API calls** | `/providers/search?specialty=Gastroenterology&network_name=` · `/rates/quote?billing_code=45378&npi={npi}&network_name=` |
 | **Expected** | The rate, the Medicare benchmark, and an honest "this is the group's rate, not verified to this provider" caveat when that's the case. |
-| **Status** | ⚠️ **works, the plan-compare below it is noise.** Quote: `$214.67–$290.95` global, `vs_medicare 0.68`, `tier group`. But the "Does your plan matter?" card underneath lists **54 networks** — every Anthem partition, most irrelevant to a GA individual HMO member — on a page where Rosa already picked her plan ([#73](https://github.com/wmespi/honest-healthcare/issues/73)). |
+| **Status** | ⚠️ **works; the plan-compare below it is noise *and* slow.** Quote: `$214.67–$290.95` global, `vs_medicare 0.68`, `tier group`. The "Does your plan matter?" card lists **54 networks** — every Anthem partition, most irrelevant to a GA individual HMO member — on a page where Rosa already picked her plan, and the `/rates/by_network` call behind it runs **~10s** on this corpus. Both point at [#73](https://github.com/wmespi/honest-healthcare/issues/73) (demote the plan-compare). |
 
 ---
 
