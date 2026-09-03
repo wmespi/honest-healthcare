@@ -65,6 +65,7 @@ cd ../hh-cms-benchmarks
 
 ```bash
 make check-local        # gofmt · vet · build · go test · pytest contract · vitest — NO Docker
+make footprint          # paste the output into the PR body — REQUIRED
 git commit ...
 git push -u origin espinoza/feat/cms-benchmarks
 gh pr create
@@ -87,6 +88,29 @@ make stack-down
 cd ../honest-healthcare
 git worktree remove ../hh-cms-benchmarks      # or: make worktree-rm TOPIC=cms-benchmarks
 ```
+
+A lingering worktree is ~300 MB (`.venv` 70 MB + `node_modules` 215 MB). The
+shared `.git` and `~/.local/share/mise` are **not** per-worktree — don't touch them.
+
+## Disk hygiene
+
+`make footprint` — the full picture: this worktree, every sibling worktree, the
+shared git store + mise, Docker (images / build cache / volumes / the `Docker.raw`
+VM image), any stray DuckDB spill, and host-volume free space. **Its output goes
+in every PR body** (AGENTS.md) so a runaway is caught the moment it lands.
+
+`make clean` — reclaim a worktree's regenerable artifacts: a stray `.tmp/`
+DuckDB spill, `data-test/`, `.pytest_cache`, `__pycache__`. Flags:
+`DOCKER=1` also runs `docker builder prune` + dangling-image + unused-volume
+prune (safe — the running stack's `postgres_data` is in use, so it's skipped).
+`DATA_LOCAL=1` also drops the `--rebuild-reference` cache.
+
+**Why this matters:** a DuckDB query that spills without `SET temp_directory`
+writes to `<cwd>/.tmp/` — and in a container `<cwd>` is `/app`, the
+bind-mounted checkout. One killed ad-hoc query left a **176 GB** `.tmp/` in the
+repo that sat unnoticed for a month. `serving/data_sources.py:db()` sets the
+spill dir correctly; **any ad-hoc `duckdb.connect()` must too** — or run through
+`db()`.
 
 ### Promote to the Tailscale-visible app
 

@@ -137,6 +137,14 @@ Parquet store via `HH_DATA_ROOT` and never writes `data/`. Gitignored files
 (`.env`, `.venv/`, `data/`) are normal files — read them by path; repo-wide
 search skips them.
 
+**Every PR body must include the output of `make footprint`** — this worktree's
+size, all worktrees, the shared git store + mise, Docker, stray DuckDB spill,
+and host-volume free space. It's the standing check against a runaway (a query
+spilling into the repo — a 176 GB `.tmp/` leak went unnoticed for a month
+because nothing surfaced it). `make clean` reclaims a worktree's regenerable
+artifacts (`DOCKER=1` also prunes the Docker store). Run `make worktree-rm
+TOPIC=<name>` once a PR merges — a lingering worktree is ~300 MB.
+
 ---
 
 ## Where to look
