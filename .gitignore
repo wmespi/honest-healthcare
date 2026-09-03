@@ -16,6 +16,10 @@ eggs/
 .eggs/
 lib/
 lib64/
+# ...but `lib/` is a Python-packaging rule — don't let it swallow the frontend's
+# source helpers (frontend/src/lib/).
+!frontend/src/lib/
+!frontend/src/lib/**
 parts/
 sdist/
 var/

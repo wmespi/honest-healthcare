@@ -199,5 +199,8 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Legacy / stale
 
-- **`db/SCHEMA.md`** narrates the Postgres tables; [schema.md](schema.md) is the
-  authoritative on-disk layout (Parquet + Postgres). Keep them reconciled.
+- **Legacy Postgres tables** — `negotiated_rates`, `provider_mappings`,
+  `place_of_service_codes`, and the `vw_rates_detailed` view remain in
+  `db/init.sql` but are neither written nor read since the Parquet migration.
+  Drop or re-adopt. ([schema.md](schema.md) is the single authoritative schema;
+  `db/SCHEMA.md` is now just a pointer to it — no reconciliation burden.)
