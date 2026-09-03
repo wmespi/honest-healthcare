@@ -52,6 +52,16 @@ brew install mise                 # one static binary; pins python/node/go per-r
 images. `scripts/dev-setup.sh` then creates a `.venv`, runs `npm ci`, and (in a
 feature worktree) writes a `.env`.
 
+```bash
+git config --global fetch.prune true   # drop local refs for branches deleted on origin
+```
+
+Keeps merged branches from piling up (the repo has `delete_branch_on_merge`, so
+without this the *remote-tracking* refs linger). The committed `.claude/settings.json`
+pre-approves the safe read-only commands (`make check`, `docker compose`, read-only
+`git`/`gh`, `WebSearch`) so a fresh checkout doesn't re-prompt; machine-specific
+entries stay in the gitignored `.claude/settings.local.json`.
+
 ---
 
 ## Runbook
