@@ -49,7 +49,12 @@ the product is headed — and which of these gaps that closes — is in
   min/median/max stay sane, but the volume-weighted `avg` still skews high and a
   code-level drill-down on a J-code shows the real millions. Not shoppable care —
   a `drug` scope flag (or dropping HCPCS J/Q from the consumer views) is the
-  proper fix; deferred.
+  proper fix; deferred. **Partial mitigation (GH #61):** `make mpfs` builds a
+  Medicare allowed amount per code (`data/reference/mpfs_ga.parquet`) and
+  `/rates/quote` carries `medicare_allowed` + a `vs_medicare` ratio, so a
+  drug-code rate can be shown against its benchmark ("$4.4M vs Medicare's $2k")
+  rather than as a bare number. Using the benchmark to filter / down-weight rows
+  far above Medicare in the pooled `avg` is the follow-up.
 - **Sentinel / placeholder rates — no discrete tell, cut by a per-code ceiling.**
   Anthem fills the MRF-required positive `negotiated_rate` with $0.01–$1.50 (and
   proportionally-tiny values on big-ticket codes) for not-separately-priced

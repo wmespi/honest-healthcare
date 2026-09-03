@@ -44,6 +44,12 @@ NUCC_PATH        = f"{DATA_DIR}/reference/nucc_taxonomy.parquet"
 # reference/cms-utilization.md. Absent until `make cms-utilization` runs.
 CMS_UTILIZATION_PATH = f"{DATA_DIR}/cms/ga_provider_service.parquet"
 
+# CMS Medicare Physician Fee Schedule allowed amount per (code × modifier ×
+# facility/non-facility × Georgia locality) — the per-code benchmark / fallback
+# price behind serving/benchmark.py and /rates/quote's `medicare_allowed`.
+# Absent until `make mpfs` runs. See reference/mpfs.md.
+MPFS_GA_PATH = f"{DATA_DIR}/reference/mpfs_ga.parquet"
+
 # Per-specialty procedure prevalence, learned from CMS_UTILIZATION_PATH ∩ NPPES ∩
 # NUCC. Tier 2 of the provider↔procedure story: "typical for this specialty" when
 # there's no direct utilization row. Absent until `make specialty-profiles` runs.

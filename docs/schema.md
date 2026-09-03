@@ -159,6 +159,17 @@ data/reference/specialty_procedure_profiles.parquet  (make specialty-profiles �
     billers | specialty_providers | prevalence
     ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
       NUCC). ~5.8k rules / ~51 specialties. Read by evidence.code_tiers().
+
+data/reference/mpfs_ga.parquet         (make mpfs — reference/mpfs.md)
+    billing_code | billing_code_type ('CPT' 5-digit, else 'HCPCS')
+    modifier ('' | '26' | 'TC' | …) | pos ('nonfacility' | 'facility')
+    locality ('01' Atlanta | '99' rest of GA) | medicare_allowed | status
+    ← CMS Physician Fee Schedule allowed $ = (workRVU·GPCIw + peRVU·GPCIpe +
+      mpRVU·GPCImp) × conversionFactor, per GA locality. medicare_allowed is
+      NULL for carrier-priced (status 'C') rows; bundled / non-covered statuses
+      are dropped. Read by serving/benchmark.medicare_allowed() → /rates/quote's
+      `medicare_allowed` + `vs_medicare`. Physician fee schedule only — facility
+      fees (OPPS/ASC/IPPS) are separate schedules, not modelled.
 ```
 
 ---

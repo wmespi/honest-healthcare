@@ -105,6 +105,7 @@ make code-labels            # RBCS consumer procedure labels
 make taxonomy-labels        # NUCC provider specialty labels
 make cms-utilization        # CMS Medicare Part B — did this NPI bill this code
 make specialty-profiles     #   ...and what's typical for each specialty (Tier 2)
+make mpfs                   # CMS Physician Fee Schedule — Medicare allowed $ per code (GA benchmark)
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
 make check-local            # same gate on host toolchains, NO Docker + pytest contract + vitest
@@ -148,6 +149,7 @@ search skips them.
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
 | Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
+| Medicare Physician Fee Schedule benchmark (`medicare_allowed` / `vs_medicare` on a quote) | [reference/mpfs.md](reference/mpfs.md) |
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Container images — dev/prod targets, ports, what CI builds | [deploy/README.md](deploy/README.md) |

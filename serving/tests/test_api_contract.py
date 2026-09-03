@@ -193,6 +193,19 @@ def test_quote_components_and_evidence(api):
     assert "medicare_utilization" in body  # key always present
 
 
+def test_quote_carries_medicare_benchmark(api):
+    # MPFS benchmark (issue #61): /rates/quote surfaces the GA Medicare allowed
+    # amount + a headline/Medicare ratio. 99213 fixture rows: 67.20 (loc 01) +
+    # 63.36 (loc 99) nonfacility → median 65.28.
+    body = api.get("/rates/quote",
+                   params={"billing_code": "99213", "npi": CARDIOLOGIST,
+                           "network_name": BLUE_VALUE}).json()
+    assert "medicare_allowed" in body and "vs_medicare" in body
+    assert body["medicare_allowed"] == 65.28
+    assert body["vs_medicare"] == round(body["headline"]["rate"] / 65.28, 2)
+    assert body["vs_medicare"] > 0
+
+
 def test_quote_medicare_billed_flag(api):
     # the cardiologist billed 93000 to Medicare in the fixture
     body = api.get("/rates/quote", params={"billing_code": "93000", "npi": CARDIOLOGIST,

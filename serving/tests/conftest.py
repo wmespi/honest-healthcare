@@ -6,9 +6,9 @@ and points the FastAPI app at it via a `TestClient`. Schemas track
 docs/schema.md; the row values are chosen so every contract assertion in
 test_api_contract.py has something real to check.
 
-The other test files here (test_cms_utilization, test_specialty_profiles) run the
-reference/ builders against their own data-test/ paths (repo-root relative) and
-ignore this fixture.
+The other test files here (test_cms_utilization, test_specialty_profiles,
+test_mpfs) run the reference/ builders against their own data-test/ paths
+(repo-root relative) and ignore this fixture.
 """
 import os
 import subprocess
@@ -238,6 +238,26 @@ def _build(data_dir: str) -> None:
     _write(con, f"{data_dir}/reference/specialty_procedure_profiles.parquet",
            "specialty, hcpcs_cd, billers, specialty_providers, prevalence",
            [(f"'{sp}'", f"'{c}'", b, n, p) for sp, c, b, n, p in prof])
+
+    # ── CMS Medicare Physician Fee Schedule benchmark (issue #61) ─────────
+    # GA allowed $ per (code × modifier × POS × locality). 99213 across both
+    # GA localities → benchmark = median(67.20, 63.36) = 65.28.
+    mpfs = [
+        ("99213", "CPT", "",   "nonfacility", "01", 67.20, "A"),
+        ("99213", "CPT", "",   "facility",    "01", 51.20, "A"),
+        ("99213", "CPT", "",   "nonfacility", "99", 63.36, "A"),
+        ("99213", "CPT", "",   "facility",    "99", 48.96, "A"),
+        ("70450", "CPT", "",   "nonfacility", "01", 166.40, "A"),
+        ("70450", "CPT", "26", "nonfacility", "01", 48.00, "A"),
+        ("70450", "CPT", "TC", "nonfacility", "01", 118.40, "A"),
+        ("93000", "CPT", "",   "nonfacility", "01", 10.88, "R"),
+        ("J9299", "HCPCS", "", "nonfacility", "01", None,  "C"),  # carrier-priced flag
+    ]
+    _write(con, f"{data_dir}/reference/mpfs_ga.parquet",
+           "billing_code, billing_code_type, modifier, pos, locality, medicare_allowed, status",
+           [(f"'{bc}'", f"'{t}'", f"'{m}'", f"'{p}'", f"'{loc}'",
+             "NULL" if amt is None else amt, f"'{st}'")
+            for bc, t, m, p, loc, amt, st in mpfs])
 
     con.close()
 
