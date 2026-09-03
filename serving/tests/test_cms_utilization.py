@@ -10,9 +10,11 @@ import sys
 import duckdb
 import pytest
 
-REPO = "/app"
-FIXTURE = "/app/reference/testdata/cms_sample.csv"
-OUT = "/app/data-test/cms/ga_provider_service.parquet"
+# Repo-root relative so this runs on the host (`make check-local`) too; in the
+# container REPO resolves to /app. GH #59.
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+FIXTURE = os.path.join(REPO, "reference/testdata/cms_sample.csv")
+OUT = os.path.join(REPO, "data-test/cms/ga_provider_service.parquet")
 
 
 @pytest.fixture(scope="module")

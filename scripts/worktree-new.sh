@@ -12,7 +12,7 @@ topic="${1:?usage: worktree-new.sh <topic> [type]}"
 type="${2:-feat}"
 
 # canonical checkout = the first worktree git knows about
-canonical="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+canonical="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"
 dir="$(dirname "$canonical")/hh-$topic"
 branch="espinoza/$type/$topic"
 

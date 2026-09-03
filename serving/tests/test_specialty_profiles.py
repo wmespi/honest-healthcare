@@ -3,22 +3,24 @@
 Writes tiny CMS / NPPES / NUCC parquets under data-test/, runs the builder, and
 checks the prevalence math + the min-provider guard. No network, no live API.
 """
+import os
 import subprocess
 import sys
 
 import duckdb
 import pytest
 
-REPO = "/app"
-CMS = "/app/data-test/cms/ga_provider_service.parquet"
-NPPES = "/app/data-test/nppes/ga_providers.parquet"
-NUCC = "/app/data-test/reference/nucc_taxonomy.parquet"
-OUT = "/app/data-test/reference/specialty_procedure_profiles.parquet"
+# Repo-root relative so this runs on the host (`make check-local`) too; in the
+# container REPO resolves to /app. GH #59.
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+CMS = os.path.join(REPO, "data-test/cms/ga_provider_service.parquet")
+NPPES = os.path.join(REPO, "data-test/nppes/ga_providers.parquet")
+NUCC = os.path.join(REPO, "data-test/reference/nucc_taxonomy.parquet")
+OUT = os.path.join(REPO, "data-test/reference/specialty_procedure_profiles.parquet")
 
 
 @pytest.fixture(scope="module")
 def built():
-    import os
     for p in (CMS, NPPES, NUCC):
         os.makedirs(os.path.dirname(p), exist_ok=True)
     c = duckdb.connect()
