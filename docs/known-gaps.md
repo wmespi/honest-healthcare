@@ -81,6 +81,16 @@ the product is headed — and which of these gaps that closes — is in
     billed by ≥3% of the provider's specialty —
     [reference/specialty-profiles.md](../reference/specialty-profiles.md).
 
+  - `make doctors-clinicians` → a real group-practice identity (`org_pac_id` +
+    `org_name`) and the hospital-affiliation `ccn`↔`npi` bridge, independent of
+    Anthem's buckets — [reference/doctors-clinicians.md](../reference/doctors-clinicians.md).
+    Surfaced on `provider_card` (`group_name`, `years_in_practice`,
+    `hospital_affiliations`) and `/providers/search`. **Open:** `/rates/providers`
+    still groups practice rows on Anthem's `tin_value`, not `org_pac_id` (a
+    follow-up that touches `serving/routers/rates.py`); Medicare-enrolled
+    clinicians only; CMS directory accuracy is imperfect; `org_pac_id` and
+    `tin_value` are not reconciled.
+
   `/providers/{npi}/procedures` defaults to `tier=plausible` (billed + typical
   only, with a `group_count`); `/rates/quote` returns `tier` + `medicare_utilization`.
   Frontend: cost-card evidence line, menu badges + a "show all N group-contracted

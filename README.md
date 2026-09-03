@@ -112,6 +112,14 @@ ratio to a cost quote, a sanity check on group rates):
 make mpfs                 # ~15 MB — CMS Physician Fee Schedule allowed $ per code (GA)
 ```
 
+**9 — Real practice identity** (optional — the CMS Doctors & Clinicians group
+name + years-in-practice on the provider card, and the hospital-affiliation
+CCN↔NPI bridge for the quality layer):
+
+```bash
+make doctors-clinicians   # ~1 GB — CMS Care Compare: group PAC ID/name + hospital CCNs
+```
+
 The API picks up new Parquet automatically — just refresh the UI. `make help`
 lists every workflow. To reach the UI from another device, open
 `http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on

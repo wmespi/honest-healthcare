@@ -4,9 +4,16 @@ Place-of-service buckets, modifier labels, the NUCC specialty join, the provider
 card, and the coarse specialty↔code plausibility check. No SQL sources here — see
 data_sources.py.
 """
+import datetime
 import os
 
-from .data_sources import GA_NPPES_PATH, NUCC_PATH, nppes_cols
+from .data_sources import (
+    DAC_GA_PATH,
+    DAC_HOSPITAL_AFFIL_PATH,
+    GA_NPPES_PATH,
+    NUCC_PATH,
+    nppes_cols,
+)
 
 # ── place of service ────────────────────────────────────────────────────────
 
@@ -74,8 +81,55 @@ def nucc_bits():
             "NULL AS nucc_classification", "")
 
 
+_DAC_PRESENT = None
+
+
+def dac_bits():
+    """(has_dac_ga, has_hospital_affiliations) for the CMS Doctors & Clinicians
+    tables — module-cached like nppes_cols so the presence check is a stat once
+    per process, not per request. `make doctors-clinicians` builds them."""
+    global _DAC_PRESENT
+    if _DAC_PRESENT is None:
+        _DAC_PRESENT = (os.path.exists(DAC_GA_PATH),
+                        os.path.exists(DAC_HOSPITAL_AFFIL_PATH))
+    return _DAC_PRESENT
+
+
+def _dac_provider_bits(conn, npi: int) -> dict:
+    """`group_name`, `years_in_practice`, `hospital_affiliations` for one NPI from
+    the CMS Doctors & Clinicians tables — {} when they aren't built."""
+    has_dac, has_affil = dac_bits()
+    if not has_dac:
+        return {}
+    out: dict = {}
+    r = conn.execute(
+        f"SELECT org_name, grad_year FROM read_parquet('{DAC_GA_PATH}') WHERE npi = ? LIMIT 1",
+        [npi],
+    ).fetchone()
+    if r:
+        out["group_name"] = r[0]
+        yr = r[1]
+        this_year = datetime.date.today().year
+        out["years_in_practice"] = (
+            this_year - yr if yr and 1900 < yr <= this_year else None
+        )
+    if has_affil:
+        rows = conn.execute(
+            f"""SELECT DISTINCT ccn, facility_name
+                FROM read_parquet('{DAC_HOSPITAL_AFFIL_PATH}')
+                WHERE npi = ? ORDER BY facility_name NULLS LAST, ccn""",
+            [npi],
+        ).fetchall()
+        out["hospital_affiliations"] = [
+            {"ccn": x[0], "facility_name": x[1]} for x in rows
+        ]
+    return out
+
+
 def provider_card(conn, npi: int):
-    """Name / specialty / practice address for one NPI from the NPPES GA subset."""
+    """Name / specialty / practice address for one NPI from the NPPES GA subset,
+    plus CMS Doctors & Clinicians identity (`group_name`, `years_in_practice`,
+    `hospital_affiliations`) when `make doctors-clinicians` has run."""
     if not os.path.exists(GA_NPPES_PATH):
         return None
     spec_sel, spec_join = nucc_bits()
@@ -95,7 +149,7 @@ def provider_card(conn, npi: int):
         return None
     # cols: name0 city1 postal2 is_hospital3 specialty4 grouping5 classification6 addr1_7 addr2_8 is_clinic9 entity_type10
     street = ", ".join(x for x in (r[7], r[8]) if x)
-    return {
+    card = {
         "npi": npi, "name": r[0], "city": r[1], "postal_code": r[2],
         "is_hospital": bool(r[3]), "specialty": r[4],
         "is_clinic": bool(r[9]), "entity_type": r[10],
@@ -103,6 +157,8 @@ def provider_card(conn, npi: int):
         "street": street or None,
         "address": ", ".join(x for x in (street, r[1]) if x) or None,
     }
+    card.update(_dac_provider_bits(conn, npi))
+    return card
 
 
 def plausibility(grouping, classification, specialty, rbcs_category, rbcs_family,
