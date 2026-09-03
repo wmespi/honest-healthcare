@@ -23,7 +23,7 @@
         fmt lint test test-e2e test-api test-web check test-all \
         check-local \
         worktree worktree-rm stack-up stack-down promote preview preview-down tiers \
-        cov-probe cov-report smoke-web data-size footprint clean \
+        cov-probe cov-report smoke-web journeys data-size footprint clean \
         psql migrate db-reset db-snapshot db-restore \
         sh \
         _require-etl-running
@@ -183,6 +183,9 @@ cov-report: ## Aggregate coverage_log + flag partial-looking completions (exit 1
 
 smoke-web: ## Exercise the rate-explorer's API routes for the target plan across a procedure basket
 	python3 scripts/frontend_smoke.py
+
+journeys: ## Assert the named user journeys still produce the right answer (docs/journeys.md). Needs the real corpus. JSON=1
+	python3 scripts/journeys.py $(if $(filter 1,$(JSON)),--json,)
 
 data-size: ## Data-consumption scorecard — rows + bytes per Parquet table + Postgres queue tables. JSON=1 for machine output
 	@bash scripts/data_size.sh $(if $(JSON),--json,)
