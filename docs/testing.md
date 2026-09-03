@@ -11,6 +11,8 @@
 | `make test-api` | Backend contract + coverage (pytest, against the running API) | full stack |
 | `make test-web` | Rate-explorer component tests (vitest + Testing Library, mocks the API) | frontend up |
 | `make test-all` | `check` + `test-e2e` + `test-api` + `test-web` | full stack |
+| `make smoke-web` | Breadth — every code in a procedure basket has plan coverage (`scripts/frontend_smoke.py`) | serving up, **real corpus** |
+| `make journeys` | Depth — the named persona clickpaths still produce the right answer (`scripts/journeys.py`, [journeys.md](journeys.md)) | serving up, **real corpus** |
 
 Run `make check` (canonical checkout) or `make check-local` (a worktree, no
 Docker — [worktrees.md](worktrees.md)) before every commit (Critical Rule — fast).
@@ -131,6 +133,7 @@ that a **provider selected with no procedure** shows the
 
 | Layer | Tool | Would cover |
 |---|---|---|
+| Journey clickpaths in a browser | Playwright | `frontend/journeys/jN.spec.js` walking [journeys.md](journeys.md) — the render bugs `make journeys` can't see (e.g. the Medicare line hidden when `basis !== 'global'`). Follow-up on #72 |
 | Frontend E2E | Playwright | Real browser: histogram render, filter chips, mobile layout |
 | ETL conflict-resolution | `go test ./...` | Plan-specific-file-wins rate override (Critical Rule 5) |
 | Live coverage basket in CI | GitHub Actions | `test_coverage.py`'s `test_core_code_has_rates` — needs the real `data/`, not the synthetic fixture |

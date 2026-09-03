@@ -125,6 +125,7 @@ make check                  # pre-commit gate (container): fmt + vet + build + G
 make check-local            # same gate on host toolchains, NO Docker + pytest contract + vitest
 make test-all               # full sweep (stack must be up)
 make test-api / test-web / test-e2e
+make journeys               # assert the named user journeys against the live API (docs/journeys.md)
 
 make worktree TOPIC=x       # new sibling worktree + branch off main, set up (GH #59)
 make stack-up / stack-down  # a feature worktree's own stack (own ports, from .env)
@@ -182,6 +183,7 @@ TOPIC=<name>` once a PR merges — a lingering worktree is ~300 MB.
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Container images — dev/prod targets, ports, what CI builds | [deploy/README.md](deploy/README.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |
+| User journeys — the persona clickpaths every PR sanity-checks against | [docs/journeys.md](docs/journeys.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |
 | Where the product is headed — the two flows, the navigator direction, the data roadmap | [docs/direction.md](docs/direction.md) |
 | CMS spec | https://github.com/CMSgov/price-transparency-guide |
