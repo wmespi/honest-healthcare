@@ -128,7 +128,9 @@ make test-api / test-web / test-e2e
 
 make worktree TOPIC=x       # new sibling worktree + branch off main, set up (GH #59)
 make stack-up / stack-down  # a feature worktree's own stack (own ports, from .env)
-make promote                # canonical checkout only — advance the stable/Tailscale stack
+make tiers                  # what the tailnet stack runs vs origin/main + unpromoted commits
+make preview REF=<ref>      # ephemeral stack for a ref before promoting it (localhost:5183)
+make promote [REF=]         # canonical only — advance the Tailscale-served stack, logged + tagged
 
 make cov-probe LABEL=before # coverage scorecard for the target plan
 make cov-report             # aggregate coverage_log
@@ -140,8 +142,11 @@ make sh S=serving          # shell into a container
 ```
 
 **Parallel / worktree development** ([docs/worktrees.md](docs/worktrees.md), GH #59).
-The canonical checkout runs the stable stack (`tailscale serve` points at it,
-advanced only by `make promote`). Feature work happens in sibling worktrees
+The canonical checkout runs the one Tailscale-served stack, pinned to a local
+`tailnet` branch that moves **only** via `make promote` — so a merge to `main`
+doesn't reach the tailnet until you promote it (`make tiers` shows the gap,
+`make preview REF=` renders a candidate first). Feature work happens in sibling
+worktrees
 (`../hh-<topic>`, one per session/branch) that test on host toolchains via
 `make check-local` — **no Docker** — and merge to `main` serially (trunk +
 promotion, no `develop` branch). A worktree spins its own stack (`make stack-up`,

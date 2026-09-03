@@ -16,18 +16,22 @@ sharing history and refs.
 
 | Role | Directory | Branch | Stack | Ports |
 |---|---|---|---|---|
-| **Canonical / stable** | the original clone | `main` | project `honest-healthcare`, always up | 5432 / 8000 / 5173 |
-| **Staging** *(optional)* | `../hh-staging` | `main` HEAD | project `hh-staging` | 5433 / 8010 / 5183 |
+| **Canonical / tailnet** | the original clone | `tailnet` (local) | project `honest-healthcare`, always up, `tailscale serve` | 5432 / 8000 / 5173 |
+| **Preview** *(ephemeral)* | `../hh-preview` | detached at any ref | project `hh-preview`, up only while reviewing | 5433 / 8010 / 5183 |
 | **Feature** | `../hh-<topic>` | `espinoza/<type>/<topic>` | none by default | assigned by `dev-setup.sh` |
 
-- The **canonical checkout** runs the stable stack that `tailscale serve` points
-  at. It is only advanced by `make promote` (never edited directly).
+- The **canonical checkout** runs the one Tailscale-served stack. It sits on a
+  local `tailnet` branch that moves **only** through `make promote` — never
+  edited directly, never `git pull`ed. So a merge to `main` doesn't reach the
+  people on your tailnet until you promote it.
+- Merge model is **trunk + promotion**: `feature → PR → CI → main → (review) →
+  promote`. The `tailnet` branch lags `main` by however many merged-but-unpromoted
+  commits; `make tiers` shows the gap. No long-lived `develop` branch.
+- To see a change before promoting it, `make preview REF=<branch>` brings up
+  `../hh-preview` on the staging ports — ephemeral, so it costs RAM only while
+  you're looking. `make preview-down` frees it.
 - **Feature worktrees** develop in parallel. Their hermetic tests run on host
   toolchains with **no Docker**. Spin a stack only for a live check.
-- Merge model is **trunk + promotion**: `feature → PR → CI → main`. "Stable" is
-  just the commit the canonical stack was last built at — `main` may run ahead of
-  it. No long-lived `develop` branch; a *staging stack* on `main` HEAD gives the
-  integration view instead.
 - **Parsing / ETL work** is stateful (Postgres queue + writes `data/anthem/`) —
   it always gets its own stack, or runs under `TEST=1` isolation.
 
@@ -112,12 +116,30 @@ repo that sat unnoticed for a month. `serving/data_sources.py:db()` sets the
 spill dir correctly; **any ad-hoc `duckdb.connect()` must too** — or run through
 `db()`.
 
-### Promote to the Tailscale-visible app
+### The two tiers: `main` and the tailnet
+
+There is **one** always-up stack (the canonical checkout, `tailscale serve`d).
+The buffer between "merged to `main`" and "my family can see it" is *which commit
+that stack runs* — pinned to the local `tailnet` branch, advanced only by
+`make promote`.
 
 ```bash
-cd ../honest-healthcare      # the canonical checkout
-make promote                 # git checkout main && pull && docker compose up -d --build
+cd ../honest-healthcare        # the canonical checkout — promote runs nowhere else
+
+make tiers                     # tailnet sha + subject · origin/main · the unpromoted commits
+
+make preview REF=espinoza/feat/x   # ../hh-preview stack at that ref, localhost:5183
+make preview REF=main LAN=1         #   ...reachable at <this-host>.local:5183 from a laptop
+make preview-down                  # stop it — frees the RAM, keeps the worktree for next time
+
+make promote                   # prompt → checkout -B tailnet origin/main → rebuild → log + tag
+make promote REF=tailnet-20260901-1000   # roll back to a previous promote
 ```
+
+Every promote appends to `deploy/promote-log.md` (gitignored, per-machine) and
+writes a `tailnet-<date>` tag; `git push origin <tag>` for a shared record.
+There is **no** second always-on stack — the preview stack is ephemeral by
+design, so two DuckDB processes never sit on RAM at once.
 
 ---
 

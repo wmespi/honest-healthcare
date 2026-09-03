@@ -22,7 +22,7 @@
         nppes code-labels taxonomy-labels mpfs doctors-clinicians \
         fmt lint test test-e2e test-api test-web check test-all \
         check-local \
-        worktree worktree-rm stack-up stack-down promote \
+        worktree worktree-rm stack-up stack-down promote preview preview-down tiers \
         cov-probe cov-report smoke-web data-size footprint clean \
         psql migrate db-reset db-snapshot db-restore \
         sh \
@@ -81,11 +81,18 @@ stack-up: ## Start THIS worktree's stack (own project + ports from .env). Build 
 stack-down: ## Stop this worktree's stack
 	docker compose down
 
-promote: ## CANONICAL CHECKOUT ONLY — advance the stable/Tailscale stack to origin/main HEAD
-	@test "$$PWD" = "$$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)" \
-	  || { echo "run this in the canonical checkout, not a worktree"; exit 1; }
-	git checkout main && git pull --ff-only && docker compose up -d --build
-	@echo "stable stack now at $$(git rev-parse --short HEAD)"
+promote: ## CANONICAL CHECKOUT ONLY — advance the tailnet stack to a ref (REF=, default origin/main). Prompts, logs, tags.
+	bash scripts/promote.sh $(REF)
+
+tiers: ## Show what the tailnet stack runs vs origin/main + the unpromoted commits
+	@bash scripts/tiers.sh
+
+preview: ## Ephemeral stack for a ref before promoting it — localhost:5183, no RAM cost once down. REF= · LAN=1
+	@test -n "$(REF)" || { echo "usage: make preview REF=<branch-or-sha> [LAN=1]"; exit 1; }
+	$(if $(filter 1,$(LAN)),LAN=1 ,)bash scripts/preview.sh "$(REF)"
+
+preview-down: ## Stop the preview stack (frees the RAM; the worktree stays on disk)
+	@bash scripts/preview.sh --down
 
 ## ── Pipeline: discover → parse ───────────────────────────────────────────────
 
