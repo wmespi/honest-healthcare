@@ -56,9 +56,12 @@ HIST_WIDTH = 25       # $ bucket width
 HIST_CAP = 5000       # rates >= this land in one overflow bucket
 
 
-def build(data_dir: str) -> None:
-    anthem = f"{data_dir}/anthem"
-    out = f"{anthem}/summary"
+def build(data_dir: str, test: bool = False) -> None:
+    # Reads the rate store (ANTHEM_DIR — shared corpus), writes the summary
+    # (SUMMARY_DIR — can be a worktree-local ./data-local/anthem/summary). GH #59.
+    # --test ignores the env split and stays fully under data-test/.
+    anthem = f"{data_dir}/anthem" if test else (os.getenv("ANTHEM_DIR") or f"{data_dir}/anthem")
+    out = f"{anthem}/summary" if test else (os.getenv("SUMMARY_DIR") or f"{anthem}/summary")
     os.makedirs(out, exist_ok=True)
 
     prices = f"read_parquet('{anthem}/prices/**/*.parquet', union_by_name=true, hive_partitioning=1)"
@@ -170,9 +173,10 @@ def main():
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
     data_dir = "/app/data-test" if args.test else args.data_dir
-    if not os.path.exists(f"{data_dir}/anthem/prices"):
-        raise SystemExit(f"no rate store at {data_dir}/anthem/prices — parse first")
-    build(data_dir)
+    anthem = f"{data_dir}/anthem" if args.test else (os.getenv("ANTHEM_DIR") or f"{data_dir}/anthem")
+    if not os.path.exists(f"{anthem}/prices"):
+        raise SystemExit(f"no rate store at {anthem}/prices — parse first")
+    build(data_dir, args.test)
 
 
 if __name__ == "__main__":

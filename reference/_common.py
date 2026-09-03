@@ -11,9 +11,31 @@ import sys
 import urllib.request
 
 
+def store_dir(data_dir: str, test: bool, sub: str, env: str = "") -> str:
+    """A data sub-store directory. `data-test/<sub>` under --test; otherwise the
+    `env` var if set (so a worktree can rebuild into ./data-local/<sub> while
+    serving still reads the shared corpus — GH #59 Part C), else
+    `<data_dir>/<sub>`. `serving/data_sources.py` mirrors the same env vars."""
+    if test:
+        return f"data-test/{sub}"
+    if env and os.getenv(env):
+        return os.environ[env]
+    return f"{data_dir}/{sub}"
+
+
 def ref_dir(data_dir: str, test: bool) -> str:
-    """The reference-output directory — data/reference or data-test/reference."""
-    return f"{'data-test' if test else data_dir}/reference"
+    """The reference-output directory — honors REFERENCE_DIR (see store_dir)."""
+    return store_dir(data_dir, test, "reference", "REFERENCE_DIR")
+
+
+def cms_dir(data_dir: str, test: bool) -> str:
+    """The CMS-output directory — honors CMS_DIR."""
+    return store_dir(data_dir, test, "cms", "CMS_DIR")
+
+
+def nppes_dir(data_dir: str, test: bool) -> str:
+    """The NPPES directory (read) — honors NPPES_DIR."""
+    return store_dir(data_dir, test, "nppes", "NPPES_DIR")
 
 
 def _atomic_write_bytes(path: str, data: bytes) -> None:

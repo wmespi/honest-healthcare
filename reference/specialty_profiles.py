@@ -39,7 +39,7 @@ import sys
 
 import duckdb
 
-from ._common import ref_dir, write_parquet_atomic
+from ._common import cms_dir, nppes_dir, ref_dir, write_parquet_atomic
 
 PREVALENCE_FLOOR = 0.005
 MIN_SPECIALTY_PROVIDERS = 20
@@ -51,10 +51,9 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    data_dir = "data-test" if args.test else args.data_dir
     rd = ref_dir(args.data_dir, args.test)
-    cms = f"{data_dir}/cms/ga_provider_service.parquet"
-    nppes = f"{data_dir}/nppes/ga_providers.parquet"
+    cms = f"{cms_dir(args.data_dir, args.test)}/ga_provider_service.parquet"
+    nppes = f"{nppes_dir(args.data_dir, args.test)}/ga_providers.parquet"
     nucc = f"{rd}/nucc_taxonomy.parquet"
     out_path = f"{rd}/specialty_procedure_profiles.parquet"
 
