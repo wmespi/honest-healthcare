@@ -262,6 +262,65 @@ describe('Medicare utilization evidence (issue #14)', () => {
     expect(screen.getByText(/2 hospital affiliations/i)).toBeInTheDocument();
   });
 
+  // 99213/99214 at real Blue Value providers come back basis:"component" (the
+  // rate is stored under a plan modifier like `EP`), not basis:"global" — but
+  // it's still the whole visit, so the benchmark must show.
+  it('shows the Medicare benchmark on a single-component (non-split) quote', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '99213', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'ABBOTT, ASHLEY', specialty: 'Family Medicine', city: 'ATLANTA' },
+      plausibility: 'typical', tier: 'typical',
+      medicare_allowed: 86.75, vs_medicare: 0.95,
+      headline: { rate: 82.05, max_rate: 82.05, basis: 'component', pos_label: null },
+      components: [{ modifier: 'EP', label: 'Modifier EP', description: '', settings: [
+        { pos_bucket: 'office', pos_label: 'Any setting', min_rate: 82.05, max_rate: 82.05, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    await screen.findByText(/negotiated cost/i);
+    expect(screen.getByText(/Medicare allows/i)).toBeInTheDocument();
+    expect(screen.getByText(/0\.95×/)).toBeInTheDocument();
+  });
+
+  // A genuine professional (-26) + technical (-TC) split: the headline is one
+  // part, so comparing it to the whole Medicare allowed would mislead — hide it.
+  it('hides the Medicare benchmark on a -26/-TC component-split quote', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: { ...CODE_DIST, billing_code: '73721' } });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '73721', billing_code_type: 'CPT', npi: 123,
+      provider: { name: 'ABBOTT, ASHLEY', specialty: 'Radiology', city: 'ATLANTA' },
+      plausibility: 'typical', tier: 'typical',
+      medicare_allowed: 191.38, vs_medicare: 0.32,
+      headline: { rate: 62.01, max_rate: 381.02, basis: 'component', pos_label: null },
+      components: [
+        { modifier: '26', label: 'Professional', description: '', settings: [
+          { pos_bucket: 'office', pos_label: 'Any setting', min_rate: 62.01, max_rate: 62.01, negotiated_type: 'fee schedule' }] },
+        { modifier: 'TC', label: 'Technical', description: '', settings: [
+          { pos_bucket: 'office', pos_label: 'Any setting', min_rate: 381.02, max_rate: 381.02, negotiated_type: 'fee schedule' }] },
+      ],
+      is_component_split: true,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    await screen.findByText(/negotiated cost/i);
+    expect(screen.queryByText(/Medicare allows/i)).not.toBeInTheDocument();
+  });
+
   it('frames the cost card as a group rate when the CMS tier is "group"', async () => {
     const user = userEvent.setup();
     api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });

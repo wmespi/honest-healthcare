@@ -727,8 +727,14 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
 
   // CMS Physician Fee Schedule benchmark (issue #61) — mcr is null until
   // `make mpfs` runs. Anchors the negotiated rate: <1.2× Medicare = in line,
-  // higher = worth noticing. Only meaningful for the full (global) rate.
-  const medicareBenchmark = mcr && headline.basis === 'global' && (
+  // higher = worth noticing. `vs_medicare` compares the headline to the *global*
+  // Medicare allowed, so it's meaningful when the headline is a whole-procedure
+  // figure — a global rate, or a single-component rate that isn't a
+  // professional/technical split (an E&M code stored under a plan modifier like
+  // `EP` comes back basis:"component" but is still the full visit). Hide it only
+  // for a genuine -26/-TC split, where comparing one part to the whole misleads.
+  const benchmarkComparable = headline.basis === 'global' || !is_component_split;
+  const medicareBenchmark = mcr && benchmarkComparable && (
     <p className={`mt-2 text-[11px] ${vs_medicare > 1.5 ? 'text-amber-400/90' : 'text-slate-500'}`}>
       Medicare allows <span className="font-semibold">{fmt(mcr)}</span> for this
       {vs_medicare ? <> — this plan pays <span className="font-semibold">{vs_medicare}×</span> that</> : null}
