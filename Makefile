@@ -23,7 +23,7 @@
         fmt lint test test-e2e test-api test-web check test-all \
         check-local \
         worktree worktree-rm stack-up stack-down promote \
-        cov-probe cov-report smoke-web data-size \
+        cov-probe cov-report smoke-web data-size footprint clean \
         psql migrate db-reset db-snapshot db-restore \
         sh \
         _require-etl-running
@@ -179,6 +179,12 @@ smoke-web: ## Exercise the rate-explorer's API routes for the target plan across
 
 data-size: ## Data-consumption scorecard — rows + bytes per Parquet table + Postgres queue tables. JSON=1 for machine output
 	@bash scripts/data_size.sh $(if $(JSON),--json,)
+
+footprint: ## Disk footprint — this worktree + all worktrees + toolchains + Docker + host volume. Paste into every PR body.
+	@bash scripts/disk_footprint.sh
+
+clean: ## Reclaim disk in THIS worktree (stray .tmp, data-test, caches). DOCKER=1 prunes Docker cache/dangling; DOCKER=all also drops unused images; DATA_LOCAL=1 drops data-local/.
+	@bash scripts/clean.sh
 
 ## ── Database ─────────────────────────────────────────────────────────────────
 
