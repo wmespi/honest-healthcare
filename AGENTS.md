@@ -14,6 +14,14 @@ This file is the charter — read it first, then follow the [doc map](#where-to-
 to the detail for whatever you're touching. Keep it thin; detail lives next to the
 code.
 
+**Current focus** *(update as the active work changes)* — Flow A "find care" is
+the live product surface: plan-first gating, the out-of-pocket estimator, and the
+CMS evidence + benchmark + practice-identity layers have shipped. Next is the
+geocode + distance + map step and the CMS hospital-quality layer that feed a real
+`/find-care` provider ranking — [docs/direction.md](docs/direction.md) build
+sequence steps 1–2 and 4. Don't restructure `etl/`, `serving/`, or `frontend/`
+without a reason (rule 7).
+
 ---
 
 ## Architecture
@@ -78,6 +86,11 @@ seconds, not a hand-rolled streaming parse.
    plan, a finding that changes direction, a merged PR, a failing test: each is
    its own note, in the moment, not folded into a later recap. Err toward
    over-communicating.
+7. **No structural churn during a feature push** — batch pure renames /
+   reorganizations into a deliberate tidy window, land them, then update docs +
+   memory once. A restructure PR mid-feature-run competes for review attention
+   and rebases badly against the open feature branches (the 2026-08-28 window ran
+   ~6 back-to-back structural PRs, one a ~2,300-line net-zero rename).
 
 ---
 
@@ -168,8 +181,9 @@ TOPIC=<name>` once a PR merges — a lingering worktree is ~300 MB.
 | Where the product is headed — the two flows, the navigator direction, the data roadmap | [docs/direction.md](docs/direction.md) |
 | CMS spec | https://github.com/CMSgov/price-transparency-guide |
 
-`db/SCHEMA.md` covers what Postgres holds; [docs/schema.md](docs/schema.md) is the
-authoritative on-disk schema.
+[docs/schema.md](docs/schema.md) is the single authoritative schema — Parquet and
+Postgres both. `db/SCHEMA.md` is a thin pointer to it for anyone starting from the
+`db/` directory.
 
 **Doc naming.** ALL-CAPS is reserved for repo-meta files (`README.md`, `AGENTS.md`,
 `LICENSE`). Topic and helper docs are lowercase and — where a workflow exists —
