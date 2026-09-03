@@ -221,6 +221,47 @@ describe('Medicare utilization evidence (issue #14)', () => {
     expect(screen.getByText(/142 times in 2024/i)).toBeInTheDocument();
   });
 
+  it('shows the Medicare fee-schedule benchmark + real practice identity on the cost card (#61/#62)', async () => {
+    const user = userEvent.setup();
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    api.getRateQuote.mockResolvedValue({ data: {
+      billing_code: '99213', billing_code_type: 'CPT', npi: 123,
+      provider: {
+        name: 'ABBOTT, ASHLEY', specialty: 'Family Medicine', city: 'ATLANTA',
+        group_name: 'MILLENNIUM PHYSICIAN GROUP OF GEORGIA LLC',
+        years_in_practice: 32,
+        hospital_affiliations: [
+          { ccn: '110003', facility_name: 'Hospital' },
+          { ccn: '110025', facility_name: 'Hospital' },
+          { ccn: '117076', facility_name: 'Home health agency' },
+        ],
+      },
+      plausibility: 'typical', tier: 'typical',
+      medicare_allowed: 86.75, vs_medicare: 0.95,
+      headline: { rate: 82.05, max_rate: 82.05, basis: 'global', pos_label: 'Office / telehealth' },
+      components: [{ modifier: '', label: 'Full procedure', description: '', settings: [
+        { pos_bucket: 'office', pos_label: 'Office / telehealth', min_rate: 82.05, max_rate: 82.05, negotiated_type: 'fee schedule' },
+      ] }],
+      is_component_split: false,
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    await selectProvider(user);
+    await screen.findByText(/procedure menu/i);
+    await user.click(screen.getByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+
+    await screen.findByText(/negotiated cost/i);
+    // MPFS benchmark
+    expect(screen.getByText(/Medicare allows/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$86\.75/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.95×/)).toBeInTheDocument();
+    // DAC identity — real group, years, hospital count (only the 2 'Hospital' rows)
+    expect(screen.getByText(/Millennium Physician Group/i)).toBeInTheDocument();
+    expect(screen.getByText(/32 yrs in practice/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 hospital affiliations/i)).toBeInTheDocument();
+  });
+
   it('frames the cost card as a group rate when the CMS tier is "group"', async () => {
     const user = userEvent.setup();
     api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
