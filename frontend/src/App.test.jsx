@@ -1,12 +1,22 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import * as api from './api';
-import App from './App';
+import App, { Explorer } from './App';
 
 vi.mock('./api');
 
 const BV = 'GA Blue Value HIX Individual Network';
+
+// Most of this suite exercises `Explorer` directly (the rate-explorer itself,
+// #87) rather than the routed `App` — a MemoryRouter is enough context for
+// its useNavigate() calls without any route-matching ceremony. The handful of
+// tests that exercise routing itself (the landing, /find-care/pcp, /explore)
+// render `<App />` and are in their own describe block at the bottom.
+function renderExplorer(props) {
+  return render(<MemoryRouter><Explorer {...props} /></MemoryRouter>);
+}
 
 const OVERVIEW = {
   billing_code: 'ALL',
@@ -95,7 +105,7 @@ async function selectPlan(user) {
 describe('provider selected without a procedure', () => {
   it('renders the procedure menu and never requests an npi-only distribution', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     await selectProvider(user);
@@ -116,7 +126,7 @@ describe('provider selected without a procedure', () => {
   it('drills into a procedure when a menu row is clicked', async () => {
     const user = userEvent.setup();
     api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     await selectProvider(user);
@@ -154,7 +164,7 @@ describe('network comparison (job 2)', () => {
       ],
     } });
 
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     const search = screen.getByPlaceholderText(/search procedure or billing code/i);
     await user.click(search);
@@ -193,7 +203,7 @@ describe('cross-specialty rollup caveat', () => {
       ] }],
       is_component_split: false,
     } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -222,7 +232,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
       ] }],
       is_component_split: false,
     } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -256,7 +266,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
       ] }],
       is_component_split: false,
     } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -297,7 +307,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
       ] }],
       is_component_split: false,
     } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -331,7 +341,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
       ],
       is_component_split: true,
     } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -359,7 +369,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
       ] }],
       is_component_split: false,
     } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -387,7 +397,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
         ],
       } });
     });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -407,7 +417,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
         min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3, n_networks: 1,
         medicare: { tot_srvcs: 210, tot_benes: 130, year: 2024 } },
     ] } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -422,7 +432,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
       { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
       { npi: 222, name: 'CARDIOLOGY CARE CLINIC, LLC', city: 'EATONTON', specialty: 'Cardiac Facilities', has_rates: false },
     ] });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     const input = screen.getByPlaceholderText(/name or NPI/i);
     await user.click(input);
@@ -447,7 +457,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
       { npi: 111, name: 'ALPHARETTA CARDIOLOGY, LLC', city: 'ALPHARETTA', specialty: 'Cardiovascular Disease', has_rates: true },
       { npi: 222, name: 'CARDIOLOGY CARE CLINIC, LLC', city: 'EATONTON', specialty: 'Cardiac Facilities', has_rates: false },
     ] });
-    render(<App />);
+    renderExplorer();
     await user.click(await screen.findByText(/explore all networks without picking a plan/i));
     const input = screen.getByPlaceholderText(/name or NPI/i);
     await user.click(input);
@@ -478,7 +488,7 @@ describe('out-of-pocket estimator (issue #30)', () => {
       ] }],
       is_component_split: false,
     } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     await user.click(screen.getByText('Your cost sharing'));
@@ -497,7 +507,7 @@ describe('out-of-pocket estimator (issue #30)', () => {
 
   it('persists plan params to localStorage', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await user.click(screen.getByText('Your cost sharing'));
     await user.type(await screen.findByPlaceholderText('20'), '15');
@@ -517,7 +527,7 @@ describe('friendly plan picker (issue #33)', () => {
       { network_name: 'GA Blue Value HIX Individual Network', n_rates: 76197 },
       { network_name: 'TRADITIONAL HEALTH PLAN', n_rates: 7000000 },
     ] });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getPlans).toHaveBeenCalled());
 
     await user.click(screen.getByText('All Networks'));
@@ -539,7 +549,7 @@ describe('trust bar (issue #32)', () => {
 
   it('shows dataset coverage + the "all networks mixes data" warning, and dismisses', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getHealth).toHaveBeenCalled());
 
     expect(await screen.findByText(/27,470/)).toBeInTheDocument();
@@ -559,7 +569,7 @@ describe('specialty scope filter (issue #31 rework)', () => {
     api.searchBillingCodes.mockResolvedValue({ data: [
       { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'E&M', provider_groups: 12 },
     ] });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     // pick a procedure
@@ -588,7 +598,7 @@ describe('provider with no rates in the selected network', () => {
   it('shows an explicit empty state instead of a blank screen', async () => {
     const user = userEvent.setup();
     api.getProviderMenu.mockResolvedValue({ data: { npi: 123, count: 0, results: [] } });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     await selectProvider(user);
@@ -601,7 +611,7 @@ describe('provider with no rates in the selected network', () => {
 describe('procedure search scoping', () => {
   it('queries the provider menu (not the global catalog) once a provider is selected', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     await selectProvider(user);
     await screen.findByText(/procedure menu/i);
@@ -634,7 +644,7 @@ describe('compare-across-providers view', () => {
       ],
     } });
 
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     const search = screen.getByPlaceholderText(/search procedure or billing code/i);
@@ -658,7 +668,7 @@ describe('compare-across-providers view', () => {
 
 describe('default landing state', () => {
   it('loads the overview for the saved plan, no code or npi', async () => {
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
     expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, BV, undefined, undefined, undefined);
     expect(api.getProviderMenu).not.toHaveBeenCalled();
@@ -670,7 +680,7 @@ describe('plan-first gate', () => {
 
   it('blocks the explorer until a plan is chosen, then loads it', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderExplorer();
 
     // gated: the "start with your plan" step, no data call, no search box
     expect(await screen.findByText(/start with your plan/i)).toBeInTheDocument();
@@ -688,7 +698,7 @@ describe('plan-first gate', () => {
 
   it('lets the user bypass the gate to browse all networks', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderExplorer();
     await user.click(await screen.findByText(/explore all networks without picking a plan/i));
 
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
@@ -704,7 +714,7 @@ describe('specialty-first flow', () => {
       { npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', specialty: 'Cardiovascular Disease', has_rates: true, entity_type: 'individual' },
       { npi: 456, name: 'NO RATES CLINIC', city: 'MACON', specialty: 'Cardiovascular Disease', has_rates: false, entity_type: 'organization' },
     ] });
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     // the care step: alphabetical specialty list with provider counts shown
@@ -732,7 +742,7 @@ describe('specialty-first flow', () => {
 describe('deep links (docs/journeys.md)', () => {
   it('a ?plan=&npi=&code= URL lands directly on the cost card — no plan gate, no clicking through', async () => {
     window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&npi=123&code=99213`);
-    render(<App />);
+    renderExplorer();
 
     // never shows the gate, and the quote is fetched with the deep-linked npi+code
     expect(screen.queryByText(/start with your plan/i)).not.toBeInTheDocument();
@@ -746,20 +756,22 @@ describe('deep links (docs/journeys.md)', () => {
     api.searchProviders.mockResolvedValue({ data: [
       { npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', specialty: 'Cardiovascular Disease', has_rates: true, entity_type: 'individual' },
     ] });
-    render(<App />);
+    renderExplorer();
 
     await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV, ''));
     expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
     expect(screen.queryByText(/what kind of care do you need/i)).not.toBeInTheDocument();
   });
 
-  // #83 — the service-line sanity-check harness: ?service_line=pcp
-  it('a ?plan=&service_line=pcp URL lands on the PCP-scoped provider list, no free-text specialty UI', async () => {
-    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&service_line=pcp`);
+  // #87 — the service line is route-driven (lockedServiceLine), not a
+  // ?service_line= query param — see the routing describe block at the bottom
+  // of this file for how /find-care/pcp wires that prop up for real.
+  it('a locked PCP scope shows the ranked provider list, no free-text specialty UI', async () => {
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
     api.searchProviders.mockResolvedValue({ data: [
       { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual' },
     ] });
-    render(<App />);
+    renderExplorer({ lockedServiceLine: 'pcp' });
 
     await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', '', 40, BV, 'pcp'));
     expect(await screen.findByText('BAKER, DAVID')).toBeInTheDocument();
@@ -770,11 +782,11 @@ describe('deep links (docs/journeys.md)', () => {
     expect(screen.queryByText('All specialties')).not.toBeInTheDocument();
   });
 
-  // #83 — the actual bug report: the menu must narrow to the new-patient-visit
+  // The actual bug report: the menu must narrow to the new-patient-visit
   // family once a PCP is picked, not show everything they bill.
-  it('scopes the provider menu to the new-patient-visit codes once a PCP is picked (#83)', async () => {
+  it('scopes the provider menu to the new-patient-visit codes once a PCP is picked', async () => {
     const user = userEvent.setup();
-    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&service_line=pcp`);
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
     api.searchProviders.mockResolvedValue({ data: [
       { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual' },
     ] });
@@ -785,7 +797,7 @@ describe('deep links (docs/journeys.md)', () => {
         { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'E&M', min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3 },
       ],
     } });
-    render(<App />);
+    renderExplorer({ lockedServiceLine: 'pcp' });
     await waitFor(() => expect(api.searchProviders).toHaveBeenCalled());
     await user.click(await screen.findByText('BAKER, DAVID'));
 
@@ -800,14 +812,14 @@ describe('deep links (docs/journeys.md)', () => {
     expect(screen.queryByText(/more rates contracted/i)).not.toBeInTheDocument();
   });
 
-  it('shows a scoped empty state when a PCP has other rates but none for a new-patient visit (#83)', async () => {
+  it('shows a scoped empty state when a PCP has other rates but none for a new-patient visit', async () => {
     const user = userEvent.setup();
-    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&service_line=pcp`);
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
     api.searchProviders.mockResolvedValue({ data: [
       { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual' },
     ] });
     api.getProviderMenu.mockResolvedValue({ data: MENU }); // 99213 + 45378 only, no new-patient codes
-    render(<App />);
+    renderExplorer({ lockedServiceLine: 'pcp' });
     await waitFor(() => expect(api.searchProviders).toHaveBeenCalled());
     await user.click(await screen.findByText('BAKER, DAVID'));
 
@@ -819,7 +831,7 @@ describe('deep links (docs/journeys.md)', () => {
   it('a ?bypass=1 URL skips the plan gate straight to the no-plan overview (J4)', async () => {
     try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ }
     window.history.replaceState(null, '', '/?bypass=1');
-    render(<App />);
+    renderExplorer();
 
     expect(screen.queryByText(/start with your plan/i)).not.toBeInTheDocument();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
@@ -828,7 +840,7 @@ describe('deep links (docs/journeys.md)', () => {
 
   it('keeps the address bar in sync as the selection changes, for copy-paste sharing', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderExplorer();
     await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
 
     await selectProvider(user);
@@ -838,5 +850,44 @@ describe('deep links (docs/journeys.md)', () => {
     await user.click(await screen.findByText('Evaluation & Management'));
     await user.click(await screen.findByText('Office Visit'));
     await waitFor(() => expect(new URLSearchParams(window.location.search).get('code')).toBe('99213'));
+  });
+});
+
+// #87 — the actual routed `App`, not `Explorer` directly: does the landing
+// show, and do its two links land on the right locked/unlocked Explorer.
+describe('routing (#87) — task-first landing', () => {
+  beforeEach(() => { window.history.replaceState(null, '', '/'); });
+
+  it('shows the task-first landing at /, not the explorer', () => {
+    render(<App />);
+    expect(screen.getByText(/what are you trying to do/i)).toBeInTheDocument();
+    expect(screen.getByText(/find a primary care doctor/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/search procedure or billing code/i)).not.toBeInTheDocument();
+  });
+
+  it('the PCP card navigates to /find-care/pcp and shows the locked, PCP-scoped explorer', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText(/find a primary care doctor/i));
+
+    expect(window.location.pathname).toBe('/find-care/pcp');
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', '', 40, BV, 'pcp'));
+    expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
+    expect(screen.getAllByText('Primary Care (PCP)').length).toBeGreaterThan(0);
+  });
+
+  it('the secondary link navigates to /explore, the general flow', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText(/explore all networks and procedures/i));
+
+    expect(window.location.pathname).toBe('/explore');
+    expect(await screen.findByPlaceholderText(/search procedure or billing code/i)).toBeInTheDocument();
+  });
+
+  it('an unknown path falls back to the landing rather than a dead end', () => {
+    window.history.replaceState(null, '', '/nope');
+    render(<App />);
+    expect(screen.getByText(/what are you trying to do/i)).toBeInTheDocument();
   });
 });
