@@ -782,6 +782,36 @@ describe('deep links (docs/journeys.md)', () => {
     expect(screen.queryByText('All specialties')).not.toBeInTheDocument();
   });
 
+  // #87 follow-up — with a plan known, the backend ranks the PCP list
+  // cheapest-first and returns each provider's min_rate; the list should
+  // show that price and say it's ranked on it, not just carry it silently.
+  it('shows each PCP\'s price and says the list is ranked cheapest first', async () => {
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 789, name: 'NG, PRIYA', city: 'ATLANTA', specialty: 'Family Medicine', has_rates: true, entity_type: 'individual', min_rate: 60 },
+      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual', min_rate: 150 },
+    ] });
+    renderExplorer({ lockedServiceLine: 'pcp' });
+
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalled());
+    expect(await screen.findByText('$60')).toBeInTheDocument();
+    expect(await screen.findByText('$150')).toBeInTheDocument();
+    expect(screen.getByText(/cheapest first/i)).toBeInTheDocument();
+  });
+
+  // Without a plan a rate can't be computed (it's plan-specific) — no price
+  // shown, no cheapest-first claim, same order/copy as before this shipped.
+  it('shows no price and no cheapest-first claim when there is no plan yet', async () => {
+    window.history.replaceState(null, '', '/?bypass=1');
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual', min_rate: null },
+    ] });
+    renderExplorer({ lockedServiceLine: 'pcp' });
+
+    expect(await screen.findByText('BAKER, DAVID')).toBeInTheDocument();
+    expect(screen.queryByText(/cheapest first/i)).not.toBeInTheDocument();
+  });
+
   // The actual bug report: the menu must narrow to the new-patient-visit
   // family once a PCP is picked, not show everything they bill.
   it('scopes the provider menu to the new-patient-visit codes once a PCP is picked', async () => {

@@ -232,6 +232,13 @@ function ProviderRow({ s, onPick, disabled, planLabel }) {
     <>
       <div className="flex items-center gap-2">
         <span className={`text-sm font-bold truncate ${s.has_rates ? 'text-white' : 'text-slate-500'}`}>{s.name || s.npi}</span>
+        {/* min_rate (#87 follow-up): the cheapest in-scope rate this provider
+            has, when we know both a service line and a plan — the ranking
+            signal the list is actually sorted on, made visible instead of
+            just structural. */}
+        {s.min_rate != null && (
+          <span className="text-[11px] font-black text-emerald-400 shrink-0">${s.min_rate.toFixed(0)}</span>
+        )}
         {s.has_rates
           ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
           : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">
@@ -1308,6 +1315,10 @@ function SpecialtyProviderList({ specialty, label, providers, loading, onPick })
   }
   const withRates = rows.filter(r => r.has_rates);
   const noRates = rows.filter(r => !r.has_rates);
+  // #87 follow-up — the backend only returns min_rate (and sorts on it) once
+  // it knows both a service line and a plan; when it does, say so, rather
+  // than leaving "ranked cheapest first" as an unstated fact about the order.
+  const rankedByCost = withRates.some(r => r.min_rate != null);
   const pick = (s) => onPick(String(s.npi), s.name || String(s.npi));
   return (
     <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
@@ -1316,7 +1327,7 @@ function SpecialtyProviderList({ specialty, label, providers, loading, onPick })
         <>
           <p className="text-slate-500 text-xs mt-1">
             {withRates.length.toLocaleString()} provider{withRates.length === 1 ? '' : 's'} with negotiated
-            rates in your plan. Pick one to see what they charge.
+            rates in your plan{rankedByCost ? ', cheapest first' : ''}. Pick one to see what they charge.
           </p>
           <div className="mt-4 divide-y divide-slate-800/60">
             {withRates.map((s, i) => <ProviderRow key={i} s={s} onPick={pick} />)}

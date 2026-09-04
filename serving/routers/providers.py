@@ -23,8 +23,9 @@ from ..data_sources import (
     db,
     has_parquet,
     network_slug,
+    outpatient_scope,
 )
-from ..service_lines import SERVICE_LINES
+from ..service_lines import SERVICE_LINES, SERVICE_LINE_BILLING_CODES
 
 
 def _rated_npi(network_name: str | None):
@@ -46,6 +47,46 @@ def _rated_npi(network_name: str | None):
             "g.npi IN (SELECT npi FROM rated_npi)",
         )
     return (None, [], "FALSE")
+
+
+def _service_line_rate_cte(service_line: str, network_name: str | None, codes: list[str]):
+    """(cte, params) for "the cheapest in-scope rate this NPI has, in this
+    network" — the ranking signal a service-line list (#83, #87) needs and a
+    plain specialty search doesn't: `service_line` names an exact code family
+    (e.g. PCP_TAXONOMY_CODES' new-patient-visit codes), so unlike `has_rates`
+    (any rate at all, from `_rated_npi`) this is specific to the codes the
+    consumer actually came here for. Needs a network — a rate is plan-specific
+    — so returns (None, []) without one; the caller falls back to the existing
+    unranked order. Same npi_groups -> group_sets -> prices path as
+    `/providers/{npi}/procedures`'s menu query, aggregated across the whole
+    code family instead of one NPI at a time. Scoped by the `net` Hive
+    partition key (network_name's slug) so DuckDB prunes to one partition
+    before the code filter runs — cheap even against the full corpus."""
+    if not (service_line and network_name and codes):
+        return None, []
+    placeholders = ", ".join("?" * len(codes))
+    cte = f"""
+        sl_groups AS (
+            SELECT DISTINCT npi, file_id, provider_group_id
+            FROM {PROVIDERS_SRC}
+            WHERE network_name = ?
+        ),
+        sl_sets AS (
+            SELECT DISTINCT sg.npi, gs.file_id, gs.group_set_id
+            FROM {GROUP_SETS_SRC} gs
+            JOIN sl_groups sg ON sg.file_id = gs.file_id AND sg.provider_group_id = gs.provider_group_id
+        ),
+        sl_rate AS (
+            SELECT ss.npi, MIN(p.negotiated_rate) AS min_rate
+            FROM {PRICES_SRC} p
+            JOIN sl_sets ss ON ss.file_id = p.file_id AND ss.group_set_id = p.group_set_id
+            WHERE p.net = ? AND p.billing_code IN ({placeholders}) AND {outpatient_scope('p')}
+            GROUP BY 1
+        )
+    """
+    return cte, [network_name, network_slug(network_name)] + codes
+
+
 from ..labels import dac_bits, nucc_bits, provider_card
 from ..evidence import (
     DEFAULT_TYPICAL_THRESHOLD,
@@ -257,7 +298,12 @@ def search_providers(
     label would over- or under-match (`classification=Internal Medicine` alone
     pulls in every subspecialist; `specialty` text can't rule that out).
     `network_name` scopes `has_rates` to that plan — without it, `has_rates`
-    means "priced in some Anthem network", which overstates a narrow network."""
+    means "priced in some Anthem network", which overstates a narrow network.
+    When both `service_line` and `network_name` are given, each row also
+    carries `min_rate` — the cheapest in-scope-code rate this NPI has on that
+    plan — and the list is ranked on it (cheapest first, no-rate last) instead
+    of just alphabetically; without a plan a rate can't be computed (it's
+    plan-specific), so `min_rate` is null and the order is unchanged (#87)."""
     q = q.strip()
     specialty = specialty.strip()
     service_line = service_line.strip().lower()
@@ -320,7 +366,17 @@ def search_providers(
     else:
         dac_join, dac_sel = "", "NULL AS group_name"
 
-    with_sql = f"WITH {rated_cte}" if rated_cte else ""
+    # Cost-sort (#87 follow-up): when a service line and a plan are both known,
+    # the question isn't just "who's in network" but "who's cheapest for the
+    # thing I came here for" — rank on it, not just on name.
+    sl_cte, sl_params = _service_line_rate_cte(
+        service_line, network_name, SERVICE_LINE_BILLING_CODES.get(service_line, []))
+    sl_join = "LEFT JOIN sl_rate sr ON sr.npi = g.npi" if sl_cte else ""
+    sl_sel = "ROUND(sr.min_rate, 2)" if sl_cte else "NULL"
+    order_by_rate = "(sr.min_rate IS NOT NULL) DESC, sr.min_rate ASC," if sl_cte else ""
+
+    ctes = [c for c in (rated_cte, sl_cte) if c]
+    with_sql = f"WITH {', '.join(ctes)}" if ctes else ""
     rows = conn.execute(f"""
         {with_sql}
         SELECT g.npi,
@@ -331,19 +387,22 @@ def search_providers(
                {has_rates_expr} AS has_rates,
                g.entity_type,
                {dac_sel},
+               {sl_sel} AS min_rate,
                {spec_sel}
         FROM read_parquet('{GA_NPPES_PATH}') g
         {spec_join}
         {dac_join}
+        {sl_join}
         WHERE {where}
-        -- individuals carry the rates; a specialty search wants doctors, not
+        -- cheapest-for-what-you-came-here-for first when we know it; otherwise
+        -- individuals carry the rates, so a specialty search wants doctors, not
         -- the practice's org NPI (which is never in a roster).
-        ORDER BY has_rates DESC, (g.entity_type = 'individual') DESC,
+        ORDER BY {order_by_rate} has_rates DESC, (g.entity_type = 'individual') DESC,
                  g.is_hospital DESC, g.is_clinic DESC, name
         LIMIT {limit}
-    """, rated_params + params).fetchall()
+    """, rated_params + sl_params + params).fetchall()
     cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic",
-            "has_rates", "entity_type", "group_name", "specialty"]
+            "has_rates", "entity_type", "group_name", "min_rate", "specialty"]
     return [dict(zip(cols, r)) for r in rows]
 
 

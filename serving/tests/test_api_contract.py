@@ -16,9 +16,11 @@ def test_health_and_trust_bar(api):
     assert body["status"] == "ok"
     assert body["total_prices"] > 0
     assert body["total_group_set_edges"] > 0
-    assert body["priceable_npis"] == 5
+    # NPIs 1-5 plus Ng (1000000011, added for the #87 cost-sort test)
+    assert body["priceable_npis"] == 6
     assert set(body["networks"]) == {BLUE_VALUE, "GA Blue Open Access POS Network"}
-    assert body["n_codes"] == 5
+    # the original 5 plus 99204 + 12002 (added for the #87 cost-sort fixture)
+    assert body["n_codes"] == 7
     assert body["as_of"] is None or len(body["as_of"]) == 10
 
 
@@ -304,6 +306,32 @@ def test_provider_search_service_line_unknown_is_400(api):
     assert r.status_code == 400
 
 
+def test_provider_search_service_line_cost_sort(api):
+    # #87 follow-up — with a plan known, the PCP list ranks cheapest-for-a-
+    # new-patient-visit first, not just alphabetically: Ng ($60 via her own
+    # group) beats Baker ($150 via his), even though "Baker" < "Ng, Priya"
+    # alphabetically. Her group also has a *cheaper* $10 rate on an unrelated
+    # code (12002, wound repair) — a decoy: if the sort didn't scope to the
+    # PCP billing-code family, it would wrongly pick that $10 row over her
+    # real $60 99204 rate.
+    body = api.get("/providers/search", params={
+        "service_line": "pcp", "network_name": BLUE_VALUE, "limit": 50,
+    }).json()
+    by_name = {p["name"]: p for p in body}
+    assert by_name["Ng, Priya"]["min_rate"] == 60.0
+    assert by_name["Baker, David"]["min_rate"] == 150.0
+    names_in_order = [p["name"] for p in body if p["name"] in ("Ng, Priya", "Baker, David")]
+    assert names_in_order == ["Ng, Priya", "Baker, David"]
+
+
+def test_provider_search_service_line_without_network_has_no_min_rate(api):
+    # A rate is plan-specific — without `network_name` there's nothing to sort
+    # on, so `min_rate` stays null and the existing (alphabetical-ish) order
+    # is unchanged, same as before this field existed.
+    body = api.get("/providers/search", params={"service_line": "pcp", "limit": 50}).json()
+    assert all(p["min_rate"] is None for p in body)
+
+
 def test_specialties_endpoint(api):
     body = api.get("/specialties", params={"q": "cardio"}).json()
     assert body
@@ -347,12 +375,13 @@ def test_ga_providers_hospitals_only(api):
 
 def test_networks_endpoint(api):
     # served from the browse summary (make build-summary); n_rates is the exact
-    # price-row count per network — 12 Blue Value (incl. the 3 out-of-scope
-    # noise rows: rate_summary counts "what exists", not the scoped view) +
-    # 5 Open Access.
+    # price-row count per network — 16 Blue Value (the original 13, incl. the 3
+    # out-of-scope noise rows: rate_summary counts "what exists", not the
+    # scoped view; plus 3 for the #87 cost-sort fixture — Baker's and Ng's
+    # 99204 rates, and Ng's unrelated $999 12002 row) + 5 Open Access.
     body = api.get("/networks").json()
     counts = {r["network_name"]: r["n_rates"] for r in body}
-    assert counts == {BLUE_VALUE: 13, "GA Blue Open Access POS Network": 5}
+    assert counts == {BLUE_VALUE: 16, "GA Blue Open Access POS Network": 5}
     # sorted by volume desc
     assert [r["n_rates"] for r in body] == sorted((r["n_rates"] for r in body), reverse=True)
 
