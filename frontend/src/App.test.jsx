@@ -788,8 +788,8 @@ describe('deep links (docs/journeys.md)', () => {
   it('shows each PCP\'s price and says the list is ranked cheapest first', async () => {
     window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
     api.searchProviders.mockResolvedValue({ data: [
-      { npi: 789, name: 'NG, PRIYA', city: 'ATLANTA', specialty: 'Family Medicine', has_rates: true, entity_type: 'individual', min_rate: 60 },
-      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual', min_rate: 150 },
+      { npi: 789, name: 'NG, PRIYA', city: 'ATLANTA', specialty: 'Family Medicine', has_rates: true, entity_type: 'individual', min_rate: 60, min_rate_is_plausible: true },
+      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual', min_rate: 150, min_rate_is_plausible: true },
     ] });
     renderExplorer({ lockedServiceLine: 'pcp' });
 
@@ -797,6 +797,24 @@ describe('deep links (docs/journeys.md)', () => {
     expect(await screen.findByText('$60')).toBeInTheDocument();
     expect(await screen.findByText('$150')).toBeInTheDocument();
     expect(screen.getByText(/cheapest first/i)).toBeInTheDocument();
+    // both plausible — no "network floor" footnote
+    expect(screen.queryByText(/network's floor rate/i)).not.toBeInTheDocument();
+  });
+
+  // #87 follow-up — a real bug found live-testing: a naive cheapest-rate pick
+  // can land on Anthem's billing-group fan-out (a rate reachable by thousands
+  // of unrelated NPIs) instead of anything tied to that provider. When the
+  // backend flags that (min_rate_is_plausible: false), the price must say so
+  // rather than reading as "her price".
+  it('marks a min_rate that is only a group-fanout floor, not tied to that provider', async () => {
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual', min_rate: 38, min_rate_is_plausible: false },
+    ] });
+    renderExplorer({ lockedServiceLine: 'pcp' });
+
+    expect(await screen.findByText('$38')).toBeInTheDocument();
+    expect(screen.getByText(/network's floor rate/i)).toBeInTheDocument();
   });
 
   // Without a plan a rate can't be computed (it's plan-specific) — no price

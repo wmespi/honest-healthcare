@@ -19,8 +19,9 @@ def test_health_and_trust_bar(api):
     # NPIs 1-5 plus Ng (1000000011, added for the #87 cost-sort test)
     assert body["priceable_npis"] == 6
     assert set(body["networks"]) == {BLUE_VALUE, "GA Blue Open Access POS Network"}
-    # the original 5 plus 99204 + 12002 (added for the #87 cost-sort fixture)
-    assert body["n_codes"] == 7
+    # the original 5 plus 99204 + 12002 + 99202 (added for the #87 cost-sort
+    # / plausible-tier fixture)
+    assert body["n_codes"] == 8
     assert body["as_of"] is None or len(body["as_of"]) == 10
 
 
@@ -324,12 +325,30 @@ def test_provider_search_service_line_cost_sort(api):
     assert names_in_order == ["Ng, Priya", "Baker, David"]
 
 
+def test_provider_search_service_line_cost_sort_prefers_plausible_over_cheaper_group_floor(api):
+    # The real bug from live testing (#87 follow-up): a naive MIN() over every
+    # in-family price a provider's group can reach picks up Anthem's
+    # billing-group fan-out — a network-wide floor rate that has nothing to do
+    # with what the provider actually does. Baker has a real $150 rate for
+    # 99204 (typical for Internal Medicine, his classification) AND a cheaper
+    # $38 rate for 99202 reachable via the same group but not typical for his
+    # specialty and never billed by him. min_rate must be the plausible $150,
+    # not the cheaper-but-meaningless $38 — and min_rate_is_plausible says so.
+    body = api.get("/providers/search", params={
+        "service_line": "pcp", "network_name": BLUE_VALUE, "limit": 50,
+    }).json()
+    baker = next(p for p in body if p["name"] == "Baker, David")
+    assert baker["min_rate"] == 150.0
+    assert baker["min_rate_is_plausible"] is True
+
+
 def test_provider_search_service_line_without_network_has_no_min_rate(api):
     # A rate is plan-specific — without `network_name` there's nothing to sort
     # on, so `min_rate` stays null and the existing (alphabetical-ish) order
     # is unchanged, same as before this field existed.
     body = api.get("/providers/search", params={"service_line": "pcp", "limit": 50}).json()
     assert all(p["min_rate"] is None for p in body)
+    assert all(p["min_rate_is_plausible"] is None for p in body)
 
 
 def test_specialties_endpoint(api):
@@ -375,13 +394,14 @@ def test_ga_providers_hospitals_only(api):
 
 def test_networks_endpoint(api):
     # served from the browse summary (make build-summary); n_rates is the exact
-    # price-row count per network — 16 Blue Value (the original 13, incl. the 3
+    # price-row count per network — 17 Blue Value (the original 13, incl. the 3
     # out-of-scope noise rows: rate_summary counts "what exists", not the
-    # scoped view; plus 3 for the #87 cost-sort fixture — Baker's and Ng's
-    # 99204 rates, and Ng's unrelated $999 12002 row) + 5 Open Access.
+    # scoped view; plus 4 for the #87 cost-sort / plausible-tier fixture —
+    # Baker's 99204 and 99202 rates, Ng's 99204 rate, and Ng's unrelated $10
+    # 12002 row) + 5 Open Access.
     body = api.get("/networks").json()
     counts = {r["network_name"]: r["n_rates"] for r in body}
-    assert counts == {BLUE_VALUE: 16, "GA Blue Open Access POS Network": 5}
+    assert counts == {BLUE_VALUE: 17, "GA Blue Open Access POS Network": 5}
     # sorted by volume desc
     assert [r["n_rates"] for r in body] == sorted((r["n_rates"] for r in body), reverse=True)
 

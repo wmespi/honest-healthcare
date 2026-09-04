@@ -147,6 +147,14 @@ def _build(data_dir: str) -> None:
     price(100, BLUE_VALUE, "99204", 150.00)
     price(400, BLUE_VALUE, "99204", 60.00)
     price(400, BLUE_VALUE, "12002", 10.00)
+    # 99202 — a *cheaper* new-patient code, also reachable via Baker's own
+    # group (gs 100), but not typical for Internal Medicine (no profile row
+    # below) and never billed by Baker to Medicare. This is the real bug the
+    # plausible-tier fix (#87 follow-up) catches: a naive MIN() would prefer
+    # this $38 over Baker's real (typical) $150 99204 rate — reproducing live
+    # testing, where a network-wide group-fanout floor for 99202 (reachable
+    # by thousands of unrelated NPIs) out-competed a provider's actual menu.
+    price(100, BLUE_VALUE, "99202", 38.00)
 
     os.makedirs(f"{a}/prices", exist_ok=True)
     for net in (BLUE_VALUE, OPEN_ACCESS):
@@ -254,6 +262,9 @@ def _build(data_dir: str) -> None:
         ("Cardiovascular Disease", "70450", 8, 10, 0.80),
         ("Cardiovascular Disease", "99213", 9, 10, 0.90),
         ("Internal Medicine", "99213", 40, 42, 0.95),
+        # 99204 typical for Internal Medicine, but 99202 is not (no row) —
+        # the #87 follow-up plausible-tier cost-sort test needs that split.
+        ("Internal Medicine", "99204", 38, 42, 0.90),
     ]
     _write(con, f"{data_dir}/reference/specialty_procedure_profiles.parquet",
            "specialty, hcpcs_cd, billers, specialty_providers, prevalence",

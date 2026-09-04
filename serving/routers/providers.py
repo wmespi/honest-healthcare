@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from ..data_sources import (
+    CMS_UTILIZATION_PATH,
     DAC_GA_PATH,
     GA_NPPES_PATH,
     CODE_LABELS_PATH,
@@ -20,11 +21,13 @@ from ..data_sources import (
     PROVIDERS_GLOB,
     PROVIDERS_SRC,
     GROUP_SETS_SRC,
+    SPECIALTY_PROFILES_PATH,
     db,
     has_parquet,
     network_slug,
     outpatient_scope,
 )
+from ..evidence import DEFAULT_TYPICAL_THRESHOLD
 from ..service_lines import SERVICE_LINES, SERVICE_LINE_BILLING_CODES
 
 
@@ -50,21 +53,51 @@ def _rated_npi(network_name: str | None):
 
 
 def _service_line_rate_cte(service_line: str, network_name: str | None, codes: list[str]):
-    """(cte, params) for "the cheapest in-scope rate this NPI has, in this
-    network" — the ranking signal a service-line list (#83, #87) needs and a
-    plain specialty search doesn't: `service_line` names an exact code family
-    (e.g. PCP_TAXONOMY_CODES' new-patient-visit codes), so unlike `has_rates`
-    (any rate at all, from `_rated_npi`) this is specific to the codes the
-    consumer actually came here for. Needs a network — a rate is plan-specific
-    — so returns (None, []) without one; the caller falls back to the existing
-    unranked order. Same npi_groups -> group_sets -> prices path as
-    `/providers/{npi}/procedures`'s menu query, aggregated across the whole
-    code family instead of one NPI at a time. Scoped by the `net` Hive
-    partition key (network_name's slug) so DuckDB prunes to one partition
-    before the code filter runs — cheap even against the full corpus."""
+    """(cte, params) for "the cheapest *plausible* in-scope rate this NPI has,
+    in this network" — the ranking signal a service-line list (#83, #87)
+    needs and a plain specialty search doesn't: `service_line` names an exact
+    code family (e.g. PCP_TAXONOMY_CODES' new-patient-visit codes), so unlike
+    `has_rates` (any rate at all, from `_rated_npi`) this is specific to the
+    codes the consumer actually came here for. Needs a network — a rate is
+    plan-specific — so returns (None, []) without one; the caller falls back
+    to the existing unranked order.
+
+    A naive MIN() over every price this NPI's provider group can reach picks
+    up Anthem's well-known billing-group fan-out (issue #14, #73): one code's
+    rock-bottom rate can sit in a group_set shared by thousands of NPIs
+    statewide, so almost everyone ties on the network's floor and the ranking
+    stops meaning anything (caught live testing #87 — every PCP showed the
+    same $38). So this prefers the same "plausible" tier
+    `/providers/{npi}/procedures` already uses — a code this NPI actually
+    billed to Medicare, or one typical for their NUCC classification — batched
+    as SQL joins across the whole candidate list instead of evidence.py's
+    per-NPI calls, and only falls back to the raw group-wide floor for an NPI
+    with no plausible-tier rate at all (same fallback the menu endpoint uses).
+
+    Same npi_groups -> group_sets -> prices path as the menu query, scoped by
+    the `net` Hive partition key (network_name's slug) so DuckDB prunes to one
+    partition before the code filter runs — cheap even against the full
+    corpus."""
     if not (service_line and network_name and codes):
         return None, []
     placeholders = ", ".join("?" * len(codes))
+    has_cms = os.path.exists(CMS_UTILIZATION_PATH)
+    has_profiles = os.path.exists(SPECIALTY_PROFILES_PATH)
+    billed_join = (
+        f"LEFT JOIN read_parquet('{CMS_UTILIZATION_PATH}') cu "
+        f"ON cu.npi = sp.npi AND cu.hcpcs_cd = sp.billing_code"
+        if has_cms else ""
+    )
+    typical_join = (
+        f"LEFT JOIN read_parquet('{SPECIALTY_PROFILES_PATH}') spp "
+        f"ON spp.specialty = sc.classification AND spp.hcpcs_cd = sp.billing_code "
+        f"AND spp.prevalence >= ?"
+        if has_profiles else ""
+    )
+    is_plausible = " OR ".join(filter(None, [
+        "cu.npi IS NOT NULL" if has_cms else None,
+        "spp.hcpcs_cd IS NOT NULL" if has_profiles else None,
+    ])) or "FALSE"
     cte = f"""
         sl_groups AS (
             SELECT DISTINCT npi, file_id, provider_group_id
@@ -76,15 +109,37 @@ def _service_line_rate_cte(service_line: str, network_name: str | None, codes: l
             FROM {GROUP_SETS_SRC} gs
             JOIN sl_groups sg ON sg.file_id = gs.file_id AND sg.provider_group_id = gs.provider_group_id
         ),
-        sl_rate AS (
-            SELECT ss.npi, MIN(p.negotiated_rate) AS min_rate
+        sl_prices AS (
+            SELECT ss.npi, p.billing_code, p.negotiated_rate
             FROM {PRICES_SRC} p
             JOIN sl_sets ss ON ss.file_id = p.file_id AND ss.group_set_id = p.group_set_id
             WHERE p.net = ? AND p.billing_code IN ({placeholders}) AND {outpatient_scope('p')}
+        ),
+        sl_classification AS (
+            SELECT g.npi, nx.classification
+            FROM read_parquet('{GA_NPPES_PATH}') g
+            LEFT JOIN read_parquet('{NUCC_PATH}') nx ON nx.taxonomy_code = g.taxonomy_code
+        ),
+        sl_scored AS (
+            SELECT sp.npi, sp.negotiated_rate, ({is_plausible}) AS is_plausible
+            FROM sl_prices sp
+            LEFT JOIN sl_classification sc ON sc.npi = sp.npi
+            {billed_join}
+            {typical_join}
+        ),
+        sl_rate AS (
+            SELECT npi,
+                   COALESCE(MIN(negotiated_rate) FILTER (WHERE is_plausible),
+                            MIN(negotiated_rate)) AS min_rate,
+                   BOOL_OR(is_plausible) AS min_rate_is_plausible
+            FROM sl_scored
             GROUP BY 1
         )
     """
-    return cte, [network_name, network_slug(network_name)] + codes
+    params = [network_name, network_slug(network_name)] + codes
+    if has_profiles:
+        params.append(DEFAULT_TYPICAL_THRESHOLD)
+    return cte, params
 
 
 from ..labels import dac_bits, nucc_bits, provider_card
@@ -373,6 +428,11 @@ def search_providers(
         service_line, network_name, SERVICE_LINE_BILLING_CODES.get(service_line, []))
     sl_join = "LEFT JOIN sl_rate sr ON sr.npi = g.npi" if sl_cte else ""
     sl_sel = "ROUND(sr.min_rate, 2)" if sl_cte else "NULL"
+    # whether min_rate came from a code this NPI actually billed / is typical
+    # for their specialty, vs. the raw group-fanout floor (fallback when
+    # there's no plausible-tier rate at all) — surfaced so the frontend never
+    # shows a bare price that's secretly just the network's floor.
+    sl_plausible_sel = "sr.min_rate_is_plausible" if sl_cte else "NULL"
     order_by_rate = "(sr.min_rate IS NOT NULL) DESC, sr.min_rate ASC," if sl_cte else ""
 
     ctes = [c for c in (rated_cte, sl_cte) if c]
@@ -388,6 +448,7 @@ def search_providers(
                g.entity_type,
                {dac_sel},
                {sl_sel} AS min_rate,
+               {sl_plausible_sel} AS min_rate_is_plausible,
                {spec_sel}
         FROM read_parquet('{GA_NPPES_PATH}') g
         {spec_join}
@@ -402,7 +463,8 @@ def search_providers(
         LIMIT {limit}
     """, rated_params + sl_params + params).fetchall()
     cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic",
-            "has_rates", "entity_type", "group_name", "min_rate", "specialty"]
+            "has_rates", "entity_type", "group_name", "min_rate",
+            "min_rate_is_plausible", "specialty"]
     return [dict(zip(cols, r)) for r in rows]
 
 
