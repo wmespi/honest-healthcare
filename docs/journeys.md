@@ -15,6 +15,15 @@ and the single slowest call (flagged `⚠` over ~1.5s — informational, not a
 failure). Browser-level Playwright specs that walk the actual clickpath are a
 follow-up ([#72](https://github.com/wmespi/honest-healthcare/issues/72)).
 
+**Every journey below has a Link** — a URL into the tailnet-promoted app,
+pre-loaded to that journey's endpoint via query params (`?plan=&specialty=&npi=
+&code=&bypass=1`; no plan-gate clicking, no typing a name). Click it, look, done —
+that's the sanity check for a PR. The app reads these once on load and keeps the
+address bar in sync as you navigate, so *any* state on the page is also a URL you
+can copy back into a PR. Links below point at the desktop's current tailnet host
+(`williams-mac-studio.tail5ffc4d.ts.net:5173`) — update if that ever changes.
+They only resolve once this deep-link feature itself has been promoted.
+
 Keep the status column honest — it's what the API returned *today*, not what a PR
 claimed. If a journey regresses, that's the headline of the next
 [State of the Build](../.claude/skills/state-of-the-build/SKILL.md), not a
@@ -38,16 +47,18 @@ footnote.
 | | |
 |---|---|
 | **Plan** | GA Blue Value HIX Individual Network |
+| **Link** | [`…ts.net:5173/?plan=GA Blue Value HIX Individual Network&npi=1285125310&code=99213`](http://williams-mac-studio.tail5ffc4d.ts.net:5173/?plan=GA%20Blue%20Value%20HIX%20Individual%20Network&npi=1285125310&code=99213) |
 | **Clickpath** | land → plan gate (pick plan) → "Family Medicine" → ranked provider list → pick a provider → provider menu → `99213` (office visit, established) |
 | **API calls** | `/specialties?network_name=` · `/providers/search?specialty=Family Medicine&network_name=` · `/providers/{npi}/procedures?network_name=` · `/rates/quote?billing_code=99213&npi={npi}&network_name=` |
 | **Expected** | One clear dollar figure, a Medicare benchmark line, and a "you'd pay ≈" once she's entered her cost-sharing. |
-| **Status** | ⚠️ **works with rough edges.** Quote returns `$82.05`, `medicare_allowed $86.75`, `vs_medicare 0.95`, `tier billed`. Two problems: (a) `99213` comes back `basis: component`, and the frontend only renders the Medicare line when `basis === 'global'` — so the flagship number shows *without* its benchmark; (b) the first "Family Medicine" search result is a physical-therapy group (specialty-classification bleed). Both tracked in [#73](https://github.com/wmespi/honest-healthcare/issues/73). |
+| **Status** | ⚠️ **works, one rough edge left.** Quote returns `$82.05`, `medicare_allowed $86.75`, `vs_medicare 0.95`, `tier billed`. The benchmark-hidden-on-`basis:component` bug is fixed (#78) — the line now shows. Still open: the first "Family Medicine" search result is a physical-therapy group (specialty-classification bleed), tracked in [#73](https://github.com/wmespi/honest-healthcare/issues/73). |
 
 ### J2 — Rosa: a knee MRI
 
 | | |
 |---|---|
 | **Plan** | GA Blue Value HIX Individual Network |
+| **Link** | [`…ts.net:5173/?plan=GA Blue Value HIX Individual Network&npi=1285125310&code=73721`](http://williams-mac-studio.tail5ffc4d.ts.net:5173/?plan=GA%20Blue%20Value%20HIX%20Individual%20Network&npi=1285125310&code=73721) |
 | **Clickpath** | plan set → procedure search "MRI knee" / `73721` → rate distribution → provider compare, or drill to one provider's cost card |
 | **API calls** | `/billing_codes?q=` · `/rates/distribution?billing_code=73721&network_name=` · `/rates/providers?billing_code=73721&network_name=` · `/rates/quote?billing_code=73721&npi={npi}&network_name=` |
 | **Expected** | The rate range, the professional-fee / technical-fee split explained, the by-setting spread. |
@@ -58,6 +69,7 @@ footnote.
 | | |
 |---|---|
 | **Plan** | GA Blue Value HIX Individual Network |
+| **Link** | [`…ts.net:5173/?plan=GA Blue Value HIX Individual Network&npi=1285125310`](http://williams-mac-studio.tail5ffc4d.ts.net:5173/?plan=GA%20Blue%20Value%20HIX%20Individual%20Network&npi=1285125310) *(lands on the provider menu, not the live search box — the search interaction itself still needs a look)* |
 | **Clickpath** | plan set → provider search by name → read the "has rates" / "not in Blue Value" badge (no drill required) |
 | **API calls** | `/providers/search?q={name}&network_name=` |
 | **Expected** | Answerable without hitting a dead-end quote screen. A provider with no rate in the plan renders as an inert listing, not a broken link. |
@@ -68,6 +80,7 @@ footnote.
 | | |
 |---|---|
 | **Plan** | GA Blue Value HIX Individual Network |
+| **Link** | [`…ts.net:5173/?plan=GA Blue Value HIX Individual Network&npi=1407147028&code=45378`](http://williams-mac-studio.tail5ffc4d.ts.net:5173/?plan=GA%20Blue%20Value%20HIX%20Individual%20Network&npi=1407147028&code=45378) |
 | **Clickpath** | plan set → "Gastroenterology" → provider → `45378` (diagnostic colonoscopy) |
 | **API calls** | `/providers/search?specialty=Gastroenterology&network_name=` · `/rates/quote?billing_code=45378&npi={npi}&network_name=` |
 | **Expected** | The rate, the Medicare benchmark, and an honest "this is the group's rate, not verified to this provider" caveat when that's the case. |
@@ -82,6 +95,7 @@ footnote.
 | | |
 |---|---|
 | **Plan** | none |
+| **Link** | [`…ts.net:5173/?bypass=1`](http://williams-mac-studio.tail5ffc4d.ts.net:5173/?bypass=1) |
 | **Clickpath** | land → "explore all networks without picking a plan" → network overview |
 | **API calls** | `GET /` · `/rates/distribution` (no `network_name`) |
 | **Expected** | No misleading aggregate presented as a finding; a clear signal that a plan is needed for real numbers. |
@@ -102,7 +116,8 @@ Exchange cost-sharing files.
 
 ## Adding a journey
 
-1. Add the row here (persona, plan, clickpath, API calls, expected, status).
+1. Add the row here (persona, plan, **link** — `?plan=&specialty=&npi=&code=`, or
+   `?bypass=1` for no plan — clickpath, API calls, expected, status).
 2. Add its assertion to `scripts/journeys.py` — pointed checks on the *specific*
    expected outcome (exact rate, benchmark band, tier), not a broad basket
    (`make smoke-web` already does breadth).
