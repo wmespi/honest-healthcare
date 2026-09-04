@@ -182,6 +182,7 @@ TOPIC=<name>` once a PR merges — a lingering worktree is ~300 MB.
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Container images — dev/prod targets, ports, what CI builds | [deploy/README.md](deploy/README.md) |
+| Sending a non-developer (tester, family member) the Tailscale link | [docs/access.md](docs/access.md) |
 | Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |
 | User journeys — the persona clickpaths every PR sanity-checks against | [docs/journeys.md](docs/journeys.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |
