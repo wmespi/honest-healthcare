@@ -63,9 +63,11 @@ def _build(data_dir: str) -> None:
                ("'CPT'", "'90837'", "'Psychotherapy, 60 min'", "'Psytx w pt 60 minutes'"),
            ])
 
-    # ── group_sets: gs 100 -> pg{10,20}; gs 200 -> pg{30}; gs 300 -> pg{10,20,30,40}
+    # ── group_sets: gs 100 -> pg{10,20}; gs 200 -> pg{30}; gs 300 -> pg{10,20,30,40};
+    # gs 400 -> pg{60} — Ng's own group, priced separately from Baker's so a
+    # cost-sort test (#87 follow-up) has two PCP providers with different rates.
     gs_rows = []
-    for gs, pgs in ((100, (10, 20)), (200, (30,)), (300, (10, 20, 30, 40))):
+    for gs, pgs in ((100, (10, 20)), (200, (30,)), (300, (10, 20, 30, 40)), (400, (60,))):
         for pg in pgs:
             gs_rows.append((FILE_ID, gs, pg))
     _write(con, f"{a}/group_sets/1.parquet",
@@ -83,6 +85,9 @@ def _build(data_dir: str) -> None:
         (20, BLUE_VALUE, 1000000003, 1000000010), (20, BLUE_VALUE, 1000000004, 1000000010),
         (30, OPEN_ACCESS, 1000000005, 1000000030), (30, OPEN_ACCESS, 1000000001, 1000000030),
         (40, OPEN_ACCESS, 1000000002, 1000000040),
+        # Ng (NP, PCP-eligible) — her own group/group_set, priced separately
+        # from Baker's so the two PCP providers can carry different rates.
+        (60, BLUE_VALUE, 1000000011, 1000000060),
     ]
     _write(con, f"{a}/providers/1.parquet",
            "file_id, provider_group_id, network_name, npi, tin_type, tin_value",
@@ -91,7 +96,7 @@ def _build(data_dir: str) -> None:
     _write(con, f"{a}/npi_lookup.parquet", "npi, tin_value",
            [(n, f"'{t}'") for n, t in
             ((1000000001, 1000000010), (1000000002, 1000000010), (1000000003, 1000000010),
-             (1000000004, 1000000010), (1000000005, 1000000030))])
+             (1000000004, 1000000010), (1000000005, 1000000030), (1000000011, 1000000060))])
 
     # ── prices: one row per (network x negotiated price) ─────────────────────
     # cols: file_id group_set_id network_name billing_code_type billing_code
@@ -133,6 +138,15 @@ def _build(data_dir: str) -> None:
     price(300, OPEN_ACCESS, "93000", 18.90)
     # 90837 — psychotherapy (behavioral); only via the LCSW's group
     price(100, BLUE_VALUE, "90837", 132.10)
+    # 99204 — new-patient PCP visit (#87 follow-up cost-sort). Baker (gs 100,
+    # via provider_group 10) is pricier than Ng (gs 400, her own group) — the
+    # cheapest-first PCP ranking test needs these to differ. Ng's group also
+    # has a *cheaper* $10 rate on 12002 (wound repair, not in the PCP
+    # billing-code family) — a decoy: if the family filter were missing, MIN
+    # would wrongly pick the $10 row instead of her real $60 99204 rate.
+    price(100, BLUE_VALUE, "99204", 150.00)
+    price(400, BLUE_VALUE, "99204", 60.00)
+    price(400, BLUE_VALUE, "12002", 10.00)
 
     os.makedirs(f"{a}/prices", exist_ok=True)
     for net in (BLUE_VALUE, OPEN_ACCESS):
@@ -163,6 +177,10 @@ def _build(data_dir: str) -> None:
          "3 Brain Ct", "", "Atlanta", "GA", "30306"),
         (1000000005, "organization", "Emory University Hospital", "", "", "282N00000X", "Hospital", 1, 0,
          "1364 Clifton Rd NE", "", "Atlanta", "GA", "30322"),
+        # Nurse Practitioner, Family — PCP-eligible (#83), her own group so a
+        # cost-sort ranking can put her below/above Baker on price (#87).
+        (1000000011, "individual", "", "Ng", "Priya", "363LF0000X", "Nurse Practitioner", 0, 0,
+         "9 Primary Way", "", "Atlanta", "GA", "30310"),
         # org NPIs used as tin_value (the billing practice) — resolve to a name
         (1000000010, "organization", "Peachtree Internal Medicine LLC", "", "", "207R00000X", "Internal Medicine", 0, 1,
          "1 Peachtree St", "", "Atlanta", "GA", "30303"),
@@ -193,6 +211,8 @@ def _build(data_dir: str) -> None:
          "", "Neurology", "Neurology", 1),
         ("282N00000X", "Hospitals", "General Acute Care Hospital",
          "", "General Acute Care Hospital", "General Acute Care Hospital", 0),
+        ("363LF0000X", "Physician Assistants & Advanced Practice Nursing Providers",
+         "Nurse Practitioner", "Family", "Family", "Family", 1),
     ]
     _write(con, f"{data_dir}/reference/nucc_taxonomy.parquet",
            "taxonomy_code, grouping, classification, specialization, display_name, specialty, is_individual",

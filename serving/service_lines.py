@@ -40,3 +40,14 @@ PCP_TAXONOMY_CODES = [
 SERVICE_LINES = {
     "pcp": PCP_TAXONOMY_CODES,
 }
+
+# The billing-code family a service line actually shops for — distinct from
+# the *taxonomy* allowlist above (which providers count) and used to cost-sort
+# them (#87 follow-up). Mirrors frontend/src/App.jsx's SERVICE_LINE_CODES,
+# which narrows the provider menu to the same family — kept in sync by hand,
+# same as the rest of the frontend/backend split; there's no shared build step
+# between the two stacks to source it from one place.
+SERVICE_LINE_BILLING_CODES = {
+    "pcp": ["99202", "99203", "99204", "99205",
+            "99381", "99382", "99383", "99384", "99385", "99386", "99387"],
+}
