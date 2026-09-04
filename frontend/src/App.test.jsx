@@ -161,6 +161,14 @@ describe('network comparison (job 2)', () => {
     await user.type(search, 'office');
     await user.click(await screen.findByText('Office Visit'));
 
+    // collapsed by default (#73) — no eager /rates/by_network call, and the
+    // per-network breakdown isn't shown until asked
+    const toggle = await screen.findByText(/compare this rate across your other anthem networks/i);
+    expect(screen.queryByText(/does your plan matter/i)).not.toBeInTheDocument();
+    expect(api.getRatesByNetwork).not.toHaveBeenCalled();
+
+    await user.click(toggle);
+
     expect(await screen.findByText(/does your plan matter/i)).toBeInTheDocument();
     expect(screen.getAllByText('Blue Value (HMO)').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Traditional (PPO)').length).toBeGreaterThan(0);
