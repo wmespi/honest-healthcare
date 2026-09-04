@@ -1522,11 +1522,7 @@ export function Explorer({ lockedServiceLine }) {
   // e.g. ?code=99213&npi=... lands directly on that quote.
   useEffect(() => {
     if (gated) return;
-    // `specialty || serviceLine` is for fetchDistribution's own "no code, but a
-    // scope is set" guard only (it early-returns and lets the ranked-list effect
-    // below take over) — never sent to the API as a bogus specialty= value,
-    // since that only happens on the branch that does return early.
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan || undefined, '', npi, selectedCode?.rbcs_category, specialty || serviceLine);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan || undefined, '', npi, selectedCode?.rbcs_category, specialty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bypassGate]);
 
@@ -1654,11 +1650,18 @@ export function Explorer({ lockedServiceLine }) {
   }, [query, isFocused, npi, selectedPlan, setting, serviceLine]);
 
   const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi, rbcsCategory, activeSpecialty) => {
-    // No code yet, but a provider or a specialty is chosen: those are the "menu"
-    // / "specialty provider list" views, each handled by its own effect. Calling
-    // /rates/distribution here would scan prices with nothing pruning the code
-    // axis (and a network+specialty codeless scan is the slow path) — skip it.
-    if (!code && (activeNpi || activeSpecialty)) {
+    // No code yet, but a provider, a specialty, or a locked service line (#83)
+    // is chosen: those are the "menu" / "specialty provider list" views, each
+    // handled by its own effect. Calling /rates/distribution here would scan
+    // prices with nothing pruning the code axis (and a network+specialty
+    // codeless scan is the slow path) — skip it. `serviceLine` is read from
+    // the outer closure, not a parameter — it's a route-derived constant for
+    // the component's whole lifetime (#87), safe to close over, and must
+    // never be forwarded as `activeSpecialty` below: it's a taxonomy-code-
+    // family slug ("pcp"), not a real NUCC specialty label, and sending it as
+    // `specialty=` 404s a query that has real data (found live-testing #87 —
+    // picking a code while a service line was locked broke every quote).
+    if (!code && (activeNpi || activeSpecialty || serviceLine)) {
       setDistribution(null);
       setSelectedCode(null);
       setError(null);
@@ -1689,7 +1692,7 @@ export function Explorer({ lockedServiceLine }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [serviceLine]);
 
   const handleSuggestionClick = (sug) => {
     setQuery(sug.label || cleanProcedureName(sug.name) || `${sug.billing_code} (${sug.billing_code_type})`);
@@ -1699,9 +1702,7 @@ export function Explorer({ lockedServiceLine }) {
 
   const handlePlanSelect = (plan) => {
     setSelectedPlan(plan);
-    // see the mount-effect comment — `specialty || serviceLine` only matters
-    // for fetchDistribution's own early-return guard when there's no code yet.
-    fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi, undefined, specialty || serviceLine);
+    fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi, undefined, specialty);
   };
 
   const handleSpecialtyChange = (sp) => {

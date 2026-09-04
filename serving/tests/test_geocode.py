@@ -22,7 +22,7 @@ OUT = os.path.join(REPO, "data-test/reference/pcp_geocode.parquet")
 
 
 def _write_nppes_fixture():
-    """Four NPPES rows exercising every path the builder needs to get right:
+    """Five NPPES rows exercising every path the builder needs to get right:
       2000000001 / 2000000002 — both PCP-eligible, share one address (Macon) —
         the dedup + rejoin (both must land on the same, single-geocoded coord).
       2000000003 — PCP-eligible, a *different* address (Athens) that the
@@ -30,6 +30,9 @@ def _write_nppes_fixture():
         output, not zeroed.
       2000000004 — NOT PCP-eligible (cardiologist taxonomy) — must never reach
         the candidate list at all, regardless of its address.
+      2000000005 — PCP-eligible, at an address the canned Census response
+        marks Match but geocodes to Maryland — must be absent from the
+        output despite the Match status (the GA bounding-box filter).
     """
     os.makedirs(os.path.dirname(NPPES_FIXTURE), exist_ok=True)
     con = duckdb.connect()
@@ -42,6 +45,8 @@ def _write_nppes_fixture():
          "200 Oak Ave", "", "Athens", "GA", "30601"),
         (2000000004, "individual", "", "Delta", "Dan", "207RC0000X", "Cardiovascular Disease",
          "300 Heart Way", "", "Savannah", "GA", "31401"),
+        (2000000005, "individual", "", "Epsilon", "Eve", "207Q00000X", "Family Medicine",
+         "400 Wrong State Blvd", "", "Somewhere", "GA", "39999"),
     ]
     body = ", ".join(
         "(" + ", ".join(f"'{c}'" if isinstance(c, str) else str(c) for c in r) + ")"
@@ -82,7 +87,9 @@ def test_schema(built):
 def test_matched_addresses_geocoded(built):
     rows = {r[0]: (r[1], r[2]) for r in
             built.execute(f"SELECT npi, latitude, longitude FROM read_parquet('{OUT}')").fetchall()}
-    assert set(rows) == {2000000001, 2000000002}  # 2000000003 (No_Match), 2000000004 (not PCP) absent
+    # 2000000003 (No_Match), 2000000004 (not PCP), 2000000005 (matched but
+    # outside Georgia) all absent
+    assert set(rows) == {2000000001, 2000000002}
 
 
 def test_shared_address_dedups_to_one_geocode_call_same_coords(built):
@@ -100,4 +107,11 @@ def test_non_pcp_taxonomy_never_a_candidate(built):
 
 def test_unmatched_address_is_absent_not_zeroed(built):
     rows = built.execute(f"SELECT npi FROM read_parquet('{OUT}') WHERE npi = 2000000003").fetchall()
+    assert rows == []
+
+
+def test_matched_but_outside_georgia_is_dropped(built):
+    # Census marked this one "Match" — the bounding-box filter, not the
+    # match-status check, is what has to catch it.
+    rows = built.execute(f"SELECT npi FROM read_parquet('{OUT}') WHERE npi = 2000000005").fetchall()
     assert rows == []

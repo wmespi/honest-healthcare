@@ -48,6 +48,16 @@ CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
 BENCHMARK = "Public_AR_Current"
 MAX_BATCH = 10_000  # Census's hard per-request cap
 
+# Georgia's real bounding box, generous margin. A sanity check, not a second
+# geocoder: verified 2026-09-04 that on the real 24,697-candidate run, 7 of
+# 21,259 matches (0.03%) landed outside Georgia entirely — Census matching an
+# NPPES address to a same-named town in another state (LaFayette GA vs TN,
+# Riverdale GA vs MD), one of them a genuine source-data error (an NPPES row
+# labeled "DECATUR, GA" carrying an Alabama ZIP). A distance ranking must
+# never show a provider states away as "nearby" because of a bad match.
+GA_LAT_RANGE = (30.3, 35.1)
+GA_LON_RANGE = (-85.7, -80.7)
+
 # Mirrors serving/service_lines.py:PCP_TAXONOMY_CODES — see the module
 # docstring above for why this isn't a cross-package import.
 PCP_TAXONOMY_CODES = [
@@ -221,6 +231,15 @@ def main() -> None:
         [(aid, lat, lon) for aid, (lat, lon) in matches.items()],
     )
 
+    out_of_ga = con.execute(f"""
+        SELECT count(*) FROM geocoded
+        WHERE latitude NOT BETWEEN {GA_LAT_RANGE[0]} AND {GA_LAT_RANGE[1]}
+           OR longitude NOT BETWEEN {GA_LON_RANGE[0]} AND {GA_LON_RANGE[1]}
+    """).fetchone()[0]
+    if out_of_ga:
+        print(f"    dropping {out_of_ga:,} address(es) geocoded outside Georgia's "
+              f"bounding box (a wrong-state match, not a real position)")
+
     select_sql = f"""
         SELECT g.npi, ge.latitude, ge.longitude
         FROM read_parquet('{ga_path}') g
@@ -230,6 +249,8 @@ def main() -> None:
           AND a.city = g.city AND a.state = g.state AND a.postal_code = g.postal_code
         JOIN geocoded ge ON ge.addr_id = a.addr_id
         WHERE g.taxonomy_code IN ({placeholders})
+          AND ge.latitude BETWEEN {GA_LAT_RANGE[0]} AND {GA_LAT_RANGE[1]}
+          AND ge.longitude BETWEEN {GA_LON_RANGE[0]} AND {GA_LON_RANGE[1]}
     """
     write_parquet_atomic(con, select_sql, out_path)
 

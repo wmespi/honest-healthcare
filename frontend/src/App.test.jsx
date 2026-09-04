@@ -832,6 +832,23 @@ describe('deep links (docs/journeys.md)', () => {
 
   // The actual bug report: the menu must narrow to the new-patient-visit
   // family once a PCP is picked, not show everything they bill.
+  // Real bug from live-testing #87: a deep link that lands directly on a
+  // quote (?plan=&code=) while a service line is locked was sending
+  // `specialty=pcp` to /rates/distribution -- a taxonomy-code-family slug,
+  // not a real NUCC specialty label, which matches nothing and 404s a
+  // quote that has real data (confirmed live: CPT 99202 in Blue Value,
+  // https://github.com/wmespi/honest-healthcare/pull/92-era report).
+  it('never sends the locked service line as a bogus specialty= param', async () => {
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&code=99204`);
+    api.getRateDistribution.mockResolvedValue({ data: CODE_DIST });
+    renderExplorer({ lockedServiceLine: 'pcp' });
+
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+    for (const call of api.getRateDistribution.mock.calls) {
+      expect(call).not.toContain('pcp');
+    }
+  });
+
   it('scopes the provider menu to the new-patient-visit codes once a PCP is picked', async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
