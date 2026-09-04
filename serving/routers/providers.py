@@ -8,7 +8,7 @@
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from ..data_sources import (
     DAC_GA_PATH,
@@ -24,6 +24,7 @@ from ..data_sources import (
     has_parquet,
     network_slug,
 )
+from ..service_lines import SERVICE_LINES
 
 
 def _rated_npi(network_name: str | None):
@@ -242,18 +243,28 @@ def provider_procedures(
 def search_providers(
     q: str = Query(default=""),
     specialty: str = Query(default=""),
+    service_line: str = Query(default=""),
     network_name: Optional[str] = None,
     limit: int = Query(default=20, le=100),
 ):
     """Search providers by name, organization, city, or NPI against the NPPES
     Georgia subset. Providers we actually hold rate data for are returned first
     (`has_rates`). A purely numeric query is treated as an NPI prefix. `specialty`
-    filters on the NUCC label (e.g. "cardio", "orthopa"). `network_name` scopes
-    `has_rates` to that plan — without it, `has_rates` means "priced in some
-    Anthem network", which overstates a narrow network."""
+    filters on the NUCC label (e.g. "cardio", "orthopa") — a fuzzy text match.
+    `service_line` filters on an exact curated taxonomy-code allowlist instead
+    (see `serving/service_lines.py`, e.g. `service_line=pcp`) — use this when
+    the taxonomy codes that answer a question are known precisely and a fuzzy
+    label would over- or under-match (`classification=Internal Medicine` alone
+    pulls in every subspecialist; `specialty` text can't rule that out).
+    `network_name` scopes `has_rates` to that plan — without it, `has_rates`
+    means "priced in some Anthem network", which overstates a narrow network."""
     q = q.strip()
     specialty = specialty.strip()
-    if not q and not specialty:
+    service_line = service_line.strip().lower()
+    if service_line and service_line not in SERVICE_LINES:
+        raise HTTPException(400, f"unknown service_line: {service_line!r} "
+                                  f"(known: {', '.join(sorted(SERVICE_LINES))})")
+    if not q and not specialty and not service_line:
         return []
     conn = db()
 
@@ -293,6 +304,10 @@ def search_providers(
             if spec_join else "g.taxonomy_group ILIKE ?"
         )
         params.append(f"%{specialty}%")
+    if service_line:
+        codes = SERVICE_LINES[service_line]
+        conds.append(f"g.taxonomy_code IN ({','.join('?' for _ in codes)})")
+        params += codes
     where = " AND ".join(conds) if conds else "1=1"
 
     # Annotate each row with the CMS Doctors & Clinicians group name — the real
