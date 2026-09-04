@@ -712,7 +712,7 @@ describe('specialty-first flow', () => {
     await user.click(await screen.findByText('Cardiovascular Disease'));
 
     // provider list for that specialty, scoped to the plan
-    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV));
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV, ''));
     expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
     // a provider with no rates in this plan isn't a pickable row — just a count
     expect(screen.queryByText('NO RATES CLINIC')).not.toBeInTheDocument();
@@ -748,9 +748,26 @@ describe('deep links (docs/journeys.md)', () => {
     ] });
     render(<App />);
 
-    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV));
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV, ''));
     expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
     expect(screen.queryByText(/what kind of care do you need/i)).not.toBeInTheDocument();
+  });
+
+  // #83 — the service-line sanity-check harness: ?service_line=pcp
+  it('a ?plan=&service_line=pcp URL lands on the PCP-scoped provider list, no free-text specialty UI', async () => {
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&service_line=pcp`);
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual' },
+    ] });
+    render(<App />);
+
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', '', 40, BV, 'pcp'));
+    expect(await screen.findByText('BAKER, DAVID')).toBeInTheDocument();
+    // appears twice — the filter-row chip and the ranked-list heading
+    expect(screen.getAllByText('Primary Care (PCP)').length).toBe(2);
+    expect(screen.queryByText(/what kind of care do you need/i)).not.toBeInTheDocument();
+    // the free-text specialty picker is hidden while a service line is active
+    expect(screen.queryByText('All specialties')).not.toBeInTheDocument();
   });
 
   it('a ?bypass=1 URL skips the plan gate straight to the no-plan overview (J4)', async () => {

@@ -1243,14 +1243,17 @@ function PlanGate({ selectedPlan, onSelect, onBrowseAll }) {
   );
 }
 
-// Ranked provider list for a specialty within the selected plan — the step
-// between "pick your care" and a specific provider. Rated providers first
-// (that ranking is the endpoint's job).
-function SpecialtyProviderList({ specialty, providers, loading, onPick }) {
+// Ranked provider list for a specialty (or a service line, #83) within the
+// selected plan — the step between "pick your care" and a specific provider.
+// Rated providers first (that ranking is the endpoint's job). `label` overrides
+// the display text when the scope isn't a free-text specialty (e.g. "Primary
+// Care (PCP)" for a service-line scope) — `specialty` alone still works as before.
+function SpecialtyProviderList({ specialty, label, providers, loading, onPick }) {
+  const display = label || specialty;
   if (loading) {
     return (
       <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
-        Finding {specialty} providers…
+        Finding {display} providers…
       </div>
     );
   }
@@ -1258,7 +1261,7 @@ function SpecialtyProviderList({ specialty, providers, loading, onPick }) {
   if (!rows.length) {
     return (
       <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
-        <p className="text-white font-bold">No {specialty} providers with rates in this plan.</p>
+        <p className="text-white font-bold">No {display} providers with rates in this plan.</p>
         <p className="text-slate-500 text-sm mt-2">Try another specialty, or search a provider by name.</p>
       </div>
     );
@@ -1268,7 +1271,7 @@ function SpecialtyProviderList({ specialty, providers, loading, onPick }) {
   const pick = (s) => onPick(String(s.npi), s.name || String(s.npi));
   return (
     <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
-      <h2 className="text-white font-black text-xl tracking-tight">{specialty}</h2>
+      <h2 className="text-white font-black text-xl tracking-tight">{display}</h2>
       {withRates.length > 0 ? (
         <>
           <p className="text-slate-500 text-xs mt-1">
@@ -1281,13 +1284,13 @@ function SpecialtyProviderList({ specialty, providers, loading, onPick }) {
         </>
       ) : (
         <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
-          None of the {specialty} providers we can see have published rates in this plan.
+          None of the {display} providers we can see have published rates in this plan.
           Try a related specialty, or search a provider by name.
         </p>
       )}
       {noRates.length > 0 && (
         <p className="text-slate-600 text-[11px] mt-4">
-          + {noRates.length.toLocaleString()} more {specialty} provider{noRates.length === 1 ? '' : 's'} in
+          + {noRates.length.toLocaleString()} more {display} provider{noRates.length === 1 ? '' : 's'} in
           NPPES we hold no rate data for in this plan.
         </p>
       )}
@@ -1354,6 +1357,10 @@ function SpecialtyBrowser({ onSelect, network }) {
   );
 }
 
+// Display labels for `service_line` values (#83) — keep in sync with
+// serving/service_lines.py's SERVICE_LINES keys.
+const SERVICE_LINE_LABELS = { pcp: 'Primary Care (PCP)' };
+
 function App() {
   // Shareable deep link — ?plan=&specialty=&npi=&code=&type= — read once on
   // mount and used to seed the state below, so a journey URL lands straight on
@@ -1386,6 +1393,9 @@ function App() {
   // (office vs hospital-outpatient) is the future refinement.
   const setting = '';
   const [specialty, setSpecialtyState] = useState(deepLink.specialty);
+  // An exact taxonomy-code scope (#83, e.g. "pcp") — the coarse-testing sibling
+  // of `specialty`'s fuzzy text match; mutually exclusive with it in the UI.
+  const [serviceLine, setServiceLine] = useState(deepLink.serviceLine);
   const [npi, setNpi] = useState(deepLink.npi);
   const [npiLabel, setNpiLabel] = useState('');
 
@@ -1425,7 +1435,11 @@ function App() {
   // e.g. ?code=99213&npi=... lands directly on that quote.
   useEffect(() => {
     if (gated) return;
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan || undefined, '', npi, selectedCode?.rbcs_category, specialty);
+    // `specialty || serviceLine` is for fetchDistribution's own "no code, but a
+    // scope is set" guard only (it early-returns and lets the ranked-list effect
+    // below take over) — never sent to the API as a bogus specialty= value,
+    // since that only happens on the branch that does return early.
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan || undefined, '', npi, selectedCode?.rbcs_category, specialty || serviceLine);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bypassGate]);
 
@@ -1434,26 +1448,27 @@ function App() {
   // per-journey URLs in docs/journeys.md.
   useEffect(() => {
     const qs = buildDeepLinkQuery({
-      plan: selectedPlan, specialty, npi, bypass: bypassGate,
+      plan: selectedPlan, specialty, serviceLine, npi, bypass: bypassGate,
       code: selectedCode?.code, type: selectedCode?.type,
     });
     const url = window.location.pathname + (qs ? `?${qs}` : '');
     window.history.replaceState(null, '', url);
-  }, [selectedPlan, specialty, npi, selectedCode, bypassGate]);
+  }, [selectedPlan, specialty, serviceLine, npi, selectedCode, bypassGate]);
 
-  // Ranked provider list for the chosen specialty — the step between "pick your
-  // care" and a specific provider. Only when a specialty is set with no provider
-  // or procedure yet.
+  // Ranked provider list for the chosen specialty OR service line (#83) — the
+  // step between "pick your care" and a specific provider. Only when one scope
+  // is set with no provider or procedure yet; mutually exclusive with each
+  // other in the UI, so at most one is ever truthy here.
   useEffect(() => {
-    if (!specialty || npi || selectedCode?.code) { setSpecialtyProviders(null); return; }
+    if ((!specialty && !serviceLine) || npi || selectedCode?.code) { setSpecialtyProviders(null); return; }
     let cancelled = false;
     setSpecialtyProvidersLoading(true);
-    searchProviders('', specialty, 40, selectedPlan || undefined)
+    searchProviders('', specialty, 40, selectedPlan || undefined, serviceLine)
       .then(res => { if (!cancelled) setSpecialtyProviders(res.data); })
       .catch(() => { if (!cancelled) setSpecialtyProviders(null); })
       .finally(() => { if (!cancelled) setSpecialtyProvidersLoading(false); });
     return () => { cancelled = true; };
-  }, [specialty, npi, selectedCode, selectedPlan]);
+  }, [specialty, serviceLine, npi, selectedCode, selectedPlan]);
 
   // Compare-across-providers table — a code is chosen, NO provider filter, and a
   // plan is picked (rates are plan-specific; the endpoint requires a network).
@@ -1591,7 +1606,9 @@ function App() {
 
   const handlePlanSelect = (plan) => {
     setSelectedPlan(plan);
-    fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi, undefined, specialty);
+    // see the mount-effect comment — `specialty || serviceLine` only matters
+    // for fetchDistribution's own early-return guard when there's no code yet.
+    fetchDistribution(selectedCode?.code, selectedCode?.type, plan, setting, npi, undefined, specialty || serviceLine);
   };
 
   const handleSpecialtyChange = (sp) => {
@@ -1602,10 +1619,12 @@ function App() {
   const handleNpiSelect = (n, label) => {
     setNpi(n);
     setNpiLabel(label || '');
-    // A specific provider supersedes a specialty scope — clear it so the two
-    // can't contradict (a speech therapist under a "Psychiatry" chip).
+    // A specific provider supersedes a specialty/service-line scope — clear it
+    // so they can't contradict (a speech therapist under a "Psychiatry" chip,
+    // or a specialist showing up under a "Primary Care" scope).
     if (n && specialty) setSpecialtyState('');
-    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, n && specialty ? '' : specialty);
+    if (n && serviceLine) setServiceLine('');
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, n ? '' : specialty);
   };
 
   const handleCategoryPick = (term) => {
@@ -1746,16 +1765,33 @@ function App() {
         <CategoryBrowser onPick={handleCategoryPick} />
 
         {/* "Pick your care" — the specialty step. Shown until a specialty,
-            provider, or procedure narrows the view. */}
-        {!specialty && !npi && !selectedCode?.code && (
+            service line, provider, or procedure narrows the view. */}
+        {!specialty && !serviceLine && !npi && !selectedCode?.code && (
           <SpecialtyBrowser onSelect={handleSpecialtyChange} network={selectedPlan} />
         )}
 
         {/* Filters row */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-8">
+          {/* Service-line scope (#83) — a fixed, exact taxonomy-code allowlist
+              (e.g. ?service_line=pcp), not something picked in-app yet — this
+              is the sanity-check harness for that flow, so it's just a chip
+              with a clear button, not a picker. Mutually exclusive with the
+              free-text specialty filter below. */}
+          {serviceLine && (
+            <div className="flex items-center gap-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 h-8">
+              <span className="text-xs text-indigo-300 font-bold">
+                {SERVICE_LINE_LABELS[serviceLine] || serviceLine}
+              </span>
+              <button onClick={() => setServiceLine('')} className="text-slate-500 hover:text-white shrink-0">
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
           {/* Specialty scope (a filter) — the SpecialtyBrowser above is the
-              picker on the empty landing; here it's the change / clear control. */}
-          {(specialty || npi || selectedCode?.code) && (
+              picker on the empty landing; here it's the change / clear control.
+              Hidden while a service line is active — the two shouldn't collide. */}
+          {!serviceLine && (specialty || npi || selectedCode?.code) && (
             <>
               <SpecialtyDropdown selected={specialty} onSelect={handleSpecialtyChange} network={selectedPlan} />
               <div className="hidden sm:block w-px h-5 bg-slate-800" />
@@ -1781,10 +1817,12 @@ function App() {
           <div className="py-10 text-center text-rose-400 font-medium">{error}</div>
         )}
 
-        {/* Specialty chosen, no provider or procedure yet → the ranked provider list */}
-        {specialty && !npi && !selectedCode?.code && !loading && (
+        {/* Specialty or service line chosen, no provider or procedure yet →
+            the ranked provider list */}
+        {(specialty || serviceLine) && !npi && !selectedCode?.code && !loading && (
           <SpecialtyProviderList
             specialty={specialty}
+            label={serviceLine ? (SERVICE_LINE_LABELS[serviceLine] || serviceLine) : undefined}
             providers={specialtyProviders}
             loading={specialtyProvidersLoading}
             onPick={handleNpiSelect}

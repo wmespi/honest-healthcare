@@ -23,10 +23,14 @@ export const getPlans = (q = '') => api.get('/plans', { params: q ? { q } : {} }
 // [{ network_name, n_rates }].
 export const getNetworks = (q = '') => api.get('/networks', { params: q ? { q } : {} });
 
-export const searchProviders = (q, specialty, limit, network_name) =>
+// `service_line` is an exact curated taxonomy-code allowlist (#83, e.g. "pcp")
+// — distinct from `specialty`, a fuzzy text match. Mutually exclusive in
+// practice; both are passed through untouched if given.
+export const searchProviders = (q, specialty, limit, network_name, service_line) =>
     api.get('/providers/search', { params: {
         q: q || '',
         ...(specialty ? { specialty } : {}),
+        ...(service_line ? { service_line } : {}),
         ...(limit ? { limit } : {}),
         ...(network_name ? { network_name } : {}),
     } });
