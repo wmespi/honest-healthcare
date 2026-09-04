@@ -727,8 +727,14 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
 
   // CMS Physician Fee Schedule benchmark (issue #61) — mcr is null until
   // `make mpfs` runs. Anchors the negotiated rate: <1.2× Medicare = in line,
-  // higher = worth noticing. Only meaningful for the full (global) rate.
-  const medicareBenchmark = mcr && headline.basis === 'global' && (
+  // higher = worth noticing. `vs_medicare` compares the headline to the *global*
+  // Medicare allowed, so it's meaningful when the headline is a whole-procedure
+  // figure — a global rate, or a single-component rate that isn't a
+  // professional/technical split (an E&M code stored under a plan modifier like
+  // `EP` comes back basis:"component" but is still the full visit). Hide it only
+  // for a genuine -26/-TC split, where comparing one part to the whole misleads.
+  const benchmarkComparable = headline.basis === 'global' || !is_component_split;
+  const medicareBenchmark = mcr && benchmarkComparable && (
     <p className={`mt-2 text-[11px] ${vs_medicare > 1.5 ? 'text-amber-400/90' : 'text-slate-500'}`}>
       Medicare allows <span className="font-semibold">{fmt(mcr)}</span> for this
       {vs_medicare ? <> — this plan pays <span className="font-semibold">{vs_medicare}×</span> that</> : null}
@@ -742,7 +748,8 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
   // CMS Medicare Part B evidence (issue #14). mu is null until the utilization
   // file is built; {billed:false} means the file is built but this NPI has no
   // Part B row for this code (weak — <=10-beneficiary rows are dropped, and it
-  // misses pediatric / commercial / cash practice).
+  // misses pediatric / commercial / cash practice). The dollar figure is left to
+  // the Medicare benchmark line above — this line is about "do they do it".
   const medicareBilled = mu?.billed && (
     <p className="mt-4 flex items-start gap-2 text-sm text-emerald-300/90 leading-relaxed max-w-lg">
       <ShieldCheck size={15} className="mt-0.5 shrink-0 text-emerald-400" />
@@ -751,8 +758,7 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
         <span className="font-semibold text-emerald-200">
           {mu.tot_srvcs.toLocaleString()} time{mu.tot_srvcs === 1 ? '' : 's'} in {mu.year}
         </span>
-        {mu.avg_mdcr_allowed ? <> · Medicare allowed ~{fmt(mu.avg_mdcr_allowed)}</> : null} — so
-        this is a procedure they actually perform.
+        {' '}— so this is a procedure they actually perform.
       </span>
     </p>
   );
@@ -821,7 +827,11 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
                 ? (headline.pos_label
                     ? <>Full procedure · {headline.pos_label}</>
                     : <>Full procedure — varies by where it’s performed</>)
-                : <>This code is billed only as separate parts — see the breakdown below</>}
+                : components.length === 1
+                  // one rate on file, carrying a modifier (e.g. a Medicaid EPSDT
+                  // `EP` line) — it's still the whole procedure, not a part.
+                  ? <>Full procedure{headline.pos_label ? <> · {headline.pos_label}</> : null}</>
+                  : <>This code is billed only as separate parts — see the breakdown below</>}
             </div>
             <EstimateLine
               className="mt-2"
