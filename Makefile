@@ -72,7 +72,8 @@ check-local: ## Hermetic gate on host toolchains (no Docker) — gofmt, vet, bui
 	cd etl && go vet ./... && go build ./... && go test ./...
 	.venv/bin/python -m pytest serving/tests/test_api_contract.py \
 	  serving/tests/test_cms_utilization.py serving/tests/test_specialty_profiles.py \
-	  serving/tests/test_mpfs.py serving/tests/test_doctors_clinicians.py -q
+	  serving/tests/test_mpfs.py serving/tests/test_doctors_clinicians.py \
+	  serving/tests/test_geocode.py -q
 	cd frontend && npx vitest run
 
 stack-up: ## Start THIS worktree's stack (own project + ports from .env). Build on first run.
@@ -146,6 +147,9 @@ specialty-profiles: ## Build data/reference/specialty_procedure_profiles.parquet
 
 mpfs: ## Build data/reference/mpfs_ga.parquet (CMS Medicare Physician Fee Schedule allowed $ per code — the per-code benchmark). CMS_URL= / YEAR= / CF= to override.
 	docker compose exec -T -w /app serving python3 -m reference.mpfs --data-dir /app/data $(if $(CMS_URL),--cms-url "$(CMS_URL)",) $(if $(YEAR),--year $(YEAR),) $(if $(CF),--cf $(CF),)
+
+geocode: ## Build data/reference/pcp_geocode.parquet (lat/long for GA PCP-eligible NPIs, via the free Census batch geocoder — distance ranking, #87)
+	docker compose exec -T -w /app serving python3 -m reference.geocode --data-dir /app/data
 
 ## ── Quality gate ────────────────────────────────────────────────────────────
 
