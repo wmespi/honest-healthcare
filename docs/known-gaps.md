@@ -24,6 +24,11 @@ the product is headed — and which of these gaps that closes — is in
   `-networks "GA *"` default is skipped for `anthem/GA_*` files (`isGAPlanSpecific`
   trusts the filename). Every other big `anthem/GA_*` file is a *different* GA
   individual plan, not Blue Value.
+- **Coverage confirmed for the target network, not quantified here.** Parsing
+  `GA_JBNKMED0001` took the target network from zero attributed rates to
+  populated (the `coverage/` one-off snapshots this replaced are gone —
+  #94). Don't trust a point-in-time count in a doc; regenerate one with `make
+  cov-probe LABEL=<label>` / `make cov-report`.
 
 ## Data scope
 
@@ -68,6 +73,10 @@ the product is headed — and which of these gaps that closes — is in
 - **`/networks`, `/billing_codes`, `/procedure_categories` are not scoped** —
   `rate_summary` / `code_rollup` sum every scope. They answer "what's priced in
   this network", not "what does an outpatient visit cost".
+- **`00810` (anesthesia) has no CPT fee-schedule rate in any parsed file** —
+  anesthesia is typically priced in base units, not a flat CPT amount. Known,
+  not a bug: tracked as `KNOWN_GAP_CODES` in
+  `serving/tests/test_coverage.py` and handled in `scripts/frontend_smoke.py`.
 
 ## Provider ↔ procedure
 
@@ -196,11 +205,3 @@ the product is headed — and which of these gaps that closes — is in
 - **Conflict resolution** (Critical Rule 5) is documented in
   [../etl/mrf-model.md](../etl/mrf-model.md), not implemented — needs
   `source_file_id` / `plan_count` on price rows.
-
-## Legacy / stale
-
-- **Legacy Postgres tables** — `negotiated_rates`, `provider_mappings`,
-  `place_of_service_codes`, and the `vw_rates_detailed` view remain in
-  `db/init.sql` but are neither written nor read since the Parquet migration.
-  Drop or re-adopt. ([schema.md](schema.md) is the single authoritative schema;
-  `db/SCHEMA.md` is now just a pointer to it — no reconciliation burden.)
