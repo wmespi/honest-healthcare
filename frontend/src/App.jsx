@@ -619,9 +619,25 @@ function shortNetwork(name) {
   return name.replace(/^GA\s+/, '');
 }
 
-// Job 2 — the same procedure priced across every network we hold. The headline
-// finding is usually "the HMO is cheaper and far more predictable than the PPO".
-function NetworkCompare({ data, loading, selectedNetwork, onPickNetwork, plan, rbcsCategory }) {
+// Job 2 — the same procedure priced across every network we hold. Collapsed by
+// default (issue #73): the app is plan-first, so a wall of 50+ other Anthem
+// networks on every procedure page is noise on the default path — and the
+// query behind it (/rates/by_network) runs ~10s on the full corpus, so
+// deferring the fetch until someone actually asks also kills that latency hit
+// on the common path. The headline finding, once opened, is usually "the HMO
+// is cheaper and far more predictable than the PPO".
+function NetworkCompare({ data, loading, expanded, onExpand, selectedNetwork, onPickNetwork, plan, rbcsCategory }) {
+  if (!expanded) {
+    return (
+      <button
+        onClick={onExpand}
+        className="mt-8 w-full flex items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-3xl px-6 py-4 text-left hover:border-slate-700 transition-colors"
+      >
+        <span className="text-sm font-bold text-slate-300">Compare this rate across your other Anthem networks</span>
+        <ChevronDown size={16} className="text-slate-500 shrink-0" />
+      </button>
+    );
+  }
   if (loading) {
     return (
       <div className="mt-8 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">
@@ -1356,6 +1372,10 @@ function App() {
 
   const [networkCompare, setNetworkCompare] = useState(null);
   const [networkCompareLoading, setNetworkCompareLoading] = useState(false);
+  // Collapsed until asked — see the NetworkCompare comment. Re-collapses on a
+  // new procedure so it's never showing stale data from the last one.
+  const [networkCompareExpanded, setNetworkCompareExpanded] = useState(false);
+  useEffect(() => { setNetworkCompareExpanded(false); }, [selectedCode?.code]);
 
   const [specialtyProviders, setSpecialtyProviders] = useState(null);
   const [specialtyProvidersLoading, setSpecialtyProvidersLoading] = useState(false);
@@ -1412,10 +1432,12 @@ function App() {
     return () => { cancelled = true; };
   }, [selectedCode, selectedPlan, setting, npi, specialty]);
 
-  // Job 2 — compare the selected procedure across every network.
+  // Job 2 — compare the selected procedure across every network. Deferred
+  // until NetworkCompare is expanded (the /rates/by_network scan runs ~10s
+  // on the full corpus — no reason to pay that on every procedure page load).
   useEffect(() => {
     const code = selectedCode?.code;
-    if (!code) { setNetworkCompare(null); return; }
+    if (!code || !networkCompareExpanded) { setNetworkCompare(null); return; }
     let cancelled = false;
     setNetworkCompareLoading(true);
     getRatesByNetwork(code, selectedCode.type, setting || undefined)
@@ -1423,7 +1445,7 @@ function App() {
       .catch(() => { if (!cancelled) setNetworkCompare(null); })
       .finally(() => { if (!cancelled) setNetworkCompareLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedCode, setting]);
+  }, [selectedCode, setting, networkCompareExpanded]);
 
   // Job 1 cost card — a provider AND a procedure are selected AND a plan is
   // picked (the quote is plan-specific; the endpoint requires a network).
@@ -1850,6 +1872,8 @@ function App() {
                 <NetworkCompare
                   data={networkCompare}
                   loading={networkCompareLoading}
+                  expanded={networkCompareExpanded}
+                  onExpand={() => setNetworkCompareExpanded(true)}
                   selectedNetwork={selectedPlan}
                   onPickNetwork={handlePlanSelect}
                   plan={planParams.plan}
