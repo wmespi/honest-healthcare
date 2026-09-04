@@ -717,6 +717,43 @@ function NetworkCompare({ data, loading, expanded, onExpand, selectedNetwork, on
   );
 }
 
+// "Where this rate sits" — a one-row replacement for the full histogram (#73)
+// on the single-provider cost answer: this rate plotted against the Medicare
+// benchmark on a shared scale, so the vs_medicare ratio the text already states
+// gets a glanceable magnitude too. (Not a network min→max strip — the
+// distribution fetched alongside a chosen provider is npi-scoped, not
+// network-wide, so it can't honestly stand in for "how this compares to
+// everyone else.")
+function RateSitsStrip({ rate, medicare }) {
+  if (rate == null || medicare == null || rate <= 0 || medicare <= 0) return null;
+  const scale = Math.max(rate, medicare) * 1.15;
+  const pct = (v) => Math.max(0, Math.min(100, (v / scale) * 100));
+  const youPct = pct(rate);
+  const mcrPct = pct(medicare);
+  return (
+    <div className="mt-3 max-w-lg">
+      <div className="relative h-2 rounded-full bg-slate-800">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-indigo-500/30" style={{ width: `${youPct}%` }} />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3.5 bg-emerald-400/90 rounded-full"
+          style={{ left: `${mcrPct}%` }}
+          title={`Medicare allows ${fmt(medicare)}`}
+        />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-indigo-500"
+          style={{ left: `calc(${youPct}% - 6px)` }}
+          title={`This rate: ${fmt(rate)}`}
+        />
+      </div>
+      <div className="flex justify-between mt-1.5 text-[10px] text-slate-600 tabular-nums">
+        <span>$0</span>
+        <span className="text-slate-400 normal-case font-sans">this rate · Medicare</span>
+        <span>{fmt(scale)}</span>
+      </div>
+    </div>
+  );
+}
+
 // Job 1 — the cost answer for one procedure at one provider. Shows a headline
 // rate (a range when it varies by setting) and the breakdown by component
 // (full procedure / professional fee / technical fee) and place of service.
@@ -855,6 +892,7 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
               est={estimateRange(headline.rate, headline.max_rate, plan, { rbcsCategory })}
             />
             {medicareBenchmark}
+            {benchmarkComparable && <RateSitsStrip rate={headline.rate} medicare={mcr} />}
           </div>
           {medicareBilled}
           <div className="mt-6">{breakdown}</div>
@@ -1771,101 +1809,110 @@ function App() {
         <AnimatePresence>
           {distribution && !loading && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-              {/* Negotiated-rate disclaimer */}
-              <div className="mb-6 flex items-start gap-2.5 text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3">
-                <Info size={14} className="shrink-0 mt-0.5 text-slate-600" />
-                <span>
-                  These are <span className="text-slate-300 font-semibold">negotiated rates</span> — the price your plan and
-                  the provider agreed on, before your benefits apply. What you actually pay depends on your deductible,
-                  coinsurance, copay, and out-of-pocket max.
-                </span>
-              </div>
-
-              {/* Summary stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                {[
-                  { label: 'Min',    value: fmt(summary.min),    color: 'text-emerald-400' },
-                  { label: 'Median', value: fmt(summary.median), color: 'text-indigo-400'  },
-                  { label: 'Average',value: fmt(summary.avg),    color: 'text-violet-400'  },
-                  { label: 'Max',    value: summary.max_capped ? `${fmt(summary.max)}+` : fmt(summary.max), color: 'text-rose-400' },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">{label}</div>
-                    <div className={`text-2xl font-black ${color}`}>{value}</div>
+              {/* The overview stack (disclaimer / stat grid / meta / histogram) is
+                  the "how is this priced in general" view — useful when
+                  browsing or comparing providers, noise once a specific
+                  provider + procedure is chosen (#73): that view gets the
+                  compact RateSitsStrip inside the cost card instead. */}
+              {!(selectedCode?.code && npi) && (
+                <>
+                  {/* Negotiated-rate disclaimer */}
+                  <div className="mb-6 flex items-start gap-2.5 text-xs text-slate-500 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3">
+                    <Info size={14} className="shrink-0 mt-0.5 text-slate-600" />
+                    <span>
+                      These are <span className="text-slate-300 font-semibold">negotiated rates</span> — the price your plan and
+                      the provider agreed on, before your benefits apply. What you actually pay depends on your deductible,
+                      coinsurance, copay, and out-of-pocket max.
+                    </span>
                   </div>
-                ))}
-              </div>
 
-              {specialty && selectedCode?.code && (
-                <p className="mb-4 text-xs text-indigo-300/90">
-                  Scoped to provider groups that include a <span className="font-semibold">{specialty}</span> provider —
-                  the rate still belongs to the whole group.
-                </p>
-              )}
+                  {/* Summary stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    {[
+                      { label: 'Min',    value: fmt(summary.min),    color: 'text-emerald-400' },
+                      { label: 'Median', value: fmt(summary.median), color: 'text-indigo-400'  },
+                      { label: 'Average',value: fmt(summary.avg),    color: 'text-violet-400'  },
+                      { label: 'Max',    value: summary.max_capped ? `${fmt(summary.max)}+` : fmt(summary.max), color: 'text-rose-400' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                        <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">{label}</div>
+                        <div className={`text-2xl font-black ${color}`}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
 
-              {/* Meta row */}
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-6 text-xs text-slate-500">
-                {selectedCode?.code
-                  ? <><span className="font-mono font-black text-white text-sm">{selectedCode.code}</span>
-                      <span className="uppercase font-bold text-slate-600">{selectedCode.type}</span></>
-                  : <span className="font-black text-white text-sm">Network Overview</span>
-                }
-                {summary.n_providers != null && (
-                  <span title="Distinct NPIs across these provider groups. Groups are often facility/TIN rollups, so one contract can cover thousands of NPIs.">
-                    <span className="text-white font-black">{summary.n_providers.toLocaleString()}</span> providers
-                  </span>
-                )}
-                {summary.provider_groups != null
-                  ? <span><span className="text-white font-black">{summary.provider_groups.toLocaleString()}</span> provider groups</span>
-                  : summary.n_codes != null && (
-                      <span><span className="text-white font-black">{summary.n_codes.toLocaleString()}</span> procedures priced</span>
-                    )}
-                <span><span className="text-white font-black">{summary.total_entries.toLocaleString()}</span> rate entries</span>
-                {summary.min > 0 && !summary.max_capped && summary.max / summary.min >= 1.05 && (
-                  <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
-                )}
-              </div>
-
-              {/* Histogram */}
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-white font-black text-xl tracking-tight">Rate Distribution</h2>
-                    <p className="text-slate-500 text-xs mt-1">
-                      {selectedCode?.code ? 'Provider groups' : 'Negotiated rate lines'} per price range ·{' '}
-                      <span className="text-indigo-400">— median {fmt(summary.median)}</span>
+                  {specialty && selectedCode?.code && (
+                    <p className="mb-4 text-xs text-indigo-300/90">
+                      Scoped to provider groups that include a <span className="font-semibold">{specialty}</span> provider —
+                      the rate still belongs to the whole group.
                     </p>
-                  </div>
-                  <Activity size={18} className="text-slate-600" />
-                </div>
-                <ResponsiveContainer width="100%" height={340}>
-                  <BarChart data={buckets} margin={{ top: 16, right: 8, left: 0, bottom: 48 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: '#475569', fontSize: 11, fontWeight: 700 }}
-                      angle={-35}
-                      textAnchor="end"
-                      interval={Math.max(0, Math.floor(buckets.length / 8) - 1)}
-                    />
-                    <YAxis
-                      tick={{ fill: '#475569', fontSize: 10, fontWeight: 700 }}
-                      width={36}
-                      allowDecimals={false}
-                    />
-                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.1)' }} />
-                    <Bar dataKey="provider_groups" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                    {medianBucket && (
-                      <ReferenceLine
-                        x={medianBucket.label}
-                        stroke="#818cf8"
-                        strokeDasharray="4 3"
-                        strokeWidth={2}
-                      />
+                  )}
+
+                  {/* Meta row */}
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-6 text-xs text-slate-500">
+                    {selectedCode?.code
+                      ? <><span className="font-mono font-black text-white text-sm">{selectedCode.code}</span>
+                          <span className="uppercase font-bold text-slate-600">{selectedCode.type}</span></>
+                      : <span className="font-black text-white text-sm">Network Overview</span>
+                    }
+                    {summary.n_providers != null && (
+                      <span title="Distinct NPIs across these provider groups. Groups are often facility/TIN rollups, so one contract can cover thousands of NPIs.">
+                        <span className="text-white font-black">{summary.n_providers.toLocaleString()}</span> providers
+                      </span>
                     )}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+                    {summary.provider_groups != null
+                      ? <span><span className="text-white font-black">{summary.provider_groups.toLocaleString()}</span> provider groups</span>
+                      : summary.n_codes != null && (
+                          <span><span className="text-white font-black">{summary.n_codes.toLocaleString()}</span> procedures priced</span>
+                        )}
+                    <span><span className="text-white font-black">{summary.total_entries.toLocaleString()}</span> rate entries</span>
+                    {summary.min > 0 && !summary.max_capped && summary.max / summary.min >= 1.05 && (
+                      <span className="text-indigo-400 font-bold">{(summary.max / summary.min).toFixed(1)}× spread</span>
+                    )}
+                  </div>
+
+                  {/* Histogram */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8">
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h2 className="text-white font-black text-xl tracking-tight">Rate Distribution</h2>
+                        <p className="text-slate-500 text-xs mt-1">
+                          {selectedCode?.code ? 'Provider groups' : 'Negotiated rate lines'} per price range ·{' '}
+                          <span className="text-indigo-400">— median {fmt(summary.median)}</span>
+                        </p>
+                      </div>
+                      <Activity size={18} className="text-slate-600" />
+                    </div>
+                    <ResponsiveContainer width="100%" height={340}>
+                      <BarChart data={buckets} margin={{ top: 16, right: 8, left: 0, bottom: 48 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fill: '#475569', fontSize: 11, fontWeight: 700 }}
+                          angle={-35}
+                          textAnchor="end"
+                          interval={Math.max(0, Math.floor(buckets.length / 8) - 1)}
+                        />
+                        <YAxis
+                          tick={{ fill: '#475569', fontSize: 10, fontWeight: 700 }}
+                          width={36}
+                          allowDecimals={false}
+                        />
+                        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.1)' }} />
+                        <Bar dataKey="provider_groups" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                        {medianBucket && (
+                          <ReferenceLine
+                            x={medianBucket.label}
+                            stroke="#818cf8"
+                            strokeDasharray="4 3"
+                            strokeWidth={2}
+                          />
+                        )}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </>
+              )}
 
               {/* Job 2 — the same procedure across every network */}
               {selectedCode?.code && (

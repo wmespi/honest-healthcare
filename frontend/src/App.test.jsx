@@ -272,6 +272,12 @@ describe('Medicare utilization evidence (issue #14)', () => {
     expect(screen.getByText(/Millennium Physician Group/i)).toBeInTheDocument();
     expect(screen.getByText(/32 yrs in practice/i)).toBeInTheDocument();
     expect(screen.getByText(/2 hospital affiliations/i)).toBeInTheDocument();
+    // #73 — the overview histogram/stat-grid is replaced by the compact
+    // "where this rate sits" strip once a specific provider + procedure is chosen
+    expect(screen.queryByText(/rate distribution/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Median')).not.toBeInTheDocument();
+    expect(screen.getByTitle('This rate: $82.05')).toBeInTheDocument();
+    expect(screen.getByTitle('Medicare allows $86.75')).toBeInTheDocument();
   });
 
   // 99213/99214 at real Blue Value providers come back basis:"component" (the
@@ -640,6 +646,10 @@ describe('compare-across-providers view', () => {
     expect(await screen.findByText(/does the provider matter/i)).toBeInTheDocument();
     expect(screen.getByText(/Moon Dermatology/i)).toBeInTheDocument();
     expect(screen.getByText(/on the standard/i)).toBeInTheDocument();
+    // #73 — no single provider chosen yet, so this is still the "how is this
+    // priced in general" view: histogram stays (only job 1's cost card swaps
+    // it for the compact strip)
+    expect(screen.getByText(/rate distribution/i)).toBeInTheDocument();
     expect(api.getRatesByProvider).toHaveBeenCalledWith(
       '99213', 'CPT', 'GA Blue Value HIX Individual Network', undefined, undefined,
       expect.objectContaining({ specialty: undefined }));
