@@ -29,12 +29,20 @@ if ! target_sha="$(git rev-parse --verify -q "${ref}^{commit}")"; then
   exit 1
 fi
 target="$(git rev-parse --short "$target_sha")"
+current_branch="$(git symbolic-ref --quiet --short HEAD || echo '(detached)')"
 
-if [ "$old_sha" = "$target_sha" ]; then
+# Only the fully-idempotent case (same commit AND already on the tailnet
+# branch) skips the checkout — if canonical drifted onto another branch at the
+# same commit (a manual `git checkout main`, say), fall through and re-pin it.
+if [ "$old_sha" = "$target_sha" ] && [ "$current_branch" = "tailnet" ]; then
   echo "tailnet is already at $target ($ref) — nothing to promote"
   echo "rebuilding anyway so the running stack matches..."
   docker compose up -d --build
   exit 0
+fi
+
+if [ "$current_branch" != "tailnet" ]; then
+  echo "canonical wasn't pinned to 'tailnet' (was on '$current_branch') — pinning now"
 fi
 
 echo "promote tailnet:  $old  ->  $target   ($ref)"
