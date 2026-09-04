@@ -770,6 +770,52 @@ describe('deep links (docs/journeys.md)', () => {
     expect(screen.queryByText('All specialties')).not.toBeInTheDocument();
   });
 
+  // #83 — the actual bug report: the menu must narrow to the new-patient-visit
+  // family once a PCP is picked, not show everything they bill.
+  it('scopes the provider menu to the new-patient-visit codes once a PCP is picked (#83)', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&service_line=pcp`);
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual' },
+    ] });
+    api.getProviderMenu.mockResolvedValue({ data: {
+      npi: 456, count: 2, tier: 'plausible', group_count: 10930,
+      results: [
+        { billing_code: '99204', billing_code_type: 'CPT', label: 'New Patient Visit', rbcs_category: 'E&M', min_rate: 150, median_rate: 180, max_rate: 210, n_rates: 2 },
+        { billing_code: '99213', billing_code_type: 'CPT', label: 'Office Visit', rbcs_category: 'E&M', min_rate: 40, median_rate: 80, max_rate: 120, n_rates: 3 },
+      ],
+    } });
+    render(<App />);
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalled());
+    await user.click(await screen.findByText('BAKER, DAVID'));
+
+    await screen.findByText(/new patient visit/i);
+    expect(await screen.findByText('E&M')).toBeInTheDocument();
+    await user.click(screen.getByText('E&M'));
+    // in-scope code shows...
+    expect(await screen.findByText('New Patient Visit')).toBeInTheDocument();
+    // ...the out-of-scope 99213 does not, and neither does the unscoped
+    // group-fanout "10,930 more" affordance (noise once narrowed)
+    expect(screen.queryByText('Office Visit')).not.toBeInTheDocument();
+    expect(screen.queryByText(/more rates contracted/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a scoped empty state when a PCP has other rates but none for a new-patient visit (#83)', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&service_line=pcp`);
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 456, name: 'BAKER, DAVID', city: 'ATLANTA', specialty: 'Internal Medicine', has_rates: true, entity_type: 'individual' },
+    ] });
+    api.getProviderMenu.mockResolvedValue({ data: MENU }); // 99213 + 45378 only, no new-patient codes
+    render(<App />);
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalled());
+    await user.click(await screen.findByText('BAKER, DAVID'));
+
+    expect(await screen.findByText(/no new patient visit rate on file/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 other negotiated rates/i)).toBeInTheDocument();
+    expect(screen.getByText(/check the group.s full rate list/i)).toBeInTheDocument();
+  });
+
   it('a ?bypass=1 URL skips the plan gate straight to the no-plan overview (J4)', async () => {
     try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ }
     window.history.replaceState(null, '', '/?bypass=1');

@@ -912,7 +912,11 @@ function ProviderCostCard({ data, loading, providerName, plan, rbcsCategory }) {
 // The provider "menu" — every procedure the selected provider has a negotiated
 // rate for, grouped by RBCS category. Shown when a provider is picked but no
 // specific procedure. Clicking a row drills into that procedure.
-function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork, onShowAll, plan }) {
+//
+// `codeFilter` (#83) narrows the menu to an exact billing-code allowlist — the
+// service-line scope, e.g. the new-patient-visit code family — instead of
+// showing everything the provider bills. `codeFilterLabel` names it for copy.
+function ProviderMenu({ data, loading, onPick, providerName, network, onClearNetwork, onShowAll, plan, codeFilter, codeFilterLabel }) {
   const [expanded, setExpanded] = useState(null);
 
   if (loading) {
@@ -922,10 +926,35 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
       </div>
     );
   }
-  const rows = data?.results || [];
+  const allRows = data?.results || [];
+  const rows = codeFilter ? allRows.filter(r => codeFilter.includes(r.billing_code)) : allRows;
+  const who = providerName || 'This provider';
 
   if (!rows.length) {
-    const who = providerName || 'This provider';
+    // Narrowed to a service line and the provider has *other* rates, just none
+    // in scope — a different message than "no rates at all", with a way to
+    // check the group's broader list (it may still carry the code via fan-out).
+    if (codeFilter && allRows.length > 0) {
+      return (
+        <div className="mt-2 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
+          <p className="text-white font-bold">
+            No {codeFilterLabel || 'in-scope'} rate on file for {who}.
+          </p>
+          <p className="text-slate-500 text-sm mt-2 max-w-md mx-auto">
+            They do have {allRows.length.toLocaleString()} other negotiated rate{allRows.length === 1 ? '' : 's'} —
+            just not for this. It may still exist through their billing group.
+          </p>
+          {onShowAll && data?.tier !== 'all' && (
+            <button
+              onClick={onShowAll}
+              className="mt-4 px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
+            >
+              Check the group’s full rate list
+            </button>
+          )}
+        </div>
+      );
+    }
     return (
       <div className="mt-2 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center">
         <p className="text-white font-bold">
@@ -960,7 +989,9 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
     <div className="mt-2">
       <div className="mb-4">
         <h2 className="text-white font-black text-xl tracking-tight">
-          {data?.provider?.name ? `${data.provider.name} — procedure menu` : 'Procedure menu'}
+          {data?.provider?.name
+            ? `${data.provider.name} — ${codeFilterLabel || 'procedure menu'}`
+            : (codeFilterLabel || 'Procedure menu')}
         </h2>
         <p className="text-slate-500 text-xs mt-1">
           {[
@@ -970,9 +1001,11 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
             data?.provider?.address || data?.provider?.city,
           ].filter(Boolean).join(' · ')}
           {(data?.provider?.specialty || data?.provider?.city || data?.provider?.group_name) ? ' · ' : ''}
-          {data?.tier === 'plausible' && data?.group_count > 0
-            ? <>{rows.length.toLocaleString()} procedures this provider bills or that are typical for their specialty. Tap one for the breakdown.</>
-            : <>{rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.</>}
+          {codeFilter
+            ? <>{rows.length.toLocaleString()} rate{rows.length === 1 ? '' : 's'} on file. Tap one for the breakdown.</>
+            : data?.tier === 'plausible' && data?.group_count > 0
+              ? <>{rows.length.toLocaleString()} procedures this provider bills or that are typical for their specialty. Tap one for the breakdown.</>
+              : <>{rows.length.toLocaleString()} procedures with a negotiated rate. Tap one for the breakdown.</>}
         </p>
       </div>
       {data?.group_rate_only && (
@@ -1044,7 +1077,10 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
           </div>
         ))}
       </div>
-      {data?.tier === 'plausible' && data?.group_count > 0 && onShowAll && (
+      {/* the unscoped fan-out count ("+10,930 more") is noise once narrowed to
+          a service line — we already have in-scope matches above, no reason
+          to dangle the rest of this provider's whole billing group */}
+      {!codeFilter && data?.tier === 'plausible' && data?.group_count > 0 && onShowAll && (
         <button
           onClick={onShowAll}
           className="mt-3 w-full rounded-2xl border border-dashed border-slate-800 px-5 py-3 text-left text-xs text-slate-500 hover:text-slate-300 hover:border-slate-700 transition-colors"
@@ -1053,7 +1089,7 @@ function ProviderMenu({ data, loading, onPick, providerName, network, onClearNet
           group — not verified to them individually. <span className="text-indigo-400 font-bold">Show all</span>
         </button>
       )}
-      {data?.tier === 'all' && !data?.group_rate_only && (
+      {!codeFilter && data?.tier === 'all' && !data?.group_rate_only && (
         <p className="mt-3 text-[11px] text-slate-600 px-1">
           Showing all contracted rates, including group fan-out. Rows without a badge reach this
           provider only through a shared billing group.
@@ -1361,6 +1397,17 @@ function SpecialtyBrowser({ onSelect, network }) {
 // serving/service_lines.py's SERVICE_LINES keys.
 const SERVICE_LINE_LABELS = { pcp: 'Primary Care (PCP)' };
 
+// The billing-code scope for each service line's "first procedure" (#83) — the
+// new-patient-visit family for PCP: office-visit E&M (99202–99205) + the
+// age-banded preventive/new-patient exam (99381–99387). Narrows the provider
+// menu to the thing this service line actually asks about, instead of showing
+// everything the provider bills. Backend-side equivalent is a future step
+// (serving/service_lines.py currently only maps taxonomy, not codes yet).
+const SERVICE_LINE_CODES = {
+  pcp: ['99202', '99203', '99204', '99205', '99381', '99382', '99383', '99384', '99385', '99386', '99387'],
+};
+const SERVICE_LINE_CODE_LABELS = { pcp: 'new patient visit' };
+
 function App() {
   // Shareable deep link — ?plan=&specialty=&npi=&code=&type= — read once on
   // mount and used to seed the state below, so a journey URL lands straight on
@@ -1541,24 +1588,28 @@ function App() {
     }
     const delay = query.length === 0 ? 0 : 300;
     const timer = setTimeout(() => {
+      // scoped to the active service line (#83), same as the menu view itself
+      const codeScope = serviceLine ? SERVICE_LINE_CODES[serviceLine] : null;
       const req = npi
         ? getProviderMenu(npi, selectedPlan || undefined, setting || undefined, query)
-            .then(res => (res.data.results || []).slice(0, 20).map(r => ({
-              billing_code: r.billing_code,
-              billing_code_type: r.billing_code_type,
-              label: r.label,
-              rbcs_subcategory: r.rbcs_subcategory,
-              min_rate: r.min_rate,
-              max_rate: r.max_rate,
-              n_rates: r.n_rates,
-            })))
+            .then(res => (res.data.results || [])
+              .filter(r => !codeScope || codeScope.includes(r.billing_code))
+              .slice(0, 20).map(r => ({
+                billing_code: r.billing_code,
+                billing_code_type: r.billing_code_type,
+                label: r.label,
+                rbcs_subcategory: r.rbcs_subcategory,
+                min_rate: r.min_rate,
+                max_rate: r.max_rate,
+                n_rates: r.n_rates,
+              })))
         : searchBillingCodes(query).then(res => res.data);
       req
         .then(list => { setSuggestions(list); setShowSuggestions(true); })
         .catch(() => {});
     }, delay);
     return () => clearTimeout(timer);
-  }, [query, isFocused, npi, selectedPlan, setting]);
+  }, [query, isFocused, npi, selectedPlan, setting, serviceLine]);
 
   const fetchDistribution = useCallback(async (code, type, planName, activeSetting, activeNpi, rbcsCategory, activeSpecialty) => {
     // No code yet, but a provider or a specialty is chosen: those are the "menu"
@@ -1619,11 +1670,12 @@ function App() {
   const handleNpiSelect = (n, label) => {
     setNpi(n);
     setNpiLabel(label || '');
-    // A specific provider supersedes a specialty/service-line scope — clear it
-    // so they can't contradict (a speech therapist under a "Psychiatry" chip,
-    // or a specialist showing up under a "Primary Care" scope).
+    // A specific provider supersedes the free-text specialty filter — clear it
+    // so they can't contradict (a speech therapist under a "Psychiatry" chip).
+    // `serviceLine` is different: it stays active once a provider is picked, so
+    // the procedure menu can scope to it (#83) — it's "what we're shopping
+    // for", not just a search-narrowing filter to discard on pick.
     if (n && specialty) setSpecialtyState('');
-    if (n && serviceLine) setServiceLine('');
     fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan, setting, n, undefined, n ? '' : specialty);
   };
 
@@ -1840,6 +1892,8 @@ function App() {
             onClearNetwork={() => { setBypassGate(true); handlePlanSelect(''); }}
             onShowAll={() => setMenuTier('all')}
             plan={planParams.plan}
+            codeFilter={serviceLine ? SERVICE_LINE_CODES[serviceLine] : undefined}
+            codeFilterLabel={serviceLine ? SERVICE_LINE_CODE_LABELS[serviceLine] : undefined}
           />
         )}
 
