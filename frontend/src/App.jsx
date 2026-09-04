@@ -4,6 +4,7 @@ import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info
 import { motion, AnimatePresence } from 'framer-motion';
 import { estimate, estimateRange, planIsConfigured, COPAY_BUCKETS, COPAY_LABELS } from './oop';
 import { usePlanParams } from './usePlanParams';
+import { readDeepLink, buildDeepLinkQuery } from './lib/deepLink';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -1300,11 +1301,18 @@ function SpecialtyBrowser({ onSelect, network }) {
 }
 
 function App() {
+  // Shareable deep link — ?plan=&specialty=&npi=&code=&type= — read once on
+  // mount and used to seed the state below, so a journey URL lands straight on
+  // its endpoint instead of the plan gate. Cheap + pure; recomputing it on every
+  // render is fine since only the initial useState value ever reads it.
+  const deepLink = readDeepLink();
+
   const [selectedPlan, setSelectedPlan] = useState(() => {
+    if (deepLink.plan) return deepLink.plan;
     try { return localStorage.getItem('hh_network_v1') || ''; } catch { return ''; }
   });
   // Drops the plan gate for "just browse the data" — distinct from having a plan.
-  const [bypassGate, setBypassGate] = useState(false);
+  const [bypassGate, setBypassGate] = useState(deepLink.bypass);
   const gated = !selectedPlan && !bypassGate;
 
   useEffect(() => {
@@ -1323,13 +1331,15 @@ function App() {
   // now (serving/data_sources.outpatient_scope). A place-of-service split
   // (office vs hospital-outpatient) is the future refinement.
   const setting = '';
-  const [specialty, setSpecialtyState] = useState('');
-  const [npi, setNpi] = useState('');
+  const [specialty, setSpecialtyState] = useState(deepLink.specialty);
+  const [npi, setNpi] = useState(deepLink.npi);
   const [npiLabel, setNpiLabel] = useState('');
 
   const [distribution, setDistribution] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [selectedCode, setSelectedCode] = useState(null);
+  const [selectedCode, setSelectedCode] = useState(() =>
+    deepLink.code ? { code: deepLink.code, type: deepLink.type } : null
+  );
   const [error, setError] = useState(null);
 
   const [providerRates, setProviderRates] = useState(null);
@@ -1352,12 +1362,26 @@ function App() {
 
   // Load the overview once a plan is in play — either restored from a previous
   // visit (on mount) or after the gate is dismissed. Picking a plan fetches via
-  // handlePlanSelect, so this must not also fire on selectedPlan.
+  // handlePlanSelect, so this must not also fire on selectedPlan. Seeds from a
+  // deep link's code/npi/specialty on the first run (their initial state), so
+  // e.g. ?code=99213&npi=... lands directly on that quote.
   useEffect(() => {
     if (gated) return;
-    fetchDistribution(undefined, undefined, selectedPlan || undefined, '', '', undefined, '');
+    fetchDistribution(selectedCode?.code, selectedCode?.type, selectedPlan || undefined, '', npi, selectedCode?.rbcs_category, specialty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bypassGate]);
+
+  // Keep the address bar a shareable link to the current selection — no router,
+  // just history.replaceState so the back button isn't spammed. Powers the
+  // per-journey URLs in docs/journeys.md.
+  useEffect(() => {
+    const qs = buildDeepLinkQuery({
+      plan: selectedPlan, specialty, npi, bypass: bypassGate,
+      code: selectedCode?.code, type: selectedCode?.type,
+    });
+    const url = window.location.pathname + (qs ? `?${qs}` : '');
+    window.history.replaceState(null, '', url);
+  }, [selectedPlan, specialty, npi, selectedCode, bypassGate]);
 
   // Ranked provider list for the chosen specialty — the step between "pick your
   // care" and a specific provider. Only when a specialty is set with no provider

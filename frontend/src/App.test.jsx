@@ -36,6 +36,10 @@ const MENU = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Each test gets a clean URL — App reads deep-link params (?plan=&code=&npi=…)
+  // once on mount, and writes them back via history.replaceState as state
+  // changes, so a URL left over from a previous test would leak into the next.
+  window.history.replaceState(null, '', '/');
   // The plan-first flow gates the whole page until a plan is chosen. Default the
   // suite to a "returning visitor" with a saved plan so each test exercises its
   // own subject; the gate itself has dedicated tests below.
@@ -704,5 +708,54 @@ describe('specialty-first flow', () => {
     // pick a provider → their menu
     await user.click(screen.getByText('ABBOTT, ASHLEY'));
     expect(await screen.findByText(/procedure menu/i)).toBeInTheDocument();
+  });
+});
+
+describe('deep links (docs/journeys.md)', () => {
+  it('a ?plan=&npi=&code= URL lands directly on the cost card — no plan gate, no clicking through', async () => {
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&npi=123&code=99213`);
+    render(<App />);
+
+    // never shows the gate, and the quote is fetched with the deep-linked npi+code
+    expect(screen.queryByText(/start with your plan/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(api.getRateQuote).toHaveBeenCalledWith('99213', 'CPT', '123', BV));
+    expect(await screen.findByText(/negotiated cost/i)).toBeInTheDocument();
+    expect(screen.getAllByText('$82.05').length).toBeGreaterThan(0);
+  });
+
+  it('a ?plan=&specialty= URL lands on that specialty’s provider list', async () => {
+    window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}&specialty=${encodeURIComponent('Cardiovascular Disease')}`);
+    api.searchProviders.mockResolvedValue({ data: [
+      { npi: 123, name: 'ABBOTT, ASHLEY', city: 'ATLANTA', specialty: 'Cardiovascular Disease', has_rates: true, entity_type: 'individual' },
+    ] });
+    render(<App />);
+
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV));
+    expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
+    expect(screen.queryByText(/what kind of care do you need/i)).not.toBeInTheDocument();
+  });
+
+  it('a ?bypass=1 URL skips the plan gate straight to the no-plan overview (J4)', async () => {
+    try { localStorage.removeItem('hh_network_v1'); } catch { /* ignore */ }
+    window.history.replaceState(null, '', '/?bypass=1');
+    render(<App />);
+
+    expect(screen.queryByText(/start with your plan/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalledWith(
+      undefined, undefined, undefined, undefined, undefined, undefined));
+  });
+
+  it('keeps the address bar in sync as the selection changes, for copy-paste sharing', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(api.getRateDistribution).toHaveBeenCalled());
+
+    await selectProvider(user);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('npi')).toBe('123'));
+    expect(new URLSearchParams(window.location.search).get('plan')).toBe(BV);
+
+    await user.click(await screen.findByText('Evaluation & Management'));
+    await user.click(await screen.findByText('Office Visit'));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get('code')).toBe('99213'));
   });
 });
