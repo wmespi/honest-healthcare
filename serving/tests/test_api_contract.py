@@ -287,6 +287,23 @@ def test_provider_search_specialty_does_not_bleed_across_classification(api):
     assert "Evans, Grace" not in names(neuro)
 
 
+def test_provider_search_service_line_pcp(api):
+    # #83 — service_line is an exact taxonomy-code allowlist, not a fuzzy label
+    # match. Baker (207R00000X, general Internal Medicine) is a PCP code;
+    # Adams (207RC0000X, Cardiovascular Disease) is not, even though a naive
+    # `classification=Internal Medicine` filter would have caught both — the
+    # exact trap `service_line` exists to avoid.
+    names = lambda b: {p["name"] for p in b}
+    body = api.get("/providers/search", params={"service_line": "pcp", "limit": 50}).json()
+    assert "Baker, David" in names(body)
+    assert "Adams, Carol" not in names(body)
+
+
+def test_provider_search_service_line_unknown_is_400(api):
+    r = api.get("/providers/search", params={"service_line": "orthopedics"})
+    assert r.status_code == 400
+
+
 def test_specialties_endpoint(api):
     body = api.get("/specialties", params={"q": "cardio"}).json()
     assert body
