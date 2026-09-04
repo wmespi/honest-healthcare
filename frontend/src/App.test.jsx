@@ -289,6 +289,9 @@ describe('Medicare utilization evidence (issue #14)', () => {
     await screen.findByText(/negotiated cost/i);
     expect(screen.getByText(/Medicare allows/i)).toBeInTheDocument();
     expect(screen.getByText(/0\.95×/)).toBeInTheDocument();
+    // one modified rate is still the whole visit — not "billed only as separate parts"
+    expect(screen.getByText(/Full procedure/i)).toBeInTheDocument();
+    expect(screen.queryByText(/billed only as separate parts/i)).not.toBeInTheDocument();
   });
 
   // A genuine professional (-26) + technical (-TC) split: the headline is one
@@ -319,6 +322,8 @@ describe('Medicare utilization evidence (issue #14)', () => {
 
     await screen.findByText(/negotiated cost/i);
     expect(screen.queryByText(/Medicare allows/i)).not.toBeInTheDocument();
+    // a real -26/-TC split IS billed as separate parts
+    expect(screen.getByText(/billed only as separate parts/i)).toBeInTheDocument();
   });
 
   it('frames the cost card as a group rate when the CMS tier is "group"', async () => {
