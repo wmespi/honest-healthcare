@@ -1,20 +1,20 @@
 // Shareable deep links into the rate explorer — ?plan=&specialty=&npi=&code=&type=
 // lands straight on a specific quote instead of the plan gate. Built for
-// docs/journeys.md: one clickable URL per journey to sanity-check the live app
-// (no router; App reads these once on mount and keeps the address bar in sync
-// via history.replaceState as the selection changes).
+// docs/journeys.md: one clickable URL per journey to sanity-check the live app.
+// Query-param based, so it composes with whichever route you're on (#87) —
+// `Explorer` reads these once on mount and keeps the address bar in sync via
+// history.replaceState as the selection changes. `service_line` (#83) is no
+// longer part of this: it's route-driven now (/find-care/pcp), not a query
+// param — see App.jsx's <Routes>.
 
 export function readDeepLink() {
   if (typeof window === 'undefined') {
-    return { plan: '', specialty: '', serviceLine: '', npi: '', code: '', type: 'CPT', bypass: false };
+    return { plan: '', specialty: '', npi: '', code: '', type: 'CPT', bypass: false };
   }
   const p = new URLSearchParams(window.location.search);
   return {
     plan: p.get('plan') || '',
     specialty: p.get('specialty') || '',
-    // an exact taxonomy-code allowlist (#83, e.g. "pcp") — distinct from
-    // `specialty`'s fuzzy text match, mutually exclusive with it in practice.
-    serviceLine: p.get('service_line') || '',
     npi: p.get('npi') || '',
     code: p.get('code') || '',
     type: p.get('type') || 'CPT',
@@ -27,12 +27,11 @@ export function readDeepLink() {
 // Builds the query string for the current selection — the inverse of
 // readDeepLink. `type` is omitted when it's the default (CPT), to keep the
 // common-case URL short.
-export function buildDeepLinkQuery({ plan, specialty, serviceLine, npi, code, type, bypass }) {
+export function buildDeepLinkQuery({ plan, specialty, npi, code, type, bypass }) {
   const p = new URLSearchParams();
   if (plan) p.set('plan', plan);
   else if (bypass) p.set('bypass', '1');
   if (specialty) p.set('specialty', specialty);
-  if (serviceLine) p.set('service_line', serviceLine);
   if (npi) p.set('npi', npi);
   if (code) {
     p.set('code', code);

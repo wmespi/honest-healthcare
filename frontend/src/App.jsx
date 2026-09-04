@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
 import { getNetworks, searchBillingCodes, getRateDistribution, getRatesByProvider, getRatesByNetwork, getRateQuote, getProviderMenu, searchProviders, getSpecialties, getProcedureCategories, getHealth, getPlans } from './api';
 import { Search, ShieldCheck, Activity, Layers, TrendingUp, X, ChevronDown, Info, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1251,8 +1252,11 @@ function TrustBar({ selectedNetwork }) {
 // without a plan — every rate view is scoped to one network — so we ask for the
 // plan before anything else. Reuses the curated picker; a link drops the gate
 // for the "just show me the data" case (the trust bar already warns that
-// "All Networks" mixes GA Blue Value with national mirror rows).
-function PlanGate({ selectedPlan, onSelect, onBrowseAll }) {
+// "All Networks" mixes GA Blue Value with national mirror rows). `heading`/
+// `body`/`browseLabel` let a locked service-line route (#87) contextualize the
+// ask ("which plan, so we can price *these* providers") instead of the
+// generic copy — defaults preserve the original wording on /explore.
+function PlanGate({ selectedPlan, onSelect, onBrowseAll, heading, body, browseLabel }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
@@ -1261,10 +1265,10 @@ function PlanGate({ selectedPlan, onSelect, onBrowseAll }) {
       <div className="w-12 h-12 mx-auto mb-5 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl flex items-center justify-center">
         <ShieldCheck size={22} className="text-indigo-400" />
       </div>
-      <h2 className="text-white font-black text-2xl tracking-tight">Start with your plan</h2>
+      <h2 className="text-white font-black text-2xl tracking-tight">{heading || 'Start with your plan'}</h2>
       <p className="text-slate-400 text-sm mt-2.5 max-w-sm mx-auto leading-relaxed">
-        Negotiated rates are plan-specific — a provider&rsquo;s price on an HMO isn&rsquo;t
-        their price on a PPO. Pick your plan and everything on this page is scoped to it.
+        {body || <>Negotiated rates are plan-specific — a provider&rsquo;s price on an HMO isn&rsquo;t
+        their price on a PPO. Pick your plan and everything on this page is scoped to it.</>}
       </p>
       <div className="mt-6 flex justify-center">
         <NetworkDropdown selectedPlan={selectedPlan} onSelect={onSelect} />
@@ -1273,7 +1277,7 @@ function PlanGate({ selectedPlan, onSelect, onBrowseAll }) {
         onClick={onBrowseAll}
         className="mt-6 text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
       >
-        Explore all networks without picking a plan
+        {browseLabel || 'Explore all networks without picking a plan'}
       </button>
     </motion.div>
   );
@@ -1408,7 +1412,13 @@ const SERVICE_LINE_CODES = {
 };
 const SERVICE_LINE_CODE_LABELS = { pcp: 'new patient visit' };
 
-function App() {
+// The rate explorer itself — one component, mounted at either /find-care/pcp
+// (locked to a service line, #83/#87) or /explore (the general flow). Not
+// rendered directly; see the routed `App` default export at the bottom of
+// this file.
+export function Explorer({ lockedServiceLine }) {
+  const navigate = useNavigate();
+
   // Shareable deep link — ?plan=&specialty=&npi=&code=&type= — read once on
   // mount and used to seed the state below, so a journey URL lands straight on
   // its endpoint instead of the plan gate. Cheap + pure; recomputing it on every
@@ -1440,9 +1450,12 @@ function App() {
   // (office vs hospital-outpatient) is the future refinement.
   const setting = '';
   const [specialty, setSpecialtyState] = useState(deepLink.specialty);
-  // An exact taxonomy-code scope (#83, e.g. "pcp") — the coarse-testing sibling
-  // of `specialty`'s fuzzy text match; mutually exclusive with it in the UI.
-  const [serviceLine, setServiceLine] = useState(deepLink.serviceLine);
+  // An exact taxonomy-code scope (#83) — the coarse-testing sibling of
+  // `specialty`'s fuzzy text match; mutually exclusive with it in the UI.
+  // Route-driven (#87), not user-togglable: whichever route mounted this
+  // component fixes it for the component's lifetime — "leaving" the scope
+  // means navigating to /explore, not clearing a filter.
+  const serviceLine = lockedServiceLine || '';
   const [npi, setNpi] = useState(deepLink.npi);
   const [npiLabel, setNpiLabel] = useState('');
 
@@ -1490,17 +1503,19 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bypassGate]);
 
-  // Keep the address bar a shareable link to the current selection — no router,
-  // just history.replaceState so the back button isn't spammed. Powers the
-  // per-journey URLs in docs/journeys.md.
+  // Keep the address bar a shareable link to the current selection —
+  // history.replaceState (not react-router's navigate) so this doesn't push a
+  // history entry per keystroke/pick and the back button isn't spammed; the
+  // *route* (set by react-router) is untouched, only the query string.
+  // Powers the per-journey URLs in docs/journeys.md.
   useEffect(() => {
     const qs = buildDeepLinkQuery({
-      plan: selectedPlan, specialty, serviceLine, npi, bypass: bypassGate,
+      plan: selectedPlan, specialty, npi, bypass: bypassGate,
       code: selectedCode?.code, type: selectedCode?.type,
     });
     const url = window.location.pathname + (qs ? `?${qs}` : '');
     window.history.replaceState(null, '', url);
-  }, [selectedPlan, specialty, serviceLine, npi, selectedCode, bypassGate]);
+  }, [selectedPlan, specialty, npi, selectedCode, bypassGate]);
 
   // Ranked provider list for the chosen specialty OR service line (#83) — the
   // step between "pick your care" and a specific provider. Only when one scope
@@ -1725,16 +1740,36 @@ function App() {
       </nav>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
+        {lockedServiceLine && (
+          <Link to="/" className="inline-block mb-6 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+            ← All tasks
+          </Link>
+        )}
+
         {/* Hero */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-10 sm:mb-12">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tighter leading-[0.95] sm:leading-[0.9]">
-            What does <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-500">your plan</span>
-            <br />actually pay?
-          </h1>
-          <p className="text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
-            Choose your plan, pick the kind of care you need, and see what each provider
-            has negotiated — before your benefits apply.
-          </p>
+          {lockedServiceLine === 'pcp' ? (
+            <>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tighter leading-[0.95] sm:leading-[0.9]">
+                Find your <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-500">primary care doctor</span>
+              </h1>
+              <p className="text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
+                Compare in-network primary care providers on cost — negotiated rates
+                for a new-patient visit, before your benefits apply.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tighter leading-[0.95] sm:leading-[0.9]">
+                What does <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-500">your plan</span>
+                <br />actually pay?
+              </h1>
+              <p className="text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
+                Choose your plan, pick the kind of care you need, and see what each provider
+                has negotiated — before your benefits apply.
+              </p>
+            </>
+          )}
         </motion.div>
 
         <TrustBar selectedNetwork={selectedPlan} />
@@ -1744,10 +1779,33 @@ function App() {
             selectedPlan={selectedPlan}
             onSelect={handlePlanSelect}
             onBrowseAll={() => setBypassGate(true)}
+            heading={lockedServiceLine === 'pcp' ? 'Which plan are you on?' : undefined}
+            body={lockedServiceLine === 'pcp'
+              ? "So we can show real in-network rates for these providers — pick your plan, or see who's out there first and add it later."
+              : undefined}
+            browseLabel={lockedServiceLine === 'pcp' ? 'See PCPs without picking a plan yet' : undefined}
           />
         )}
 
         {!gated && <>
+        {lockedServiceLine && (
+          <p className="mb-8 text-xs text-slate-500">
+            {selectedPlan
+              ? <>On <span className="text-slate-300 font-semibold">{shortNetwork(selectedPlan)}</span>.{' '}
+                  <button onClick={() => { setSelectedPlan(''); setBypassGate(false); }} className="underline underline-offset-2 hover:text-slate-300">
+                    change plan
+                  </button></>
+              : <>Browsing without a plan — prices below aren't real yet.{' '}
+                  <button onClick={() => setBypassGate(false)} className="underline underline-offset-2 hover:text-slate-300">
+                    add your plan
+                  </button></>
+            }
+          </p>
+        )}
+        {/* The network dropdown + free-text procedure search only make sense
+            on the general explorer — a locked service-line route already
+            knows what you're looking for. */}
+        {!lockedServiceLine && <>
         {/* Search row */}
         <div className="flex flex-col sm:flex-row gap-3 mb-10">
           <NetworkDropdown selectedPlan={selectedPlan} onSelect={handlePlanSelect} />
@@ -1805,6 +1863,7 @@ function App() {
             </AnimatePresence>
           </div>
         </div>
+        </>}
 
         <PlanPanel
           form={planParams.form}
@@ -1814,7 +1873,9 @@ function App() {
           configured={planConfigured}
         />
 
-        <CategoryBrowser onPick={handleCategoryPick} />
+        {/* Browsing by category is a way to *find* a procedure — redundant
+            once a service line already fixes what you're looking for. */}
+        {!lockedServiceLine && <CategoryBrowser onPick={handleCategoryPick} />}
 
         {/* "Pick your care" — the specialty step. Shown until a specialty,
             service line, provider, or procedure narrows the view. */}
@@ -1824,17 +1885,22 @@ function App() {
 
         {/* Filters row */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-8">
-          {/* Service-line scope (#83) — a fixed, exact taxonomy-code allowlist
-              (e.g. ?service_line=pcp), not something picked in-app yet — this
-              is the sanity-check harness for that flow, so it's just a chip
-              with a clear button, not a picker. Mutually exclusive with the
-              free-text specialty filter below. */}
+          {/* Service-line scope (#83) — fixed by the route (#87), not a
+              picker: an exact taxonomy-code allowlist for whichever task the
+              user is on. "Leaving" it means navigating away to the general
+              explorer, not clearing a filter. Mutually exclusive with the
+              free-text specialty filter below (never both truthy — only
+              /explore has specialty, only a locked route has serviceLine). */}
           {serviceLine && (
             <div className="flex items-center gap-2 bg-slate-900 border border-indigo-500/50 rounded-xl px-3 h-8">
               <span className="text-xs text-indigo-300 font-bold">
                 {SERVICE_LINE_LABELS[serviceLine] || serviceLine}
               </span>
-              <button onClick={() => setServiceLine('')} className="text-slate-500 hover:text-white shrink-0">
+              <button
+                onClick={() => navigate('/explore')}
+                className="text-slate-500 hover:text-white shrink-0"
+                title="Browse all networks and procedures instead"
+              >
                 <X size={12} />
               </button>
             </div>
@@ -2049,4 +2115,74 @@ function App() {
   );
 }
 
-export default App;
+// The task-first landing (#87) — lead with the question, not the plan. One
+// real card today ("we just support one menu item" — the owner's own framing
+// for keeping this minimal); more service lines mean more cards here later,
+// not a redesign of this page. The general explorer stays reachable, just
+// demoted from front door to a quiet secondary link.
+function Landing() {
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 w-full font-sans selection:bg-indigo-500/30 flex flex-col">
+      <nav className="border-b border-white/5 bg-slate-950/80 backdrop-blur-3xl">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center gap-4">
+          <div className="w-10 h-10 bg-gradient-to-tr from-indigo-700 to-indigo-500 rounded-xl flex items-center justify-center text-white shadow-2xl shadow-indigo-500/20 border border-white/10">
+            <ShieldCheck size={24} strokeWidth={3} />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xl font-black tracking-tighter text-white">HONEST HEALTHCARE</span>
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Anthem Rate Explorer</span>
+          </div>
+        </div>
+      </nav>
+
+      <main className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-16 sm:py-24 flex flex-col justify-center">
+        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
+          <h1 className="text-4xl sm:text-5xl font-black text-white mb-4 tracking-tighter leading-[0.95]">
+            What are you trying to do?
+          </h1>
+          <p className="text-slate-400 text-base sm:text-lg max-w-lg leading-relaxed">
+            Pick the thing you need — we&rsquo;ll ask for your plan when it actually
+            changes the price, not before.
+          </p>
+        </motion.div>
+
+        <Link
+          to="/find-care/pcp"
+          className="group flex items-center justify-between gap-4 bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-3xl p-6 sm:p-8 transition-colors"
+        >
+          <div>
+            <h2 className="text-white font-black text-xl tracking-tight">Find a primary care doctor</h2>
+            <p className="text-slate-500 text-sm mt-1.5 max-w-md">
+              Compare cost and identity across in-network PCPs for a new-patient visit.
+            </p>
+          </div>
+          <ChevronDown size={20} className="text-slate-600 group-hover:text-indigo-400 shrink-0 -rotate-90 transition-colors" />
+        </Link>
+
+        <Link
+          to="/explore"
+          className="mt-8 self-start text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
+        >
+          Or explore all networks and procedures directly
+        </Link>
+      </main>
+    </div>
+  );
+}
+
+// Routes (#87): "/" leads with the task, "/find-care/pcp" is that task locked
+// to the PCP service line (#83), "/explore" is the pre-existing general flow —
+// demoted from front door to secondary path, otherwise unchanged. A stray path
+// falls back to the landing rather than a dead end.
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/find-care/pcp" element={<Explorer lockedServiceLine="pcp" />} />
+        <Route path="/explore" element={<Explorer />} />
+        <Route path="*" element={<Landing />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
