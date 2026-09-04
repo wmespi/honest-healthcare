@@ -5,11 +5,16 @@
 // via history.replaceState as the selection changes).
 
 export function readDeepLink() {
-  if (typeof window === 'undefined') return { plan: '', specialty: '', npi: '', code: '', type: 'CPT', bypass: false };
+  if (typeof window === 'undefined') {
+    return { plan: '', specialty: '', serviceLine: '', npi: '', code: '', type: 'CPT', bypass: false };
+  }
   const p = new URLSearchParams(window.location.search);
   return {
     plan: p.get('plan') || '',
     specialty: p.get('specialty') || '',
+    // an exact taxonomy-code allowlist (#83, e.g. "pcp") — distinct from
+    // `specialty`'s fuzzy text match, mutually exclusive with it in practice.
+    serviceLine: p.get('service_line') || '',
     npi: p.get('npi') || '',
     code: p.get('code') || '',
     type: p.get('type') || 'CPT',
@@ -22,11 +27,12 @@ export function readDeepLink() {
 // Builds the query string for the current selection — the inverse of
 // readDeepLink. `type` is omitted when it's the default (CPT), to keep the
 // common-case URL short.
-export function buildDeepLinkQuery({ plan, specialty, npi, code, type, bypass }) {
+export function buildDeepLinkQuery({ plan, specialty, serviceLine, npi, code, type, bypass }) {
   const p = new URLSearchParams();
   if (plan) p.set('plan', plan);
   else if (bypass) p.set('bypass', '1');
   if (specialty) p.set('specialty', specialty);
+  if (serviceLine) p.set('service_line', serviceLine);
   if (npi) p.set('npi', npi);
   if (code) {
     p.set('code', code);
