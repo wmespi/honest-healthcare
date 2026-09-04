@@ -235,9 +235,19 @@ function ProviderRow({ s, onPick, disabled, planLabel }) {
         {/* min_rate (#87 follow-up): the cheapest in-scope rate this provider
             has, when we know both a service line and a plan — the ranking
             signal the list is actually sorted on, made visible instead of
-            just structural. */}
+            just structural. min_rate_is_plausible false means no rate tied
+            to this provider's own billing/specialty exists — what's left is
+            a network-wide group-fanout floor (issue #14/#73), so it's
+            labeled as that instead of read as "her price". */}
         {s.min_rate != null && (
-          <span className="text-[11px] font-black text-emerald-400 shrink-0">${s.min_rate.toFixed(0)}</span>
+          <span
+            className="text-[11px] font-black text-emerald-400 shrink-0"
+            title={s.min_rate_is_plausible === false
+              ? 'No rate tied to this provider specifically — the network floor for this code family'
+              : undefined}
+          >
+            ${s.min_rate.toFixed(0)}{s.min_rate_is_plausible === false && <sup className="text-slate-500">†</sup>}
+          </span>
         )}
         {s.has_rates
           ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
@@ -1319,6 +1329,7 @@ function SpecialtyProviderList({ specialty, label, providers, loading, onPick })
   // it knows both a service line and a plan; when it does, say so, rather
   // than leaving "ranked cheapest first" as an unstated fact about the order.
   const rankedByCost = withRates.some(r => r.min_rate != null);
+  const hasFloorRate = withRates.some(r => r.min_rate != null && r.min_rate_is_plausible === false);
   const pick = (s) => onPick(String(s.npi), s.name || String(s.npi));
   return (
     <div className="mt-6 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8">
@@ -1332,6 +1343,11 @@ function SpecialtyProviderList({ specialty, label, providers, loading, onPick })
           <div className="mt-4 divide-y divide-slate-800/60">
             {withRates.map((s, i) => <ProviderRow key={i} s={s} onPick={pick} />)}
           </div>
+          {hasFloorRate && (
+            <p className="text-slate-600 text-[11px] mt-3">
+              † no rate tied to that provider specifically — the network's floor rate for this kind of visit.
+            </p>
+          )}
         </>
       ) : (
         <p className="text-slate-400 text-sm mt-2 leading-relaxed max-w-lg">
