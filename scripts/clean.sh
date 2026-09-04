@@ -40,12 +40,16 @@ if [ "${CACHE:-}" = "1" ]; then
     [ -d "$cd" ] && { say "rm $cd/  ($(du -sh "$cd" | cut -f1))"; rm -rf "$cd"; }
   done
 else
-  found=$(du -shc data*/*/.cache 2>/dev/null | tail -1 | cut -f1)
-  [ -n "$found" ] && [ "$found" != "0B" ] && \
+  found=$(du -shc data*/*/.cache 2>/dev/null | tail -1 | cut -f1) || found=""
+  # a bare `A && B && C` here would trip `set -e` when the middle test is
+  # false (no caches found) — an `if` makes "nothing to report" not an error.
+  if [ -n "$found" ] && [ "$found" != "0B" ]; then
     say "reference download caches kept ($found) — CACHE=1 to drop them"
+  fi
 fi
 
-git worktree prune && say "git worktree prune"
+git worktree prune
+say "git worktree prune"
 
 # ── Docker (opt-in — shared across every worktree AND other projects) ─────────
 #   DOCKER=1    build cache (all), dangling images, unused volumes  — safe
