@@ -50,8 +50,20 @@ Only rows Census's batch endpoint returns with `match_status = "Match"` land
 in the output — a `No_Match` address (bad suite number, PO box, a typo in the
 source NPPES row) is simply **absent**, never zeroed or defaulted to a ZIP
 centroid. A live run's match rate prints at the end (`N/M addresses matched`);
-expect it in the 70-90% range — NPPES addresses are self-reported and not
-address-validated at intake.
+the real 2026-09-04 run came back at **86.1%** (21,259/24,697 NPIs) — NPPES
+addresses are self-reported and not address-validated at intake.
+
+**A `Match` can still be the wrong state.** `GA_LAT_RANGE` / `GA_LON_RANGE`
+drop anything Census geocodes outside Georgia's real bounding box before it
+reaches the output — verified on that same run: 7 of 21,259 matches (0.03%)
+landed in Maryland, Tennessee, or Alabama, Census having matched a Georgia
+town's address to a same-named town elsewhere (LaFayette GA vs TN, Riverdale
+GA vs MD). One case traced to a genuine NPPES data error, not a geocoder
+mistake — a row labeled `DECATUR, GA` carrying ZIP `35601`, which is Decatur,
+Alabama; Census correctly geocoded the ZIP it was given. Dropped, logged
+(`dropping N address(es) geocoded outside Georgia's bounding box`), never
+silently kept — a distance ranking must never show a provider states away as
+"nearby" because of a bad match.
 
 ## Re-run when
 
