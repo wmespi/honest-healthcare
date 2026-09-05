@@ -25,6 +25,12 @@ _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 FIX_DIR = os.path.join(_REPO, "data-test", "apifix")
 os.environ["DATA_DIR"] = FIX_DIR
 
+# `cd serving && pytest tests/` (make test-api) puts serving/ on sys.path but not
+# the repo root — test_build.py imports `build.build` (which in turn imports
+# `serving.*` and `reference.*`). Prepend the root so it resolves everywhere.
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
+
 BLUE_VALUE = "GA Blue Value HIX Individual Network"
 OPEN_ACCESS = "GA Blue Open Access POS Network"
 FILE_ID = 1

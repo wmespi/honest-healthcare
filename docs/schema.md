@@ -112,6 +112,55 @@ the column is there for multi-payer. Build cost: ~3 min at 645M price rows /
 is the MRF's **file-local** `provider_reference.id` — all cross-file joins key on
 `(file_id, provider_group_id)`.
 
+### `summary/` and `data/serving/`
+
+`summary/` is the interim browse layer; `data/serving/` (below) is built by
+`make build` (`build/build.py`). The serving layer still reads `summary/` — the
+repoint onto `data/serving/`, and the deletion of `scripts/build_rate_summary.py`
+if `cross_network_rollup` fully replaces it (see below), land in
+[#100](https://github.com/wmespi/honest-healthcare/issues/100).
+
+## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md))
+
+```
+rates/net=<slug>/part.parquet
+    network_name | net | file_id | provider_group_id
+    billing_code_type | billing_code | modifier | setting | service_code
+    negotiated_type | negotiation_arrangement | expiration_date | negotiated_rate
+    scope | is_sentinel | source_kind | medicare_allowed | vs_medicare
+group_members.parquet          file_id | provider_group_id | npi | tin_value
+provider_dim.parquet           npi | name | specialty | nucc_classification
+    | cms_provider_type | org_name | org_pac_id | lat | lon | service_lines
+    | is_hospital | is_clinic | entity_type | address_line1 | address_line2
+    | city | postal_code
+code_dim.parquet               billing_code | billing_code_type | label
+    | category | rbcs_family | shoppable | medicare_allowed
+evidence.parquet               npi | billing_code | tier ('billed' | 'typical')
+cross_network_rollup.parquet   billing_code | billing_code_type | net
+    | network_name | n_groups | p10 | median | p90
+```
+
+`rates` is one `prices ⨝ group_sets` row with the product columns added: `scope`
+(`serving/data_sources.outpatient_scope`), `is_sentinel` (the store-wide
+`serving/routers/rates.py:_sentinel_ceiling` rule), `source_kind`
+(`plan_specific` | `shared`, from `index_file_plans`), the MPFS benchmark.
+Hive-partitioned by `net` like `prices`. **Rule 5** (AGENTS.md #5): the build
+keeps every expanded row and tags `source_kind`; it does **not** collapse across
+files (`provider_group_id` is file-local). So
+`(file_id, provider_group_id, billing_code, modifier, setting)` is **not** unique
+— POS variants and multi-roster rates coexist. MRF redundancy is resolved at
+read time, `DISTINCT` / `MIN` over the query-narrowed rows now also preferring
+`plan_specific` and the lower shared rate ([#100],
+[etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strategy)).
+`cross_network_rollup` replaces `/rates/by_network`'s live scan and
+`summary/rate_summary`; `summary/rate_hist` (the sentinel ceiling +
+`/rates/distribution` histogram) and `code_rollup`'s group-volume hint have no
+equivalent yet. `evidence` is scoped to NPIs reachable through a rate;
+`provider_dim` is the full GA NPPES universe. The entity model:
+[docs/architecture.md](architecture.md#serving-entity-model-grain--provider-group).
+
+[#100]: https://github.com/wmespi/honest-healthcare/issues/100
+
 ### Why the split
 
 The MRF lists every participating provider group under nearly every billing code,

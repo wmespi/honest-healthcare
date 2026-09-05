@@ -19,7 +19,7 @@ FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 | `benchmark.py` | `medicare_allowed(conn, code, type, modifier, pos)` — the CMS Physician Fee Schedule allowed $ for a code in Georgia (issue #61). No-op (`None`) until `make mpfs` runs. |
 | `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
 | `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (name/NPI, `specialty=` — matches the displayed specialty label only, **not** the NUCC `classification` / `grouping`, which lump distinct specialities like "Psychiatry & Neurology" — **or** `service_line=` — an exact curated taxonomy-code allowlist from `service_lines.py` for when the codes are known precisely, e.g. `service_line=pcp`; 400s on an unknown one; `network_name=` scopes `has_rates`; each row annotated with the CMS Doctors & Clinicians `group_name`), `/specialties` (`network_name=` scopes `n_with_rates`), `/providers/ga`. `_rated_npi(network_name)` → the shared "has a rate" predicate |
-| `service_lines.py` | Curated NUCC taxonomy-code allowlists per service line (issue #83) — `SERVICE_LINES = {"pcp": [...]}`. A deliberate narrowing, the opposite of `specialty=`'s fuzzy text match. |
+| `service_lines.py` | Curated NUCC taxonomy-code allowlists per service line (issue #83) — `SERVICE_LINES = {"pcp": [...]}`. A deliberate narrowing, the opposite of `specialty=`'s fuzzy text match. Also `build/build.py`'s source for `provider_dim.service_lines`; moves to `build/` in #100. |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
 
 SQL still lives inline in the route handlers — moving it into a `queries/` module
