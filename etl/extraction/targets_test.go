@@ -43,6 +43,102 @@ func TestLoadTargets_ShippedFile(t *testing.T) {
 	if !blueValue {
 		t.Errorf("shipped targets.yaml no longer matches Blue Value — args = %v", args)
 	}
+
+	// The probe's network signal is only as good as the shipped patterns: drop
+	// them and every BlueCard shard the index links to Blue Value is downloaded
+	// in full again (#98).
+	match := ts.NetworkMatcher()
+	if match == nil {
+		t.Fatal("shipped targets.yaml declares no network_patterns — the probe loses its network signal")
+	}
+	if !match("GA Blue Value HIX Individual Network") {
+		t.Errorf("shipped network_patterns %v no longer match the target plan's own network label", ts.NetworkPatterns())
+	}
+	if match("BlueCard PPO National") {
+		t.Error("shipped network_patterns match a national BlueCard label — the probe would let the shards through")
+	}
+}
+
+func TestNetworkMatcher(t *testing.T) {
+	path := writeTargets(t, `
+targets:
+  - name: Blue Value
+    plan_name_patterns: ["*blue value*"]
+    network_patterns: ["GA Blue Value HIX*", "  ", "GA Blue Value HIX*"]
+  - name: Other
+    plan_name_patterns: ["*other*"]
+    network_patterns: ["EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"]
+`)
+	ts, err := LoadTargets(path)
+	if err != nil {
+		t.Fatalf("LoadTargets: %v", err)
+	}
+	// Deduped, trimmed, sorted — this list is what the abort message quotes.
+	want := []string{"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL", "GA Blue Value HIX*"}
+	got := ts.NetworkPatterns()
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("NetworkPatterns() = %v, want %v", got, want)
+	}
+
+	match := ts.NetworkMatcher()
+	cases := map[string]bool{
+		"GA Blue Value HIX Individual Network":          true,
+		"ga blue value hix individual network":          true, // labels are not case-stable across files
+		"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL": true, // exact, no wildcard
+		"EXCHANGES SPECIALIST GATEKEEPER":               false,
+		"GA Blue Open Access POS Network":               false,
+		"BlueCard PPO National":                         false,
+		"":                                              false,
+		// A group tagged with several networks passes if any member does.
+		"BlueCard PPO National|GA Blue Value HIX Individual Network": true,
+		"BlueCard PPO National|National Advantage Program":           false,
+	}
+	for name, expect := range cases {
+		if got := match(name); got != expect {
+			t.Errorf("match(%q) = %v, want %v", name, got, expect)
+		}
+	}
+}
+
+// A target list with no network_patterns must leave the probe's network signal
+// off rather than matching nothing — that would abort every file.
+func TestNetworkMatcher_AbsentIsNoSignal(t *testing.T) {
+	path := writeTargets(t, "targets:\n  - name: Blue Value\n    plan_name_patterns: [\"*blue value*\"]\n")
+	ts, err := LoadTargets(path)
+	if err != nil {
+		t.Fatalf("LoadTargets: %v", err)
+	}
+	if ts.NetworkMatcher() != nil {
+		t.Error("a target list with no network_patterns produced a matcher")
+	}
+	var nilSet *TargetSet
+	if nilSet.NetworkMatcher() != nil || nilSet.NetworkPatterns() != nil {
+		t.Error("a nil TargetSet produced a network signal")
+	}
+}
+
+func TestGlobMatch(t *testing.T) {
+	cases := []struct {
+		pattern, s string
+		want       bool
+	}{
+		{"ga blue value hix*", "ga blue value hix individual network", true},
+		{"ga blue value hix*", "ga blue value hi", false},
+		{"exact", "exact", true},
+		{"exact", "exactly", false},
+		{"*network", "ga blue value network", true},
+		{"*network", "network ga", false},
+		{"*value*", "ga blue value network", true},
+		{"ga*value*network", "ga blue value hix network", true},
+		{"ga*value*network", "ga blue network", false},
+		{"*", "anything", true},
+		{"*", "", true},
+	}
+	for _, c := range cases {
+		if got := globMatch(c.pattern, c.s); got != c.want {
+			t.Errorf("globMatch(%q, %q) = %v, want %v", c.pattern, c.s, got, c.want)
+		}
+	}
 }
 
 func TestLoadTargets_EmptyPathIsNoFilter(t *testing.T) {

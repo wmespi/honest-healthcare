@@ -10,7 +10,21 @@
 [discover] → pending
 [parse]    → pending → processing → completed
                                  ↘ failed
+                                 ↘ skipped
 ```
+
+| Status | Means |
+|---|---|
+| `pending` | in the queue, not yet attempted |
+| `processing` | a parse is streaming it now (or crashed mid-stream — see Recovery) |
+| `completed` | streamed clean, Parquet promoted, `coverage_log` row written |
+| `failed` | something went wrong mid-stream — truncation, corrupt gzip, malformed MRF, HTTP error |
+| `skipped` | the probe rejected it *before* `in_network`: the file prices nobody on a target plan. `failure_reason` starts `probe: no wanted providers` and carries the reading. Nothing past `provider_references` was downloaded, nothing written, no `coverage_log` row |
+
+`skipped` is deliberately not `failed`. Nothing went wrong — the file simply
+isn't ours — so `make db-reset WHAT=failed` leaves it alone and the queue never
+pays to download it again. The probe and its two signals:
+[parse.md](parse.md#the-provider-probe).
 
 ## Selection — target plans, not filenames
 
@@ -41,7 +55,16 @@ first (a bad file, not a transient error — Critical Rule 2).
 ```bash
 make db-reset WHAT=processing   # stale 'processing' rows after a crash → pending
 make db-reset WHAT=failed       # transiently-failed rows → pending
-                                #   (keeps bad-gzip / unexpected-EOF / HTTP 4xx failed)
+                                #   (keeps bad-gzip / unexpected-EOF / HTTP 4xx failed,
+                                #    and never touches 'skipped')
+```
+
+To re-queue a `skipped` file — the target list changed, or you want to see what
+it holds — set it back to `pending` by hand and parse it with the probe relaxed:
+
+```bash
+make psql   # UPDATE index_files SET status='pending', failure_reason=NULL WHERE id=…;
+docker compose exec etl go run . parse -file-ids <id> -min-groups 0 -targets ""
 ```
 
 ## Large GA files
@@ -61,8 +84,9 @@ filename: those files are only worth parsing once their plan is in
 
 Two different counts, both true, easy to conflate: the *index* links Blue Value to
 many files via `index_file_plans` — most of them BlueCard-mirror shards the index
-says serve the plan but that carry no Blue-Value-labelled network rows once parsed
-(they `fail` as "0 GA-network rows"). `GA_JBNKMED0001` is the only one of those
-linked files whose `provider_references[].network_name` actually matches. #98's
-provider probe has to abort the BlueCard shards on that mismatch, not on GA-NPI
-overlap alone — a national shard still lists Georgia providers.
+says serve the plan but that carry no Blue-Value-labelled network rows once parsed.
+`GA_JBNKMED0001` is the only one of those linked files whose
+`provider_references[].network_name` actually matches. Those shards now end as
+`skipped` at the front of the stream rather than as a full download and a
+rollback — the probe judges them on the network label, because their GA-NPI
+overlap is real ([parse.md](parse.md#the-provider-probe)).

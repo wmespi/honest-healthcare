@@ -18,8 +18,22 @@
 #                       plans".
 #
 # Both lists are optional, but a target with neither matches nothing.
-# See etl/discover.md (how the link is captured) and etl/parse.md (how it is
-# selected on).
+#
+# A third, separate list says what the plan's rates should *look like* once a
+# selected file is opened:
+#
+#   network_patterns    The `provider_references[].network_name` labels this
+#                       plan's rates carry, `*`-wildcarded, case-insensitive.
+#                       This is the parse probe's network signal (etl/parse.md
+#                       "The provider probe"), not a row filter: a file the index
+#                       links to the plan but whose provider_references carry
+#                       none of these labels is abandoned before `in_network` is
+#                       read, and marked `skipped`. Every network in a file that
+#                       passes is written; the build step selects.
+#                       Omit it and that file is streamed in full.
+#
+# See etl/discover.md (how the plan→file link is captured) and etl/parse.md (how
+# it is selected on, and what the probe does with network_patterns).
 
 targets:
   - name: BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM
@@ -28,3 +42,10 @@ targets:
     # "GA Blue Value HIX Individual Network".
     plan_name_patterns:
       - "*blue value*"
+    # The index links this plan to ~245 files; one of them actually carries its
+    # network. The rest are national BlueCard-mirror shards — they do list
+    # Georgia NPIs, so provider overlap alone waves them through, and they were
+    # ~40 GB of download that ended in a rollback. This pattern is what stops
+    # them at the front of the stream.
+    network_patterns:
+      - "GA Blue Value HIX*"
