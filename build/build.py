@@ -16,7 +16,9 @@ Outputs, under SERVING_DIR (else <data-dir>/serving):
   code_dim.parquet                RBCS label + category + MPFS + shoppable flag
   evidence.parquet                (npi, billing_code, tier)  billed | typical
   rate_hist.parquet               roster-weighted $25 histogram per
-      (net, code, setting, scope) — the browse primitive, replaces summary/
+      (net, code, setting, scope, modifier) — the browse primitive
+  cross_network_rollup.parquet    (code, network) -> n_groups, p10/median/p90
+      off the rate_hist CDF — read straight by /rates/by_network
 
 `rates` is the parser's price grain — no group fan-out — so `make build` is a
 routine full-store pass (expansion happens at query time after pruning on `net`
@@ -380,12 +382,44 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
         ) TO '{serving_dir}/rate_hist.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
+    # ── cross_network_rollup — (code, network) -> roster-weighted volume +
+    #    p10/median/p90, read straight by /rates/by_network. Derived from the
+    #    rate_hist CDF (global, outpatient-prof, non-overflow buckets); the
+    #    percentile is the bucket where the cumulative weight crosses the
+    #    threshold, at its midpoint. Not a raw-price scan.
+    mid = HIST_WIDTH / 2.0
+    con.execute(f"""
+        COPY (
+            WITH h AS (
+                SELECT billing_code, billing_code_type, net,
+                       any_value(network_name) AS network_name, bucket, SUM(n) AS n
+                FROM read_parquet('{serving_dir}/rate_hist.parquet')
+                WHERE scope = 'outpatient_prof' AND modifier = '' AND bucket < {HIST_CAP}
+                GROUP BY billing_code, billing_code_type, net, bucket
+            ),
+            cum AS (
+                SELECT *, SUM(n) OVER w AS c, SUM(n) OVER p AS tot
+                FROM h
+                WINDOW p AS (PARTITION BY billing_code, billing_code_type, net),
+                       w AS (PARTITION BY billing_code, billing_code_type, net ORDER BY bucket)
+            )
+            SELECT billing_code, billing_code_type, net,
+                   any_value(network_name) AS network_name,
+                   any_value(tot) AS n_groups,
+                   round(MIN(bucket) FILTER (WHERE c >= 0.1 * tot) + {mid}, 2) AS p10,
+                   round(MIN(bucket) FILTER (WHERE c >= 0.5 * tot) + {mid}, 2) AS median,
+                   round(MIN(bucket) FILTER (WHERE c >= 0.9 * tot) + {mid}, 2) AS p90
+            FROM cum GROUP BY 1, 2, 3
+        ) TO '{serving_dir}/cross_network_rollup.parquet' (FORMAT parquet, COMPRESSION zstd)
+    """)
+
     def n(name):
         return con.execute(f"SELECT COUNT(*) FROM read_parquet('{serving_dir}/{name}')").fetchone()[0]
 
     print(f"\n  rates                  {total_rows:>13,}")
     for f in ("group_sets.parquet", "group_members.parquet", "provider_dim.parquet",
-              "code_dim.parquet", "evidence.parquet", "rate_hist.parquet"):
+              "code_dim.parquet", "evidence.parquet", "rate_hist.parquet",
+              "cross_network_rollup.parquet"):
         print(f"  {f:<22} {n(f):>13,}")
     print(f"\n  total {time.time() - t0:.1f}s -> {serving_dir}/")
     con.close()

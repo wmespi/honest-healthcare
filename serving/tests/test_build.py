@@ -127,9 +127,21 @@ def test_rate_hist_roster_weighted(out):
 def test_dims_written(out):
     con, serving = out
     for f in ("group_sets.parquet", "group_members.parquet", "provider_dim.parquet",
-              "code_dim.parquet", "evidence.parquet", "rate_hist.parquet"):
+              "code_dim.parquet", "evidence.parquet", "rate_hist.parquet",
+              "cross_network_rollup.parquet"):
         assert os.path.exists(f"{serving}/{f}")
     row = con.execute(
         "SELECT service_lines, address_line1, city FROM "
         f"read_parquet('{serving}/provider_dim.parquet')").fetchone()
     assert row == ("pcp", "1 St", "Atlanta")
+
+
+def test_cross_network_rollup_from_hist(out):
+    con, serving = out
+    # 99213 global outpatient: $100 (file 10 + file 20) and $60 (file 20), each
+    # roster-weighted x2 -> n_groups 6; CDF median crosses in the $100 bucket.
+    r = con.execute(
+        "SELECT n_groups, median FROM "
+        f"read_parquet('{serving}/cross_network_rollup.parquet') "
+        "WHERE billing_code = '99213'").fetchone()
+    assert r == (6, 112.5)
