@@ -105,20 +105,21 @@ erDiagram
 
 `rates` is Hive-partitioned by `net=` exactly as `prices` is today, so every
 plan-scoped query prunes to one directory. `source_kind` is `plan_specific` or
-`shared` and drives AGENTS.md rule 5. `cross_network_rollup` `(code, network) →
-n_groups, p10, median, p90` replaces `summary/` and `/rates/by_network`'s live
-scan. The physical `rates` table also carries `service_code`, `negotiated_type`,
+`shared` and drives AGENTS.md rule 5, which the read layer applies (the build
+keeps every row). `cross_network_rollup` `(code, network) → n_groups, p10,
+median, p90` replaces `/rates/by_network`'s live scan and `summary/rate_summary`.
+The physical `rates` table also carries `service_code`, `negotiated_type`,
 `negotiation_arrangement`, `expiration_date` — the ERD names the grain, not
-every column.
+every column, and that grain is not unique (POS variants, multi-roster rates).
 
 ## Runtime
 
 ```mermaid
 flowchart TB
   subgraph host [one machine today, one VM later]
-    C1[serving container: FastAPI + DuckDB, reads serving/]
+    C1[serving container: FastAPI + DuckDB; also runs make reference + make build - Python]
     C2[frontend container]
-    C3[etl container: make refresh = discover, parse, reference, build]
+    C3[etl container: Go - make discover + make parse]
     D[(data on disk: raw, reference, serving)]
     C1 --> D
     C3 --> D
@@ -126,6 +127,9 @@ flowchart TB
   TS[Tailscale serve] --> C2
   TS --> C1
 ```
+
+The `discover → parse → reference → build` chain runs across the etl (Go) and
+serving (Python) containers; a single `make refresh` wrapper is a Step 6 tidy.
 
 Postgres stays for the queue; replacing it with a small Parquet/CSV queue is a
 later, separate issue.
