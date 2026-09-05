@@ -192,11 +192,14 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 
 	decoder := json.NewDecoder(gz)
 
-	// urlToCand accumulates metadata per unique file URL.
-	// planNames are intentionally excluded — with 400k+ unique plans × 10k files
-	// the cross-product blows heap. market_types + hios_issuer_ids + network_entity
-	// are sufficient for all filtering (individual vs group, GA vs BlueCard).
+	// urlToCand accumulates metadata per unique file URL. Only per-file *sets*
+	// live here — the (file, plan) pairs themselves are streamed straight out to
+	// a staging table by planStager below, because the cross-product (400k+
+	// unique plans × 10k files) does not fit in memory (Critical Rule 3).
+	// fileKey is a run-local sequential id for the URL; it is what the pair rows
+	// carry, so a staged pair costs 8 bytes instead of a ~500-byte signed URL.
 	type candidate struct {
+		fileKey       int64
 		marketTypes   map[string]struct{} // set: auto-deduplicates "individual"/"group"
 		hiosIssuerIDs map[string]struct{} // set: 5-digit issuer IDs, maps to state via CMS
 		planStates    map[string]struct{} // set: 2-letter state codes from HIOS plan_id[5:7]
@@ -206,6 +209,15 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 	}
 	urlToCand := make(map[string]*candidate)
 	rsCount := 0
+
+	// (file, plan) pairs go to a TEMP staging table as the index streams; the
+	// join back to index_files.id and the deduplication both happen set-based in
+	// SQL once the upsert below has run. nil in schema-only mode (no DB).
+	var plans *planStager
+	if !schemaOnly && conn != nil {
+		plans = newPlanStager(ctx, conn)
+		defer plans.close()
+	}
 
 	// Index root carries reporting_entity_name / reporting_entity_type (e.g. "Anthem Inc").
 	// Less specific than the per-file value the parser captures, but better than NULL.
@@ -240,6 +252,7 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 			c, exists := urlToCand[f.Location]
 			if !exists {
 				c = &candidate{
+					fileKey:       int64(len(urlToCand)),
 					marketTypes:   make(map[string]struct{}),
 					hiosIssuerIDs: make(map[string]struct{}),
 					planStates:    make(map[string]struct{}),
@@ -262,6 +275,27 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 				}
 				if st := hiosStateCode(plan); st != "" {
 					c.planStates[st] = struct{}{}
+				}
+				// The link itself: this plan is served by this file. Kept verbatim
+				// (plan_name is the only free text the index gives that a person
+				// recognises — "BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM").
+				// Staged only for the project's actual scope — Georgia individual-market
+				// plans (AGENTS.md, docs/direction.md) — not every plan in the index.
+				// Unfiltered, this cross-product runs ~180M rows/month (24.95M measured
+				// from 13.6% of one index) for ~40-50 GB of Postgres, almost all of it
+				// employer-group plans nothing here will ever select. The boundary is
+				// plan_market_type == "individual" or the same GA positional check
+				// plan_states already uses below — a stable geography/market boundary,
+				// not today's targets.yaml baked into stored data, so widening the
+				// target list later never needs a re-discover.
+				if plans != nil && (strings.EqualFold(plan.PlanMarketType, "individual") || hiosStateCode(plan) == "GA") {
+					plans.add(planPair{
+						fileKey:    c.fileKey,
+						planID:     plan.PlanID,
+						planIDType: plan.PlanIDType,
+						planName:   plan.PlanName,
+						marketType: plan.PlanMarketType,
+					})
 				}
 			}
 		}
@@ -361,8 +395,11 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 	log.Printf("📥 Upserting %d unique URLs into index_files via COPY...", len(candidates))
 
 	// COPY into a temp staging table, then a single INSERT...SELECT...ON CONFLICT.
+	// file_key is the run-local id the staged (file, plan) pairs reference — it is
+	// how _plan_stage resolves to an index_files.id without carrying the URL.
 	if _, err := conn.Exec(ctx, `
 		CREATE TEMP TABLE _idx_stage (
+			file_key              BIGINT NOT NULL,
 			market_types          TEXT[],
 			hios_issuer_ids       TEXT[],
 			plan_states           TEXT[],
@@ -402,10 +439,10 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		if c.networkEntity != "" {
 			networkEntity = c.networkEntity
 		}
-		copyRows[i] = []any{marketTypes, hiosIDs, planStates, networkEntity, entityName, entityType, c.description, c.location}
+		copyRows[i] = []any{c.fileKey, marketTypes, hiosIDs, planStates, networkEntity, entityName, entityType, c.description, c.location}
 	}
 
-	cols := []string{"market_types", "hios_issuer_ids", "plan_states", "network_entity", "reporting_entity_name", "reporting_entity_type", "description", "location"}
+	cols := []string{"file_key", "market_types", "hios_issuer_ids", "plan_states", "network_entity", "reporting_entity_name", "reporting_entity_type", "description", "location"}
 	n, err := conn.CopyFrom(ctx, pgx.Identifier{"_idx_stage"}, cols, pgx.CopyFromRows(copyRows))
 	if err != nil {
 		log.Fatalf("❌ COPY to staging failed: %v", err)
@@ -462,7 +499,128 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		}
 	}
 
-	log.Printf("✅ Discovery complete! Updated %s rows, inserted %s new rows.", updateTag, insertTag)
+	// index_files now has ids, so the staged pairs can resolve file_key → id.
+	// DISTINCT ON collapses the duplicates the streaming stager could not see
+	// across batches; ON CONFLICT DO NOTHING absorbs re-runs against rows a prior
+	// discovery already linked.
+	planTag := "0 rows"
+	if plans != nil {
+		if err := plans.flush(); err != nil {
+			log.Fatalf("❌ COPY to plan staging failed: %v", err)
+		}
+		log.Printf("📥 Linking %d staged (file, plan) pairs into index_file_plans...", plans.staged)
+		tag, err := conn.Exec(ctx, `
+			INSERT INTO index_file_plans (file_id, plan_id, plan_id_type, plan_name, market_type)
+			SELECT DISTINCT ON (f.id, p.plan_id, p.plan_name, p.market_type)
+			       f.id, p.plan_id, p.plan_id_type, p.plan_name, p.market_type
+			FROM _plan_stage p
+			JOIN _idx_stage s   ON s.file_key = p.file_key
+			JOIN index_files f  ON f.location = s.location
+			ORDER BY f.id, p.plan_id, p.plan_name, p.market_type, p.plan_id_type
+			ON CONFLICT (file_id, plan_id, plan_name, market_type) DO NOTHING
+		`)
+		if err != nil {
+			log.Fatalf("❌ index_file_plans link failed: %v", err)
+		}
+		planTag = tag.String()
+	}
+
+	log.Printf("✅ Discovery complete! Updated %s rows, inserted %s new rows, linked %s (file, plan) pairs.",
+		updateTag, insertTag, planTag)
+}
+
+// ── (file, plan) pair staging ───────────────────────────────────────────────
+
+// planPair is one link the master index publishes: this reporting plan is served
+// by this in-network file. fileKey is the run-local id of the file URL, resolved
+// to index_files.id in SQL after the upsert.
+type planPair struct {
+	fileKey    int64
+	planID     string
+	planIDType string
+	planName   string
+	marketType string
+}
+
+// planFlushSize caps how many pairs are held before a COPY. The index publishes
+// reporting_plans[] × in_network_files[] per structure, which is tens of
+// millions of pairs across the full multi-GB index — far too many to accumulate
+// (Critical Rule 3). Buffering a bounded batch keeps heap flat and still lets
+// COPY do the work in bulk.
+const planFlushSize = 200_000
+
+// planStager streams planPairs into a TEMP staging table in fixed-size batches.
+// Each batch is deduplicated in memory before it is copied — duplicate pairs
+// cluster, because a run of reporting structures usually repeats the same plans
+// over the same shared network file — and whatever slips across a batch boundary
+// is collapsed by the DISTINCT ON in the final insert.
+type planStager struct {
+	ctx    context.Context
+	conn   *pgx.Conn
+	buf    [][]any
+	seen   map[planPair]struct{}
+	staged int64
+}
+
+func newPlanStager(ctx context.Context, conn *pgx.Conn) *planStager {
+	if _, err := conn.Exec(ctx, `
+		CREATE TEMP TABLE _plan_stage (
+			file_key     BIGINT NOT NULL,
+			plan_id      TEXT NOT NULL,
+			plan_id_type TEXT NOT NULL,
+			plan_name    TEXT NOT NULL,
+			market_type  TEXT NOT NULL
+		)
+	`); err != nil {
+		log.Fatalf("❌ Failed to create plan staging table: %v", err)
+	}
+	return &planStager{
+		ctx:  ctx,
+		conn: conn,
+		buf:  make([][]any, 0, planFlushSize),
+		seen: make(map[planPair]struct{}, planFlushSize),
+	}
+}
+
+// add buffers one pair, flushing when the batch is full. A pair already seen in
+// the current batch is dropped.
+func (p *planStager) add(pair planPair) {
+	if _, dup := p.seen[pair]; dup {
+		return
+	}
+	p.seen[pair] = struct{}{}
+	p.buf = append(p.buf, []any{pair.fileKey, pair.planID, pair.planIDType, pair.planName, pair.marketType})
+	if len(p.buf) >= planFlushSize {
+		if err := p.flush(); err != nil {
+			log.Fatalf("❌ COPY to plan staging failed: %v", err)
+		}
+	}
+}
+
+// flush copies the buffered batch and resets it. Safe to call on an empty buffer.
+func (p *planStager) flush() error {
+	if p == nil || len(p.buf) == 0 {
+		return nil
+	}
+	n, err := p.conn.CopyFrom(p.ctx, pgx.Identifier{"_plan_stage"},
+		[]string{"file_key", "plan_id", "plan_id_type", "plan_name", "market_type"},
+		pgx.CopyFromRows(p.buf))
+	if err != nil {
+		return err
+	}
+	p.staged += n
+	p.buf = p.buf[:0]
+	clear(p.seen)
+	return nil
+}
+
+// close drops the batch without copying it — for the error paths where Run
+// exits before the final flush. The TEMP table dies with the session.
+func (p *planStager) close() {
+	if p != nil {
+		p.buf = nil
+		p.seen = nil
+	}
 }
 
 // hiosStateCode returns the 2-letter state code embedded at position [5:7] of a

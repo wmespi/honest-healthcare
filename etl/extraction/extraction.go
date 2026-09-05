@@ -501,8 +501,11 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 
 // Options configure a parse run (the flags behind `etl parse`).
 type Options struct {
-	FileIDs     []int  // explicit index_files ids; empty = pull from the pending queue
-	Priority    bool   // order the queue GA / individual-market first
+	FileIDs []int // explicit index_files ids; empty = pull from the pending queue
+	// Targets is the path to the target-plan list (etl/targets.yaml). The queue
+	// is restricted to pending files the index links to one of those plans; ""
+	// disables the restriction and takes every pending file.
+	Targets     string
 	Limit       int    // cap files processed (0 = no cap)
 	Fixture     string // read a local *.json.gz instead of downloading (needs exactly one FileID)
 	AllNPIs     bool   // keep every NPI/rate (disable the GA NPPES filter)
@@ -517,20 +520,31 @@ type pendingFile struct {
 	PlanName string
 }
 
-func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options) ([]pendingFile, error) {
+// pendingFiles resolves the queue for this run: either the explicit -file-ids,
+// or the pending rows the master index links to a target plan. targets == nil
+// means no target restriction (every pending row).
+func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, targets *TargetSet) ([]pendingFile, error) {
+	const cols = `SELECT f.id, f.location, COALESCE(array_to_string(f.market_types, ' | '), '') FROM index_files f`
 	var query string
 	var args []any
 	if len(opts.FileIDs) > 0 {
-		query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE id = ANY($1) ORDER BY id`
+		// One-off runs bypass target selection entirely — that is the whole point
+		// of -file-ids (re-parse a known file, parse a fixture, probe a shard).
+		query = cols + ` WHERE f.id = ANY($1) ORDER BY f.id`
 		args = []any{opts.FileIDs}
 	} else {
-		order := `file_size_bytes ASC NULLS LAST, id`
-		if opts.Priority {
-			order = gaPriorityExpr + ` DESC, file_size_bytes ASC NULLS LAST, id`
+		where := `f.status = 'pending'`
+		nextArg := 1
+		if expr, targetArgs, n := targets.PlanMatchSQL("p", nextArg); expr != "" {
+			// EXISTS, not a join: a file serving 40k employer plans must still
+			// appear once, and the semi-join stops at the first matching plan.
+			where += ` AND EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND (` + expr + `))`
+			args = append(args, targetArgs...)
+			nextArg = n
 		}
-		query = `SELECT id, location, COALESCE(array_to_string(market_types, ' | '), '') FROM index_files WHERE status = 'pending' ORDER BY ` + order
+		query = cols + ` WHERE ` + where + ` ORDER BY f.file_size_bytes ASC NULLS LAST, f.id`
 		if opts.Limit > 0 {
-			query += ` LIMIT $1`
+			query += fmt.Sprintf(` LIMIT $%d`, nextArg)
 			args = append(args, opts.Limit)
 		}
 	}
@@ -555,11 +569,30 @@ func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options) ([]pendingF
 func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	log.Println("🚀 Starting Anthem Bronze Layer: Rate Parsing (Go)...")
 
-	files, err := pendingFiles(ctx, conn, opts)
+	// Which plans are we pricing? Loaded even for a -file-ids run so a broken
+	// targets.yaml fails loudly at the start rather than on the next queue run.
+	targets, err := LoadTargets(opts.Targets)
+	if err != nil {
+		return err
+	}
+	switch {
+	case targets == nil:
+		log.Println("⚠️ no target-plan filter — taking every pending file")
+	case len(opts.FileIDs) > 0:
+		log.Printf("🎯 targets %s loaded (not applied — -file-ids given)", targets.Path)
+	default:
+		log.Printf("🎯 target plans from %s: %s", targets.Path, strings.Join(targets.Names(), ", "))
+	}
+
+	files, err := pendingFiles(ctx, conn, opts, targets)
 	if err != nil {
 		return fmt.Errorf("query pending files: %w", err)
 	}
 	if len(files) == 0 {
+		if targets != nil && len(opts.FileIDs) == 0 {
+			log.Printf("✅ No pending files serve a plan in %s. Run 'etl discover' first, all target files are already completed, or the target list needs another plan.", targets.Path)
+			return nil
+		}
 		log.Println("✅ No pending files found in index_files. Run 'etl discover' first, or all files are already completed.")
 		return nil
 	}
@@ -586,11 +619,12 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 		}
 	}
 
-	// Network allowlist. Default 'GA *' unless overridden. NOT applied to
-	// anthem/GA_* plan-specific files unless the user set -networks (their
-	// network_name labels vary wildly). See etl/parse.md.
+	// Network allowlist. Default 'GA *' unless overridden. Applied uniformly:
+	// the per-file exemption for anthem/GA_* files went with the filename
+	// heuristic it depended on — a file is now here because it serves a target
+	// plan, which says nothing about its URL. Reworking the allowlist itself is
+	// the next step (#98).
 	networksSpec := opts.Networks
-	userSetNetworks := opts.Networks != ""
 	if opts.AllNetworks {
 		networksSpec = ""
 		log.Println("⚠️ -all-networks — keeping every network (network_name allowlist disabled)")
@@ -599,7 +633,7 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	}
 	networkAllow := buildNetworkAllow(networksSpec)
 	if networkAllow != nil {
-		log.Printf("🗺️  network allowlist active — keeping only network_name in {%s} (skipped for anthem/GA_* files unless -networks is set)", networksSpec)
+		log.Printf("🗺️  network allowlist active — keeping only network_name in {%s}", networksSpec)
 	}
 
 	totalCodes := 0
@@ -608,12 +642,8 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	}
 
 	for i, f := range files {
-		fileNetworkAllow := networkAllow
-		if !userSetNetworks && isGAPlanSpecific(f.Location) {
-			fileNetworkAllow = nil // trust the GA_* filename; keep every network
-		}
 		res := parseRates(ctx, conn, f.ID, f.Location, f.PlanName, opts.Fixture,
-			i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, fileNetworkAllow, totalCodes, opts.DryRun)
+			i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, totalCodes, opts.DryRun)
 		if res != nil {
 			totalCodes += res.NewBillingCodes
 		}

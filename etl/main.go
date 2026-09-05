@@ -135,8 +135,8 @@ func cmdParse(args []string) {
 	fs := flag.NewFlagSet("parse", flag.ExitOnError)
 	test := fs.Bool("test", false, "isolated test mode (test schema + ../data-test/)")
 	limit := fs.Int("limit", 0, "cap files processed (default 1 in test mode)")
-	fileIDs := fs.String("file-ids", "", "comma-separated index_files IDs to parse (skips queue ordering)")
-	priority := fs.Bool("priority", false, "GA / individual-market files first (gaPriorityExpr)")
+	fileIDs := fs.String("file-ids", "", "comma-separated index_files IDs to parse (skips target selection)")
+	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only files serving one of its plans are parsed ("" = every pending file)`)
 	fixturePath := fs.String("fixture", "", "read a local *.json.gz instead of downloading (with -file-ids N)")
 	allNPIs := fs.Bool("all-npis", false, "keep every NPI/rate (disable the GA NPPES filter)")
 	networks := fs.String("networks", "", "network_name allowlist, comma-separated (trailing * = prefix). Default 'GA *' unless -all-networks")
@@ -160,7 +160,7 @@ func cmdParse(args []string) {
 
 	err := extraction.Run(ctx, conn, extraction.Options{
 		FileIDs:     parseFileIDs(*fileIDs),
-		Priority:    *priority,
+		Targets:     *targets,
 		Limit:       *limit,
 		Fixture:     *fixturePath,
 		AllNPIs:     *allNPIs,

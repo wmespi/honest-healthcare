@@ -19,6 +19,7 @@ pg_raw="$(docker compose exec -T db psql -U postgres -d honest_healthcare -qtA -
          n
   FROM (
     SELECT 'index_files'  AS name, count(*) n FROM public.index_files
+    UNION ALL SELECT 'index_file_plans', count(*) FROM public.index_file_plans
     UNION ALL SELECT 'billing_codes', count(*) FROM public.billing_codes
     UNION ALL SELECT 'coverage_log',  count(*) FROM public.coverage_log
   ) q

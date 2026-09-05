@@ -199,6 +199,7 @@ User / password: postgres / postgres
 | Table | Written by | Purpose |
 |---|---|---|
 | `index_files` | `make discover` / `make parse` | The parse queue — one row per MRF URL. `location` (signed URL, the natural key within a month), `status` (`pending`/`processing`/`completed`/`failed`), `file_size_bytes`, `market_types[]`, `hios_issuer_ids[]`, `plan_states[]`, per-file `reporting_entity_*`, `created_at`, `completed_at`, `failure_reason`. GIN indexes on the array columns. |
+| `index_file_plans` | `make discover` | The plan → file link — one row per `(file, plan)` the master index publishes, **scoped to Georgia individual-market plans** (`market_type == "individual"` or HIOS `plan_id[5:7] == "GA"` — not every plan in the index, which would run into the hundreds of millions of rows/month; [../etl/discover.md](../etl/discover.md)): `file_id` (FK, `ON DELETE CASCADE`), `plan_id`, `plan_id_type`, `plan_name`, `market_type`, unique on `(file_id, plan_id, plan_name, market_type)`. This is what answers *"which files serve plan X"* and what `etl parse -targets` selects the queue on ([../etl/parse.md](../etl/parse.md#target-selection)). Indexed on `plan_id` with `text_pattern_ops` for prefix lookup only — `plan_name` lookups are `ILIKE '%substring%'`, which no btree can serve, so there's no index on it. |
 | `billing_codes` | `make parse` | Reference upsert — `billing_code` PK, `billing_code_type`, `name`, `description`. `ON CONFLICT DO NOTHING` (first occurrence wins). |
 | `coverage_log` | `make parse` | One row per parsed file (a re-parse replaces it) — rate/provider row counts, new codes/NPIs/TINs, distinct networks/settings/billing-classes, `notes` (GA-filter drop counts). The ETL never reads it; `make cov-report` flags partial-looking `completed` files from it (#52). |
 
@@ -210,6 +211,11 @@ only runs on a fresh volume); `make migrate` applies them. The pre-Parquet
 legacy tables (`negotiated_rates`, `provider_mappings`,
 `place_of_service_codes`, `vw_rates_detailed`) were dropped by
 `002_drop_legacy_tables.sql` and no longer exist in `init.sql` either.
+`003_index_file_plans.sql` adds `index_file_plans` and drops
+`index_files.plan_names TEXT[]` (+ its `idx_index_files_plan` GIN index) — the
+per-file array reserved for plan attribution and never populated, superseded by
+the relational form, which carries `plan_id` / `market_type` too and does not
+have to hold the plans × files cross-product in memory.
 
 Test isolation: `-test` / `make … TEST=1` writes `test.*` (same database,
 `search_path=test` via `TEST_DATABASE_URL`) and `data-test/`; both are safe to

@@ -34,14 +34,6 @@ func loadGANPISet(path string) map[int64]struct{} {
 	return set
 }
 
-// isGAPlanSpecific reports whether a file URL is one of Anthem's Georgia
-// plan-specific rate files (…amazonaws.com/anthem/GA_<plan>.json.gz). These are
-// unambiguously Georgia by Anthem's own naming — the same signal priority.go
-// scores — so the network_name allowlist is skipped for them.
-func isGAPlanSpecific(location string) bool {
-	return strings.Contains(location, "amazonaws.com/anthem/GA_")
-}
-
 // buildNetworkAllow compiles a comma-separated network_name allowlist into a
 // predicate. An entry ending in "*" is a prefix match (inner spaces kept, e.g.
 // "GA *" matches "GA Blue Value HIX Individual Network"); any other entry is an
