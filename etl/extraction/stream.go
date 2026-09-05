@@ -61,16 +61,15 @@ type mrfResult struct {
 	InNetworkItems int64 // in_network entries seen (before any filter)
 	ProviderRefs   int64 // provider_references entries seen (before any filter)
 
-	// Filter accounting (0 when the filters are off). Covers both the GA NPI
-	// filter and the network_name allowlist — a group dropped by either counts here.
+	// Filter accounting (0 when the GA NPI filter is off).
 	ProviderRowsDropped int64
 	// PriceRowsDropped counts price rows not emitted because a block's entire
 	// network roster was filtered out.
 	PriceRowsDropped int64
 	GroupsDropped    int
-	// GroupsDroppedNetwork is the subset of GroupsDropped rejected by the
-	// network_name allowlist (not a Georgia network).
-	GroupsDroppedNetwork int
+	// GroupsKept is how many distinct provider groups survived the filter — the
+	// probe's overlap reading, and what the abort message quotes.
+	GroupsKept int
 }
 
 func newStringSet() map[string]struct{} { return map[string]struct{}{} }
@@ -98,8 +97,8 @@ func sortedKeys(m map[string]struct{}) []string {
 // emitted via emitMembers. Pure except for those two callbacks (seenSets +
 // emitMembers dedupe rosters across the whole file).
 //
-// keptGroups, when non-nil, is the GA/network filter: a referenced group not in
-// it is excluded from the roster. dropped receives the count of price rows that
+// keptGroups, when non-nil, is the GA NPI filter's surviving set: a referenced
+// group not in it is excluded from the roster. dropped receives the count of price rows that
 // would have been emitted but were not because a block's whole network roster
 // was filtered away.
 func buildPriceRows(
@@ -219,7 +218,9 @@ func buildProviderRows(ref core.ProviderReference, fileID int64) ([]core.Provide
 
 // streamMRF does the single-pass token-level scan of one MRF document (already
 // gzip-decompressed). It never buffers the whole file. provider_references is
-// expected before in_network so network_name attribution is available for rates.
+// expected before in_network so network_name attribution is available for rates
+// — and so the probe can abandon a file at the end of that first section,
+// before a byte of in_network is read (probe.go).
 func streamMRF(
 	r io.Reader,
 	planName string,
@@ -229,7 +230,7 @@ func streamMRF(
 	seenNPIs map[int64]string,
 	seenTINs map[string]bool,
 	gaNPIs map[int64]struct{}, // nil = keep everything; non-nil = drop providers/rates with no GA NPI
-	networkAllow func(networkName string) bool, // nil = allow every network; else keep only groups whose network_name passes
+	pb providerProbe, // the pre-in_network gate; the zero value never aborts
 	w mrfWriters,
 	pr *core.ProgressReader,
 ) (*mrfResult, error) {
@@ -250,9 +251,21 @@ func streamMRF(
 		SchemaExample:    map[string]interface{}{},
 	}
 	networkByGroup := make(map[int64]string)
-	// When the GA filter is on, keptGroups holds every provider_group_id that had
-	// at least one GA NPPES NPI — price rows for any other group are dropped.
+	// keptGroups holds every provider_group_id that survived the filters — with
+	// the GA filter on, the ones that had at least one GA NPPES NPI (price rows
+	// for any other group are dropped); with it off, all of them. Its size is the
+	// probe's overlap reading either way.
 	keptGroups := make(map[int64]struct{})
+	// reading is what the probe judges the file on, filled in as
+	// provider_references streams past.
+	var reading probeReading
+	// New NPIs and TINs are staged, not written straight into the run-level sets,
+	// because the probe can still abandon this file — and a file the probe
+	// abandons must leave nothing behind, npi_lookup.parquet included. Both are
+	// merged the moment the probe passes and dropped if it doesn't. Bounded by
+	// the file's own new NPIs, which the run-level set would have held anyway.
+	stagedNPIs := map[int64]string{}
+	stagedTINs := map[string]bool{}
 	// seenSets dedupes provider-group rosters across the whole file so each
 	// distinct roster's membership edges are written to group_sets exactly once.
 	seenSets := make(map[int64]struct{})
@@ -352,38 +365,38 @@ func streamMRF(
 
 				rows, networkName := buildProviderRows(ref, fileID)
 
-				// Filters: a provider group must pass every active filter, else the
-				// group — and every rate row that references it — is dropped.
-				if gaNPIs != nil || networkAllow != nil {
-					// Network allowlist: is this a Georgia network at all?
-					if networkAllow != nil && !networkAllow(networkName) {
-						res.ProviderRowsDropped += int64(len(rows))
+				// Probe reading — taken before the filters, so the network signal
+				// is about the file's identity, not about which of its groups
+				// happen to hold a Georgia NPI.
+				if pb.networkMatch != nil {
+					for _, n := range splitNetworks(networkName) {
+						reading.note(n)
+					}
+					if !reading.NetworkHit && pb.networkMatch(networkName) {
+						reading.NetworkHit = true
+					}
+				}
+
+				// GA NPI filter: keep only rows whose NPI is a Georgia NPPES NPI;
+				// a group left with none is dropped (its rates go too).
+				if gaNPIs != nil {
+					dropped := int64(0)
+					kept := rows[:0]
+					for _, row := range rows {
+						if _, ok := gaNPIs[row.NPI]; ok {
+							kept = append(kept, row)
+						} else {
+							dropped++
+						}
+					}
+					res.ProviderRowsDropped += dropped
+					rows = kept
+					if len(rows) == 0 {
 						res.GroupsDropped++
-						res.GroupsDroppedNetwork++
 						continue
 					}
-
-					// GA NPI filter: keep only rows whose NPI is a Georgia NPPES
-					// NPI; a group left with none is dropped (its rates go too).
-					if gaNPIs != nil {
-						dropped := int64(0)
-						kept := rows[:0]
-						for _, row := range rows {
-							if _, ok := gaNPIs[row.NPI]; ok {
-								kept = append(kept, row)
-							} else {
-								dropped++
-							}
-						}
-						res.ProviderRowsDropped += dropped
-						rows = kept
-						if len(rows) == 0 {
-							res.GroupsDropped++
-							continue
-						}
-					}
-					keptGroups[int64(ref.ProviderGroupID)] = struct{}{}
 				}
+				keptGroups[int64(ref.ProviderGroupID)] = struct{}{}
 
 				if networkName != "" {
 					networkByGroup[int64(ref.ProviderGroupID)] = networkName
@@ -393,11 +406,13 @@ func streamMRF(
 				}
 				for _, row := range rows {
 					if _, seen := seenNPIs[row.NPI]; !seen {
-						seenNPIs[row.NPI] = row.TINValue
-						res.NewNPIs++
+						if _, staged := stagedNPIs[row.NPI]; !staged {
+							stagedNPIs[row.NPI] = row.TINValue
+							res.NewNPIs++
+						}
 					}
-					if row.TINValue != "" && seenTINs != nil && !seenTINs[row.TINValue] {
-						seenTINs[row.TINValue] = true
+					if row.TINValue != "" && seenTINs != nil && !seenTINs[row.TINValue] && !stagedTINs[row.TINValue] {
+						stagedTINs[row.TINValue] = true
 						res.NewTINs++
 					}
 				}
@@ -413,7 +428,33 @@ func streamMRF(
 				return nil, fmt.Errorf("malformed MRF: provider_references not closed: %w", err)
 			}
 			flushProv()
+			res.GroupsKept = len(keptGroups)
 			log.Printf("    ✅ Streamed %d provider rows. %s", res.ProviderRows, progress())
+
+			// The probe, at the one moment it is cheap: every provider group and
+			// network label is known, and in_network — the rest of the file — has
+			// not been touched. Returning here means the caller cancels the
+			// download instead of paying for gigabytes it would discard.
+			if pb.active() {
+				reading.KeptGroups = res.GroupsKept
+				reading.Refs = res.ProviderRefs
+				if err := pb.check(reading); err != nil {
+					return nil, err
+				}
+				log.Printf("    🛰️  probe passed — %d provider groups kept of %d references",
+					reading.KeptGroups, reading.Refs)
+			}
+
+			// Past the probe — this file is ours, so its NPIs and TINs join the run.
+			for npi, tin := range stagedNPIs {
+				seenNPIs[npi] = tin
+			}
+			if seenTINs != nil {
+				for tin := range stagedTINs {
+					seenTINs[tin] = true
+				}
+			}
+			stagedNPIs, stagedTINs = map[int64]string{}, map[string]bool{}
 
 		case "in_network":
 			log.Println("    🎯 Found 'in_network'. Streaming...")
@@ -453,8 +494,11 @@ func streamMRF(
 					}
 				}
 
+				// Only the GA NPI filter narrows rosters. With it off, a rate may
+				// reference a group the file never declared, and passing
+				// keptGroups would silently drop it.
 				var keptFilter map[int64]struct{}
-				if gaNPIs != nil || networkAllow != nil {
+				if gaNPIs != nil {
 					keptFilter = keptGroups
 				}
 				rows := buildPriceRows(item, fileID, networkByGroup, keptFilter,

@@ -16,9 +16,13 @@ parser is `stream.go`, the Parquet writers `extraction.go` + `partition.go`).
 | `LIMIT=n` | cap files processed |
 | `FIXTURE=path` | with `ID=n`: read a local `*.json.gz` instead of downloading (offline) |
 
-CLI-only flags (no `make` var yet): `-all-npis`, `-networks "GA *"`, `-all-networks`,
-`-dry-run`, and `-targets ""` (no target filter — every pending file). See
-`etl parse -h`.
+CLI-only flags (no `make` var yet): `-all-npis`, `-min-groups n`, `-dry-run`, and
+`-targets ""` (no target filter — every pending file, and no probe network
+signal). See `etl parse -h`.
+
+The parser writes **every network** a file carries. Which networks a plan is
+actually priced on is a build-step decision, not a parse-step one; `prices/` stays
+Hive-partitioned by `net=` so that step prunes to one directory.
 
 ## Target selection
 
@@ -47,6 +51,9 @@ Ordering within the selected set is unchanged — smallest file first
 1. Mark the row `processing`, GET the gzipped file (or read `FIXTURE`), stream once
    via `streamMRF` (the shared token scanner; `provider_references` must precede
    `in_network`).
+1a. **The probe** — at the close of `provider_references`, decide whether the rest
+   of the file is worth downloading. If not, cancel the request and mark the row
+   `skipped`. See [The provider probe](#the-provider-probe) below.
 2. Build `provider_group_id → network_name` from `provider_references[].network_name`
    (a structured array, e.g. `["GA Blue Value HIX Individual Network"]`) and stamp
    `network_name` onto every provider and price row — **structured attribution, no
@@ -55,8 +62,9 @@ Ordering within the selected set is unchanged — smallest file first
    provider row is kept only if its NPI is a Georgia NPPES NPI; a provider group
    with no GA NPI is dropped, and every price row whose whole roster it was goes
    too. `-all-npis` disables it. GA-plan-specific files lose ~0.4% of prices;
-   BlueCard-mirror / out-of-state files lose 85–100% (many parse to zero rows).
-   `coverage_log.notes` records the drop counts.
+   BlueCard-mirror / out-of-state files lose 85–100% (many parse to zero rows —
+   which is what the probe now catches before the download). `coverage_log.notes`
+   records the drop counts.
 4. For each `negotiated_rate` block: bucket provider references by network,
    fingerprint each network-scoped roster (`hashGroupSet` = FNV-64a of sorted
    provider_reference ids), and — first time that roster is seen in the file —
@@ -88,23 +96,48 @@ While a parse runs, everything for the file is written under
 stream — the serving layer never reads a half-written file.
 
 Output layout and column lists: [../docs/schema.md](../docs/schema.md).
-What the `-networks` allowlist still gets wrong:
+What network attribution still doesn't give the serving layer:
 [../docs/known-gaps.md](../docs/known-gaps.md).
 
-## Network allowlist
+## The provider probe
 
-Default `GA *` (prefix match on `network_name`), applied uniformly to every file
-in the run. `-all-networks` disables it; `-networks` overrides the spec.
+The index links a plan to far more files than actually price it: ~245 files carry
+the Blue Value link, one carries its network. The rest are national
+BlueCard-mirror shards, and streaming them to the end cost ~40 GB of download that
+ended in a rollback.
 
-It used to be skipped for `anthem/GA_*` files, on the theory that Anthem's
-filename made them trustworthy — but that exemption was a second filename
-heuristic sitting behind the first, and it went out with target selection. The
-consequence is real and deliberate: a target file whose `network_name` labels are
-config-style rather than `GA …` (`"EXCHANGES SPECIALIST GATEKEEPER ON
-INDIVIDUAL"`) now loses those rows to the allowlist. Making the allowlist
-plan-derived rather than a prefix guess is the next step
-([#98](https://github.com/wmespi/honest-healthcare/issues/98)); until then,
-`-all-networks` is the escape hatch for such a file.
+So the parser judges a file at the close of `provider_references` — which Anthem
+writes *before* `in_network`, and which is a few MB of a body that can run to
+gigabytes. Two signals, both read in that window (`etl/extraction/probe.go`):
+
+| Signal | Fails when | Off when |
+|---|---|---|
+| **provider overlap** | fewer than `-min-groups` (default 1) provider groups survive the GA NPI filter | `-min-groups 0` |
+| **network label** | no `provider_references[].network_name` matches a target's `network_patterns` | no target declares `network_patterns`, or `-targets ""` |
+
+Either failing abandons the file: `streamMRF` returns `errNoWantedProviders`,
+`parseRates` cancels the HTTP request through the `cancel` from `openMRF`, logs
+the bytes read at the abort, and marks the row `skipped` with
+`failure_reason = 'probe: no wanted providers — …'` ([queue.md](queue.md)).
+Nothing is written and no `coverage_log` row is produced — the file was never
+parsed.
+
+The network signal is the one that matters, and the reason it isn't only an NPI
+overlap check: a national BlueCard shard **does** list Georgia NPIs, so overlap
+alone waves it through. Only the label says the rates aren't the plan's.
+
+The probe applies however the file was selected — `-file-ids` included, because
+"does this file price anyone on a target plan?" doesn't depend on how the file
+reached the queue. To stream a file regardless, run it with `-min-groups 0
+-targets ""`.
+
+`network_patterns` is **not** a row filter, which is what distinguishes it from
+the `-networks "GA *"` allowlist it replaced (removed in #98). The allowlist
+dropped rows *inside* a file it had already paid to download, and it dropped real
+target rows whenever a file labelled its networks config-style (`"EXCHANGES
+SPECIALIST GATEKEEPER ON INDIVIDUAL"`) rather than `GA …`. The probe decides only
+whether to download; a file that passes is written whole, every network included,
+and the build step selects.
 
 ## Known parser issues
 

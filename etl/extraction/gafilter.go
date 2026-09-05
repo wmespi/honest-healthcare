@@ -3,7 +3,6 @@ package extraction
 import (
 	"log"
 	"os"
-	"strings"
 
 	parquet "github.com/parquet-go/parquet-go"
 )
@@ -32,48 +31,4 @@ func loadGANPISet(path string) map[int64]struct{} {
 	}
 	log.Printf("🗺️  GA NPI filter active — %d Georgia NPIs from %s", len(set), path)
 	return set
-}
-
-// buildNetworkAllow compiles a comma-separated network_name allowlist into a
-// predicate. An entry ending in "*" is a prefix match (inner spaces kept, e.g.
-// "GA *" matches "GA Blue Value HIX Individual Network"); any other entry is an
-// exact match. The candidate name may itself be "|"-joined (a group tagged with
-// several networks) — it passes if ANY member matches. An empty spec returns nil
-// (no filter — every network kept).
-func buildNetworkAllow(spec string) func(string) bool {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return nil
-	}
-	var exact, prefix []string
-	for _, part := range strings.Split(spec, ",") {
-		p := strings.TrimSpace(part)
-		switch {
-		case p == "":
-			continue
-		case strings.HasSuffix(p, "*"):
-			prefix = append(prefix, strings.TrimSuffix(p, "*"))
-		default:
-			exact = append(exact, p)
-		}
-	}
-	return func(name string) bool {
-		for _, member := range strings.Split(name, "|") {
-			member = strings.TrimSpace(member)
-			if member == "" {
-				continue
-			}
-			for _, e := range exact {
-				if member == e {
-					return true
-				}
-			}
-			for _, pfx := range prefix {
-				if strings.HasPrefix(member, pfx) {
-					return true
-				}
-			}
-		}
-		return false
-	}
 }

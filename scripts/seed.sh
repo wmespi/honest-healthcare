@@ -25,7 +25,10 @@ FILE_ID=$("${PSQL[@]}" -c "
   ON CONFLICT (location) DO UPDATE SET status = 'pending'
   RETURNING id;")
 
-docker compose exec -T etl go run . parse -file-ids "$FILE_ID" -fixture "$FIXTURE" -all-npis -all-networks
+# -all-npis because the synthetic NPIs are invented and no NPPES roster holds
+# them. The parse probe still applies — the fixture passes it, because it carries
+# the target plan's network label.
+docker compose exec -T etl go run . parse -file-ids "$FILE_ID" -fixture "$FIXTURE" -all-npis
 
 echo "→ done — GET http://localhost:8000/ now reports rows."
 echo "  This is synthetic sample data. Real rates: make discover && make parse"

@@ -139,8 +139,7 @@ func cmdParse(args []string) {
 	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only files serving one of its plans are parsed ("" = every pending file)`)
 	fixturePath := fs.String("fixture", "", "read a local *.json.gz instead of downloading (with -file-ids N)")
 	allNPIs := fs.Bool("all-npis", false, "keep every NPI/rate (disable the GA NPPES filter)")
-	networks := fs.String("networks", "", "network_name allowlist, comma-separated (trailing * = prefix). Default 'GA *' unless -all-networks")
-	allNetworks := fs.Bool("all-networks", false, "keep every network (disable the network_name allowlist)")
+	minGroups := fs.Int("min-groups", 1, "probe: abort a file before in_network unless this many provider groups survive the filter (0 = no overlap check)")
 	dryRun := fs.Bool("dry-run", false, "stream only, skip all writes")
 	indexURL := fs.String("index-url", "", "override the monthly master-index URL")
 	_ = fs.Parse(args)
@@ -159,14 +158,13 @@ func cmdParse(args []string) {
 	defer conn.Close(ctx)
 
 	err := extraction.Run(ctx, conn, extraction.Options{
-		FileIDs:     parseFileIDs(*fileIDs),
-		Targets:     *targets,
-		Limit:       *limit,
-		Fixture:     *fixturePath,
-		AllNPIs:     *allNPIs,
-		Networks:    *networks,
-		AllNetworks: *allNetworks,
-		DryRun:      *dryRun,
+		FileIDs:   parseFileIDs(*fileIDs),
+		Targets:   *targets,
+		Limit:     *limit,
+		Fixture:   *fixturePath,
+		AllNPIs:   *allNPIs,
+		MinGroups: *minGroups,
+		DryRun:    *dryRun,
 	})
 	if err != nil {
 		log.Fatalf("❌ %v", err)

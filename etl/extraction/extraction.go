@@ -69,6 +69,37 @@ func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error, d
 	}
 }
 
+// markSkipped records a probe abort. `skipped` is deliberately not `failed`:
+// nothing went wrong, the file simply prices nobody we serve, and `make db-reset
+// WHAT=failed` must not put it back in the queue to be downloaded again.
+func markSkipped(ctx context.Context, conn *pgx.Conn, fileID int, reason error, dryRun bool) {
+	if !dryRun && conn != nil {
+		msg := ""
+		if reason != nil {
+			msg = reason.Error()
+		}
+		if _, err := conn.Exec(ctx,
+			"UPDATE index_files SET status = 'skipped', failure_reason = $2 WHERE id = $1", fileID, msg); err != nil {
+			log.Printf("⚠️ Failed to mark file %d as skipped: %v", fileID, err)
+		}
+	}
+}
+
+// humanBytes renders a byte count for the abort log — the number that says how
+// much of a multi-GB download the probe saved.
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.2f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
 func writeNPILookup(seenNPIs map[int64]string) {
 	if len(seenNPIs) == 0 {
 		return
@@ -213,7 +244,7 @@ func parseRates(
 	seenNPIs map[int64]string,
 	seenTINs map[string]bool,
 	gaNPIs map[int64]struct{},
-	networkAllow func(string) bool,
+	pb providerProbe,
 	totalBillingCodesBefore int,
 	dryRun bool,
 ) *mrfResult {
@@ -339,7 +370,26 @@ func parseRates(
 	defer gz.Close()
 
 	log.Println("  🔄 Starting single-pass extract...")
-	res, err := streamMRF(gz, planName, int64(fileID), isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, w, pr)
+	res, err := streamMRF(gz, planName, int64(fileID), isFirstFile, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, pb, w, pr)
+
+	// The probe rejected the file at the end of provider_references, before a
+	// byte of in_network. Kill the transfer now — that is the whole saving — and
+	// record the row as skipped rather than failed. No completeness check: the
+	// body is deliberately incomplete, and nothing was written to promote.
+	if errors.Is(err, errNoWantedProviders) {
+		cancelDownload()
+		read := pr.ReadBytes.Load()
+		closeAll(closers)
+		of := ""
+		if contentLength > 0 {
+			of = fmt.Sprintf(" of %s (%.1f%%)", humanBytes(contentLength), 100*float64(read)/float64(contentLength))
+		}
+		log.Printf("  ⛔ File %d skipped — %v", fileID, err)
+		log.Printf("     aborted after reading %s%s", humanBytes(read), of)
+		markSkipped(ctx, conn, fileID, err, dryRun)
+		return nil
+	}
+
 	// The document parsed — now confirm the whole compressed body arrived and the
 	// gzip trailer checks out before anything is promoted (issue #52). Only for a
 	// real download: a fixture is a local file and always complete.
@@ -407,9 +457,6 @@ func parseRates(
 			log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
 		}
 		var parts []string
-		if networkAllow != nil {
-			parts = append(parts, "ga-network-filtered")
-		}
 		if gaNPIs != nil {
 			parts = append(parts, "ga-npi-filtered")
 		}
@@ -418,10 +465,10 @@ func parseRates(
 			totalBillingCodesBefore, note, res)
 	}
 
-	if (gaNPIs != nil || networkAllow != nil) && (res.PriceRowsDropped > 0 || res.ProviderRowsDropped > 0) {
-		log.Printf("  🗺️  GA filter dropped %d provider rows, %d price rows, %d groups (%d non-GA-network) — kept %d / %d price rows",
-			res.ProviderRowsDropped, res.PriceRowsDropped, res.GroupsDropped, res.GroupsDroppedNetwork,
-			res.PriceRows, res.PriceRows+res.PriceRowsDropped)
+	if gaNPIs != nil && (res.PriceRowsDropped > 0 || res.ProviderRowsDropped > 0) {
+		log.Printf("  🗺️  GA NPI filter dropped %d provider rows, %d price rows, %d groups — kept %d groups, %d / %d price rows",
+			res.ProviderRowsDropped, res.PriceRowsDropped, res.GroupsDropped,
+			res.GroupsKept, res.PriceRows, res.PriceRows+res.PriceRowsDropped)
 	}
 	log.Printf("  ✅ Completed. %d provider rows | %d price rows | %d group-set edges (%d sets) | %d new codes | %d new NPIs | networks=%v",
 		res.ProviderRows, res.PriceRows, res.GroupSetMemberRows, res.GroupSets,
@@ -505,13 +552,16 @@ type Options struct {
 	// Targets is the path to the target-plan list (etl/targets.yaml). The queue
 	// is restricted to pending files the index links to one of those plans; ""
 	// disables the restriction and takes every pending file.
-	Targets     string
-	Limit       int    // cap files processed (0 = no cap)
-	Fixture     string // read a local *.json.gz instead of downloading (needs exactly one FileID)
-	AllNPIs     bool   // keep every NPI/rate (disable the GA NPPES filter)
-	Networks    string // network_name allowlist; "" = default "GA *"
-	AllNetworks bool   // disable the network_name allowlist entirely
-	DryRun      bool   // stream only, no writes
+	Targets string
+	Limit   int    // cap files processed (0 = no cap)
+	Fixture string // read a local *.json.gz instead of downloading (needs exactly one FileID)
+	AllNPIs bool   // keep every NPI/rate (disable the GA NPPES filter)
+	// MinGroups is the probe's provider-overlap threshold: a file whose
+	// provider_references leave fewer than this many provider groups is
+	// abandoned before in_network. 0 disables that signal (the probe's network
+	// signal, from the targets' network_patterns, is independent of it).
+	MinGroups int
+	DryRun    bool // stream only, no writes
 }
 
 type pendingFile struct {
@@ -579,7 +629,7 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	case targets == nil:
 		log.Println("⚠️ no target-plan filter — taking every pending file")
 	case len(opts.FileIDs) > 0:
-		log.Printf("🎯 targets %s loaded (not applied — -file-ids given)", targets.Path)
+		log.Printf("🎯 targets %s loaded — not used to select (-file-ids given), still used by the probe", targets.Path)
 	default:
 		log.Printf("🎯 target plans from %s: %s", targets.Path, strings.Join(targets.Names(), ", "))
 	}
@@ -619,21 +669,28 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 		}
 	}
 
-	// Network allowlist. Default 'GA *' unless overridden. Applied uniformly:
-	// the per-file exemption for anthem/GA_* files went with the filename
-	// heuristic it depended on — a file is now here because it serves a target
-	// plan, which says nothing about its URL. Reworking the allowlist itself is
-	// the next step (#98).
-	networksSpec := opts.Networks
-	if opts.AllNetworks {
-		networksSpec = ""
-		log.Println("⚠️ -all-networks — keeping every network (network_name allowlist disabled)")
-	} else if networksSpec == "" {
-		networksSpec = "GA *"
+	// The probe (#98). Not a row filter — every network a surviving file carries
+	// is written, and the build step selects. This only decides whether the rest
+	// of a file is worth downloading at all, and it applies however the file was
+	// chosen (a -file-ids re-parse included): the question "does this file price
+	// anyone on a target plan?" doesn't depend on how it reached the queue.
+	pb := providerProbe{minGroups: opts.MinGroups}
+	if pb.minGroups < 0 {
+		pb.minGroups = 0
 	}
-	networkAllow := buildNetworkAllow(networksSpec)
-	if networkAllow != nil {
-		log.Printf("🗺️  network allowlist active — keeping only network_name in {%s}", networksSpec)
+	if m := targets.NetworkMatcher(); m != nil {
+		pb.networkMatch = m
+		pb.networkSpec = strings.Join(targets.NetworkPatterns(), ", ")
+	}
+	switch {
+	case !pb.active():
+		log.Println("⚠️ provider probe off — every selected file streams to the end")
+	case pb.networkMatch == nil:
+		log.Printf("🛰️  probe: abort before in_network unless ≥%d provider groups survive the filter "+
+			"(no network signal — no network_patterns in the target list)", pb.minGroups)
+	default:
+		log.Printf("🛰️  probe: abort before in_network unless ≥%d provider groups survive the filter "+
+			"and a network_name matches {%s}", pb.minGroups, pb.networkSpec)
 	}
 
 	totalCodes := 0
@@ -643,7 +700,7 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 
 	for i, f := range files {
 		res := parseRates(ctx, conn, f.ID, f.Location, f.PlanName, opts.Fixture,
-			i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, networkAllow, totalCodes, opts.DryRun)
+			i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, pb, totalCodes, opts.DryRun)
 		if res != nil {
 			totalCodes += res.NewBillingCodes
 		}

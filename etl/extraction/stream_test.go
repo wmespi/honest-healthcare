@@ -2,8 +2,12 @@ package extraction
 
 import (
 	"compress/gzip"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wmespi/honest-healthcare/etl/core"
@@ -32,7 +36,7 @@ func TestFixtures_Parse(t *testing.T) {
 			defer gz.Close()
 
 			res, err := streamMRF(gz, "individual | group", 1, true,
-				map[string]bool{}, map[int64]string{}, map[string]bool{}, nil, nil,
+				map[string]bool{}, map[int64]string{}, map[string]bool{}, nil, providerProbe{},
 				mrfWriters{}, nil)
 			if err != nil {
 				t.Fatalf("streamMRF: %v", err)
@@ -71,21 +75,41 @@ func (c collected) membersBySet() map[int64][]int64 {
 }
 
 func collect(t *testing.T, path string) collected {
-	return collectFiltered2(t, path, nil, nil)
+	c, err := collectProbed(t, path, nil, providerProbe{})
+	if err != nil {
+		t.Fatalf("streamMRF: %v", err)
+	}
+	return c
 }
 
 func collectFiltered(t *testing.T, path string, gaNPIs map[int64]struct{}) collected {
-	return collectFiltered2(t, path, gaNPIs, nil)
+	c, err := collectProbed(t, path, gaNPIs, providerProbe{})
+	if err != nil {
+		t.Fatalf("streamMRF: %v", err)
+	}
+	return c
 }
 
-func collectFiltered2(t *testing.T, path string, gaNPIs map[int64]struct{}, networkAllow func(string) bool) collected {
+// collectProbed is the one that returns the error, because the probe tests are
+// about a stream that stops early.
+func collectProbed(t *testing.T, path string, gaNPIs map[int64]struct{}, pb providerProbe) (collected, error) {
 	t.Helper()
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
 	defer f.Close()
+	return streamCollect(f, gaNPIs, pb)
+}
 
+// streamDoc is collectProbed over an inline document, for shapes no committed
+// fixture has (a national mirror shard, say).
+func streamDoc(t *testing.T, doc string, gaNPIs map[int64]struct{}, pb providerProbe) (collected, error) {
+	t.Helper()
+	return streamCollect(strings.NewReader(doc), gaNPIs, pb)
+}
+
+func streamCollect(r io.Reader, gaNPIs map[int64]struct{}, pb providerProbe) (collected, error) {
 	var c collected
 	w := mrfWriters{
 		prices:          func(r []core.PriceRow) { c.prices = append(c.prices, r...) },
@@ -94,13 +118,10 @@ func collectFiltered2(t *testing.T, path string, gaNPIs map[int64]struct{}, netw
 		code:            func(bc core.BillingCodeRow) { c.codes = append(c.codes, bc) },
 	}
 
-	res, err := streamMRF(f, "individual | group", testFileID, true,
-		map[string]bool{}, map[int64]string{}, map[string]bool{}, gaNPIs, networkAllow, w, nil)
-	if err != nil {
-		t.Fatalf("streamMRF: %v", err)
-	}
+	res, err := streamMRF(r, "individual | group", testFileID, true,
+		map[string]bool{}, map[int64]string{}, map[string]bool{}, gaNPIs, pb, w, nil)
 	c.res = res
-	return c
+	return c, err
 }
 
 func TestStreamMRF_Counts(t *testing.T) {
@@ -312,61 +333,214 @@ func TestStreamMRF_GANPIFilter(t *testing.T) {
 	}
 }
 
-func TestStreamMRF_NetworkAllowlist(t *testing.T) {
-	// Exact match — only group 1001 ("GA Blue Value HIX Individual Network").
-	exact := buildNetworkAllow("GA Blue Value HIX Individual Network")
-	c := collectFiltered2(t, "testdata/synthetic_mrf.json", nil, exact)
-	if len(c.provs) != 3 {
-		t.Errorf("exact: provider rows = %d, want 3 (group 1001 only)", len(c.provs))
-	}
-	if len(c.prices) != 3 {
-		t.Errorf("exact: price rows = %d, want 3", len(c.prices))
-	}
-	if c.res.GroupsDroppedNetwork != 2 {
-		t.Errorf("exact: GroupsDroppedNetwork = %d, want 2 (1002 + 1003)", c.res.GroupsDroppedNetwork)
-	}
-	bySet := c.membersBySet()
-	for _, pr := range c.prices {
-		for _, gid := range bySet[pr.GroupSetID] {
-			if gid != 1001 {
-				t.Errorf("exact: leaked price row for group %d", gid)
-			}
-		}
-	}
+// ── the provider probe (#98) ────────────────────────────────────────────────
+//
+// The probe's job is to end a stream at the close of provider_references, so
+// every assertion below is really two: the right verdict, and no in_network work
+// done when the verdict is "abandon".
 
-	// Prefix match — groups 1001 and 1002 (both "GA ..."), 1003 (no network) dropped.
-	prefix := buildNetworkAllow("GA *")
-	c2 := collectFiltered2(t, "testdata/synthetic_mrf.json", nil, prefix)
-	if len(c2.provs) != 4 {
-		t.Errorf("prefix: provider rows = %d, want 4 (1001+1002)", len(c2.provs))
+// probeMatcher builds the network predicate the way a target list does, so the
+// probe tests exercise the same matching path targets.yaml drives.
+func probeMatcher(t *testing.T, patterns ...string) providerProbe {
+	t.Helper()
+	ts := &TargetSet{Targets: []Target{{Name: "T", NetworkPatterns: patterns}}}
+	m := ts.NetworkMatcher()
+	if m == nil {
+		t.Fatalf("NetworkMatcher() = nil for %v", patterns)
 	}
-	if len(c2.prices) != 5 {
-		t.Errorf("prefix: price rows = %d, want 5", len(c2.prices))
+	return providerProbe{minGroups: 1, networkMatch: m, networkSpec: strings.Join(patterns, ", ")}
+}
+
+func TestProbe_PassesWhenANetworkMatches(t *testing.T) {
+	c, err := collectProbed(t, "testdata/synthetic_mrf.json", nil, probeMatcher(t, "GA Blue Value HIX*"))
+	if err != nil {
+		t.Fatalf("probe aborted a file that carries the target network: %v", err)
 	}
-	if c2.res.GroupsDroppedNetwork != 1 {
-		t.Errorf("prefix: GroupsDroppedNetwork = %d, want 1 (group 1003)", c2.res.GroupsDroppedNetwork)
+	// Passing the probe is not a filter — every network in the file is written.
+	if len(c.prices) != 6 || len(c.provs) != 5 {
+		t.Errorf("probe changed the output: %d price rows, %d provider rows, want 6/5",
+			len(c.prices), len(c.provs))
+	}
+	assertSet(t, "network_names", c.res.NetworkNames,
+		"GA Blue Open Access POS Network", "GA Blue Value HIX Individual Network")
+}
+
+func TestProbe_AbortsWhenNoNetworkMatches(t *testing.T) {
+	c, err := collectProbed(t, "testdata/synthetic_mrf.json", nil, probeMatcher(t, "CO Blue Priority*"))
+	if !errors.Is(err, errNoWantedProviders) {
+		t.Fatalf("error = %v, want errNoWantedProviders", err)
+	}
+	// The stream stopped at the end of provider_references: nothing from
+	// in_network was read, let alone written.
+	if len(c.prices) != 0 || len(c.codes) != 0 || len(c.members) != 0 {
+		t.Errorf("in_network was parsed after the probe aborted: %d prices, %d codes, %d edges",
+			len(c.prices), len(c.codes), len(c.members))
+	}
+	// The reason lands in index_files.failure_reason — it has to name both the
+	// patterns that were wanted and the labels the file actually carries.
+	msg := err.Error()
+	for _, want := range []string{"probe: no wanted providers", "CO Blue Priority*", "GA Blue Value HIX Individual Network"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("abort reason %q does not mention %q", msg, want)
+		}
 	}
 }
 
-func TestStreamMRF_NetworkAndNPIFilterCombine(t *testing.T) {
-	// Network allowlist keeps 1001 + 1002; GA NPI set then keeps only NPI
-	// 2222222222 (in 1001) — so 1002 survives the network filter but is dropped
-	// by the NPI filter (its only NPI 4444444444 isn't GA).
-	c := collectFiltered2(t, "testdata/synthetic_mrf.json",
-		map[int64]struct{}{2222222222: {}}, buildNetworkAllow("GA *"))
-	if len(c.provs) != 1 || c.provs[0].NPI != 2222222222 {
-		t.Errorf("combined: provider rows = %+v, want just NPI 2222222222", c.provs)
+// The BlueCard case, and the whole reason the probe needs a second signal: a
+// national mirror shard DOES list Georgia NPIs, so provider overlap waves it
+// through. Only the network label says it is not our plan. ~40 GB was downloaded
+// and rolled back on files of exactly this shape.
+func TestProbe_AbortsBlueCardShardDespiteGANPIs(t *testing.T) {
+	const shard = `{
+	  "reporting_entity_name": "Anthem",
+	  "provider_references": [
+	    {"provider_group_id": 1, "network_name": ["BlueCard PPO National"],
+	     "provider_groups": [{"npi": [2222222222], "tin": {"type": "ein", "value": "11-1"}}]},
+	    {"provider_group_id": 2, "network_name": ["National Advantage Program"],
+	     "provider_groups": [{"npi": [3333333333], "tin": {"type": "ein", "value": "11-2"}}]}
+	  ],
+	  "in_network": [
+	    {"billing_code": "99213", "billing_code_type": "CPT", "negotiation_arrangement": "ffs",
+	     "negotiated_rates": [{"provider_references": [1, 2],
+	       "negotiated_prices": [{"negotiated_type": "negotiated", "negotiated_rate": 100.0,
+	         "billing_class": "professional", "setting": "outpatient"}]}]}
+	  ]
+	}`
+	// Both NPIs are Georgia NPIs, so the overlap signal is satisfied.
+	gaNPIs := map[int64]struct{}{2222222222: {}, 3333333333: {}}
+	c, err := streamDoc(t, shard, gaNPIs, probeMatcher(t, "GA Blue Value HIX*"))
+	if !errors.Is(err, errNoWantedProviders) {
+		t.Fatalf("error = %v, want errNoWantedProviders (network label mismatch)", err)
 	}
-	bySet := c.membersBySet()
-	for _, pr := range c.prices {
-		for _, gid := range bySet[pr.GroupSetID] {
-			if gid != 1001 {
-				t.Errorf("combined: leaked price row for group %d", gid)
-			}
-		}
+	if c.res != nil {
+		t.Error("an aborted probe must not return a result to log or promote")
 	}
-	if c.res.GroupsDroppedNetwork != 1 {
-		t.Errorf("combined: GroupsDroppedNetwork = %d, want 1 (group 1003)", c.res.GroupsDroppedNetwork)
+	if len(c.prices) != 0 {
+		t.Errorf("in_network parsed on a shard the probe rejected: %d price rows", len(c.prices))
+	}
+
+	// Same shard, overlap signal only (no network_patterns) — it passes, which is
+	// exactly why the network signal exists.
+	if _, err := streamDoc(t, shard, gaNPIs, providerProbe{minGroups: 1}); err != nil {
+		t.Fatalf("overlap-only probe rejected a shard full of GA NPIs: %v", err)
+	}
+}
+
+// An abandoned file must leave nothing behind — including in the run-level NPI
+// and TIN sets that npi_lookup.parquet is written from at the end of a run.
+func TestProbe_AbortLeavesNoNPIsInTheRun(t *testing.T) {
+	seenNPIs, seenTINs := map[int64]string{}, map[string]bool{}
+	f, err := os.Open("testdata/synthetic_mrf.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	_, err = streamMRF(f, "individual", testFileID, false,
+		map[string]bool{}, seenNPIs, seenTINs, nil,
+		probeMatcher(t, "CO Blue Priority*"), mrfWriters{}, nil)
+	if !errors.Is(err, errNoWantedProviders) {
+		t.Fatalf("error = %v, want errNoWantedProviders", err)
+	}
+	if len(seenNPIs) != 0 || len(seenTINs) != 0 {
+		t.Errorf("a skipped file left %d NPIs and %d TINs in the run", len(seenNPIs), len(seenTINs))
+	}
+
+	// The same file, probe passed: the NPIs land as before.
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := streamMRF(f, "individual", testFileID, false,
+		map[string]bool{}, seenNPIs, seenTINs, nil,
+		probeMatcher(t, "GA Blue Value HIX*"), mrfWriters{}, nil); err != nil {
+		t.Fatalf("streamMRF: %v", err)
+	}
+	if len(seenNPIs) != 5 || len(seenTINs) != 4 {
+		t.Errorf("after a passing parse: %d NPIs, %d TINs, want 5 and 4", len(seenNPIs), len(seenTINs))
+	}
+}
+
+func TestProbe_AbortsWhenNoProviderOverlap(t *testing.T) {
+	// No group survives the GA NPI filter → nothing in this file is ours.
+	c, err := collectProbed(t, "testdata/synthetic_mrf.json",
+		map[int64]struct{}{9999999999: {}}, providerProbe{minGroups: 1})
+	if !errors.Is(err, errNoWantedProviders) {
+		t.Fatalf("error = %v, want errNoWantedProviders", err)
+	}
+	if !strings.Contains(err.Error(), "provider groups") {
+		t.Errorf("abort reason %q does not report the group counts", err)
+	}
+	if len(c.prices) != 0 {
+		t.Errorf("in_network parsed after an overlap abort: %d price rows", len(c.prices))
+	}
+}
+
+// The threshold is a floor, not a boolean: 3 groups survive the synthetic file,
+// so a min of 3 passes and a min of 4 does not.
+func TestProbe_MinGroupsThreshold(t *testing.T) {
+	if _, err := collectProbed(t, "testdata/synthetic_mrf.json", nil, providerProbe{minGroups: 3}); err != nil {
+		t.Errorf("min-groups 3 rejected a file with 3 groups: %v", err)
+	}
+	if _, err := collectProbed(t, "testdata/synthetic_mrf.json", nil, providerProbe{minGroups: 4}); !errors.Is(err, errNoWantedProviders) {
+		t.Errorf("min-groups 4 accepted a file with 3 groups: %v", err)
+	}
+}
+
+// The zero value is the "-min-groups 0 -targets ”" configuration — no signal,
+// no abort, whatever the file looks like.
+func TestProbe_InactiveNeverAborts(t *testing.T) {
+	if (providerProbe{}).active() {
+		t.Error("zero-value probe reports itself active")
+	}
+	c, err := collectProbed(t, "testdata/synthetic_mrf.json",
+		map[int64]struct{}{9999999999: {}}, providerProbe{})
+	if err != nil {
+		t.Fatalf("inactive probe aborted: %v", err)
+	}
+	if c.res.GroupsKept != 0 {
+		t.Errorf("GroupsKept = %d, want 0 (no group has that NPI)", c.res.GroupsKept)
+	}
+}
+
+// GroupsKept is the reading the abort message quotes, so it has to be the count
+// of groups that survived — not the count of provider_references entries.
+func TestStreamMRF_GroupsKept(t *testing.T) {
+	if got := collect(t, "testdata/synthetic_mrf.json").res.GroupsKept; got != 3 {
+		t.Errorf("unfiltered GroupsKept = %d, want 3", got)
+	}
+	c := collectFiltered(t, "testdata/synthetic_mrf.json", map[int64]struct{}{2222222222: {}})
+	if c.res.GroupsKept != 1 {
+		t.Errorf("filtered GroupsKept = %d, want 1 (only group 1001 has that NPI)", c.res.GroupsKept)
+	}
+}
+
+func TestSampleList(t *testing.T) {
+	if got := sampleList(nil); got != "no network labels" {
+		t.Errorf("sampleList(nil) = %q", got)
+	}
+	if got := sampleList(map[string]struct{}{"B": {}, "A": {}}); got != "A, B" {
+		t.Errorf("sampleList = %q, want %q (sorted)", got, "A, B")
+	}
+	full := map[string]struct{}{}
+	for i := 0; i < networkSampleCap; i++ {
+		full[string(rune('a'+i))] = struct{}{}
+	}
+	if got := sampleList(full); !strings.HasSuffix(got, ", …") {
+		t.Errorf("a capped sample must say it was capped: %q", got)
+	}
+}
+
+// note() must not grow without bound on a file with thousands of labels.
+func TestProbeReading_NoteIsCapped(t *testing.T) {
+	var r probeReading
+	for i := 0; i < networkSampleCap*3; i++ {
+		r.note(fmt.Sprintf("net-%d", i))
+	}
+	if len(r.NetworkSample) != networkSampleCap {
+		t.Errorf("NetworkSample = %d labels, want the cap of %d", len(r.NetworkSample), networkSampleCap)
+	}
+	r.note("")
+	if _, ok := r.NetworkSample[""]; ok {
+		t.Error("an empty network label was sampled")
 	}
 }
 
@@ -476,27 +650,6 @@ func TestBuildPriceRows_FilterEmptiesRoster(t *testing.T) {
 	}
 	if dropped != 2 {
 		t.Errorf("dropped = %d, want 2 (both prices)", dropped)
-	}
-}
-
-func TestBuildNetworkAllow(t *testing.T) {
-	if buildNetworkAllow("") != nil || buildNetworkAllow("  ") != nil {
-		t.Fatal("empty spec should return nil (no filter)")
-	}
-	f := buildNetworkAllow("GA *, ACCESS NETWORK")
-	cases := map[string]bool{
-		"GA Blue Value HIX Individual Network":   true,
-		"ACCESS NETWORK":                         true,
-		"CO TRADITIONAL NETWORK":                 false,
-		"NV HMO OA":                              false,
-		"":                                       false,
-		"CO HMO|GA Blue Open Access POS Network": true,  // |-joined — one member passes
-		"GABC Something":                         false, // prefix is "GA " (with the space)
-	}
-	for name, want := range cases {
-		if got := f(name); got != want {
-			t.Errorf("allow(%q) = %v, want %v", name, got, want)
-		}
 	}
 }
 

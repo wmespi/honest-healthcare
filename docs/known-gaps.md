@@ -22,22 +22,22 @@ the product is headed — and which of these gaps that closes — is in
 - **`network_name` is NOT uniform across files.** `GA_JBNKMED0001` (id 21057, the
   target plan's only clean source) uses `"GA Blue Value HIX Individual Network"`;
   other `anthem/GA_*` files use config-style labels
-  (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`). So the `-networks "GA *"`
-  default drops real rows from any target file labelled that way. It used to be
-  waived for `anthem/GA_*` files on the strength of the filename; that waiver
-  went out with the filename heuristics in #97, and making the allowlist
-  plan-derived rather than a prefix guess is
-  [#98](https://github.com/wmespi/honest-healthcare/issues/98). `-all-networks`
-  is the interim escape hatch. Every other big `anthem/GA_*` file is a *different*
-  GA individual plan, not Blue Value.
-- **Don't run `make parse` without `ID=` on `public` until #98 lands.** The index
-  links Blue Value to ~245 files, and all but `GA_JBNKMED0001` are BlueCard-mirror
-  shards that already `failed` as "0 GA-network rows (non-GA plan)" — they carry
-  Georgia NPIs (so a provider-overlap probe alone won't abort them) but no
-  Blue-Value-labelled network. They're `failed`, not `pending`, today, but a
-  monthly re-discover makes them `pending` again, and target selection (#97) has
-  no probe yet to stop the queue from re-selecting all ~40 GB of them. #98 adds
-  that probe on the network label, not just NPI overlap.
+  (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`). The `-networks "GA *"`
+  allowlist that silently dropped those rows is gone (#98) — the parser writes
+  every network a file carries and the build step selects — but the labels still
+  don't line up between files, so nothing yet tells the serving layer that a
+  config-style label belongs to a given plan. Same missing plan → network map as
+  the bullet above. Every other big `anthem/GA_*` file is a *different* GA
+  individual plan, not Blue Value.
+- **A target plan's `network_patterns` are hand-written.** The parse probe (#98)
+  decides whether a file is worth downloading by matching
+  `provider_references[].network_name` against the patterns on that target in
+  [`etl/targets.yaml`](../etl/targets.yaml) — `"GA Blue Value HIX*"` for Blue
+  Value. Those were read off the one file that carries the label, not derived:
+  adding a plan means finding its network label by hand, and a plan whose label is
+  guessed wrong has every one of its files `skipped`. It fails loudly at least —
+  `failure_reason` names the labels the file actually carried — but deriving the
+  patterns is the same open problem as the plan → network map.
 - **Coverage confirmed for the target network, not quantified here.** Parsing
   `GA_JBNKMED0001` took the target network from zero attributed rates to
   populated (the `coverage/` one-off snapshots this replaced are gone —

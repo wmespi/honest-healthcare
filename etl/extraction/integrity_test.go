@@ -25,7 +25,7 @@ func synthetic(t *testing.T) string {
 // streamString runs streamMRF over s with the schema path on (first-file mode).
 func streamString(s string) (*mrfResult, error) {
 	return streamMRF(strings.NewReader(s), "individual", 1, true,
-		map[string]bool{}, map[int64]string{}, map[string]bool{}, nil, nil,
+		map[string]bool{}, map[int64]string{}, map[string]bool{}, nil, providerProbe{},
 		mrfWriters{}, nil)
 }
 

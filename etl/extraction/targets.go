@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -31,6 +32,14 @@ type Target struct {
 	// PlanIDPrefixes are literal HIOS plan_id prefixes (positional: [0:5] issuer,
 	// [5:7] state).
 	PlanIDPrefixes []string `yaml:"plan_id_prefixes"`
+	// NetworkPatterns are the `provider_references[].network_name` labels this
+	// plan's rates are expected to carry, `*`-wildcarded and matched
+	// case-insensitively. They are not a row filter — every network in a file
+	// that passes is written, and the build step selects. They are the probe's
+	// second signal (probe.go): a file the index links to the plan but whose
+	// provider_references carry none of these labels is abandoned before
+	// in_network. Optional; a target with none contributes no network signal.
+	NetworkPatterns []string `yaml:"network_patterns"`
 }
 
 // TargetSet is a parsed etl/targets.yaml.
@@ -100,6 +109,86 @@ func (ts *TargetSet) Names() []string {
 		out = append(out, t.Name)
 	}
 	return out
+}
+
+// NetworkPatterns is the union of every target's network_patterns, sorted and
+// deduped — the spec the probe reports it is matching against.
+func (ts *TargetSet) NetworkPatterns() []string {
+	if ts == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, t := range ts.Targets {
+		for _, p := range t.NetworkPatterns {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if _, dup := seen[p]; dup {
+				continue
+			}
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// NetworkMatcher compiles the union of the targets' network_patterns into the
+// probe's network predicate: does this provider group's network_name look like a
+// network one of the target plans is priced on? The candidate may itself be
+// "|"-joined (a group tagged with several networks) — it passes if ANY member
+// matches ANY pattern. Returns nil when no target declares a pattern, which the
+// probe reads as "no network signal configured".
+func (ts *TargetSet) NetworkMatcher() func(string) bool {
+	patterns := ts.NetworkPatterns()
+	if len(patterns) == 0 {
+		return nil
+	}
+	lowered := make([]string, len(patterns))
+	for i, p := range patterns {
+		lowered[i] = strings.ToLower(p)
+	}
+	return func(networkName string) bool {
+		for _, member := range strings.Split(networkName, "|") {
+			member = strings.ToLower(strings.TrimSpace(member))
+			if member == "" {
+				continue
+			}
+			for _, p := range lowered {
+				if globMatch(p, member) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+// globMatch reports whether s matches a `*`-wildcard pattern. Both must already
+// be lower-cased by the caller — this is called once per provider_references
+// entry on multi-GB files, so it allocates nothing and folds no case itself.
+// A pattern with no `*` is an exact match.
+func globMatch(pattern, s string) bool {
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return pattern == s
+	}
+	first, last := parts[0], parts[len(parts)-1]
+	if !strings.HasPrefix(s, first) {
+		return false
+	}
+	s = s[len(first):]
+	for _, mid := range parts[1 : len(parts)-1] {
+		i := strings.Index(s, mid)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(mid):]
+	}
+	return strings.HasSuffix(s, last)
 }
 
 // likeEscape neutralises the LIKE metacharacters in a literal so a plan name
