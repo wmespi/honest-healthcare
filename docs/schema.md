@@ -205,11 +205,11 @@ User / password: postgres / postgres
 Status lifecycle and stuck-row recovery: [../etl/queue.md](../etl/queue.md).
 Discovery upsert strategy: [../etl/discover.md](../etl/discover.md).
 
-`negotiated_rates`, `provider_mappings`, `place_of_service_codes`, and the
-`vw_rates_detailed` view still exist in `db/init.sql` but are **neither written nor
-read** — legacy until re-adopted. `db/migrations/*.sql` holds idempotent
-migrations for a running DB (`init.sql` only runs on a fresh volume); `make
-migrate` applies them.
+`db/migrations/*.sql` holds idempotent migrations for a running DB (`init.sql`
+only runs on a fresh volume); `make migrate` applies them. The pre-Parquet
+legacy tables (`negotiated_rates`, `provider_mappings`,
+`place_of_service_codes`, `vw_rates_detailed`) were dropped by
+`002_drop_legacy_tables.sql` and no longer exist in `init.sql` either.
 
 Test isolation: `-test` / `make … TEST=1` writes `test.*` (same database,
 `search_path=test` via `TEST_DATABASE_URL`) and `data-test/`; both are safe to

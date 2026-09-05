@@ -123,6 +123,9 @@ make doctors-clinicians     # CMS Care Compare — real group identity + hospita
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
 make check-local            # same gate on host toolchains, NO Docker + pytest contract + vitest
+                             #   works in any checkout, including canonical — but fails with
+                             #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until
+                             #   scripts/dev-setup.sh has been run there
 make test-all               # full sweep (stack must be up)
 make test-api / test-web / test-e2e
 make journeys               # assert the named user journeys against the live API (docs/journeys.md)
