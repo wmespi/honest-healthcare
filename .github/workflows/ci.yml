@@ -138,6 +138,9 @@ jobs:
             serving/tests/test_cms_utilization.py \
             serving/tests/test_specialty_profiles.py \
             serving/tests/test_mpfs.py -q
+      - name: Golden-answer tests (#96) — real API, empty data/ here, must skip not fail
+        run: |
+          docker compose exec -T -w /app serving python -m pytest serving/tests/test_golden.py -v
       - name: ETL e2e + NPPES fixtures
         run: make test-e2e
       - name: Stack logs on failure

@@ -23,6 +23,13 @@ def test_health_and_trust_bar(api):
     # / plausible-tier fixture)
     assert body["n_codes"] == 8
     assert body["as_of"] is None or len(body["as_of"]) == 10
+    # The fixture builds every optional reference table, including the
+    # browse summary (conftest.py runs scripts/build_rate_summary.py, so
+    # rate_hist.parquet exists here too).
+    assert body["reference_loaded"] == {
+        "nppes": True, "nucc": True, "cms_utilization": True,
+        "mpfs": True, "rate_hist": True,
+    }
 
 
 def test_distribution_shape(api):

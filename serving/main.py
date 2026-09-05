@@ -12,8 +12,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .data_sources import (
-    GROUP_SETS_SRC, NPI_LOOKUP_PATH, PRICES_GLOB, PRICES_SRC, PROVIDERS_SRC,
-    RATE_SUMMARY_PATH, db, have_summary,
+    CMS_UTILIZATION_PATH, GA_NPPES_PATH, GROUP_SETS_SRC, MPFS_GA_PATH,
+    NPI_LOOKUP_PATH, NUCC_PATH, PRICES_GLOB, PRICES_SRC, PROVIDERS_SRC,
+    RATE_HIST_PATH, RATE_SUMMARY_PATH, db, have_summary,
 )
 from .routers import providers, rates, reference
 
@@ -75,9 +76,23 @@ def health():
             f"WHERE network_name IS NOT NULL AND network_name != '' ORDER BY 1"
         ).fetchall()]
 
+        # Which optional reference builds (README.md steps 6-8) are actually
+        # on disk — file-exists flags, not a guess from response shape. A
+        # consumer (test_golden.py's skip guard, a future admin panel) can
+        # tell "no NPPES yet" from "NPPES loaded but this NPI has no rates"
+        # without probing several endpoints and inferring from their shape.
+        reference_loaded = {
+            "nppes": _os.path.exists(GA_NPPES_PATH),
+            "nucc": _os.path.exists(NUCC_PATH),
+            "cms_utilization": _os.path.exists(CMS_UTILIZATION_PATH),
+            "mpfs": _os.path.exists(MPFS_GA_PATH),
+            "rate_hist": _os.path.exists(RATE_HIST_PATH),
+        }
+
         return {"status": "ok", "total_prices": int(prices),
                 "total_group_set_edges": edges, "total_providers": providers,
                 "priceable_npis": priceable_npis, "networks": networks,
-                "n_codes": n_codes, "as_of": _data_as_of()}
+                "n_codes": n_codes, "as_of": _data_as_of(),
+                "reference_loaded": reference_loaded}
     except Exception as e:
         return {"status": "ok", "note": str(e)}

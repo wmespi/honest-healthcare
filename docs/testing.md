@@ -13,6 +13,7 @@
 | `make test-all` | `check` + `test-e2e` + `test-api` + `test-web` | full stack |
 | `make smoke-web` | Breadth — every code in a procedure basket has plan coverage (`scripts/frontend_smoke.py`) | serving up, **real corpus** |
 | `make journeys` | Depth — the named persona clickpaths still produce the right answer (`scripts/journeys.py`, [journeys.md](journeys.md)) | serving up, **real corpus** |
+| `make test-live` | Golden-answer regression — 7 real answers pinned against the live API (`test_golden.py`, #96) + `make journeys` | serving up, **real corpus** |
 
 Run `make check` (canonical checkout) or `make check-local` (a worktree, no
 Docker — [worktrees.md](worktrees.md)) before every commit (Critical Rule — fast).
@@ -70,6 +71,19 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
   `data-test/apifix/` and binds a FastAPI `TestClient` to it. Drives
   `test_api_contract.py` — every route, hermetic, no live server or `data/` mount.
   Schemas track [schema.md](schema.md); teardown removes the dir.
+- `serving/tests/test_golden.py` — **not hermetic, no fixture** — hits the live
+  API (`API_URL`, default `http://localhost:8000`) and checks 7 real answers
+  (a quote, a distribution rollup, a provider ranking, a PCP search, a
+  procedure count, a specialty count, a cross-network rollup) captured by
+  hand from the real corpus on 2026-09-04 against the target network (#96).
+  `pytest.skip`s, not fails, when the target network isn't in `GET /`'s
+  `networks` list, the API isn't reachable at all, or the wider reference
+  build the pins depend on (NPPES/NUCC, CMS utilization, MPFS — all
+  "optional" per `README.md`) isn't loaded. CI's `integration` job runs it
+  against an empty `data/` dir for exactly the first reason. `make test-api`
+  / `make test-all` explicitly `--ignore` this file — it isn't hermetic to a
+  stack's build state and must never gate the contract/coverage sweep. Run
+  for real via `make test-live` only.
 - `etl/extraction/testdata/fixtures/*.json.gz` — real, heavily-truncated MRFs from `make fixture` (first 25
   provider refs, NPI lists capped at 10, first 25 in-network items that touch a
   kept group, rates/prices capped). `synthetic.json.gz` drives `make test-e2e`;
@@ -110,7 +124,7 @@ which left the required checks stuck "pending" forever on a docs-only PR.
 | `changes` | diffs the PR → `run` output (docs-only / draft ⇒ `false`) | `git diff --name-only`, no deps |
 | `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
 | `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
-| `integration` | `test_api_contract.py` (every route, hermetic) + the three reference-builder tests (CMS utilization, specialty profiles, MPFS), then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
+| `integration` | `test_api_contract.py` (every route, hermetic) + the three reference-builder tests (CMS utilization, specialty profiles, MPFS) + `test_golden.py` (skips — no real corpus here), then `make test-e2e` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
 | `images` | builds the three `prod` Dockerfile targets and smokes each (`etl --help`, `serving` GET /, `nginx` GET /) | raw `docker build --target prod` — catches Dockerfile / dep drift the compose `dev` targets don't |
 | `gate` (`CI Gate`) | asserts no upstream job failed / was cancelled | `join(needs.*.result)` |
 
