@@ -139,6 +139,23 @@ SPECIALIST GATEKEEPER ON INDIVIDUAL"`) rather than `GA …`. The probe decides o
 whether to download; a file that passes is written whole, every network included,
 and the build step selects.
 
+### The end-of-run guard (#110)
+
+`network_patterns` is a hand-written string, so a stale one has a quiet failure
+mode: Anthem renames a plan's network, the one MRF that carries its rates is
+`skipped` on the network signal, and the run exits 0 with nothing ingested. So
+after the file loop, a target-selected queue run with the network signal active
+checks its own tally: if ≥1 file was skipped **on the network signal** and none
+completed this run, it prints a banner naming the patterns and the labels the
+files carried, and then —
+
+- **no target file has ever `completed`** (a first run that found nothing) → the
+  run exits non-zero: the pattern is stale or the plan has no dedicated MRF;
+- **an earlier run did land data** → a warning only: serving still has rates, but
+  a renamed network means they are now stale and the pattern needs updating.
+
+A `-file-ids` re-parse and a probe with no `network_patterns` can't trip it.
+
 ## Known parser issues
 
 Harmless for a single-operator sequential run; real at scale.

@@ -38,11 +38,34 @@ import (
 // from "this file broke" (→ `failed`).
 var errNoWantedProviders = errors.New("no wanted providers")
 
-// probeAbortf builds the abort error. The message is what lands in
-// index_files.failure_reason, so it always starts "probe: no wanted providers"
-// — a stable prefix to query on — and carries the measurement after it.
-func probeAbortf(format string, args ...any) error {
-	return fmt.Errorf("probe: %w — %s", errNoWantedProviders, fmt.Sprintf(format, args...))
+// Probe signals, carried on probeAbortError.Signal. The end-of-run guard
+// (extraction.go) needs to tell a network-label miss apart from a plain overlap
+// miss: every target file missing on the *network* signal, with none completing,
+// is how a stale targets.yaml network_patterns shows up.
+const (
+	signalOverlap = "overlap"
+	signalNetwork = "network"
+)
+
+// probeAbortError is what check() returns when a file should be abandoned. It
+// satisfies errors.Is(err, errNoWantedProviders) so the existing skip/fail
+// branch is unchanged, and carries Signal so Run can classify the abort.
+type probeAbortError struct {
+	Signal string // signalOverlap | signalNetwork
+	detail string
+}
+
+func (e *probeAbortError) Error() string {
+	// Lands in index_files.failure_reason — the "probe: no wanted providers"
+	// prefix is stable and queried on (queue.md, the end-of-run guard).
+	return "probe: no wanted providers — " + e.detail
+}
+
+func (e *probeAbortError) Is(target error) bool { return target == errNoWantedProviders }
+
+// probeAbort builds the abort error for one signal.
+func probeAbort(signal, format string, args ...any) error {
+	return &probeAbortError{Signal: signal, detail: fmt.Sprintf(format, args...)}
 }
 
 // providerProbe is the configured gate. The zero value is inactive.
@@ -90,15 +113,16 @@ func (r *probeReading) note(name string) {
 	r.NetworkSample[name] = struct{}{}
 }
 
-// check returns errNoWantedProviders (wrapped, with the numbers) when the file
-// should be abandoned, or nil to carry on into in_network.
+// check returns a *probeAbortError (which is errNoWantedProviders, with the
+// numbers and the signal that fired) when the file should be abandoned, or nil
+// to carry on into in_network.
 func (p providerProbe) check(r probeReading) error {
 	if p.minGroups > 0 && r.KeptGroups < p.minGroups {
-		return probeAbortf("%d of %d provider groups carry a wanted provider (need %d)",
+		return probeAbort(signalOverlap, "%d of %d provider groups carry a wanted provider (need %d)",
 			r.KeptGroups, r.Refs, p.minGroups)
 	}
 	if p.networkMatch != nil && !r.NetworkHit {
-		return probeAbortf("no network_name in %d provider groups matches {%s} — file carries {%s}",
+		return probeAbort(signalNetwork, "no network_name in %d provider groups matches {%s} — file carries {%s}",
 			r.KeptGroups, p.networkSpec, sampleList(r.NetworkSample))
 	}
 	return nil

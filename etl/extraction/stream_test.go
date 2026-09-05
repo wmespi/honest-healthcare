@@ -474,6 +474,53 @@ func TestProbe_AbortsWhenNoProviderOverlap(t *testing.T) {
 	}
 }
 
+// Each abort carries the signal that fired, so the end-of-run guard can tell a
+// network-label miss (a stale targets.yaml) from a plain overlap miss.
+func TestProbe_AbortCarriesSignal(t *testing.T) {
+	var pae *probeAbortError
+
+	_, netErr := collectProbed(t, "testdata/synthetic_mrf.json", nil, probeMatcher(t, "CO Blue Priority*"))
+	if !errors.As(netErr, &pae) || pae.Signal != signalNetwork {
+		t.Fatalf("network miss: errors.As → %v, signal %q, want signalNetwork", pae != nil, signalName(pae))
+	}
+
+	_, olErr := collectProbed(t, "testdata/synthetic_mrf.json",
+		map[int64]struct{}{9999999999: {}}, providerProbe{minGroups: 1})
+	if !errors.As(olErr, &pae) || pae.Signal != signalOverlap {
+		t.Fatalf("overlap miss: errors.As → %v, signal %q, want signalOverlap", pae != nil, signalName(pae))
+	}
+}
+
+func signalName(e *probeAbortError) string {
+	if e == nil {
+		return "<nil>"
+	}
+	return e.Signal
+}
+
+func TestSilentSkipVerdict(t *testing.T) {
+	cases := []struct {
+		name                                    string
+		netSkipped, completedRun, completedEver int
+		wantFatal, wantWarn                     bool
+	}{
+		{"nothing skipped on the network signal", 0, 0, 0, false, false},
+		{"skipped but something completed this run", 2, 1, 0, false, false},
+		{"first run, all target files network-skipped", 3, 0, 0, true, true},
+		{"re-run, data landed earlier", 3, 0, 1, false, true},
+		{"guard query failed — warn, never fatal", 3, 0, -1, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fatal, warn := silentSkipVerdict(c.netSkipped, c.completedRun, c.completedEver)
+			if fatal != c.wantFatal || warn != c.wantWarn {
+				t.Errorf("silentSkipVerdict(%d,%d,%d) = (%v,%v), want (%v,%v)",
+					c.netSkipped, c.completedRun, c.completedEver, fatal, warn, c.wantFatal, c.wantWarn)
+			}
+		})
+	}
+}
+
 // The threshold is a floor, not a boolean: 3 groups survive the synthetic file,
 // so a min of 3 passes and a min of 4 does not.
 func TestProbe_MinGroupsThreshold(t *testing.T) {

@@ -35,9 +35,11 @@ the product is headed — and which of these gaps that closes — is in
   [`etl/targets.yaml`](../etl/targets.yaml) — `"GA Blue Value HIX*"` for Blue
   Value. Those were read off the one file that carries the label, not derived:
   adding a plan means finding its network label by hand, and a plan whose label is
-  guessed wrong has every one of its files `skipped`. It fails loudly at least —
-  `failure_reason` names the labels the file actually carried — but deriving the
-  patterns is the same open problem as the plan → network map.
+  guessed wrong has every one of its files `skipped`. It fails loudly —
+  `failure_reason` names the labels the file actually carried, and the end-of-run
+  guard (#110) exits non-zero when every target file network-skips and nothing has
+  ever completed — but deriving the patterns is the same open problem as the plan
+  → network map.
 - **Coverage confirmed for the target network, not quantified here.** Parsing
   `GA_JBNKMED0001` took the target network from zero attributed rates to
   populated (the `coverage/` one-off snapshots this replaced are gone —

@@ -73,8 +73,9 @@ def main():
         LIMIT {args.limit}
     """, args.schema)
 
-    # Suspicious completions (#52). coverage_log is one-row-per-file; DISTINCT ON
-    # guards against a stray duplicate from before that was enforced.
+    # Suspicious completions (#52). coverage_log.file_id is UNIQUE (migration
+    # 004), so DISTINCT ON is now belt-and-suspenders — it also collapses any
+    # duplicate left by the pre-enforcement schema.
     flagged = psql_json("""
         WITH latest AS (
           SELECT DISTINCT ON (c.file_id)
