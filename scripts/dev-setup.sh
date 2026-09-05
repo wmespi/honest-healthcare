@@ -109,7 +109,7 @@ fi
 # data-local/ (already at /app/data-local via the repo mount). No override file.
 if [ "$REBUILD_REF" -eq 1 ]; then
   say "data-local: seeding reference / cms / anthem-summary from $CANONICAL/data"
-  for d in reference cms anthem/summary; do
+  for d in reference cms anthem/summary serving; do
     mkdir -p "data-local/$d"
     [ -d "$CANONICAL/data/$d" ] && cp -Rn "$CANONICAL/data/$d/." "data-local/$d/" 2>/dev/null || true
   done
@@ -123,6 +123,7 @@ NPPES_DIR=/app/data/nppes
 REFERENCE_DIR=/app/data-local/reference
 CMS_DIR=/app/data-local/cms
 SUMMARY_DIR=/app/data-local/anthem/summary
+SERVING_DIR=/app/data-local/serving
 EOF
     say ".env: appended the sub-store split (rebuilds land in ./data-local/)"
   fi

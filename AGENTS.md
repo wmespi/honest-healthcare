@@ -26,23 +26,27 @@ without a reason (rule 7).
 
 ## Architecture
 
-| Layer | Tech | Dir | Purpose |
-|---|---|---|---|
-| Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue |
-| Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → Parquet |
-| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
-| Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
-| Frontend | React + Vite | `frontend/` | Rate explorer — `localhost:5173` |
-| Storage | Parquet + ZSTD | `data/` | `data/anthem/{prices,group_sets,providers,codes,summary}/`, `npi_lookup.parquet`; `data/nppes/`, `data/reference/`, `data/cms/` |
-| Queue DB | Postgres 15 + PostGIS | `db/` | `index_files` + `billing_codes` + `coverage_log` |
+Five stages, one direction: **discovery** (Go) queues MRF URLs and keeps the
+plan→file link → **extraction** (Go) streams the queued files to raw Parquet, a
+provider probe aborting empty downloads before `in_network` → **reference** (Go +
+Python/DuckDB) lands the public datasets → **build** (Python/DuckDB, `build/`)
+turns raw + reference into the serving tables and is where every product
+decision lives → **serving** (Python/DuckDB + FastAPI, `localhost:8000`) queries
+the Parquet in-process for the **frontend** (React, `localhost:5173`). Storage
+is Parquet+ZSTD under `data/{anthem,nppes,reference,cms,serving}/`; Postgres
+holds only the queue (`index_files` + `index_file_plans` + `billing_codes` +
+`coverage_log`).
 
 The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
 `extraction` / `nppes` / `fixture` packages; shared structs, config, and the
 progress reader live in `etl/core/`.
 
-Docker services: `db`, `etl`, `serving`, `frontend` — each from a multi-stage
-Dockerfile in [deploy/](deploy/README.md) (`prod` target = deployable artifact;
-compose runs the `dev` target). Full on-disk layout: [docs/schema.md](docs/schema.md).
+The layer table and the three standing diagrams (data flow, serving entities,
+runtime) live in **[docs/architecture.md](docs/architecture.md)**; the on-disk
+layout in **[docs/schema.md](docs/schema.md)**. Docker services: `db`, `etl`,
+`serving`, `frontend` — each from a multi-stage Dockerfile in
+[deploy/](deploy/README.md) (`prod` target = deployable artifact; compose runs
+the `dev` target).
 
 ---
 
@@ -110,7 +114,9 @@ make parse                  # Phase 2 — stream pending files serving a target 
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
-make build-summary          # rebuild the browse-layer summary (after a parse batch)
+make build                  # raw + reference parquet → data/serving/ tables (rule-5 rates, dims, evidence, rollup)
+make build NET=<slug,slug>  #   a subset of network partitions
+make build-summary          # rebuild the legacy browse-layer summary (retired in #100)
 make size                   # backfill index_files.file_size_bytes
 
 make nppes                  # NPPES national file → data/nppes/ga_providers.parquet (GA)
@@ -184,6 +190,8 @@ TOPIC=<name>` once a PR merges — a lingering worktree is ~300 MB.
 | Medicare Physician Fee Schedule benchmark (`medicare_allowed` / `vs_medicare` on a quote) | [reference/mpfs.md](reference/mpfs.md) |
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |
+| The build step — raw + reference → serving tables, `scope` / `is_sentinel` / benchmark / rule 5 | [build/build.md](build/build.md) |
+| The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Container images — dev/prod targets, ports, what CI builds | [deploy/README.md](deploy/README.md) |

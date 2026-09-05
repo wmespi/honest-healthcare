@@ -60,6 +60,7 @@ services:
       - REFERENCE_DIR=${REFERENCE_DIR:-}
       - CMS_DIR=${CMS_DIR:-}
       - SUMMARY_DIR=${SUMMARY_DIR:-}
+      - SERVING_DIR=${SERVING_DIR:-}
     depends_on:
       db:
         condition: service_healthy
@@ -83,12 +84,16 @@ services:
       - DATA_DIR=/app/data
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
       - DUCKDB_TMP=${DUCKDB_TMP:-/tmp/duckdb_spill}
+      # `make build` reads Step 1's index_file_plans for rule 5's source_kind.
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
+      - TEST_DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test
       # Sub-store split (GH #59 Part C) — see the etl service note.
       - ANTHEM_DIR=${ANTHEM_DIR:-}
       - NPPES_DIR=${NPPES_DIR:-}
       - REFERENCE_DIR=${REFERENCE_DIR:-}
       - CMS_DIR=${CMS_DIR:-}
       - SUMMARY_DIR=${SUMMARY_DIR:-}
+      - SERVING_DIR=${SERVING_DIR:-}
 
   frontend:
     build:

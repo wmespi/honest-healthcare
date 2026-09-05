@@ -23,6 +23,9 @@ NPPES_DIR     = os.getenv("NPPES_DIR")     or f"{DATA_DIR}/nppes"
 REFERENCE_DIR = os.getenv("REFERENCE_DIR") or f"{DATA_DIR}/reference"
 CMS_DIR       = os.getenv("CMS_DIR")       or f"{DATA_DIR}/cms"
 SUMMARY_DIR   = os.getenv("SUMMARY_DIR")   or f"{ANTHEM_DIR}/summary"
+# The build step's output (build/build.py — `make build`). Consumed by the
+# serving layer in #100; declared here now so the sub-store split is complete.
+SERVING_DIR   = os.getenv("SERVING_DIR")   or f"{DATA_DIR}/serving"
 
 # Normalized rate store:
 #   prices/net=<slug>/<id>.parquet  — one row per (network × negotiated price),

@@ -112,6 +112,46 @@ the column is there for multi-payer. Build cost: ~3 min at 645M price rows /
 is the MRF's **file-local** `provider_reference.id` — all cross-file joins key on
 `(file_id, provider_group_id)`.
 
+### `summary/` and `data/serving/`
+
+`summary/` is the interim browse layer; `data/serving/` (below) is its
+replacement, built by `make build` (`build/build.py`). The serving layer still
+reads `summary/` — the repoint onto `data/serving/` and the deletion of
+`scripts/build_rate_summary.py` land in
+[#100](https://github.com/wmespi/honest-healthcare/issues/100).
+
+## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md))
+
+```
+rates/net=<slug>/part.parquet
+    network_name | file_id | provider_group_id
+    billing_code_type | billing_code | modifier | setting | service_code
+    negotiated_rate | negotiated_type | negotiation_arrangement | expiration_date
+    scope | is_sentinel | source_kind | medicare_allowed | vs_medicare | net
+group_members.parquet          file_id | provider_group_id | npi | tin_value
+provider_dim.parquet           npi | name | specialty | nucc_classification
+    | org_name | org_pac_id | lat | lon | service_lines
+    | is_hospital | is_clinic | entity_type | city | postal_code
+code_dim.parquet               billing_code | billing_code_type | label
+    | category | shoppable | medicare_allowed
+evidence.parquet               npi | billing_code | tier ('billed' | 'typical')
+cross_network_rollup.parquet   billing_code | billing_code_type | net
+    | network_name | n_groups | p10 | median | p90
+```
+
+`rates` is one `prices ⨝ group_sets` row with the product columns added: `scope`
+(`serving/data_sources.outpatient_scope`), `is_sentinel` (the
+`serving/routers/rates.py:_sentinel_ceiling` rule), `source_kind`
+(`plan_specific` | `shared`, from `index_file_plans`), the MPFS benchmark.
+Hive-partitioned by `net` like `prices`. **Rule 5** drops the exact-duplicate
+rate lines CMS's "publish every file" mandate creates (plan-specific wins);
+different rates for one line are all kept for the read layer to rank on
+`source_kind` — [build/build.md](../build/build.md),
+[etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strategy).
+`cross_network_rollup` replaces `summary/` + `/rates/by_network`'s live scan.
+`evidence` is scoped to NPIs reachable through a rate. The entity model:
+[docs/architecture.md](architecture.md#serving-entity-model-grain--provider-group).
+
 ### Why the split
 
 The MRF lists every participating provider group under nearly every billing code,

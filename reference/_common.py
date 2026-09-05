@@ -38,6 +38,13 @@ def nppes_dir(data_dir: str, test: bool) -> str:
     return store_dir(data_dir, test, "nppes", "NPPES_DIR")
 
 
+def serving_dir(data_dir: str, test: bool) -> str:
+    """The build step's output directory — honors SERVING_DIR, so a worktree
+    writes ./data-local/serving while reading the shared corpus. `build/build.py`
+    and `serving/data_sources.py` mirror this."""
+    return store_dir(data_dir, test, "serving", "SERVING_DIR")
+
+
 def _atomic_write_bytes(path: str, data: bytes) -> None:
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "wb") as f:
