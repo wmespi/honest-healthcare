@@ -7,23 +7,29 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Attribution
 
-- **Plan-name attribution — bridged, not derived.** `network_name` is captured
-  from `provider_references` and is the reliable filter (e.g. `GA Blue Value HIX
-  Individual Network`). The free-text plan *name* (`BLUE VALUE IND NETWORK HMO -
-  INDIV - ANTHEM`) never enters the pipeline. **Interim (GH #33):** a
+- **Plan → *file* is derived now; plan → *network* still isn't.** The index's
+  `reporting_plans` ↔ `in_network_files` linkage is captured end-to-end as
+  `index_file_plans` (#97), so "which files serve `BLUE VALUE IND NETWORK HMO -
+  INDIV - ANTHEM`" is a query, and `etl parse` selects the queue on it. What that
+  does *not* give is the plan → `network_name` map the serving layer wants: the
+  plan name comes from the index, the network label from a rate file's
+  `provider_references`, and the two share no key. **Interim (GH #33):** a
   hand-curated `serving/plan_networks.json` maps friendly plan names → network,
   served by `/plans` and shown as a "Your plan" section in the network picker.
-  Today it holds one entry (Blue Value). The real fix — *deriving* the map from
-  HIOS `plan_id` + a CMS public-use file, or the index's `reporting_plans` ↔
-  `in_network_files` linkage — is still open; `index_files.plan_names` /
-  `idx_index_files_plan` remain unused.
+  Today it holds one entry (Blue Value). Deriving it — from HIOS `plan_id` + a
+  CMS public-use file, or by intersecting a target plan's files with the networks
+  those files carry — is still open.
 - **`network_name` is NOT uniform across files.** `GA_JBNKMED0001` (id 21057, the
   target plan's only clean source) uses `"GA Blue Value HIX Individual Network"`;
   other `anthem/GA_*` files use config-style labels
-  (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`). That's why the
-  `-networks "GA *"` default is skipped for `anthem/GA_*` files (`isGAPlanSpecific`
-  trusts the filename). Every other big `anthem/GA_*` file is a *different* GA
-  individual plan, not Blue Value.
+  (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`). So the `-networks "GA *"`
+  default drops real rows from any target file labelled that way. It used to be
+  waived for `anthem/GA_*` files on the strength of the filename; that waiver
+  went out with the filename heuristics in #97, and making the allowlist
+  plan-derived rather than a prefix guess is
+  [#98](https://github.com/wmespi/honest-healthcare/issues/98). `-all-networks`
+  is the interim escape hatch. Every other big `anthem/GA_*` file is a *different*
+  GA individual plan, not Blue Value.
 - **Coverage confirmed for the target network, not quantified here.** Parsing
   `GA_JBNKMED0001` took the target network from zero attributed rates to
   populated (the `coverage/` one-off snapshots this replaced are gone —

@@ -84,9 +84,9 @@ while; run them in order, stop any time — the UI shows whatever has parsed.
 ```bash
 make nppes          # ~1 GB — Georgia provider registry (names, specialties,
                     #   and the GA filter that keeps parse output small)
-make discover       # ~8.7 GB one-time — Anthem's master index → the file queue
-make parse GA=1     # streams the Georgia / individual-market rate files into
-                    #   Parquet, smallest first
+make discover       # ~10 GB one-time — Anthem's master index → the file queue
+make parse          # streams the rate files that serve a plan in
+                    #   etl/targets.yaml into Parquet, smallest first
 ```
 
 **6 — Consumer labels** (recommended — without these, procedures show as

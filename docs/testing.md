@@ -27,7 +27,7 @@ that (and `test-e2e`) still needs a stack.
 `-test` swaps two things:
 
 - **DB** — connects via `TEST_DATABASE_URL` (`search_path=test`); `billing_codes`,
-  `index_files`, `coverage_log` writes hit `test.*`.
+  `index_files`, `index_file_plans`, `coverage_log` writes hit `test.*`.
 - **Parquet** — output moves to `../data-test/anthem/…` and
   `../data-test/nppes/ga_providers.parquet`.
 
@@ -37,9 +37,10 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
 (`LIMIT=` overrides).
 
 > The `test` schema is created once from `public` via `LIKE … INCLUDING ALL`, so it
-> **drifts** when a `public` column is added. `db/migrations/001_ga_coverage.sql`
-> drops and recreates the whole `test` schema from `public` — run `make migrate`
-> after any schema change.
+> **drifts** when a `public` column or table is added — and `LIKE` never copies
+> foreign keys, so those have to be re-declared. The newest
+> `db/migrations/*.sql` drops and recreates the whole `test` schema from
+> `public` — run `make migrate` after any schema change.
 
 ---
 

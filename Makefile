@@ -11,7 +11,7 @@
 #   make discover TEST=1        # run in the test schema + data-test/
 #   make discover SCHEMA=1      # stream the index, write index_schema.json only
 #   make parse ID=10065         # parse one file by index_files.id
-#   make parse GA=1             # GA / individual-market files first
+#   make parse TARGETS=<path>   # a different target-plan list (default etl/targets.yaml)
 #   make parse TEST=1           # parse in test isolation
 #   make db-reset WHAT=failed   # reset transiently-failed rows → pending
 #   make sh S=serving          # shell into a container
@@ -97,7 +97,7 @@ preview-down: ## Stop the preview stack (frees the RAM; the worktree stays on di
 
 ## ── Pipeline: discover → parse ───────────────────────────────────────────────
 
-discover: ## Phase 1 — sync the Anthem master index into index_files. TEST=1 · SCHEMA=1 (index_schema.json only, no DB)
+discover: ## Phase 1 — sync the Anthem master index into index_files + index_file_plans. TEST=1 · SCHEMA=1 (index_schema.json only, no DB)
 	docker compose exec etl go run . discover \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
@@ -105,10 +105,10 @@ discover: ## Phase 1 — sync the Anthem master index into index_files. TEST=1 �
 	  $(if $(filter 1,$(NO_CACHE)),-no-cache,) \
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
-parse: ## Phase 2 — stream pending files into Parquet. ID=<index_files.id> · GA=1 (priority) · TEST=1 · LIMIT=n
+parse: ## Phase 2 — stream pending files that serve a target plan into Parquet. ID=<index_files.id> · TARGETS=<path> · TEST=1 · LIMIT=n
 	docker compose exec etl go run . parse \
 	  $(if $(ID),-file-ids $(ID),) \
-	  $(if $(filter 1,$(GA)),-priority,) \
+	  $(if $(TARGETS),-targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
 	  $(if $(FIXTURE),-fixture "$(FIXTURE)",)
@@ -225,7 +225,7 @@ db-snapshot: ## pg_dump the queue tables (data only) to db/snapshots/<utc>.dump 
 	@mkdir -p db/snapshots
 	@ts=$$(date -u +%Y%m%dT%H%M%SZ); \
 	docker compose exec -T db pg_dump -U postgres -d honest_healthcare -Fc --data-only \
-	  -t index_files -t billing_codes -t coverage_log > db/snapshots/$$ts.dump && \
+	  -t index_files -t index_file_plans -t billing_codes -t coverage_log > db/snapshots/$$ts.dump && \
 	echo "→ db/snapshots/$$ts.dump ($$(du -h db/snapshots/$$ts.dump | cut -f1))"
 
 db-restore: ## Replace the queue tables' data from a snapshot. FILE=db/snapshots/<utc>.dump (default: newest)
@@ -233,7 +233,7 @@ db-restore: ## Replace the queue tables' data from a snapshot. FILE=db/snapshots
 	[ -n "$$f" ] || { echo "no snapshot — run 'make db-snapshot' first"; exit 1; }; \
 	echo "→ truncating + restoring from $$f"; \
 	docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 \
-	  -c "TRUNCATE index_files, billing_codes, coverage_log RESTART IDENTITY CASCADE;"; \
+	  -c "TRUNCATE index_files, index_file_plans, billing_codes, coverage_log RESTART IDENTITY CASCADE;"; \
 	docker compose exec -T db pg_restore -U postgres -d honest_healthcare \
 	  --data-only --disable-triggers --no-owner < "$$f"
 

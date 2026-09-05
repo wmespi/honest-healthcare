@@ -1,8 +1,8 @@
-# The parse queue — priority, lifecycle, recovery
+# The parse queue — selection, lifecycle, recovery
 
-*Read this when working on queue ordering, GA prioritization, or recovering stuck
-`index_files` rows. The queue query + `gaPriorityExpr` live in `etl/extraction`;
-the HEAD-backfill (`make size`) in `etl/discovery`.*
+*Read this when working on queue selection, ordering, or recovering stuck
+`index_files` rows. The queue query + the target predicate live in
+`etl/extraction`; the HEAD-backfill (`make size`) in `etl/discovery`.*
 
 ## Status lifecycle
 
@@ -12,27 +12,26 @@ the HEAD-backfill (`make size`) in `etl/discovery`.*
                                  ↘ failed
 ```
 
-Default order: `file_size_bytes ASC NULLS LAST, id` (smallest first — fast
-feedback). `Content-Length` from the parse GET is written to `file_size_bytes` on
-every parse; `make size` backfills it ahead of time so the queue can be size-ordered.
+## Selection — target plans, not filenames
 
-## GA prioritization (`make parse GA=1`)
+The queue is the pending rows the master index links to a plan in
+[`targets.yaml`](targets.yaml), via `index_file_plans`. See
+[parse.md](parse.md#target-selection) for the query and the escape hatches
+(`-file-ids`, `-targets ""`).
 
-`gaPriorityExpr` (`priority.go`) scores each pending row 0–3 for the primary use
-case (individual-market Georgia rates). All signals are deterministic/structural —
-no regex, no plan-name matching:
+This replaced `gaPriorityExpr`, which *ordered* every pending file by a 0–3 score
+built from `market_types ∋ 'individual'`, `plan_states ∋ 'GA'`, a set of Anthem
+GA `hios_issuer_ids`, and an `…amazonaws.com/anthem/GA_…` filename check. It was
+a proxy for "serves the plan we care about" built out of signals that correlate
+with it. Now the index answers the question directly, so the proxy is gone and
+selection is exact rather than a ranking — a file either serves a target plan or
+it is not in the queue.
 
-- `market_types ∋ 'individual'`
-- `plan_states ∋ 'GA'`
-- `hios_issuer_ids ∩ {49046, 45334, 44113}`
-- `location` is an `…amazonaws.com/anthem/GA_…` plan-specific file
+## Order
 
-Tiers: **3** = individual AND a GA signal · **2** = individual · **1** = a GA signal
-· **0** = the rest. Order becomes `gaPriorityExpr DESC, file_size_bytes ASC NULLS
-LAST, id`.
-
-The `anthembcbsga.mrf.bcbs.com` host is deliberately **not** a signal — it's the
-BlueCard mirror and serves every Blues plan's files.
+`file_size_bytes ASC NULLS LAST, id` (smallest first — fast feedback).
+`Content-Length` from the parse GET is written to `file_size_bytes` on every
+parse; `make size` backfills it ahead of time so the queue can be size-ordered.
 
 ## Recovery
 
@@ -56,4 +55,6 @@ far fewer), but parse them individually and watch `du -sh data`.
 source and the one file that uses the tidy `"GA Blue Value HIX Individual Network"`
 label. Other big `anthem/GA_*` files are *different* GA individual plans
 (Pathway/Gatekeeper HMO, etc.) — parsing them broadens GA coverage but adds nothing
-to Blue Value.
+to Blue Value, which is precisely why the queue no longer selects on the `GA_`
+filename: those files are only worth parsing once their plan is in
+[`targets.yaml`](targets.yaml).

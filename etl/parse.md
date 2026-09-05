@@ -3,21 +3,44 @@
 *Read this when working on the heavy per-file stream transform — the parser, the
 Parquet writers, network attribution, or the GA NPI filter.*
 
-For each `index_files` row with `status = 'pending'`, streams the gzipped MRF once
-and writes Parquet. IO-bound, embarrassingly parallel (not yet parallelized).
-`make parse` → `etl parse` (package `etl/extraction`; the parser is
-`stream.go`, the Parquet writers `extraction.go` + `partition.go`).
+For each `index_files` row that is `pending` **and serves a target plan**, streams
+the gzipped MRF once and writes Parquet. IO-bound, embarrassingly parallel (not
+yet parallelized). `make parse` → `etl parse` (package `etl/extraction`; the
+parser is `stream.go`, the Parquet writers `extraction.go` + `partition.go`).
 
 | Variable | Effect |
 |---|---|
-| `ID=n` | parse specific `index_files.id`(s), bypass queue order (`-file-ids`) |
-| `GA=1` | order the queue by `gaPriorityExpr` (GA / individual first) — see [queue.md](queue.md) |
+| `ID=n` | parse specific `index_files.id`(s), bypassing target selection (`-file-ids`) |
+| `TARGETS=path` | a different target-plan list (default [`etl/targets.yaml`](targets.yaml)) |
 | `TEST=1` | test schema + `data-test/`, caps at 1 file |
 | `LIMIT=n` | cap files processed |
 | `FIXTURE=path` | with `ID=n`: read a local `*.json.gz` instead of downloading (offline) |
 
 CLI-only flags (no `make` var yet): `-all-npis`, `-networks "GA *"`, `-all-networks`,
-`-dry-run`. See `etl parse -h`.
+`-dry-run`, and `-targets ""` (no target filter — every pending file). See
+`etl parse -h`.
+
+## Target selection
+
+A file is parsed because the master index says it serves a plan we are pricing —
+not because of what its URL looks like. [`targets.yaml`](targets.yaml) lists the
+plans; `discover` wrote the link into `index_file_plans`; the queue query is an
+`EXISTS` semi-join over it (`targets.go:PlanMatchSQL` builds the predicate, all
+patterns bound as parameters):
+
+```sql
+SELECT f.id, f.location FROM index_files f
+WHERE f.status = 'pending'
+  AND EXISTS (SELECT 1 FROM index_file_plans p
+              WHERE p.file_id = f.id AND (p.plan_name ILIKE $1 OR p.plan_id LIKE $2))
+ORDER BY f.file_size_bytes ASC NULLS LAST, f.id;
+```
+
+Adding a plan to `targets.yaml` is the whole of "parse this plan's files"; no
+code changes. `-file-ids` bypasses selection entirely for one-off runs (re-parse
+a known file, drive a fixture, probe a shard), and `-targets ""` disables it.
+Ordering within the selected set is unchanged — smallest file first
+([queue.md](queue.md)).
 
 ## Per-file steps
 
@@ -65,16 +88,23 @@ While a parse runs, everything for the file is written under
 stream — the serving layer never reads a half-written file.
 
 Output layout and column lists: [../docs/schema.md](../docs/schema.md).
-The `-networks` allowlist and why it's skipped for `anthem/GA_*` files:
+What the `-networks` allowlist still gets wrong:
 [../docs/known-gaps.md](../docs/known-gaps.md).
 
 ## Network allowlist
 
-Default `GA *` (prefix match), applied to BlueCard-mirror / other-state files only —
-**skipped for `anthem/GA_*` plan-specific files** (`isGAPlanSpecific` trusts the
-filename; their `network_name` labels vary — `"GA Blue Value HIX Individual
-Network"` in one file, `"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"` in
-another). A user-set `-networks` value applies everywhere. `-all-networks` disables it.
+Default `GA *` (prefix match on `network_name`), applied uniformly to every file
+in the run. `-all-networks` disables it; `-networks` overrides the spec.
+
+It used to be skipped for `anthem/GA_*` files, on the theory that Anthem's
+filename made them trustworthy — but that exemption was a second filename
+heuristic sitting behind the first, and it went out with target selection. The
+consequence is real and deliberate: a target file whose `network_name` labels are
+config-style rather than `GA …` (`"EXCHANGES SPECIALIST GATEKEEPER ON
+INDIVIDUAL"`) now loses those rows to the allowlist. Making the allowlist
+plan-derived rather than a prefix guess is the next step
+([#98](https://github.com/wmespi/honest-healthcare/issues/98)); until then,
+`-all-networks` is the escape hatch for such a file.
 
 ## Known parser issues
 

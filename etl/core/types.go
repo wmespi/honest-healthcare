@@ -22,12 +22,6 @@ type ReportingStructure struct {
 	InNetworkFiles []InNetworkFile `json:"in_network_files"`
 }
 
-type CandidateFile struct {
-	Description string   `json:"description"`
-	Location    string   `json:"location"`
-	PlanNames   []string `json:"plan_names"`
-}
-
 type ProviderGroup struct {
 	NPIs []int `json:"npi"`
 	TIN  struct {

@@ -3,7 +3,7 @@
 # before any real ETL runs. Idempotent — a no-op once data/anthem/prices exists.
 #
 # This is sample data (fake NPIs, two networks, five codes). For real rates run
-#   make discover && make parse GA=1
+#   make discover && make parse
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,7 +14,7 @@ PSQL=(docker compose exec -T db psql -U postgres -d honest_healthcare -qtA -v ON
 if docker compose exec -T serving python3 -c \
   "import glob,sys; sys.exit(0 if glob.glob('/app/data/anthem/prices/**/*.parquet', recursive=True) else 1)" 2>/dev/null; then
   echo "→ data/anthem/prices already populated — nothing to seed"
-  echo "  (rm -rf data/anthem to re-seed, or run 'make parse GA=1' for real rates)"
+  echo "  (rm -rf data/anthem to re-seed, or run 'make parse' for real rates)"
   exit 0
 fi
 
@@ -28,4 +28,4 @@ FILE_ID=$("${PSQL[@]}" -c "
 docker compose exec -T etl go run . parse -file-ids "$FILE_ID" -fixture "$FIXTURE" -all-npis -all-networks
 
 echo "→ done — GET http://localhost:8000/ now reports rows."
-echo "  This is synthetic sample data. Real rates: make discover && make parse GA=1"
+echo "  This is synthetic sample data. Real rates: make discover && make parse"

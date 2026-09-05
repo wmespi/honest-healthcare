@@ -1,0 +1,30 @@
+# Target plans — the plans this project is trying to price.
+#
+# `etl parse` selects a pending file because the master index says that file
+# serves one of these plans (the index_file_plans link `etl discover` writes),
+# not because of what its filename looks like. Add a plan here and the next
+# `make parse` picks up its files; nothing else has to change.
+#
+# A file matches a target when ANY of that target's patterns matches ANY of the
+# plans the index links to the file:
+#
+#   plan_name_patterns  Case-insensitive match against the index's free-text
+#                       `plan_name`. `*` is a wildcard, so "*blue value*" is a
+#                       substring match; a pattern with no `*` is an exact
+#                       (case-insensitive) match.
+#   plan_id_prefixes    Literal prefix of the HIOS `plan_id`. HIOS ids are
+#                       positional — [0:5] is the issuer, [5:7] the 2-letter
+#                       state — so "45334GA" reads as "this issuer's Georgia
+#                       plans".
+#
+# Both lists are optional, but a target with neither matches nothing.
+# See etl/discover.md (how the link is captured) and etl/parse.md (how it is
+# selected on).
+
+targets:
+  - name: BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM
+    # The primary use case (AGENTS.md) — an individual HMO on Anthem's Blue
+    # Value network in Georgia. Its rates carry the structured network_name
+    # "GA Blue Value HIX Individual Network".
+    plan_name_patterns:
+      - "*blue value*"

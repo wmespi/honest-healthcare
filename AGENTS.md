@@ -104,11 +104,11 @@ single-item selection are variables:
 make start                  # Docker Desktop (if needed) + all containers
 make up / make down / make logs
 
-make discover               # Phase 1 — sync the master index into index_files
+make discover               # Phase 1 — sync the master index into index_files + index_file_plans
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
-make parse                  # Phase 2 — stream pending files → Parquet
-make parse ID=21057         #   one file by index_files.id
-make parse GA=1             #   GA / individual-market files first
+make parse                  # Phase 2 — stream pending files serving a target plan → Parquet
+make parse ID=21057         #   one file by index_files.id (bypasses target selection)
+make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
 make build-summary          # rebuild the browse-layer summary (after a parse batch)
 make size                   # backfill index_files.file_size_bytes
@@ -174,9 +174,10 @@ TOPIC=<name>` once a PR merges — a lingering worktree is ~300 MB.
 | Working on… | Read |
 |---|---|
 | The source-file shape, plan/network/file/provider model, conflict resolution | [etl/mrf-model.md](etl/mrf-model.md) |
-| Discovery — monthly index sync, the queue, monthly churn | [etl/discover.md](etl/discover.md) |
-| Extraction — the parser, network attribution, GA NPI filter, Parquet writers | [etl/parse.md](etl/parse.md) |
-| Queue ordering, GA prioritization, recovering stuck rows | [etl/queue.md](etl/queue.md) |
+| Discovery — monthly index sync, the plan→file link, the queue, monthly churn | [etl/discover.md](etl/discover.md) |
+| Extraction — target selection, the parser, network attribution, GA NPI filter, Parquet writers | [etl/parse.md](etl/parse.md) |
+| Which plans we parse files for | [etl/targets.yaml](etl/targets.yaml) |
+| Queue selection, ordering, recovering stuck rows | [etl/queue.md](etl/queue.md) |
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
 | Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
