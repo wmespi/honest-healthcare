@@ -231,9 +231,22 @@ func validateStreamComplete(gz *gzip.Reader, pr *core.ProgressReader, contentLen
 	return nil
 }
 
+// parseOutcome is what a file amounted to, for the end-of-run guard in Run.
+// A file that never finished (a failure before the probe even ran) is
+// outcomeFailed.
+type parseOutcome int
+
+const (
+	outcomeFailed parseOutcome = iota
+	outcomeCompleted
+	outcomeSkippedOverlap // probe: no provider group survived the GA NPI filter
+	outcomeSkippedNetwork // probe: no provider_references network_name matched a target's network_patterns
+)
+
 // parseRates streams one MRF (by URL, or from fixturePath when set) into
 // rates/providers/codes Parquet keyed by fileID, upserts billing codes, updates
 // index_files status, and writes a coverage_log row describing what the file gave.
+// The second return is what became of the file (Run aggregates it).
 func parseRates(
 	ctx context.Context,
 	conn *pgx.Conn,
@@ -247,7 +260,7 @@ func parseRates(
 	pb providerProbe,
 	totalBillingCodesBefore int,
 	dryRun bool,
-) *mrfResult {
+) (*mrfResult, parseOutcome) {
 	log.Printf("⚙️ Processing Rate File [id=%d]: %s", fileID, orFixture(url, fixturePath))
 
 	if !dryRun && conn != nil {
@@ -259,7 +272,7 @@ func parseRates(
 	body, contentLength, cancelDownload, err := openMRF(ctx, url, fixturePath)
 	if err != nil {
 		markFailed(ctx, conn, fileID, err, dryRun)
-		return nil
+		return nil, outcomeFailed
 	}
 	defer body.Close()
 	defer cancelDownload()
@@ -316,24 +329,24 @@ func parseRates(
 		} {
 			if err := os.MkdirAll(d, os.ModePerm); err != nil {
 				markFailed(ctx, conn, fileID, fmt.Errorf("create dir %s: %w", d, err), dryRun)
-				return nil
+				return nil, outcomeFailed
 			}
 		}
 		fanout = newPriceFanout(filepath.Join(scratchDir, "prices"), name)
 		gsW, gsC, err := newParquetWriter[core.GroupSetMemberRow](groupSetsScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
-			return nil
+			return nil, outcomeFailed
 		}
 		provW, provC, err := newParquetWriter[core.ProviderRow](provScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
-			return nil
+			return nil, outcomeFailed
 		}
 		codesW, codesC, err := newParquetWriter[core.BillingCodeRow](codesScratch)
 		if err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
-			return nil
+			return nil, outcomeFailed
 		}
 		closers = []io.Closer{fanoutCloser{fanout}, gsW, gsC, provW, provC, codesW, codesC}
 		w = mrfWriters{
@@ -365,7 +378,7 @@ func parseRates(
 	if err != nil {
 		closeAll(closers)
 		markFailed(ctx, conn, fileID, err, dryRun)
-		return nil
+		return nil, outcomeFailed
 	}
 	defer gz.Close()
 
@@ -387,7 +400,11 @@ func parseRates(
 		log.Printf("  ⛔ File %d skipped — %v", fileID, err)
 		log.Printf("     aborted after reading %s%s", humanBytes(read), of)
 		markSkipped(ctx, conn, fileID, err, dryRun)
-		return nil
+		var pae *probeAbortError
+		if errors.As(err, &pae) && pae.Signal == signalNetwork {
+			return nil, outcomeSkippedNetwork
+		}
+		return nil, outcomeSkippedOverlap
 	}
 
 	// The document parsed — now confirm the whole compressed body arrived and the
@@ -407,14 +424,14 @@ func parseRates(
 	closeAll(closers)
 	if err != nil {
 		markFailed(ctx, conn, fileID, err, dryRun)
-		return nil
+		return nil, outcomeFailed
 	}
 
 	// Stream succeeded — move the scratch parquet into place.
 	if !dryRun {
 		if err := fanout.promote(core.PricesOutputDir); err != nil {
 			markFailed(ctx, conn, fileID, err, dryRun)
-			return nil
+			return nil, outcomeFailed
 		}
 		for _, mv := range [][2]string{
 			{groupSetsScratch, filepath.Join(core.GroupSetsOutputDir, name)},
@@ -423,11 +440,11 @@ func parseRates(
 		} {
 			if err := os.MkdirAll(filepath.Dir(mv[1]), os.ModePerm); err != nil {
 				markFailed(ctx, conn, fileID, err, dryRun)
-				return nil
+				return nil, outcomeFailed
 			}
 			if err := os.Rename(mv[0], mv[1]); err != nil {
 				markFailed(ctx, conn, fileID, fmt.Errorf("promote %s: %w", mv[1], err), dryRun)
-				return nil
+				return nil, outcomeFailed
 			}
 		}
 		os.RemoveAll(scratchDir)
@@ -473,7 +490,7 @@ func parseRates(
 	log.Printf("  ✅ Completed. %d provider rows | %d price rows | %d group-set edges (%d sets) | %d new codes | %d new NPIs | networks=%v",
 		res.ProviderRows, res.PriceRows, res.GroupSetMemberRows, res.GroupSets,
 		res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))
-	return res
+	return res, outcomeCompleted
 }
 
 func orFixture(url, fixturePath string) string {
@@ -504,9 +521,10 @@ func newParquetWriter[T any](path string) (*parquet.GenericWriter[T], io.Closer,
 
 // writeCoverageLog records one row summarizing what this file contributed. The
 // index_files metadata (market_types etc.) is joined in from the row itself. A
-// re-parse replaces the file's prior row (DELETE + INSERT in one statement) so
-// coverage_log stays one-row-per-file — the `make cov-report` sanity check keys
-// on that to spot distinct files that parsed to identical counts (issue #52).
+// re-parse replaces the file's prior row — coverage_log.file_id is UNIQUE
+// (migration 004) and this is an upsert on it, so the table stays
+// one-row-per-file, which `make cov-report` keys on to spot distinct files that
+// parsed to identical counts (issue #52).
 func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location string, compressedBytes int64, totalCodesBefore int, note string, res *mrfResult) {
 	if note == "" {
 		note = "unfiltered"
@@ -516,7 +534,6 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 			note, res.PriceRowsDropped, res.ProviderRowsDropped, res.GroupsDropped)
 	}
 	_, err := conn.Exec(ctx, `
-		WITH prior AS (DELETE FROM coverage_log WHERE file_id = $1)
 		INSERT INTO coverage_log (
 			file_id, location, compressed_bytes,
 			n_rate_rows, n_provider_rows,
@@ -530,7 +547,25 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 			$4, $5, $6, $7, $8, $9,
 			$10::text[], i.plan_states, i.hios_issuer_ids, i.market_types,
 			$11::text[], $12::text[], $13::text[], $14
-		FROM index_files i WHERE i.id = $1`,
+		FROM index_files i WHERE i.id = $1
+		ON CONFLICT (file_id) DO UPDATE SET
+			location                    = EXCLUDED.location,
+			parsed_at                   = NOW(),
+			compressed_bytes            = EXCLUDED.compressed_bytes,
+			n_rate_rows                 = EXCLUDED.n_rate_rows,
+			n_provider_rows             = EXCLUDED.n_provider_rows,
+			n_new_billing_codes         = EXCLUDED.n_new_billing_codes,
+			n_total_billing_codes_after = EXCLUDED.n_total_billing_codes_after,
+			n_new_npis                  = EXCLUDED.n_new_npis,
+			n_new_tins                  = EXCLUDED.n_new_tins,
+			network_names               = EXCLUDED.network_names,
+			plan_states                 = EXCLUDED.plan_states,
+			hios_issuer_ids             = EXCLUDED.hios_issuer_ids,
+			market_types                = EXCLUDED.market_types,
+			distinct_settings           = EXCLUDED.distinct_settings,
+			distinct_billing_classes    = EXCLUDED.distinct_billing_classes,
+			billing_code_types          = EXCLUDED.billing_code_types,
+			notes                       = EXCLUDED.notes`,
 		fileID, location, compressedBytes,
 		res.PriceRows, res.ProviderRows,
 		res.NewBillingCodes, totalCodesBefore+res.NewBillingCodes,
@@ -698,9 +733,11 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 		conn.QueryRow(ctx, "SELECT count(*) FROM billing_codes").Scan(&totalCodes)
 	}
 
+	outcomes := make(map[parseOutcome]int, 4)
 	for i, f := range files {
-		res := parseRates(ctx, conn, f.ID, f.Location, f.PlanName, opts.Fixture,
+		res, outcome := parseRates(ctx, conn, f.ID, f.Location, f.PlanName, opts.Fixture,
 			i == 0, seenBillingCodes, seenNPIs, seenTINs, gaNPIs, pb, totalCodes, opts.DryRun)
+		outcomes[outcome]++
 		if res != nil {
 			totalCodes += res.NewBillingCodes
 		}
@@ -708,5 +745,75 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	if !opts.DryRun {
 		writeNPILookup(seenNPIs)
 	}
+	return guardAgainstSilentSkip(ctx, conn, opts, targets, outcomes)
+}
+
+// guardAgainstSilentSkip turns the probe's quietest failure mode — every file
+// the index links to a target plan abandoned on the *network* signal, none
+// completing — into a loud one. That is what a stale `network_patterns` in
+// targets.yaml looks like: the one MRF that actually carries the plan's rates
+// gets skipped because Anthem renamed the network, and without this the run
+// exits 0 with nothing ingested.
+//
+// It fires only for a target-selected queue run with the network signal active
+// (a -file-ids re-parse or a probe with no network_patterns can't hit this
+// mode). If no file for any target plan has *ever* completed, the run fails; if
+// some have, serving still has data, so it is a warning — but a renamed network
+// still means today's rates are stale, so it is a loud one.
+func guardAgainstSilentSkip(ctx context.Context, conn *pgx.Conn, opts Options, targets *TargetSet, outcomes map[parseOutcome]int) error {
+	if opts.DryRun || len(opts.FileIDs) > 0 || conn == nil || targets == nil || targets.NetworkMatcher() == nil {
+		return nil
+	}
+	netSkipped := outcomes[outcomeSkippedNetwork]
+	if netSkipped == 0 || outcomes[outcomeCompleted] > 0 {
+		return nil
+	}
+
+	completedEver := -1
+	if expr, args, _ := targets.PlanMatchSQL("p", 1); expr != "" {
+		q := `SELECT count(*) FROM index_files f
+		      WHERE f.status = 'completed'
+		        AND EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND (` + expr + `))`
+		if err := conn.QueryRow(ctx, q, args...).Scan(&completedEver); err != nil {
+			log.Printf("⚠️ silent-skip guard: could not count completed target files: %v", err)
+			completedEver = -1
+		}
+	}
+
+	fatal, warn := silentSkipVerdict(netSkipped, outcomes[outcomeCompleted], completedEver)
+	if !warn {
+		return nil
+	}
+
+	log.Printf("╔══════════════════════════════════════════════════════════════════════")
+	log.Printf("║ 🛑 PROBE SKIPPED EVERY TARGET FILE ON THE NETWORK SIGNAL")
+	log.Printf("║ %d file(s) the index links to %s were abandoned because no", netSkipped, strings.Join(targets.Names(), ", "))
+	log.Printf("║ provider_references network_name matched {%s}, and none completed.", strings.Join(targets.NetworkPatterns(), ", "))
+	log.Printf("║ If a plan's rates now land under a network Anthem renamed, the")
+	log.Printf("║ network_patterns in etl/targets.yaml is stale — check the abort")
+	log.Printf("║ messages above for the labels the files actually carry.")
+	log.Printf("╚══════════════════════════════════════════════════════════════════════")
+
+	if fatal {
+		return fmt.Errorf("probe skipped every target file on the network signal and no target file has ever completed — "+
+			"etl/targets.yaml network_patterns is stale, or a target plan has no dedicated MRF (%d skipped)", netSkipped)
+	}
+	log.Printf("⚠️ %d target file(s) completed in an earlier run, so serving still has rates — "+
+		"but if a network was renamed those rates are now stale.", completedEver)
 	return nil
+}
+
+// silentSkipVerdict decides what an end-of-run probe tally means. It is fatal
+// only when the network signal skipped files, nothing completed this run, and
+// no target file has *ever* completed (completedEver == 0) — a first run that
+// found nothing, which is a stale pattern or a plan with no dedicated MRF. If
+// earlier runs did land data (completedEver > 0, or < 0 meaning the count
+// failed), it is a warning: serving still has rates, but a renamed network
+// means they are stale. Not warned at all when the signal never fired or
+// something did complete.
+func silentSkipVerdict(netSkipped, completedThisRun, completedEver int) (fatal, warn bool) {
+	if netSkipped == 0 || completedThisRun > 0 {
+		return false, false
+	}
+	return completedEver == 0, true
 }

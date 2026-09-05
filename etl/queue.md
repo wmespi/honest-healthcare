@@ -90,3 +90,8 @@ says serve the plan but that carry no Blue-Value-labelled network rows once pars
 `skipped` at the front of the stream rather than as a full download and a
 rollback — the probe judges them on the network label, because their GA-NPI
 overlap is real ([parse.md](parse.md#the-provider-probe)).
+
+If a re-discover ever selects the shards but *not* `GA_JBNKMED0001` (its rates
+landed under a network Anthem renamed, so the pattern no longer matches), the
+run's end-of-run guard catches it — a non-zero exit on a first run, a loud
+warning once data has landed ([parse.md](parse.md#the-end-of-run-guard-110)).

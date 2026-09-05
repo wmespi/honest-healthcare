@@ -64,9 +64,12 @@ CREATE INDEX IF NOT EXISTS idx_index_file_plans_plan_id
 
 -- ── coverage_log — one observational row per parsed file (Phase 2) ──────────
 -- What did this file contribute? Feeds `make cov-report`. Never read by the ETL.
+-- file_id is UNIQUE (migration 004): the one-row-per-file invariant `cov-report`
+-- keys on is the schema's job, and writeCoverageLog upserts on it. That
+-- constraint's own index serves the file_id lookups, so no separate index.
 CREATE TABLE IF NOT EXISTS coverage_log (
     id SERIAL PRIMARY KEY,
-    file_id INTEGER,
+    file_id INTEGER UNIQUE,
     location TEXT,
     parsed_at TIMESTAMP DEFAULT NOW(),
     compressed_bytes BIGINT,
@@ -87,8 +90,6 @@ CREATE TABLE IF NOT EXISTS coverage_log (
     parquet_retained BOOLEAN DEFAULT TRUE,
     notes TEXT
 );
-
-CREATE INDEX IF NOT EXISTS idx_coverage_log_file ON coverage_log(file_id);
 
 -- ── test schema — mirrors public for isolated ETL test runs ────────────────
 -- Connected via search_path=test in TEST_DATABASE_URL. Safe to TRUNCATE or DROP.
