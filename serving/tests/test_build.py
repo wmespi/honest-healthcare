@@ -3,8 +3,8 @@
 No network, no DB — writes a handful of synthetic raw-Parquet files to a tmp
 dir, runs build() against them with an injected plan-count map, and asserts the
 product rules: `scope`, `is_sentinel`, `source_kind` (plan_specific when the
-file serves one plan, else shared), and that the build keeps every expanded row
-(rule 5's selection is deferred to the read layer). Picked up by
+file serves one plan, else shared), that `rates` is the parser's price grain
+(no fan-out), and that `rate_hist.n` is roster-weighted. Picked up by
 `make check-local`.
 """
 import os
@@ -44,7 +44,10 @@ def _raw(root):
             rows += [price(20, "99213", 60.0), price(20, "88888", 0.4)]
         con.execute(f"COPY (SELECT * FROM (VALUES {', '.join(rows)}) t({cols})) "
                     f"TO '{root}/anthem/prices/net={SLUG}/{fid}.parquet' (FORMAT parquet)")
-        con.execute(f"COPY (SELECT * FROM (VALUES ({fid}, 1::BIGINT, 1::BIGINT)) "
+        # group_set 1 has two provider groups -> rate_hist.n weights each price
+        # row by 2, while n_rates counts it once.
+        con.execute(f"COPY (SELECT * FROM (VALUES ({fid}, 1::BIGINT, 1::BIGINT), "
+                    f"({fid}, 1::BIGINT, 2::BIGINT)) "
                     f"t(file_id, group_set_id, provider_group_id)) "
                     f"TO '{root}/anthem/group_sets/{fid}.parquet' (FORMAT parquet)")
         con.execute(f"COPY (SELECT * FROM (VALUES ({fid}, 1::BIGINT, '{NET}', 111::BIGINT, "
@@ -93,11 +96,14 @@ def test_source_kind_from_plan_count(out):
     assert kinds == {10: "plan_specific", 20: "shared"}
 
 
-def test_every_expanded_row_kept(out):
+def test_rates_is_price_grain(out):
     con, serving = out
-    r99213 = [(r[0], r[2]) for r in _rates(con, serving) if r[1] == "99213"]
-    # both files' $100 line survives (no cross-file collapse), plus file 20's $60
-    assert sorted(r99213) == [(10, 100.0), (20, 60.0), (20, 100.0)]
+    # price grain: one row per raw price, not fanned out to provider groups.
+    r99213 = sorted((r[0], r[2]) for r in _rates(con, serving) if r[1] == "99213")
+    assert r99213 == [(10, 100.0), (20, 60.0), (20, 100.0)]
+    cols = {r[0] for r in con.execute(
+        f"DESCRIBE SELECT * FROM read_parquet('{serving}/rates/**/*.parquet')").fetchall()}
+    assert "group_set_id" in cols and "provider_group_id" not in cols
 
 
 def test_scope_and_sentinel(out):
@@ -108,17 +114,22 @@ def test_scope_and_sentinel(out):
     assert s["88888"] is True and s["99213"] is False
 
 
-def test_dims_and_rollup_written(out):
+def test_rate_hist_roster_weighted(out):
     con, serving = out
-    for f in ("group_members.parquet", "provider_dim.parquet", "code_dim.parquet",
-              "evidence.parquet", "cross_network_rollup.parquet"):
+    # group_set 1 holds 2 provider groups, so n = 2 * n_rates for each bucket.
+    rows = con.execute(
+        "SELECT modifier, n, n_rates FROM "
+        f"read_parquet('{serving}/rate_hist.parquet') "
+        "WHERE billing_code = '99213' AND scope = 'outpatient_prof'").fetchall()
+    assert rows and all(n == 2 * nr for _, n, nr in rows)
+
+
+def test_dims_written(out):
+    con, serving = out
+    for f in ("group_sets.parquet", "group_members.parquet", "provider_dim.parquet",
+              "code_dim.parquet", "evidence.parquet", "rate_hist.parquet"):
         assert os.path.exists(f"{serving}/{f}")
     row = con.execute(
         "SELECT service_lines, address_line1, city FROM "
         f"read_parquet('{serving}/provider_dim.parquet')").fetchone()
     assert row == ("pcp", "1 St", "Atlanta")
-    # rollup counts a group once per (file_id, provider_group_id)
-    g = con.execute("SELECT n_groups FROM "
-                    f"read_parquet('{serving}/cross_network_rollup.parquet') "
-                    "WHERE billing_code = '99213'").fetchone()[0]
-    assert g == 2
