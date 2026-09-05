@@ -9,9 +9,10 @@ one of these on purpose, recapture it and say why in that PR; if it moves by
 accident, this is what's supposed to catch it before a user does.
 
 Skips cleanly (not failing) when the target network isn't loaded, the wider
-reference-data build it depends on isn't (NPPES/NUCC, CMS utilization, MPFS —
-all "optional" per README.md steps 6-8, the app runs without them, just
-differently), or the API isn't reachable at all. Only `make test-live` (run
+reference-data build it depends on isn't (NPPES/NUCC, CMS utilization, MPFS,
+rate_hist — all "optional" per README.md steps 6-8/#10, the app runs without
+them, just differently — GET /'s `reference_loaded` says which are on disk),
+or the API isn't reachable at all. Only `make test-live` (run
 via docker compose exec, so it shares the container's live localhost:8000)
 exercises the real assertions below; a bare `pytest serving/tests/test_golden.py`
 with nothing listening skips all of them. `make test-api` / `make test-all`
@@ -48,28 +49,16 @@ def _require_live_target_corpus(client):
         pytest.skip(f"{NET!r} not loaded at {API_URL} — golden values need the real corpus")
 
     # The target network alone isn't enough — the pins below also depend on
-    # NPPES/NUCC (names, specialties) and CMS utilization + MPFS (the
-    # "billed" tier and its Medicare benchmark). Probe the cheapest live
-    # endpoint that needs each, rather than reaching past the API into
-    # data_sources.py's paths.
-    try:
-        specialties = client.get("/specialties", params={"network_name": NET, "limit": 1}).json()
-    except (httpx.HTTPError, ValueError) as e:
-        pytest.skip(f"/specialties unreachable/non-JSON at {API_URL}: {e}")
-        return
-    if not specialties:
-        pytest.skip("NPPES/NUCC reference data not loaded — /specialties returned none")
-
-    try:
-        quote = client.get("/rates/quote", params={
-            "billing_code": "99213", "network_name": NET, "npi": 1285125310,
-        }).json()
-    except (httpx.HTTPError, ValueError) as e:
-        pytest.skip(f"/rates/quote unreachable/non-JSON at {API_URL}: {e}")
-        return
-    if quote.get("tier") != "billed" or quote.get("medicare_allowed") is None:
-        pytest.skip("CMS utilization / MPFS reference data not loaded — the canary "
-                    "quote isn't a 'billed'-tier quote with a Medicare benchmark")
+    # NPPES/NUCC (names, specialties), CMS utilization + MPFS (the "billed"
+    # tier and its Medicare benchmark), and rate_hist (the sentinel-price
+    # ceiling behind /rates/providers' summary). GET /'s reference_loaded is
+    # authoritative (file-exists flags, main.py) — read that directly rather
+    # than inferring from an endpoint's shape, which would make a genuine
+    # regression in evidence.py/benchmark.py skip instead of fail (the same
+    # "billed"/medicare_allowed signals the pins themselves assert on).
+    missing = [k for k, loaded in root.get("reference_loaded", {}).items() if not loaded]
+    if missing:
+        pytest.skip(f"reference data not loaded at {API_URL}: {', '.join(missing)}")
 
 
 def test_quote_99213_abbasi(client):

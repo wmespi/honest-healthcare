@@ -12,7 +12,7 @@ FastAPI on `localhost:8000`. Every route runs raw DuckDB SQL against
 
 | File | Holds |
 |---|---|
-| `main.py` | app + CORS + `include_router` + `/` (health **and** trust-bar context: `priceable_npis`, `networks`, `n_codes`, `as_of` = newest prices Parquet mtime) |
+| `main.py` | app + CORS + `include_router` + `/` (health **and** trust-bar context: `priceable_npis`, `networks`, `n_codes`, `as_of` = newest prices Parquet mtime, `reference_loaded` = which optional reference builds — `nppes`/`nucc`/`cms_utilization`/`mpfs`/`rate_hist` — actually exist on disk, file-exists flags rather than a guess from response shape; #96's golden tests skip on these) |
 | `data_sources.py` | glob paths, the `*_SRC` / `PRICE_GROUPS_SRC` / `VOL_CTE` SQL fragments, `db()` (the bounded DuckDB connection), `network_slug()`, `price_filters()`, `have_prices()` / `has_parquet()` |
 | `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `nucc_bits()` / `provider_card()` (NPPES + NUCC + CMS Doctors & Clinicians `group_name` / `years_in_practice` / `hospital_affiliations`), `dac_bits()`, `plausibility()` |
 | `evidence.py` | provider↔procedure evidence from CMS Medicare utilization (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. All no-op until `make cms-utilization` / `make specialty-profiles` run. |
