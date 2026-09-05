@@ -168,7 +168,10 @@ test-e2e: _require-etl-running ## Hermetic end-to-end: parse + NPPES fixtures in
 	bash scripts/nppes_test.sh
 
 test-api: ## Backend contract + coverage tests (pytest, against the running API)
-	docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/ -q"
+	# --ignore test_golden.py: it's not hermetic to *this* stack's build state
+	# (skips cleanly on a partial reference build, #96) — it only runs under
+	# `make test-live`, never as part of the contract/coverage gate.
+	docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/ --ignore=tests/test_golden.py -q"
 
 test-web: ## Rate-explorer component tests (vitest + Testing Library, hermetic — mocks the API)
 	docker compose exec -T frontend sh -c "cd /app && npx vitest run"
@@ -179,7 +182,10 @@ test-all: check test-e2e test-api test-web ## Full sweep — gate + e2e + servin
 
 test-live: ## Golden-answer + user-journey checks against the live API + real corpus (docs/journeys.md, #96). Skips cleanly if the target network isn't loaded
 	docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/test_golden.py -v"
-	python3 scripts/journeys.py
+	# `docker compose port` resolves *this* project's actual host binding —
+	# a worktree's own API_PORT, not a hardcoded 8000 that would silently
+	# test the canonical checkout's stack instead of the one just built.
+	API_URL="http://$$(docker compose port serving 8000)" python3 scripts/journeys.py
 
 ## ── Coverage feedback loop ──────────────────────────────────────────────────
 

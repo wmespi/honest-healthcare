@@ -17,10 +17,17 @@ single call (flagged over SLOW_CALL_MS). Latency is informational: a slow-but-
 correct answer doesn't fail the run.
 
 Usage:  python3 scripts/journeys.py [--api http://localhost:8000] [--json]
-Exit 0 if every journey's assertions pass, 1 otherwise (latency never fails it).
+--api defaults to $API_URL, then http://localhost:8000 -- always pass one
+explicitly (or set API_URL) when testing a worktree's own stack; otherwise
+this silently tests whatever is on the canonical checkout's port instead.
+Exits 0 (skipping every journey, not failing them) if the target network
+isn't loaded -- same "no real corpus here" case serving/tests/test_golden.py
+skips on (#96). Otherwise exit 0 if every journey's assertions pass, 1
+otherwise (latency never fails it).
 """
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -161,9 +168,18 @@ JOURNEYS = [
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--api", default="http://localhost:8000")
+    ap.add_argument("--api", default=os.environ.get("API_URL", "http://localhost:8000"))
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+
+    health, hs = get(args.api, "/")
+    if hs != 200 or NET not in ((health or {}).get("networks") or []):
+        msg = f"{NET!r} not loaded at {args.api} — journeys need the real corpus"
+        if args.json:
+            print(json.dumps({"skipped": True, "reason": msg}))
+        else:
+            print(f"\n  skipped — {msg}\n")
+        sys.exit(0)
 
     results = []
     for jid, name, fn in JOURNEYS:
