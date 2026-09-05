@@ -20,7 +20,7 @@
         start up down logs \
         discover parse size fixture seed build-summary \
         nppes code-labels taxonomy-labels mpfs doctors-clinicians \
-        fmt lint test test-e2e test-api test-web check test-all \
+        fmt lint test test-e2e test-api test-web check test-all test-live \
         check-local \
         worktree worktree-rm stack-up stack-down promote preview preview-down tiers \
         cov-probe cov-report smoke-web journeys data-size footprint clean \
@@ -176,6 +176,10 @@ test-web: ## Rate-explorer component tests (vitest + Testing Library, hermetic �
 check: fmt lint test ## Pre-commit gate — fmt + vet + build + Go unit tests
 
 test-all: check test-e2e test-api test-web ## Full sweep — gate + e2e + serving + frontend (stack must be up)
+
+test-live: ## Golden-answer + user-journey checks against the live API + real corpus (docs/journeys.md, #96). Skips cleanly if the target network isn't loaded
+	docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/test_golden.py -v"
+	python3 scripts/journeys.py
 
 ## ── Coverage feedback loop ──────────────────────────────────────────────────
 
