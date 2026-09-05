@@ -33,10 +33,17 @@ link) from the Anthem master index. Cheap, incremental, safe to re-run.
      files only; else NULL)
    - `description`, `location`
 3. Keeps the **plan → file link** itself: every `(reporting_plan,
-   in_network_file)` pair the structure publishes becomes one `index_file_plans`
-   row — `plan_id`, `plan_id_type`, `plan_name`, `market_type`, `file_id`. That
-   is what makes *"which files serve plan X"* answerable, and what
-   [`parse`](parse.md) selects on instead of guessing from a filename.
+   in_network_file)` pair the structure publishes, **scoped to Georgia
+   individual-market plans** (`plan.market_type == "individual"` or the same
+   positional GA check `plan_states` uses — `plan_id[5:7] == "GA"`), becomes
+   one `index_file_plans` row — `plan_id`, `plan_id_type`, `plan_name`,
+   `market_type`, `file_id`. That is what makes *"which files serve plan X"*
+   answerable, and what [`parse`](parse.md) selects on instead of guessing from
+   a filename. The scope isn't `targets.yaml` — it's the project's whole
+   product boundary (AGENTS.md, `docs/direction.md`) — because the full
+   cross-product runs into the hundreds of millions of rows/month (almost all
+   of it employer-group plans nothing here selects on) for tens of GB of
+   Postgres, next to a single-digit-GB Parquet store on the same box.
 4. Writes `data/anthem/index_schema.json` (a compact, array-truncated example).
 5. Bulk-loads via `COPY` into a `TEMP` staging table, then set-based
    `UPDATE … FROM _idx_stage` + `INSERT … LEFT JOIN … WHERE t.id IS NULL`. GIN

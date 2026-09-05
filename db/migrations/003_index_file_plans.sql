@@ -12,6 +12,12 @@
 -- form carries strictly more (plan_id, plan_id_type, market_type) and lets
 -- Postgres do the deduplication.
 --
+-- discovery.go stages a row only for Georgia individual-market plans
+-- (market_type == "individual" or HIOS plan_id[5:7] == "GA") — not this
+-- table's schema, but worth knowing here: unfiltered, the full
+-- reporting_plans[] x in_network_files[] cross-product runs to ~180M
+-- rows/month, ~40-50 GB of Postgres. See etl/discover.md.
+--
 -- Idempotent. Run with `make migrate`.
 
 \set ON_ERROR_STOP on
@@ -31,12 +37,13 @@ CREATE TABLE IF NOT EXISTS public.index_file_plans (
 
 -- Lookups run in both directions: "which plans does this file serve" (file_id,
 -- covered by the unique constraint's leading column) and "which files serve a
--- plan matching X" — a plan_id prefix (text_pattern_ops makes LIKE 'prefix%'
--- index-scannable) or a case-insensitive plan_name match.
+-- plan matching X" — a plan_id prefix, which text_pattern_ops makes an
+-- index-scannable LIKE 'prefix%'. No index on plan_name: "which files serve
+-- plan X" matches with ILIKE '%substring%' (docs/discover.md), which a btree —
+-- text_pattern_ops or otherwise — can't use regardless of case-folding, so an
+-- index here would just be dead weight at the row counts this table reaches.
 CREATE INDEX IF NOT EXISTS idx_index_file_plans_plan_id
     ON public.index_file_plans (plan_id text_pattern_ops);
-CREATE INDEX IF NOT EXISTS idx_index_file_plans_plan_name
-    ON public.index_file_plans (lower(plan_name) text_pattern_ops);
 
 -- ── index_files: drop the never-populated plan_names array ──────────────────
 DROP INDEX IF EXISTS public.idx_index_files_plan;

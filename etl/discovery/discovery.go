@@ -279,7 +279,16 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 				// The link itself: this plan is served by this file. Kept verbatim
 				// (plan_name is the only free text the index gives that a person
 				// recognises — "BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM").
-				if plans != nil {
+				// Staged only for the project's actual scope — Georgia individual-market
+				// plans (AGENTS.md, docs/direction.md) — not every plan in the index.
+				// Unfiltered, this cross-product runs ~180M rows/month (24.95M measured
+				// from 13.6% of one index) for ~40-50 GB of Postgres, almost all of it
+				// employer-group plans nothing here will ever select. The boundary is
+				// plan_market_type == "individual" or the same GA positional check
+				// plan_states already uses below — a stable geography/market boundary,
+				// not today's targets.yaml baked into stored data, so widening the
+				// target list later never needs a re-discover.
+				if plans != nil && (strings.EqualFold(plan.PlanMarketType, "individual") || hiosStateCode(plan) == "GA") {
 					plans.add(planPair{
 						fileKey:    c.fileKey,
 						planID:     plan.PlanID,

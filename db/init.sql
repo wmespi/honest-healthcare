@@ -56,10 +56,11 @@ CREATE TABLE IF NOT EXISTS index_file_plans (
     CONSTRAINT uq_index_file_plans UNIQUE (file_id, plan_id, plan_name, market_type)
 );
 
+-- No index on plan_name: "which files serve plan X" matches with
+-- ILIKE '%substring%' (docs/discover.md), which no btree can use regardless
+-- of case-folding — an index here would just be dead weight.
 CREATE INDEX IF NOT EXISTS idx_index_file_plans_plan_id
     ON index_file_plans (plan_id text_pattern_ops);
-CREATE INDEX IF NOT EXISTS idx_index_file_plans_plan_name
-    ON index_file_plans (lower(plan_name) text_pattern_ops);
 
 -- ── coverage_log — one observational row per parsed file (Phase 2) ──────────
 -- What did this file contribute? Feeds `make cov-report`. Never read by the ETL.

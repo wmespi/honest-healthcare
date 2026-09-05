@@ -58,3 +58,11 @@ label. Other big `anthem/GA_*` files are *different* GA individual plans
 to Blue Value, which is precisely why the queue no longer selects on the `GA_`
 filename: those files are only worth parsing once their plan is in
 [`targets.yaml`](targets.yaml).
+
+Two different counts, both true, easy to conflate: the *index* links Blue Value to
+many files via `index_file_plans` — most of them BlueCard-mirror shards the index
+says serve the plan but that carry no Blue-Value-labelled network rows once parsed
+(they `fail` as "0 GA-network rows"). `GA_JBNKMED0001` is the only one of those
+linked files whose `provider_references[].network_name` actually matches. #98's
+provider probe has to abort the BlueCard shards on that mismatch, not on GA-NPI
+overlap alone — a national shard still lists Georgia providers.

@@ -30,6 +30,14 @@ the product is headed — and which of these gaps that closes — is in
   [#98](https://github.com/wmespi/honest-healthcare/issues/98). `-all-networks`
   is the interim escape hatch. Every other big `anthem/GA_*` file is a *different*
   GA individual plan, not Blue Value.
+- **Don't run `make parse` without `ID=` on `public` until #98 lands.** The index
+  links Blue Value to ~245 files, and all but `GA_JBNKMED0001` are BlueCard-mirror
+  shards that already `failed` as "0 GA-network rows (non-GA plan)" — they carry
+  Georgia NPIs (so a provider-overlap probe alone won't abort them) but no
+  Blue-Value-labelled network. They're `failed`, not `pending`, today, but a
+  monthly re-discover makes them `pending` again, and target selection (#97) has
+  no probe yet to stop the queue from re-selecting all ~40 GB of them. #98 adds
+  that probe on the network label, not just NPI overlap.
 - **Coverage confirmed for the target network, not quantified here.** Parsing
   `GA_JBNKMED0001` took the target network from zero attributed rates to
   populated (the `coverage/` one-off snapshots this replaced are gone —
