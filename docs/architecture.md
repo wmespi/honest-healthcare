@@ -45,7 +45,7 @@ flowchart LR
     RAW --> B[build.py]
     GA --> B
     REF[(reference: RBCS, NUCC, MPFS, CMS util, DAC, geocode)] --> B
-    B --> SRV[(serving: rates by network, group_members, provider_dim, code_dim, evidence, cross_network_rollup)]
+    B --> SRV[(serving: rates by network price-grain, group_sets, group_members, group_networks, provider_dim, provider_affiliations, code_dim, evidence, rate_hist, cross_network_rollup)]
   end
   subgraph serve [serve]
     SRV --> API[FastAPI, one persistent DuckDB connection]
@@ -53,18 +53,21 @@ flowchart LR
   end
 ```
 
-## Serving entity model (grain = provider group)
+## Serving entity model (grain = negotiated price)
 
 ```mermaid
 erDiagram
-  RATES ||--o{ GROUP_MEMBERS : "file_id + provider_group_id"
+  RATES }o--|| GROUP_SETS : "file_id + group_set_id"
+  GROUP_SETS ||--o{ GROUP_MEMBERS : "file_id + provider_group_id"
+  GROUP_SETS ||--o{ GROUP_NETWORKS : "file_id + provider_group_id"
   GROUP_MEMBERS }o--|| PROVIDER_DIM : npi
+  PROVIDER_DIM ||--o{ PROVIDER_AFFILIATIONS : npi
   RATES }o--|| CODE_DIM : billing_code
   PROVIDER_DIM ||--o{ EVIDENCE : npi
   RATES {
     string network_name PK
     int file_id PK
-    int provider_group_id PK
+    int group_set_id PK
     string billing_code PK
     string modifier PK
     string setting PK
@@ -75,20 +78,37 @@ erDiagram
     string scope
     string source_kind
   }
+  GROUP_SETS {
+    int file_id PK
+    int group_set_id PK
+    int provider_group_id PK
+  }
   GROUP_MEMBERS {
     int file_id PK
     int provider_group_id PK
     long npi PK
     string tin_value
   }
+  GROUP_NETWORKS {
+    int file_id PK
+    int provider_group_id PK
+    string net PK
+    string network_name
+  }
   PROVIDER_DIM {
     long npi PK
     string name
     string specialty
     string org_name
+    string group_name
     float lat
     float lon
     string service_lines
+  }
+  PROVIDER_AFFILIATIONS {
+    long npi PK
+    string ccn PK
+    string facility_name
   }
   CODE_DIM {
     string billing_code PK
@@ -103,14 +123,20 @@ erDiagram
   }
 ```
 
-`rates` is Hive-partitioned by `net=` exactly as `prices` is today, so every
-plan-scoped query prunes to one directory. `source_kind` is `plan_specific` or
-`shared` and drives AGENTS.md rule 5, which the read layer applies (the build
-keeps every row). `cross_network_rollup` `(code, network) → n_groups, p10,
-median, p90` replaces `/rates/by_network`'s live scan and `summary/rate_summary`.
-The physical `rates` table also carries `service_code`, `negotiated_type`,
-`negotiation_arrangement`, `expiration_date` — the ERD names the grain, not
-every column, and that grain is not unique (POS variants, multi-roster rates).
+`rates` is the parser's **price grain** — no group fan-out — Hive-partitioned
+by `net=` exactly as `prices` is today, so every plan-scoped query prunes to
+one directory; `group_set_id` links to `group_sets` for the join a query needs
+at read time. `source_kind` is `plan_specific` or `shared` and drives AGENTS.md
+rule 5, which the read layer applies per practice (the build keeps every row).
+`cross_network_rollup` `(code, network) → n_groups, min, p10, median, p90, max`
+is derived from `rate_hist`'s roster-weighted CDF and replaces
+`/rates/by_network`'s live scan. `provider_dim.org_name` (raw NPPES entity
+name) and `.group_name` (the CMS Doctors & Clinicians identity) are separate
+columns on purpose — collapsing them let a shared group affiliation overwrite
+an individual's own name. The physical `rates` table also carries
+`service_code`, `negotiated_type`, `negotiation_arrangement`, `expiration_date`
+— the ERD names the grain, not every column, and that grain is not unique
+(POS variants, multi-roster rates).
 
 ## Runtime
 

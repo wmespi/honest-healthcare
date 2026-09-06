@@ -66,12 +66,15 @@ in test mode caps at 100 reporting structures; parsing caps at 1 file
   out-of-state, 1 corrupt NPI), in the wide single-file layout so `--dac-file`
   builds both outputs offline. `serving/tests/test_doctors_clinicians.py` runs it
   in test isolation — hermetic, picked up by `make check-local` and `make test-api`.
-- `serving/tests/conftest.py` (`api` fixture) — builds a small coherent Parquet
-  dataset (2 networks, 5 CPT codes with `-26`/`-TC` splits, 5 providers incl. a
-  hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile/MPFS/DAC tables) under
-  `data-test/apifix/` and binds a FastAPI `TestClient` to it. Drives
-  `test_api_contract.py` — every route, hermetic, no live server or `data/` mount.
-  Schemas track [schema.md](schema.md); teardown removes the dir.
+- `serving/tests/conftest.py` (`api` fixture) — writes a small coherent set of
+  RAW Parquet (2 networks, 5 CPT codes with `-26`/`-TC` splits, 6 providers
+  incl. a hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile/MPFS/DAC tables)
+  under `data-test/apifix/`, runs the real `build.build.build()` against it
+  exactly as `make build` would, and binds a FastAPI `TestClient` to the
+  resulting `data-test/apifix/serving/`. Drives `test_api_contract.py` — every
+  route, hermetic, no live server, no `data/` mount, and the same build code
+  path a real `make build` runs. Schemas track [schema.md](schema.md);
+  teardown removes the dir.
 - `serving/tests/test_golden.py` — **not hermetic, no fixture** — hits the live
   API (`API_URL`, default `http://localhost:8000`) and checks 7 real answers
   (a quote, a distribution rollup, a provider ranking, a PCP search, a

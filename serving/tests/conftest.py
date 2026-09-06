@@ -1,8 +1,10 @@
 """Shared fixtures for the serving tests.
 
-`api_data` builds a small, coherent Parquet dataset (rates + provider-group
-rosters + the NPPES / NUCC / RBCS / CMS reference tables) under a temp DATA_DIR
-and points the FastAPI app at it via a `TestClient`. Schemas track
+`api_data` writes a small, coherent set of RAW Parquet (rates + provider-group
+rosters + the NPPES / NUCC / RBCS / CMS reference tables) under a temp DATA_DIR,
+runs `build.build.build()` against it exactly as `make build` would (so the
+fixture and the real pipeline exercise the same code), and points the FastAPI
+app at the resulting `data/serving/` via a `TestClient`. Schemas track
 docs/schema.md; the row values are chosen so every contract assertion in
 test_api_contract.py has something real to check.
 
@@ -17,13 +19,15 @@ import sys
 import duckdb
 import pytest
 
-# DATA_DIR must be set before `serving.*` is imported (data_sources.py freezes
-# the glob paths at import time). conftest.py is loaded before any test module.
-# Repo-root relative (not "/app/…") so this also runs on the host under
-# `make check-local` — in the container the root resolves to /app. GH #59.
+# DATA_DIR / SERVING_DIR must be set before `serving.*` is imported
+# (data_sources.py freezes the glob paths at import time). conftest.py is
+# loaded before any test module. Repo-root relative (not "/app/…") so this
+# also runs on the host under `make check-local` — in the container the root
+# resolves to /app. GH #59.
 _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 FIX_DIR = os.path.join(_REPO, "data-test", "apifix")
 os.environ["DATA_DIR"] = FIX_DIR
+os.environ["SERVING_DIR"] = f"{FIX_DIR}/serving"
 
 # `cd serving && pytest tests/` (make test-api) puts serving/ on sys.path but not
 # the repo root — test_build.py imports `build.build` (which in turn imports
@@ -338,14 +342,15 @@ def _build(data_dir: str) -> None:
 
     con.close()
 
-    # browse-layer summary — build it from the parquet just written, exactly as
-    # `make build-summary` would (also exercises scripts/build_rate_summary.py).
-    r = subprocess.run(
-        [sys.executable, os.path.join(_REPO, "scripts/build_rate_summary.py"),
-         "--data-dir", data_dir],
-        capture_output=True, text=True,
-    )
-    assert r.returncode == 0, f"build_rate_summary failed:\n{r.stdout}\n{r.stderr}"
+    # the serving tables — run the real build against the raw parquet just
+    # written, exactly as `make build` would (no --networks: builds every
+    # partition, both BLUE_VALUE and OPEN_ACCESS). plan_counts={} (not None)
+    # skips the DATABASE_URL probe entirely and tags every row `shared` — this
+    # fixture doesn't exercise rule 5's plan_specific branch (that's
+    # test_build.py's job); every FILE_ID here is 1.
+    from build.build import build as _build_serving
+    _build_serving(data_dir, f"{data_dir}/serving", networks=None, test=False,
+                   plan_counts={})
 
 
 @pytest.fixture(scope="session")
