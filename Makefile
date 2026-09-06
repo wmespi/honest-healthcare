@@ -18,7 +18,7 @@
 
 .PHONY: help \
         start up down logs \
-        discover parse size fixture seed build build-summary \
+        discover parse size fixture seed build \
         nppes code-labels taxonomy-labels mpfs doctors-clinicians \
         fmt lint test test-e2e test-api test-web check test-all test-live \
         check-local \
@@ -119,11 +119,8 @@ size: ## Backfill index_files.file_size_bytes via concurrent HEAD requests
 seed: ## Populate data/ with the committed synthetic MRF (fresh-clone bootstrap; idempotent)
 	bash scripts/seed.sh
 
-build: ## Raw + reference parquet -> data/serving/ tables (rule-5 rates, dims, evidence, rollup). Defaults to the targets.yaml networks; NET=<slug,slug> for a subset, ALL=1 for every partition. TEST=1
-	docker compose exec -T -w /app -e DUCKDB_TMP= serving python3 -m build.build --data-dir /app/data $(if $(NET),--networks "$(NET)",) $(if $(filter 1,$(ALL)),--all-networks,) $(if $(filter 1,$(TEST)),--test,)
-
-build-summary: ## Rebuild the browse-layer summary parquet (run after a parse batch). TEST=1. Superseded by `make build`'s cross_network_rollup — deleted in #100 when serving repoints.
-	docker compose exec -T -w /app serving python3 scripts/build_rate_summary.py $(if $(filter 1,$(TEST)),--test,)
+build: ## Raw + reference parquet -> data/serving/ tables (price-grain rates, dims, roster-weighted rate_hist). NET=<slug,slug> for a subset. TEST=1
+	docker compose exec -T -w /app -e DUCKDB_TMP= serving python3 -m build.build --data-dir /app/data $(if $(NET),--networks "$(NET)",) $(if $(filter 1,$(TEST)),--test,)
 
 fixture: ## Build a truncated *.json.gz fixture from a file id — usage: make fixture ID=5043 NAME=ga_small
 	docker compose exec etl go run . fixture -file-ids $(ID) $(if $(NAME),-name $(NAME),)

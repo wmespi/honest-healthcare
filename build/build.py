@@ -2,50 +2,64 @@
 
 One re-runnable pass. Every product decision that used to live in a serving-layer
 SQL string is here: the outpatient-professional `scope`, the sentinel-price rule
-(`serving/routers/rates.py:_sentinel_ceiling`), the Medicare benchmark
+(was `serving/routers/rates.py:_sentinel_ceiling`), the Medicare benchmark
 (`serving/benchmark.py`), the service-line allowlists (`serving/service_lines.py`),
-the browse rollup (`scripts/build_rate_summary.py`), and AGENTS.md rule 5
-conflict resolution.
+and the browse rollup (was `scripts/build_rate_summary.py`).
 
-Outputs, under SERVING_DIR (else <data-dir>/serving):
+Outputs, under SERVING_DIR (else <data-dir>/serving) — the ONLY thing the API
+reads (#100):
 
-  rates/net=<slug>/part.parquet   one prices x group_sets row + the product
-      columns; rule 5 collapses exact-duplicate lines across files
+  rates/net=<slug>/part.parquet   one row per price (parser grain) + the
+      enrichment columns; `group_set_id` links to group_sets
+  group_sets.parquet              (file_id, group_set_id, provider_group_id)
   group_members.parquet           (file_id, provider_group_id, npi, tin_value)
+  group_networks.parquet          (file_id, provider_group_id, net, network_name)
+      — which networks a file-local provider group is attributed to
   provider_dim.parquet            NPPES GA + NUCC + DAC + geocode + service lines
+  provider_affiliations.parquet   (npi, ccn, facility_name)  the DAC CCN<->NPI bridge
   code_dim.parquet                RBCS label + category + MPFS + shoppable flag
-  evidence.parquet                (npi, billing_code, tier)  billed | typical
-  cross_network_rollup.parquet    (code, network) -> n_groups, p10, median, p90
+  evidence.parquet                (npi, billing_code, tier, ...)  billed rows carry
+      the Medicare utilization detail, typical rows their prevalence
+  rate_hist.parquet               roster-weighted $25 histogram per
+      (net, code, setting, scope, modifier, is_sentinel) — the browse primitive
+  cross_network_rollup.parquet    (code, network) -> n_groups, min/p10/median/p90/max
+      off the rate_hist CDF — read straight by /rates/by_network
+  manifest.json                   built_at, which inputs were present, row counts
 
-Defaults to the network partitions that carry a target plan (etl/targets.yaml
-`network_patterns`), so the build stays on the plan-scoped path — the full
-`prices x group_sets` fan-out of the current store is ~33 B rows. `--networks`
-overrides; `--all-networks` forces every partition. Each partition's join
-pipelines straight into a COPY (no aggregate) so memory is bounded by the join
-build sides, not the fan-out. Rule 5 keeps every row and tags `source_kind`;
-the read layer resolves MRF redundancy (#100). Reads the shared corpus
-read-only; writes only SERVING_DIR.
+`rates` is the parser's price grain — no group fan-out — so `make build` is a
+routine full-store pass (expansion happens at query time after pruning on `net`
++ `billing_code`). Rule 5 keeps every row and tags `source_kind`; the read layer
+resolves MRF redundancy per practice (#100). Reads the shared corpus read-only;
+writes only SERVING_DIR.
 """
 import argparse
-import fnmatch
+import datetime
 import glob
+import json
 import os
 import shutil
 import time
 
 import duckdb
-import yaml
 
 from reference._common import serving_dir as _serving_dir, store_dir
 # The curated service-line taxonomy lists. Still under serving/ this step —
-# #100 moves them here when it repoints the API onto provider_dim.service_lines
-# and serving no longer needs the constant. (The prod serving image ships only
-# serving/, so serving can't import from build/ yet.)
+# the prod serving image ships only serving/, so serving can't import from
+# build/; a later tidy consolidates them.
 from serving.service_lines import SERVICE_LINES
+from serving.data_sources import network_slug
+
+HIST_WIDTH = 25      # $ bucket width — matches the retired build_rate_summary
+HIST_CAP = 5000      # rates >= this land in one overflow bucket
+# A code billed by >= this share of a NUCC classification's Medicare providers
+# is "typical" for that classification (evidence tier 2). The build floor —
+# `evidence.prevalence` lets the read layer apply a stricter threshold, never a
+# looser one.
+TYPICAL_THRESHOLD = 0.03
+
 
 # serving/data_sources.outpatient_scope — the slice the consumer rate views
-# compare. Kept in sync by hand (no shared module across the stack boundary);
-# serving/tests/test_build.py pins the two together.
+# compare. Kept in sync by hand; serving/tests/test_build.py pins the two equal.
 def _scope(a=""):
     a = f"{a}." if a else ""
     return (f"{a}billing_class = 'professional' "
@@ -68,31 +82,6 @@ def _connect(spill):
     return con
 
 
-_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-
-def _target_network_globs(path=None):
-    """(globs, complete) from etl/targets.yaml. `globs` is the union of every
-    target's `network_patterns` — the same signal the parse probe uses; `make
-    build` defaults to the partitions they match so it stays on the plan-scoped
-    path (the full store fans out to ~33 B rows). `complete` is False when any
-    target has no `network_patterns` (its networks aren't expressible as a glob)
-    — the caller then refuses to guess and asks for --networks / --all-networks
-    rather than silently under- or over-building."""
-    path = path or os.path.join(_REPO, "etl", "targets.yaml")
-    if not os.path.exists(path):
-        return [], False
-    doc = yaml.safe_load(open(path, encoding="utf-8")) or {}
-    targets = doc.get("targets") or []
-    globs, complete = [], bool(targets)
-    for t in targets:
-        pats = t.get("network_patterns") or []
-        if not pats:
-            complete = False
-        globs.extend(str(p).strip().lower() for p in pats)
-    return sorted(set(globs)), complete
-
-
 def _service_line_expr(col):
     """concat_ws skips the NULL arms, so this is '' or 'pcp,...'; NULLIF -> NULL."""
     arms = []
@@ -113,7 +102,8 @@ def _load_plan_counts(con, test, override=None):
     counts loaded."""
     if override is not None:
         con.execute("CREATE TEMP TABLE file_plan_count (file_id BIGINT, plan_count BIGINT)")
-        con.executemany("INSERT INTO file_plan_count VALUES (?, ?)", list(override.items()))
+        if override:
+            con.executemany("INSERT INTO file_plan_count VALUES (?, ?)", list(override.items()))
         return bool(override)
 
     url = os.getenv("TEST_DATABASE_URL" if test else "DATABASE_URL")
@@ -141,14 +131,11 @@ def _load_plan_counts(con, test, override=None):
     return True
 
 
-def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
-          plan_counts=None, targets_path=None):
+def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
     anthem = store_dir(data_dir, test, "anthem", "ANTHEM_DIR")
     nppes = store_dir(data_dir, test, "nppes", "NPPES_DIR")
     ref = store_dir(data_dir, test, "reference", "REFERENCE_DIR")
     cms = store_dir(data_dir, test, "cms", "CMS_DIR")
-    # Spill under the (always-writable) output dir — never the shared corpus,
-    # which a worktree mounts read-only. Cleaned on the way out.
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
 
     prices_dir = f"{anthem}/prices"
@@ -170,30 +157,8 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
         missing = want - {d[4:] for d in parts}
         if missing:
             raise SystemExit(f"no price partition for {sorted(missing)}")
-    elif all_networks:
-        parts = all_parts
-        print(f"  --all-networks: {len(parts)} partitions, no plan scope")
     else:
-        globs, complete = _target_network_globs(targets_path)
-        if not complete:
-            raise SystemExit(
-                "etl/targets.yaml has a target with no network_patterns, so the "
-                "plan-scoped partition set can't be derived — pass --networks "
-                "<slug,...> or --all-networks")
-        _c = duckdb.connect()
-        try:
-            parts = [d for d in all_parts
-                     if any(fnmatch.fnmatchcase((_c.execute(
-                         f"SELECT lower(network_name) FROM read_parquet("
-                         f"'{prices_dir}/{d}/*.parquet') LIMIT 1").fetchone() or [""])[0], g)
-                         for g in globs)]
-        finally:
-            _c.close()
-        print(f"  targets.yaml network_patterns {globs} → {len(parts)} of "
-              f"{len(all_parts)} partitions ({len(all_parts) - len(parts)} off-target; "
-              f"--all-networks to force)")
-        if not parts:
-            raise SystemExit("no partition matches a targets.yaml network_pattern")
+        parts = all_parts
 
     rates_out = f"{serving_dir}/rates"
     for d in parts:
@@ -212,12 +177,8 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
     t0 = time.time()
 
     # ── code sentinel ceiling: max($1, 5% of the code's scoped median rate).
-    #    `serving/routers/rates.py:_sentinel_ceiling` reads the store-wide (all
-    #    networks) rate_hist, so this is computed over every partition regardless
-    #    of --networks — otherwise a NET= build's is_sentinel would disagree with
-    #    the API. One scalar pass over `prices` (no group_sets fan-out);
-    #    approx_quantile keeps the per-code state O(1). Excludes rate <= 0 (an
-    #    exact 0/negative is always a sentinel anyway via the $1 floor).
+    #    Store-wide (all networks), matching the retired _sentinel_ceiling; one
+    #    scalar pass, approx_quantile keeps per-code state O(1).
     con.execute(f"""
         CREATE TEMP TABLE code_ceiling AS
         SELECT billing_code_type, billing_code,
@@ -241,26 +202,15 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
         con.execute("CREATE TEMP TABLE mpfs (billing_code VARCHAR, "
                     "billing_code_type VARCHAR, modifier VARCHAR, medicare_allowed DOUBLE)")
 
-    # ── rates, one network partition at a time. The prices ⨝ group_sets join
-    #    pipelines straight into the COPY — no aggregate, no full materialisation
-    #    — so memory is bounded by the join build sides (this file's group_sets,
-    #    plus the small code_ceiling / mpfs / file_plan_count tables), not by the
-    #    fan-out.
-    #
-    #    Rule 5 (AGENTS.md #5): every expanded row is kept and tagged
-    #    `source_kind` (plan_specific | shared). The build does NOT collapse
-    #    across files — `provider_group_id` is file-local (docs/schema.md), so
-    #    "the same provider group in a shared and a plan-specific file" is not an
-    #    id join, and MRF redundancy is resolved the same way the serving layer
-    #    already resolves it on `prices`: at read time, with DISTINCT / MIN over
-    #    the query-narrowed rows, now preferring `source_kind='plan_specific'`
-    #    and the lower shared rate (#100). build.md + etl/mrf-model.md.
-    # `modifier` was added to `prices` after some files were parsed (docs/schema
-    # .md). union_by_name fills the per-file gap; if no file in a partition has
-    # it, `mod` falls back to a literal ''.
+    # ── rates — parser price grain + enrichment, one partition at a time. No
+    #    group_sets join: expansion to provider groups happens at query time
+    #    after pruning on `net` + `billing_code`. Rule 5 (AGENTS.md #5): every
+    #    row kept, tagged `source_kind`; the read layer resolves redundancy per
+    #    practice (#100). `modifier` was added to `prices` after some files were
+    #    parsed — union_by_name fills the per-file gap.
     def rate_cols(mod):
         return (
-            f"pr.network_name, pr.net, pr.file_id, gs.provider_group_id, "
+            f"pr.network_name, pr.net, pr.file_id, pr.group_set_id, "
             f"pr.billing_code_type, pr.billing_code, COALESCE({mod}, '') AS modifier, "
             f"pr.setting, pr.service_code, pr.negotiated_type, pr.negotiation_arrangement, "
             f"pr.expiration_date, pr.negotiated_rate, "
@@ -278,20 +228,11 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
         have = {r[0] for r in con.execute(f"DESCRIBE SELECT * FROM {pq}").fetchall()}
         cols = rate_cols("pr.modifier" if "modifier" in have else "CAST(NULL AS VARCHAR)")
         mp_mod = "COALESCE(pr.modifier, '')" if "modifier" in have else "''"
-        fids = [r[0] for r in con.execute(f"SELECT DISTINCT file_id FROM {pq}").fetchall()]
-        gs_files = [f"{anthem}/group_sets/{f}.parquet" for f in fids
-                    if os.path.exists(f"{anthem}/group_sets/{f}.parquet")]
-        if not gs_files:
-            print(f"  rates net={slug}: no group_sets — skipped")
-            continue
-        gs_list = "[" + ", ".join(f"'{f}'" for f in gs_files) + "]"
         os.makedirs(f"{rates_out}/net={slug}", exist_ok=True)
         con.execute(f"""
             COPY (
                 SELECT {cols}
                 FROM {pq} pr
-                JOIN read_parquet({gs_list}, union_by_name=true) gs
-                  ON gs.file_id = pr.file_id AND gs.group_set_id = pr.group_set_id
                 LEFT JOIN code_ceiling cc
                   ON cc.billing_code_type = pr.billing_code_type AND cc.billing_code = pr.billing_code
                 {plan_join}
@@ -304,27 +245,59 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
         kept = con.execute(
             f"SELECT COUNT(*) FROM read_parquet('{rates_out}/net={slug}/part.parquet')").fetchone()[0]
         total_rows += kept
-        print(f"  rates net={slug}: {kept:,} rows  ({len(fids)} file"
-              f"{'s' if len(fids) != 1 else ''})  {time.time() - pt:.1f}s")
+        print(f"  rates net={slug}: {kept:,} rows  {time.time() - pt:.1f}s")
 
     if not total_rows and not glob.glob(f"{rates_out}/**/*.parquet", recursive=True):
-        raise SystemExit("no rates written — every selected partition lacked group_sets")
+        raise SystemExit("no rates written")
     rates_glob = f"read_parquet('{rates_out}/**/*.parquet', hive_partitioning=1, union_by_name=true)"
     sel_fids = [r[0] for r in con.execute(f"SELECT DISTINCT file_id FROM {rates_glob}").fetchall()]
     fid_list = ", ".join(str(f) for f in sel_fids)
 
-    # ── group_members ────────────────────────────────────────────────────────
+    # ── group_sets — the deduped rosters, for prices -> provider groups -> NPIs
+    con.execute(f"""
+        COPY (
+            SELECT DISTINCT file_id, group_set_id, provider_group_id
+            FROM read_parquet('{anthem}/group_sets/*.parquet', union_by_name=true)
+            WHERE file_id IN ({fid_list})
+        ) TO '{serving_dir}/group_sets.parquet' (FORMAT parquet, COMPRESSION zstd)
+    """)
+
+    # ── group_members — the roster, network-free: (rates ⨝ group_sets ⨝
+    #    group_members) expands a price to its NPIs exactly as prices ⨝
+    #    group_sets ⨝ providers did.
+    providers_src = f"read_parquet('{anthem}/providers/*.parquet', union_by_name=true)"
     con.execute(f"""
         COPY (
             SELECT DISTINCT file_id, provider_group_id, npi, tin_value
-            FROM read_parquet('{anthem}/providers/*.parquet', union_by_name=true)
+            FROM {providers_src}
             WHERE file_id IN ({fid_list})
         ) TO '{serving_dir}/group_members.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
-    # ── provider_dim — one row per GA NPPES NPI (a dimension: the full universe,
-    #    not scoped to the built networks). NUCC specialty, DAC practice identity,
-    #    geocode, CMS provider_type, and the service-line flags all left-joined.
+    # ── group_networks — which networks a file-local group is attributed to
+    #    (the parser's provider_references[].network_name). "This NPI has a rate
+    #    in network X" = group_members ⨝ group_networks WHERE net = X — an O(1)
+    #    lookup, no rates scan. Slugged in Python so `net` matches the rates
+    #    partition key byte-for-byte.
+    names = [r[0] for r in con.execute(
+        f"SELECT DISTINCT network_name FROM {providers_src} WHERE file_id IN ({fid_list})"
+    ).fetchall()]
+    con.execute("CREATE TEMP TABLE net_slug (network_name VARCHAR, net VARCHAR)")
+    if names:
+        con.executemany("INSERT INTO net_slug VALUES (?, ?)",
+                        [(nm, network_slug(nm)) for nm in names])
+    con.execute(f"""
+        COPY (
+            SELECT DISTINCT pv.file_id, pv.provider_group_id, ns.net, pv.network_name
+            FROM {providers_src} pv
+            JOIN net_slug ns ON ns.network_name IS NOT DISTINCT FROM pv.network_name
+            WHERE pv.file_id IN ({fid_list})
+        ) TO '{serving_dir}/group_networks.parquet' (FORMAT parquet, COMPRESSION zstd)
+    """)
+
+    # ── provider_dim — one row per GA NPPES NPI (the full universe, not scoped
+    #    to the built networks). NUCC specialty, DAC identity, geocode, CMS
+    #    provider_type, service-line flags left-joined.
     npp_cols = {r[0] for r in con.execute(
         f"DESCRIBE SELECT * FROM read_parquet('{ga_nppes}')").fetchall()}
     addr = ("g.address_line1, g.address_line2" if "address_line1" in npp_cols
@@ -342,22 +315,40 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
                             NULLIF(trim(BOTH ', ' FROM g.last_name || ', ' || g.first_name), '')) AS name,
                    {"COALESCE(nx.specialty, NULLIF(g.taxonomy_group, 'Other'))" if nucc else "NULLIF(g.taxonomy_group, 'Other')"} AS specialty,
                    {"nx.classification" if nucc else "NULL"} AS nucc_classification,
+                   {"nx.grouping" if nucc else "NULL"} AS nucc_grouping,
                    {"pt.provider_type" if ptype else "NULL"} AS cms_provider_type,
-                   {"d.org_name" if dac else "NULL"} AS org_name,
+                   g.org_name,
+                   {"d.org_name" if dac else "NULL"} AS group_name,
                    {"d.org_pac_id" if dac else "NULL"} AS org_pac_id,
+                   {"d.grad_year" if dac else "NULL"} AS grad_year,
                    {"gc.latitude" if geo else "NULL"} AS lat,
                    {"gc.longitude" if geo else "NULL"} AS lon,
                    {_service_line_expr("g.taxonomy_code")} AS service_lines,
                    g.is_hospital, g.is_clinic, g.entity_type,
+                   g.last_name, g.first_name, g.taxonomy_code, g.taxonomy_group,
                    {addr}, g.city, g.postal_code
             FROM read_parquet('{ga_nppes}') g
             {nucc} {ptype} {dac} {geo}
         ) TO '{serving_dir}/provider_dim.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
-    # ── code_dim — one row per code that appears in `rates`. `shoppable` = a
-    #    plain CPT procedure code: excludes HCPCS Level II (all J/Q drug codes
-    #    among them), revenue codes, MS-DRG, APC, ICD, CDT (#51).
+    # ── provider_affiliations — the DAC hospital CCN<->NPI bridge, verbatim
+    #    (already GA-scoped by `make doctors-clinicians`). Empty when not built.
+    affil = f"{ref}/dac_hospital_affiliations.parquet"
+    if os.path.exists(affil):
+        con.execute(f"""
+            COPY (
+                SELECT DISTINCT npi, ccn, facility_name FROM read_parquet('{affil}')
+            ) TO '{serving_dir}/provider_affiliations.parquet' (FORMAT parquet, COMPRESSION zstd)
+        """)
+    else:
+        con.execute("CREATE TEMP TABLE _af (npi BIGINT, ccn VARCHAR, facility_name VARCHAR)")
+        con.execute(f"COPY _af TO '{serving_dir}/provider_affiliations.parquet' "
+                    f"(FORMAT parquet, COMPRESSION zstd)")
+
+    # ── code_dim — one row per code in `rates`. `shoppable` = a plain CPT
+    #    procedure code (excludes HCPCS Level II incl. J/Q drugs, RC, MS-DRG,
+    #    APC, ICD, CDT — #51).
     labels = f"LEFT JOIN read_parquet('{ref_p['labels']}') cl USING (billing_code_type, billing_code)" if os.path.exists(ref_p["labels"]) else ""
     con.execute(f"""
         COPY (
@@ -369,7 +360,10 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
             SELECT u.billing_code, u.billing_code_type,
                    COALESCE({"cl.label, " if labels else ""}nm.name) AS label,
                    {"cl.rbcs_category" if labels else "NULL"} AS category,
+                   {"cl.rbcs_subcategory" if labels else "NULL"} AS rbcs_subcategory,
                    {"cl.rbcs_family" if labels else "NULL"} AS rbcs_family,
+                   {"cl.rbcs_is_major" if labels else "NULL"} AS rbcs_is_major,
+                   {"cl.search_text" if labels else "NULL"} AS search_text,
                    (u.billing_code_type = 'CPT'
                     AND regexp_full_match(u.billing_code, '[0-9]{{5}}')) AS shoppable,
                    mg.medicare_allowed
@@ -380,66 +374,179 @@ def build(data_dir, serving_dir, networks=None, all_networks=False, test=False,
         ) TO '{serving_dir}/code_dim.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
-    # ── evidence: (npi, billing_code, tier) for NPIs reachable through a rate.
-    #    billed (this NPI billed it to Medicare) wins over typical (>=3% of the
-    #    NPI's NUCC classification bill it — serving/evidence.py's tiers).
+    # ── evidence: (npi, billing_code, tier, ...) for NPIs reachable through a
+    #    rate. billed (this NPI billed it to Medicare Part B) wins over typical
+    #    (>= TYPICAL_THRESHOLD of the NPI's NUCC classification bill it). A
+    #    billed row carries the utilization detail /rates/quote shows
+    #    (serving/evidence.did_bill's aggregation, over place-of-service); a
+    #    typical row carries the classification's prevalence so the read layer
+    #    can tighten the threshold per request.
+    gm = f"read_parquet('{serving_dir}/group_members.parquet')"
+    ev_cols = ("npi, billing_code, tier, prevalence, year, tot_srvcs, tot_benes, "
+               "tot_bene_days, avg_mdcr_allowed, is_drug")
     ev_parts = []
     if os.path.exists(cms_util):
         ev_parts.append(f"""
-            SELECT DISTINCT npi, hcpcs_cd AS billing_code, 'billed' AS tier
+            SELECT npi, hcpcs_cd AS billing_code, 'billed' AS tier,
+                   NULL::DOUBLE AS prevalence,
+                   max(year) AS year,
+                   sum(tot_srvcs)::BIGINT AS tot_srvcs,
+                   sum(tot_benes)::BIGINT AS tot_benes,
+                   sum(tot_bene_day_srvcs)::BIGINT AS tot_bene_days,
+                   round(sum(avg_mdcr_alowd_amt * tot_srvcs) / nullif(sum(tot_srvcs), 0), 2)
+                       AS avg_mdcr_allowed,
+                   bool_or(hcpcs_drug_ind = 'Y') AS is_drug
             FROM read_parquet('{cms_util}')
-            WHERE npi IN (SELECT npi FROM read_parquet('{serving_dir}/group_members.parquet'))
+            WHERE npi IN (SELECT npi FROM {gm})
+            GROUP BY 1, 2
         """)
     if os.path.exists(cms_util) and os.path.exists(ref_p["profiles"]) and os.path.exists(ref_p["nucc"]):
         ev_parts.append(f"""
-            SELECT DISTINCT s.npi, sp.hcpcs_cd AS billing_code, 'typical' AS tier
+            SELECT s.npi, sp.hcpcs_cd AS billing_code, 'typical' AS tier,
+                   max(sp.prevalence) AS prevalence,
+                   NULL::INTEGER, NULL::BIGINT, NULL::BIGINT, NULL::BIGINT,
+                   NULL::DOUBLE, NULL::BOOLEAN
             FROM (
                 SELECT DISTINCT g.npi, nx.classification
                 FROM read_parquet('{ga_nppes}') g
                 JOIN read_parquet('{ref_p["nucc"]}') nx ON nx.taxonomy_code = g.taxonomy_code
-                WHERE g.npi IN (SELECT npi FROM read_parquet('{serving_dir}/group_members.parquet'))
+                WHERE g.npi IN (SELECT npi FROM {gm})
             ) s
             JOIN read_parquet('{ref_p["profiles"]}') sp ON sp.specialty = s.classification
-            WHERE sp.prevalence >= 0.03
+            WHERE sp.prevalence >= {TYPICAL_THRESHOLD}
               AND NOT EXISTS (
                 SELECT 1 FROM read_parquet('{cms_util}') b
                 WHERE b.npi = s.npi AND b.hcpcs_cd = sp.hcpcs_cd)
+            GROUP BY 1, 2
         """)
     if ev_parts:
-        con.execute(f"COPY ({' UNION ALL '.join(ev_parts)}) "
+        con.execute(f"COPY (SELECT {ev_cols} FROM ({' UNION ALL '.join(ev_parts)})) "
                     f"TO '{serving_dir}/evidence.parquet' (FORMAT parquet, COMPRESSION zstd)")
     else:
-        con.execute("CREATE TEMP TABLE _ev (npi BIGINT, billing_code VARCHAR, tier VARCHAR)")
+        con.execute("CREATE TEMP TABLE _ev (npi BIGINT, billing_code VARCHAR, tier VARCHAR, "
+                    "prevalence DOUBLE, year INTEGER, tot_srvcs BIGINT, tot_benes BIGINT, "
+                    "tot_bene_days BIGINT, avg_mdcr_allowed DOUBLE, is_drug BOOLEAN)")
         con.execute(f"COPY _ev TO '{serving_dir}/evidence.parquet' (FORMAT parquet, COMPRESSION zstd)")
 
-    # ── cross_network_rollup — (code, network) price spread, replacing
-    #    /rates/by_network's live cross-network scan and summary/rate_summary.
-    #    (summary/rate_hist and code_rollup's group-volume hint have no
-    #    equivalent here yet — #100 decides whether they move too.)
+    # ── rate_hist — the browse primitive. A $25 bucketed histogram per
+    #    (net, code, setting, scope, modifier) whose `n` is roster-weighted:
+    #    each price row contributes its group_set's provider-group count, so
+    #    `SUM(n)` over a slice approximates the fanned-out (group × rate) volume
+    #    without materialising it; `n_rates` is the raw price-row count. The
+    #    network overview rolls modifiers up; /rates/by_network filters to the
+    #    global (`''`) rate. p10/median/p90 come off the CDF at serve time.
+    #    `is_sentinel` is a dimension so the histogram can still show the
+    #    placeholder rows (known-gaps) while the rollup below excludes them.
+    #    Replaces summary/{rate_hist,rate_summary,code_rollup}.
     con.execute(f"""
         COPY (
-            SELECT billing_code, billing_code_type, net, any_value(network_name) AS network_name,
-                   count(DISTINCT (file_id, provider_group_id)) AS n_groups,
-                   round(quantile_cont(negotiated_rate, 0.1), 2) AS p10,
-                   round(median(negotiated_rate), 2) AS median,
-                   round(quantile_cont(negotiated_rate, 0.9), 2) AS p90
-            FROM {rates_glob}
-            WHERE scope = 'outpatient_prof' AND NOT is_sentinel AND modifier = ''
-            GROUP BY 1, 2, 3
+            WITH roster AS (
+                SELECT file_id, group_set_id, COUNT(*)::BIGINT AS n_groups
+                FROM read_parquet('{serving_dir}/group_sets.parquet') GROUP BY 1, 2
+            )
+            SELECT 'anthem' AS payer, rt.net, rt.network_name,
+                   rt.billing_code_type, rt.billing_code, rt.setting, rt.scope, rt.modifier,
+                   rt.is_sentinel,
+                   CASE WHEN rt.negotiated_rate >= {HIST_CAP} THEN {HIST_CAP}
+                        WHEN rt.negotiated_rate < 0 THEN 0
+                        ELSE floor(rt.negotiated_rate / {HIST_WIDTH}) * {HIST_WIDTH}
+                   END AS bucket,
+                   SUM(roster.n_groups)::BIGINT AS n,
+                   COUNT(*)::BIGINT AS n_rates
+            FROM {rates_glob} rt
+            JOIN roster USING (file_id, group_set_id)
+            -- network_name, not just net: two distinct Anthem network names
+            -- ("HMO PAR NETWORK (NON-ATL MBR SEEKS CARE IN ATL)" vs the same
+            -- text minus punctuation) can slugify to the same `net` partition
+            -- key. Grouping by net alone silently blended their rates into
+            -- one row (caught by #96's by_network golden test dropping a
+            -- network); network_name keeps them distinct rows that happen to
+            -- share a partition, same as `group_networks`.
+            GROUP BY rt.net, rt.network_name, rt.billing_code_type, rt.billing_code,
+                     rt.setting, rt.scope, rt.modifier, rt.is_sentinel, bucket
+        ) TO '{serving_dir}/rate_hist.parquet' (FORMAT parquet, COMPRESSION zstd)
+    """)
+
+    # ── cross_network_rollup — (code, network) -> roster-weighted volume +
+    #    min/p10/median/p90/max, read straight by /rates/by_network. Derived
+    #    from the rate_hist CDF (global, outpatient-prof, non-sentinel,
+    #    non-overflow buckets); a percentile is the bucket where the cumulative
+    #    weight crosses the threshold, at its midpoint; min/max are the bucket
+    #    edges. Not a raw-price scan. Keyed on (net, network_name), not net
+    #    alone — see the rate_hist comment above.
+    mid = HIST_WIDTH / 2.0
+    con.execute(f"""
+        COPY (
+            WITH h AS (
+                SELECT billing_code, billing_code_type, net, network_name,
+                       bucket, SUM(n) AS n
+                FROM read_parquet('{serving_dir}/rate_hist.parquet')
+                WHERE scope = 'outpatient_prof' AND modifier = '' AND NOT is_sentinel
+                  AND bucket < {HIST_CAP}
+                GROUP BY billing_code, billing_code_type, net, network_name, bucket
+            ),
+            cum AS (
+                SELECT *, SUM(n) OVER w AS c, SUM(n) OVER p AS tot
+                FROM h
+                WINDOW p AS (PARTITION BY billing_code, billing_code_type, net, network_name),
+                       w AS (PARTITION BY billing_code, billing_code_type, net, network_name
+                             ORDER BY bucket)
+            )
+            SELECT billing_code, billing_code_type, net, network_name,
+                   any_value(tot) AS n_groups,
+                   round(MIN(bucket), 2) AS min_rate,
+                   round(MIN(bucket) FILTER (WHERE c >= 0.1 * tot) + {mid}, 2) AS p10,
+                   round(MIN(bucket) FILTER (WHERE c >= 0.5 * tot) + {mid}, 2) AS median,
+                   round(MIN(bucket) FILTER (WHERE c >= 0.9 * tot) + {mid}, 2) AS p90,
+                   round(MAX(bucket) + {HIST_WIDTH}, 2) AS max_rate
+            FROM cum GROUP BY 1, 2, 3, 4
         ) TO '{serving_dir}/cross_network_rollup.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
     def n(name):
         return con.execute(f"SELECT COUNT(*) FROM read_parquet('{serving_dir}/{name}')").fetchone()[0]
 
-    print(f"\n  rates                  {total_rows:>12,}")
-    for f in ("group_members.parquet", "provider_dim.parquet", "code_dim.parquet",
-              "evidence.parquet", "cross_network_rollup.parquet"):
-        print(f"  {f:<22} {n(f):>12,}")
+    counts = {"rates": total_rows}
+    print(f"\n  rates                  {total_rows:>13,}")
+    for f in TABLES:
+        counts[f[:-len(".parquet")]] = n(f)
+        print(f"  {f:<22} {counts[f[:-len('.parquet')]]:>13,}")
     print(f"\n  total {time.time() - t0:.1f}s -> {serving_dir}/")
     con.close()
     if os.getenv("DUCKDB_TMP") is None:
         shutil.rmtree(spill, ignore_errors=True)
+
+    # ── manifest — what this build was made from. GET / reports it: the API
+    #    no longer looks at data/{nppes,reference,cms} itself, so "is NPPES
+    #    loaded" means "was it present when the serving tables were built".
+    manifest = {
+        "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "networks": [d[4:] for d in parts],
+        "partial": networks is not None,
+        "inputs": {
+            "nppes": os.path.exists(ga_nppes),
+            "nucc": os.path.exists(ref_p["nucc"]),
+            "code_labels": os.path.exists(ref_p["labels"]),
+            "cms_utilization": os.path.exists(cms_util),
+            "specialty_profiles": os.path.exists(ref_p["profiles"]),
+            "mpfs": os.path.exists(ref_p["mpfs"]),
+            "dac": os.path.exists(ref_p["dac"]),
+            "dac_hospital_affiliations": os.path.exists(affil),
+            "geocode": os.path.exists(ref_p["geocode"]),
+            "plan_link": have_plan_link,
+        },
+        "rows": counts,
+        "hist_width": HIST_WIDTH, "hist_cap": HIST_CAP,
+        "typical_threshold": TYPICAL_THRESHOLD,
+    }
+    with open(f"{serving_dir}/manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+# Every table a complete build writes (besides the rates/ partition tree).
+TABLES = ("group_sets.parquet", "group_members.parquet", "group_networks.parquet",
+          "provider_dim.parquet", "provider_affiliations.parquet", "code_dim.parquet",
+          "evidence.parquet", "rate_hist.parquet", "cross_network_rollup.parquet")
 
 
 def main():
@@ -448,12 +555,7 @@ def main():
     ap.add_argument("--serving-dir", default=None,
                     help="output dir (default: SERVING_DIR env, else <data-dir>/serving)")
     ap.add_argument("--networks", default=None,
-                    help="comma-separated net slugs to build "
-                         "(default: partitions matching a targets.yaml network_pattern)")
-    ap.add_argument("--all-networks", action="store_true",
-                    help="build every partition, ignoring the targets.yaml scope "
-                         "(the off-target store fans out to billions of rows)")
-    ap.add_argument("--targets", default=None, help="a targets.yaml other than etl/targets.yaml")
+                    help="comma-separated net slugs to build (default: all partitions)")
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
@@ -463,8 +565,7 @@ def main():
 
     if not os.path.isdir(f"{store_dir(data_dir, args.test, 'anthem', 'ANTHEM_DIR')}/prices"):
         raise SystemExit("no rate store — run `make parse` first")
-    build(data_dir, serving_dir, networks, args.all_networks, args.test,
-          targets_path=args.targets)
+    build(data_dir, serving_dir, networks, args.test)
 
 
 if __name__ == "__main__":

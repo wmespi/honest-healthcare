@@ -23,13 +23,14 @@ def test_health_and_trust_bar(api):
     # / plausible-tier fixture)
     assert body["n_codes"] == 8
     assert body["as_of"] is None or len(body["as_of"]) == 10
-    # The fixture builds every optional reference table, including the
-    # browse summary (conftest.py runs scripts/build_rate_summary.py, so
-    # rate_hist.parquet exists here too).
+    # The fixture's raw data is a build input for every optional table
+    # (conftest.py runs the real build.build.build() against it).
     assert body["reference_loaded"] == {
         "nppes": True, "nucc": True, "cms_utilization": True,
-        "mpfs": True, "rate_hist": True,
+        "mpfs": True, "dac": True,
     }
+    assert body["built_at"] is not None
+    assert body["partial_build"] is False
 
 
 def test_distribution_shape(api):
@@ -140,6 +141,10 @@ def test_rates_providers_collapses_by_practice(api):
     assert prac["practice_name"] == "Peachtree Internal Medicine LLC"
     assert prac["n_groups"] == 2
     assert prac["npi_count"] == 4          # NPIs 1-4, across the two folded groups
+    # the practice's member specialties, not silently dropped (regression: an
+    # earlier draft of the #100 rewrite lost this field entirely)
+    assert set(prac["ga_taxonomies"]) & {"Internal Medicine", "Other"}
+    assert prac["ga_indiv_names"]  # Adams/Baker/Carter/Diaz resolve to names
     # one row per practice_id, not per file-local group
     ids = [row["practice_id"] for row in r["results"]]
     assert len(ids) == len(set(ids))
@@ -432,18 +437,6 @@ def test_procedure_categories(api):
     assert any(r["category"] == "Procedure" for r in body)
 
 
-def test_browse_falls_back_without_summary(api, monkeypatch):
-    """Endpoints still answer when the summary parquet is absent (the live
-    prices ⨝ group_sets scan — VOL_CTE)."""
-    from serving.routers import reference
-    monkeypatch.setattr(reference, "have_summary", lambda: False)
-    nets = api.get("/networks").json()
-    assert {r["network_name"] for r in nets} == {BLUE_VALUE, "GA Blue Open Access POS Network"}
-    assert all(r["n_rates"] > 0 for r in nets)
-    codes = api.get("/billing_codes", params={"q": "99213"}).json()
-    assert any(r["billing_code"] == "99213" for r in codes)
-
-
 def test_plans_resolves_blue_value(api):
     body = api.get("/plans").json()
     assert body
@@ -453,3 +446,12 @@ def test_plans_resolves_blue_value(api):
     assert bv is not None
     assert bv["network_name"] == BLUE_VALUE
     assert bv["available"] is True
+
+
+def test_service_lines_endpoint(api):
+    # #100 — the frontend reads the curated allowlists off the API instead of
+    # keeping its own hand-synced copy.
+    body = api.get("/service_lines").json()
+    assert "pcp" in body
+    assert "207Q00000X" in body["pcp"]["taxonomy_codes"]
+    assert "99204" in body["pcp"]["billing_codes"]

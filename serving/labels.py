@@ -1,19 +1,12 @@
 """Consumer-facing labels — turning raw MRF codes into something a patient reads.
 
-Place-of-service buckets, modifier labels, the NUCC specialty join, the provider
-card, and the coarse specialty↔code plausibility check. No SQL sources here — see
-data_sources.py.
+Place-of-service buckets, modifier labels, the provider card (one `provider_dim`
+row + its hospital affiliations), and the coarse specialty↔code plausibility
+check. No SQL sources here — see data_sources.py.
 """
 import datetime
-import os
 
-from .data_sources import (
-    DAC_GA_PATH,
-    DAC_HOSPITAL_AFFIL_PATH,
-    GA_NPPES_PATH,
-    NUCC_PATH,
-    nppes_cols,
-)
+from .data_sources import PROVIDER_AFFIL_SRC, PROVIDER_DIM_SRC
 
 # ── place of service ────────────────────────────────────────────────────────
 
@@ -60,104 +53,55 @@ MODIFIER_LABELS = {
     "50": ("Bilateral procedure", "Performed on both sides."),
 }
 
-# ── NUCC specialty + provider card ─────────────────────────────────────────
+# ── provider card ──────────────────────────────────────────────────────────
 
 _BEHAVIORAL = ("social worker", "counselor", "psychologist", "behavior analyst",
                "psychiatric", "mental health", "behavioral health")
 _PROCEDURAL_CATS = {"Procedure", "Imaging", "Test", "Anesthesia"}
 
 
-def nucc_bits():
-    """(select-fragment, join-fragment) adding `specialty` + `grouping` +
-    `classification` columns off nx, or NULLs when the NUCC reference isn't built
-    yet. Assumes the provider row exposes `taxonomy_code` as `g.taxonomy_code`."""
-    if os.path.exists(NUCC_PATH):
-        return (
-            "COALESCE(nx.specialty, NULLIF(g.taxonomy_group, 'Other')) AS specialty, "
-            "nx.grouping AS nucc_grouping, nx.classification AS nucc_classification",
-            f"LEFT JOIN read_parquet('{NUCC_PATH}') nx ON nx.taxonomy_code = g.taxonomy_code",
-        )
-    return ("NULLIF(g.taxonomy_group, 'Other') AS specialty, NULL AS nucc_grouping, "
-            "NULL AS nucc_classification", "")
-
-
-_DAC_PRESENT = None
-
-
-def dac_bits():
-    """(has_dac_ga, has_hospital_affiliations) for the CMS Doctors & Clinicians
-    tables — module-cached like nppes_cols so the presence check is a stat once
-    per process, not per request. `make doctors-clinicians` builds them."""
-    global _DAC_PRESENT
-    if _DAC_PRESENT is None:
-        _DAC_PRESENT = (os.path.exists(DAC_GA_PATH),
-                        os.path.exists(DAC_HOSPITAL_AFFIL_PATH))
-    return _DAC_PRESENT
-
-
-def _dac_provider_bits(conn, npi: int) -> dict:
-    """`group_name`, `years_in_practice`, `hospital_affiliations` for one NPI from
-    the CMS Doctors & Clinicians tables — {} when they aren't built."""
-    has_dac, has_affil = dac_bits()
-    if not has_dac:
-        return {}
-    out: dict = {}
-    r = conn.execute(
-        f"SELECT org_name, grad_year FROM read_parquet('{DAC_GA_PATH}') WHERE npi = ? LIMIT 1",
-        [npi],
-    ).fetchone()
-    if r:
-        out["group_name"] = r[0]
-        yr = r[1]
-        this_year = datetime.date.today().year
-        out["years_in_practice"] = (
-            this_year - yr if yr and 1900 < yr <= this_year else None
-        )
-    if has_affil:
-        rows = conn.execute(
-            f"""SELECT DISTINCT ccn, facility_name
-                FROM read_parquet('{DAC_HOSPITAL_AFFIL_PATH}')
-                WHERE npi = ? ORDER BY facility_name NULLS LAST, ccn""",
-            [npi],
-        ).fetchall()
-        out["hospital_affiliations"] = [
-            {"ccn": x[0], "facility_name": x[1]} for x in rows
-        ]
-    return out
-
-
 def provider_card(conn, npi: int):
-    """Name / specialty / practice address for one NPI from the NPPES GA subset,
-    plus CMS Doctors & Clinicians identity (`group_name`, `years_in_practice`,
-    `hospital_affiliations`) when `make doctors-clinicians` has run."""
-    if not os.path.exists(GA_NPPES_PATH):
-        return None
-    spec_sel, spec_join = nucc_bits()
-    have_addr = {"address_line1", "address_line2"} <= nppes_cols(conn)
-    addr_sel = "g.address_line1, g.address_line2" if have_addr else "NULL AS address_line1, NULL AS address_line2"
+    """Name / specialty / practice address for one NPI from `provider_dim`, plus
+    the CMS Doctors & Clinicians identity the build folded in (`group_name`,
+    `years_in_practice`) and its `hospital_affiliations` (`[{ccn,
+    facility_name}]`, from `provider_affiliations`). Keys prefixed `_` are for
+    the caller (plausibility / evidence lookups) and are popped before the
+    card is returned to a client. None when the NPI isn't in NPPES GA."""
     r = conn.execute(f"""
-        SELECT COALESCE(NULLIF(g.org_name, ''),
-                        NULLIF(TRIM(BOTH ', ' FROM g.last_name || ', ' || g.first_name), '')) AS name,
-               g.city, g.postal_code, g.is_hospital, {spec_sel}, {addr_sel},
-               g.is_clinic, g.entity_type
-        FROM read_parquet('{GA_NPPES_PATH}') g
-        {spec_join}
-        WHERE g.npi = ?
+        SELECT name, city, postal_code, is_hospital, specialty, nucc_grouping,
+               nucc_classification, address_line1, address_line2, is_clinic,
+               entity_type, group_name, grad_year, cms_provider_type
+        FROM {PROVIDER_DIM_SRC}
+        WHERE npi = ?
         LIMIT 1
     """, [npi]).fetchone()
     if not r:
         return None
-    # cols: name0 city1 postal2 is_hospital3 specialty4 grouping5 classification6 addr1_7 addr2_8 is_clinic9 entity_type10
     street = ", ".join(x for x in (r[7], r[8]) if x)
-    card = {
+    yr = r[12]
+    this_year = datetime.date.today().year
+    affils = conn.execute(f"""
+        SELECT DISTINCT ccn, facility_name FROM {PROVIDER_AFFIL_SRC}
+        WHERE npi = ? ORDER BY facility_name NULLS LAST, ccn
+    """, [npi]).fetchall()
+    return {
         "npi": npi, "name": r[0], "city": r[1], "postal_code": r[2],
         "is_hospital": bool(r[3]), "specialty": r[4],
         "is_clinic": bool(r[9]), "entity_type": r[10],
-        "_grouping": r[5], "_classification": r[6],
         "street": street or None,
         "address": ", ".join(x for x in (street, r[1]) if x) or None,
+        "group_name": r[11],
+        "years_in_practice": (this_year - yr if yr and 1900 < yr <= this_year else None),
+        "hospital_affiliations": [{"ccn": a[0], "facility_name": a[1]} for a in affils],
+        "_grouping": r[5], "_classification": r[6], "_cms_provider_type": r[13],
     }
-    card.update(_dac_provider_bits(conn, npi))
+
+
+def strip_private(card):
+    """Drop the `_`-prefixed working keys before a card leaves the API."""
+    if card:
+        for k in [k for k in card if k.startswith("_")]:
+            card.pop(k)
     return card
 
 

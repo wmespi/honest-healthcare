@@ -5,4 +5,3 @@ fastapi==0.139.2
 uvicorn[standard]==0.51.0
 duckdb==1.5.5
 pydantic==2.13.4
-pyyaml==6.0.3   # build/build.py reads etl/targets.yaml (the build runs in this image)
