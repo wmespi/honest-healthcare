@@ -141,58 +141,64 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Scale / performance
 
-- **Browse-layer summary is a full rebuild, not incremental.** `/networks`,
-  `/billing_codes`, `/procedure_categories` and the no-code `/rates/distribution`
-  (network overview) read `anthem/summary/` when it exists (`make build-summary`
-  — [#10](https://github.com/wmespi/honest-healthcare/issues/10)), falling back
-  to the live `prices` / `prices ⨝ group_sets` scan when it doesn't. The build
-  recomputes the whole summary each run (~3 min at 645M price rows — the
-  `rate_hist` scan dominates); per-file partials → merge is the follow-up. It is
-  also **not auto-triggered** — run it after each `make parse` batch, or the
-  overview 404s / the browse counts go stale. The overview is **CPT-only** (the
-  `rate_hist` scan keeps every code type, but the endpoint filters to CPT) —
-  revenue codes (`RC`, e.g. `0510` at up to $7.2M) and per-unit drug J-codes
-  otherwise blow the summary spread to nonsense
-  ([GH #51](https://github.com/wmespi/honest-healthcare/issues/51)).
-- **`/rates/by_network` still scans `prices ⨝ group_sets` live.** It prunes hard
-  on the required `billing_code` so it doesn't OOM (~6 s at 645M rows), but it's
-  the one consumer endpoint not yet on the summary. Moving it to per-network CDF
-  reads off `rate_hist` + a `(net, code) → n_groups` rollup is the remaining
-  slice-2 item ([#10](https://github.com/wmespi/honest-healthcare/issues/10)).
-- **`/rates/by_network` `n_groups` and `n_providers` measure different things
-  and neither bounds the other.** `n_groups` counts distinct *file-local*
-  `(file_id, provider_group_id)` instances — one practice recurs as a group
-  across every file that lists it — so at corpus scale it far exceeds
-  `n_providers` (distinct NPIs) for the big networks, and rollup-heavy small
-  networks (Military/VA, retail clinics) go the other way. Same root cause as
-  `code_rollup.n_provider_groups`; a real distinct rollup is
-  [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
-- **`code_rollup.n_provider_groups` is an inflated ranking hint, not a distinct
-  count.** It sums the code's rosters' sizes, so a provider group in several of a
-  code's rosters is counted per-roster (same as the old `VOL_CTE`; #45's
-  `approx_count_distinct` didn't scale — #47). At 645M price rows this reads
-  ~1.1M for a common code. Ordering is fine; **never render it as "N providers".**
-  A real `(payer, code) → n_providers` distinct rollup:
+- **The serving-table build (`make build`) is a full rebuild, not incremental.**
+  `/networks`, `/billing_codes`, `/procedure_categories`, `/rates/distribution`,
+  and `/rates/by_network` all read the build's `rate_hist` /
+  `cross_network_rollup` / `code_dim` — there is no live-scan fallback any more
+  (#100: a missing build is a `503`, not a slower degraded path). The build
+  recomputes the whole store each run (~193 s at 645M price rows / 54 networks
+  on the box this was measured on); per-file partials → merge is a future
+  refinement. It is also **not auto-triggered** — run it after each `make parse`
+  batch, or the browse tables go stale.
+- **`/rates/quote` and the provider menu can take ~2 s for a provider whose
+  NPI sits in every distinct source file the corpus has.** Both resolve an NPI
+  to its `(file_id, group_set_id)` sets via `group_members ⨝ group_sets`; a
+  `file_id` predicate prunes that join for a typical provider, but the corpus
+  has only ~30 distinct source files (one file's `provider_references` can list
+  many networks), and a provider who bills through a large shared-network file
+  can appear in most or all of them — pruning has nothing to exclude. Measured
+  equally slow (actually slightly slower) against the pre-#100 raw
+  per-file-glob architecture, so this is a pre-existing corpus characteristic,
+  not a repoint regression. A precomputed `(npi) → group_set_id[]` index would
+  remove the join entirely; not built.
+- **`/rates/by_network` `n_groups` and `n_providers` measure different things —
+  and `n_providers` is no longer computed at all.** `n_groups` (from
+  `cross_network_rollup`, off the roster-weighted `rate_hist` CDF) counts a
+  provider group once per distinct `(file_id, provider_group_id)` it appears
+  in — one practice recurs as a group across every file that lists it — so at
+  corpus scale it can far exceed a distinct-NPI count. The old live join that
+  computed `n_providers` here is gone (the rollup can't derive it); the field
+  is `null` until a distinct-NPI rollup exists — same root cause as the next
+  bullet, [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
+- **`rate_hist.n` (the roster-weighted "provider_groups" ranking hint behind
+  `/billing_codes`, `/procedure_categories`, the network overview) is inflated,
+  not a distinct count.** It sums each price's roster size, so a provider group
+  in several of a code's rosters is counted per-roster (same as the retired
+  `VOL_CTE` / `code_rollup`). Ordering is fine; **never render it as "N
+  providers".** A real `(payer, code) → n_providers` distinct rollup:
   [GH #48](https://github.com/wmespi/honest-healthcare/issues/48).
 - **`/rates/providers` + `/rates/quote` require a `network_name`** (`400
   {"code": "network_required"}`). The unpruned cross-network expansion spilled
   15–60 GB and a precomputed `(code, network, tin) → rate` rollup is infeasible
   here (one common code = 264k rollup rows; the build OOM'd on this box) — so the
   view is plan-scoped instead. With a network the `_prac` temp-table pass
-  (`prices ⨝ group_sets ⨝ providers ⨝ nppes`, one code + one network) is ~0.4 s.
-  The plan-first front door ([direction.md](direction.md) Flow A) makes this the
-  natural flow anyway. Per-row `n_groups` over-counts a provider group that
-  spans several TINs (it's "groups this practice's rate reaches you through") —
-  the summary `n_groups` is the true distinct count.
+  (`rates ⨝ group_sets ⨝ group_members ⨝ provider_dim`, one code + one network)
+  is ~0.4 s. The plan-first front door ([direction.md](direction.md) Flow A)
+  makes this the natural flow anyway. Per-row `n_groups` over-counts a provider
+  group that spans several TINs (it's "groups this practice's rate reaches you
+  through") — the aggregate `n_groups` in `summary` is the true distinct count
+  over the query's rows (not collapsed by rule 5 — reading (a) of the #100
+  checkpoint decision).
 - **`/rates/distribution` for a code without a `network_name` serves off
   `rate_hist`**, not the live expansion (which was ~27 s). `provider_groups` /
   `n_providers` come back `null` there; the histogram bars are $25-bucket, not
   exact-rate.
 - **`/rates/providers` `ga_hospitals_only` filters the rows but not `summary`** —
   the min/median/max still describe every practice. Niche param; revisit if used.
-- **Backend opens a fresh `duckdb.connect()` per request** — bounded now
-  (`memory_limit`, `temp_directory` in `db()`), but no connection reuse / zonemap
-  cache. Persistent pooled connection is the remaining #10 item.
+- **Backend now holds one process-wide DuckDB database** (`db()` returns a
+  `cursor()` on it, not a fresh connection per request) — Parquet metadata /
+  zonemaps stay warm across requests. This closes the last #10 scale item on
+  the connection side; a query-result cache is a further-out follow-up.
 - **`coverage_log.n_ga_hospital_npis`** is never populated (the NPPES join happens
   at query time). Backfill with a post-batch `providers ⨝ ga_providers` query if
   the number is wanted in the log.

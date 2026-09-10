@@ -22,7 +22,7 @@ a server process.
 
 ---
 
-## Parquet — `data/anthem/` (what the serving layer reads)
+## Parquet — `data/anthem/` (a build input — `make build` reads this, the API doesn't)
 
 ```
 prices/net=<slug>/{id}.parquet
@@ -63,103 +63,70 @@ practice recurs across the MRF as many file-local `provider_group_id`s but keeps
 one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 `/rates/providers` collapses on it ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
 
-### `summary/` — precomputed browse layer (`make build-summary`)
+## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md), read straight by the API)
 
-```
-summary/rate_hist.parquet
-    payer | net | network_name | billing_code_type | billing_code | setting
-      | scope | bucket | n
-summary/rate_summary.parquet
-    payer | network_name | net | billing_code_type | billing_code | setting
-      | n_rates | min_rate | max_rate | avg_rate
-summary/code_rollup.parquet
-    payer | billing_code_type | billing_code | n_provider_groups | n_rates
-```
-
-`scripts/build_rate_summary.py` rebuilds all three from `prices` (+ a
-pre-aggregated per-roster size table for `code_rollup`) after a parse batch:
-
-- **`rate_hist`** — a pre-bucketed rate histogram: `$25` buckets to `$5000`,
-  then one overflow bucket at `5000`. The one heavy scan of `prices`, all-scalar
-  `COUNT`. The network overview's bars *are* this table, and the serving layer
-  derives p10/median/p90 from its CDF at read time (a code spans ~20-200 buckets
-  — trivial). Exact per-group percentiles at build time OOM: millions of groups
-  × any non-scalar accumulator, t-digest included.
-  `scope` is `'outpatient_prof'` for outpatient professional fee-for-service
-  dollar rates (`serving/data_sources.outpatient_scope` — the slice the consumer
-  rate views compare), `'other'` otherwise. The no-code `/rates/distribution`
-  overview filters to `'outpatient_prof'`; the two rollups below sum across both.
-- **`rate_summary`** — scalar rollup of `rate_hist`, one row per priced
-  `(network, code, setting)`; `min/max/avg` are bucket-approximate (± `$25`).
-  `/networks` sums `n_rates` **across every scope** (it answers "what's priced
-  here", not "what does an outpatient visit cost"). **No all-settings (`'*'`)
-  rollup row** — every consumer that sums `n_rates` would double-count it; roll
-  settings up at read time.
-- **`code_rollup`** — `n_provider_groups` is SUM of the code's rosters' sizes, a
-  ranking hint that over-counts a group in several of a code's rosters (same as
-  the old `VOL_CTE`), computed against the roster-size table so it stays bounded
-  at 1e9+ edges. `n_rates` is exact.
-
-The `/networks`, `/billing_codes`, `/procedure_categories` and the no-code
-`/rates/distribution` (network overview) endpoints read these instead of
-scanning `prices` / `prices ⨝ group_sets` (645M rows / >1e9 edges at GA scale —
-[issue #10](https://github.com/wmespi/honest-healthcare/issues/10)); they fall
-back to the live scan when the files are absent. `payer` is `'anthem'` today;
-the column is there for multi-payer. Build cost: ~3 min at 645M price rows /
-1.1B roster edges (`rate_hist` ~80 s, the rest scalar).
-
-`{id}` is `index_files.id`; `file_id` carries it on every row. `provider_group_id`
-is the MRF's **file-local** `provider_reference.id` — all cross-file joins key on
-`(file_id, provider_group_id)`.
-
-### `summary/` and `data/serving/`
-
-`summary/` is the interim browse layer; `data/serving/` (below) is built by
-`make build` (`build/build.py`). The serving layer still reads `summary/` — the
-repoint onto `data/serving/`, and the deletion of `scripts/build_rate_summary.py`
-if `cross_network_rollup` fully replaces it (see below), land in
-[#100](https://github.com/wmespi/honest-healthcare/issues/100).
-
-## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md))
+`make build` (`build/build.py`) is the **only** thing `serving/` reads
+([#100](https://github.com/wmespi/honest-healthcare/issues/100)) — a missing
+table here is a `503` from `GET /`, never a fallback to raw `anthem/` /
+`nppes/` / `reference/` / `cms/`.
 
 ```
 rates/net=<slug>/part.parquet
-    network_name | net | file_id | provider_group_id
+    network_name | net | file_id | group_set_id
     billing_code_type | billing_code | modifier | setting | service_code
     negotiated_type | negotiation_arrangement | expiration_date | negotiated_rate
     scope | is_sentinel | source_kind | medicare_allowed | vs_medicare
+group_sets.parquet             file_id | group_set_id | provider_group_id
 group_members.parquet          file_id | provider_group_id | npi | tin_value
+group_networks.parquet         file_id | provider_group_id | net | network_name
 provider_dim.parquet           npi | name | specialty | nucc_classification
-    | cms_provider_type | org_name | org_pac_id | lat | lon | service_lines
-    | is_hospital | is_clinic | entity_type | address_line1 | address_line2
-    | city | postal_code
+    | nucc_grouping | cms_provider_type | org_name | group_name | org_pac_id
+    | grad_year | lat | lon | service_lines | is_hospital | is_clinic
+    | entity_type | last_name | first_name | taxonomy_code | taxonomy_group
+    | address_line1 | address_line2 | city | postal_code
+provider_affiliations.parquet  npi | ccn | facility_name
 code_dim.parquet               billing_code | billing_code_type | label
-    | category | rbcs_family | shoppable | medicare_allowed
+    | category | rbcs_subcategory | rbcs_family | rbcs_is_major | search_text
+    | shoppable | medicare_allowed
 evidence.parquet               npi | billing_code | tier ('billed' | 'typical')
+    | prevalence | year | tot_srvcs | tot_benes | tot_bene_days
+    | avg_mdcr_allowed | is_drug
+rate_hist.parquet              payer | net | network_name | billing_code_type
+    | billing_code | setting | scope | modifier | is_sentinel | bucket | n | n_rates
 cross_network_rollup.parquet   billing_code | billing_code_type | net
-    | network_name | n_groups | p10 | median | p90
+    | network_name | n_groups | min_rate | p10 | median | p90 | max_rate
+manifest.json                  built_at | networks | partial | inputs | rows
 ```
 
-`rates` is one `prices ⨝ group_sets` row with the product columns added: `scope`
-(`serving/data_sources.outpatient_scope`), `is_sentinel` (the store-wide
-`serving/routers/rates.py:_sentinel_ceiling` rule), `source_kind`
-(`plan_specific` | `shared`, from `index_file_plans`), the MPFS benchmark.
-Hive-partitioned by `net` like `prices`. **Rule 5** (AGENTS.md #5): the build
-keeps every expanded row and tags `source_kind`; it does **not** collapse across
-files (`provider_group_id` is file-local). So
-`(file_id, provider_group_id, billing_code, modifier, setting)` is **not** unique
-— POS variants and multi-roster rates coexist. MRF redundancy is resolved at
-read time, `DISTINCT` / `MIN` over the query-narrowed rows now also preferring
-`plan_specific` and the lower shared rate ([#100],
-[etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strategy)).
-`cross_network_rollup` replaces `/rates/by_network`'s live scan and
-`summary/rate_summary`; `summary/rate_hist` (the sentinel ceiling +
-`/rates/distribution` histogram) and `code_rollup`'s group-volume hint have no
-equivalent yet. `evidence` is scoped to NPIs reachable through a rate;
-`provider_dim` is the full GA NPPES universe. The entity model:
-[docs/architecture.md](architecture.md#serving-entity-model-grain--provider-group).
+`rates` is the parser's **price grain** — one row per negotiated price, no
+group fan-out (`group_set_id` links to `group_sets` for the join a query needs
+at read time, after pruning on `net` + `billing_code`). This is what keeps
+`make build` a routine full-store pass: the full `prices ⨝ group_sets`
+expansion is ~33.5 billion rows across the corpus, but the price rows
+themselves are ~645 million (~193 s to build, all 54 networks). `scope`
+(`serving/data_sources.outpatient_scope`), `is_sentinel` (a store-wide
+ceiling), `source_kind` (`plan_specific` | `shared`, from `index_file_plans`),
+and the MPFS benchmark are added at build time. **Rule 5** (AGENTS.md #5): the
+build keeps every row and tags `source_kind`; it does **not** collapse across
+files (`provider_group_id` is file-local) — that's resolved at read time, per
+practice, preferring `plan_specific` over `shared`
+([etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strategy)).
 
-[#100]: https://github.com/wmespi/honest-healthcare/issues/100
+`rate_hist` is the browse primitive: a $25-bucketed, roster-weighted histogram
+— `n` sums each price's roster size, `n_rates` is the raw price-row count.
+`is_sentinel` is a dimension (not a filter), so the histogram can still show
+the placeholder rows; `cross_network_rollup` (read straight by
+`/rates/by_network`) excludes them. Both replace the retired
+`summary/{rate_hist,rate_summary,code_rollup}` browse layer.
+
+`provider_dim.org_name` (raw NPPES entity name) and `.group_name` (the CMS
+Doctors & Clinicians billing-group identity) are deliberately separate columns
+— folding them into one field would let a shared group affiliation silently
+overwrite an individual practitioner's own name in a search result (a real bug
+this build caught). `evidence` is scoped to NPIs reachable through a rate;
+`provider_dim` is the full GA NPPES universe.
+
+The entity model: [docs/architecture.md](architecture.md#serving-entity-model-grain--provider-group).
 
 ### Why the split
 

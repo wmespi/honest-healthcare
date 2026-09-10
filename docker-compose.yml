@@ -53,13 +53,12 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
       - TEST_DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test
       # Sub-store split (GH #59 Part C) — empty unless a worktree is rebuilding
-      # reference/CMS/summary parquet; code falls back to DATA_DIR subdirs.
+      # reference/CMS/serving parquet; code falls back to DATA_DIR subdirs.
       # data-local/ is already at /app/data-local via the repo mount.
       - ANTHEM_DIR=${ANTHEM_DIR:-}
       - NPPES_DIR=${NPPES_DIR:-}
       - REFERENCE_DIR=${REFERENCE_DIR:-}
       - CMS_DIR=${CMS_DIR:-}
-      - SUMMARY_DIR=${SUMMARY_DIR:-}
       - SERVING_DIR=${SERVING_DIR:-}
     depends_on:
       db:
@@ -92,7 +91,6 @@ services:
       - NPPES_DIR=${NPPES_DIR:-}
       - REFERENCE_DIR=${REFERENCE_DIR:-}
       - CMS_DIR=${CMS_DIR:-}
-      - SUMMARY_DIR=${SUMMARY_DIR:-}
       - SERVING_DIR=${SERVING_DIR:-}
 
   frontend:

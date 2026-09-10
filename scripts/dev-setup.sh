@@ -103,13 +103,13 @@ EOF
   say ".env: wrote $NAME  (db $DBP · api $APIP · web $WEBP · data ← $CANONICAL/data)"
 fi
 
-# ── 5. optional: local reference/CMS/summary store (GH #59 Part C) ────────────
+# ── 5. optional: local reference/CMS/serving store (GH #59 Part C) ────────────
 # Read the big immutable stores from the shared corpus (ANTHEM_DIR/NPPES_DIR via
 # the HH_DATA_ROOT mount), write the rebuilt ones into this worktree's
 # data-local/ (already at /app/data-local via the repo mount). No override file.
 if [ "$REBUILD_REF" -eq 1 ]; then
-  say "data-local: seeding reference / cms / anthem-summary from $CANONICAL/data"
-  for d in reference cms anthem/summary serving; do
+  say "data-local: seeding reference / cms / serving from $CANONICAL/data"
+  for d in reference cms serving; do
     mkdir -p "data-local/$d"
     [ -d "$CANONICAL/data/$d" ] && cp -Rn "$CANONICAL/data/$d/." "data-local/$d/" 2>/dev/null || true
   done
@@ -122,7 +122,6 @@ ANTHEM_DIR=/app/data/anthem
 NPPES_DIR=/app/data/nppes
 REFERENCE_DIR=/app/data-local/reference
 CMS_DIR=/app/data-local/cms
-SUMMARY_DIR=/app/data-local/anthem/summary
 SERVING_DIR=/app/data-local/serving
 EOF
     say ".env: appended the sub-store split (rebuilds land in ./data-local/)"

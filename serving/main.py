@@ -1,8 +1,7 @@
-"""Honest Healthcare API — FastAPI over DuckDB / Parquet.
+"""Honest Healthcare API — FastAPI over DuckDB / the serving Parquet tables.
 
-App wiring only. Data sources and the connection factory live in
-data_sources.py; consumer-label helpers in labels.py; the routes in routers/.
-See serving/serving.md.
+App wiring only. Table sources and the connection live in data_sources.py;
+consumer-label helpers in labels.py; the routes in routers/. See serving/serving.md.
 """
 import datetime as _dt
 import glob as _glob
@@ -10,11 +9,11 @@ import os as _os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .data_sources import (
-    CMS_UTILIZATION_PATH, GA_NPPES_PATH, GROUP_SETS_SRC, MPFS_GA_PATH,
-    NPI_LOOKUP_PATH, NUCC_PATH, PRICES_GLOB, PRICES_SRC, PROVIDERS_SRC,
-    RATE_HIST_PATH, RATE_SUMMARY_PATH, db, have_summary,
+    CODE_DIM_SRC, GROUP_MEMBERS_SRC, GROUP_SETS_SRC, RATE_HIST_SRC, RATES_GLOB,
+    SERVING_DIR, db, manifest, missing_build,
 )
 from .routers import providers, rates, reference
 
@@ -34,9 +33,9 @@ app.include_router(reference.router)
 
 
 def _data_as_of():
-    """Newest prices Parquet mtime → the 'rates as of' date for the trust bar."""
+    """Newest rates Parquet mtime → the 'rates as of' date for the trust bar."""
     try:
-        files = _glob.glob(PRICES_GLOB, recursive=True)
+        files = _glob.glob(RATES_GLOB, recursive=True)
         if files:
             return _dt.date.fromtimestamp(max(_os.path.getmtime(f) for f in files)).isoformat()
     except Exception:
@@ -46,53 +45,43 @@ def _data_as_of():
 
 @app.get("/")
 def health():
+    """Health + the trust-bar context. A missing build is an error, not a
+    degraded mode: 503 with what's absent, so nobody mistakes an unbuilt
+    stack for an empty corpus."""
+    missing = missing_build()
+    if missing:
+        return JSONResponse(status_code=503, content={
+            "status": "no_build",
+            "message": f"serving tables missing under {SERVING_DIR} — run `make build`",
+            "missing": missing,
+        })
     conn = db()
+    m = manifest()
     try:
-        # COUNT(*) over the parquet globs is footer-only (fast even at 1e9 rows).
-        edges     = conn.execute(f"SELECT COUNT(*) FROM {GROUP_SETS_SRC}").fetchone()[0]
-        providers = conn.execute(f"SELECT COUNT(*) FROM {PROVIDERS_SRC}").fetchone()[0]
-
-        if _os.path.exists(NPI_LOOKUP_PATH):
-            priceable_npis = conn.execute(
-                f"SELECT COUNT(DISTINCT npi) FROM read_parquet('{NPI_LOOKUP_PATH}', union_by_name=true)"
-            ).fetchone()[0]
-        else:
-            priceable_npis = 0
-
-        # trust bar (issue #32): total rate rows, the network list, code coverage.
-        # The DISTINCT aggregates would full-scan `prices` (645M+ rows → OOM), so
-        # read them from the browse summary when it's built (#10).
-        if have_summary():
-            src = f"read_parquet('{RATE_SUMMARY_PATH}')"
-            prices = conn.execute(f"SELECT COALESCE(SUM(n_rates), 0) FROM {src}").fetchone()[0]
-            n_codes = conn.execute(f"SELECT COUNT(DISTINCT billing_code) FROM {src}").fetchone()[0]
-            net_src = src
-        else:
-            prices = conn.execute(f"SELECT COUNT(*) FROM {PRICES_SRC}").fetchone()[0]
-            n_codes = conn.execute(f"SELECT COUNT(DISTINCT billing_code) FROM {PRICES_SRC}").fetchone()[0]
-            net_src = PRICES_SRC
+        # Footer totals — scalar reads of the small tables, never a `rates` scan.
+        prices = conn.execute(f"SELECT COALESCE(SUM(n_rates), 0) FROM {RATE_HIST_SRC}").fetchone()[0]
+        edges = conn.execute(f"SELECT COUNT(*) FROM {GROUP_SETS_SRC}").fetchone()[0]
+        members, priceable_npis = conn.execute(
+            f"SELECT COUNT(*), COUNT(DISTINCT npi) FROM {GROUP_MEMBERS_SRC}").fetchone()
+        n_codes = conn.execute(f"SELECT COUNT(DISTINCT billing_code) FROM {CODE_DIM_SRC}").fetchone()[0]
         networks = [r[0] for r in conn.execute(
-            f"SELECT DISTINCT network_name FROM {net_src} "
+            f"SELECT DISTINCT network_name FROM {RATE_HIST_SRC} "
             f"WHERE network_name IS NOT NULL AND network_name != '' ORDER BY 1"
         ).fetchall()]
 
-        # Which optional reference builds (README.md steps 6-8) are actually
-        # on disk — file-exists flags, not a guess from response shape. A
-        # consumer (test_golden.py's skip guard, a future admin panel) can
-        # tell "no NPPES yet" from "NPPES loaded but this NPI has no rates"
-        # without probing several endpoints and inferring from their shape.
-        reference_loaded = {
-            "nppes": _os.path.exists(GA_NPPES_PATH),
-            "nucc": _os.path.exists(NUCC_PATH),
-            "cms_utilization": _os.path.exists(CMS_UTILIZATION_PATH),
-            "mpfs": _os.path.exists(MPFS_GA_PATH),
-            "rate_hist": _os.path.exists(RATE_HIST_PATH),
-        }
+        # Which optional reference datasets went INTO the build (the API never
+        # reads them directly any more). test_golden.py's skip guard and a
+        # future admin panel read these rather than inferring from response
+        # shape — "no NPPES" vs "NPPES loaded but this NPI has no rates".
+        inputs = m.get("inputs", {})
+        reference_loaded = {k: bool(inputs.get(k)) for k in
+                            ("nppes", "nucc", "cms_utilization", "mpfs", "dac")}
 
         return {"status": "ok", "total_prices": int(prices),
-                "total_group_set_edges": edges, "total_providers": providers,
+                "total_group_set_edges": edges, "total_providers": members,
                 "priceable_npis": priceable_npis, "networks": networks,
                 "n_codes": n_codes, "as_of": _data_as_of(),
+                "built_at": m.get("built_at"), "partial_build": bool(m.get("partial")),
                 "reference_loaded": reference_loaded}
     except Exception as e:
-        return {"status": "ok", "note": str(e)}
+        return JSONResponse(status_code=500, content={"status": "error", "note": str(e)})

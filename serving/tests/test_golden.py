@@ -150,4 +150,9 @@ def test_by_network_45378(client):
     body = client.get("/rates/by_network", params={"billing_code": "45378"}).json()
     assert len(body["networks"]) == 54
     target = next(n for n in body["networks"] if n["network_name"] == NET)
-    assert target["median"] == 252.81
+    # Recaptured 2026-09-06 for #100: was "median of per-group medians" off a
+    # live rates ⨝ group_sets scan; now a $25-bucketed, roster-weighted CDF
+    # value off cross_network_rollup (the architect's checkpoint decision —
+    # "p10/median/p90 derived from the CDF at read time"). A different
+    # statistic, not a regression.
+    assert target["median"] == 287.5

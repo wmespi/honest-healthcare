@@ -114,9 +114,8 @@ make parse                  # Phase 2 — stream pending files serving a target 
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
-make build                  # raw + reference parquet → data/serving/ tables (rule-5 rates, dims, evidence, rollup)
+make build                  # raw + reference parquet → data/serving/ tables (price-grain rates, dims, evidence, rate_hist)
 make build NET=<slug,slug>  #   a subset of network partitions
-make build-summary          # rebuild the legacy browse-layer summary (retired in #100)
 make size                   # backfill index_files.file_size_bytes
 
 make nppes                  # NPPES national file → data/nppes/ga_providers.parquet (GA)

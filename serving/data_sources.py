@@ -1,117 +1,151 @@
-"""Where the data lives and how to query it.
+"""Where the serving tables live and how to query them.
 
-The serving layer reads Parquet (see ../docs/schema.md); Postgres holds only the
-discovery queue. This module centralises the glob paths, the DuckDB connection
-factory, and the "is there any data yet" guards that every router needs.
+The API reads ONLY `data/serving/` — the build step's output (`make build`,
+build/build.py; schema in ../docs/schema.md). Raw `anthem/`, `nppes/`,
+`reference/`, `cms/` are build inputs, never read here, and there is no
+fallback when the build is missing: `have_build()` is false, `GET /` says so,
+and every other route errors. This module holds the table sources, the one
+process-wide DuckDB database, `network_slug()` and the shared rate filter.
 """
 import glob as _glob
+import json
 import os
 import re
+import threading
 from typing import Optional
 
 DATA_DIR = os.getenv("DATA_DIR", "/app/data")
+# The build's output dir. SERVING_DIR lets a worktree serve its own
+# ./data-local/serving while the build reads the shared corpus (GH #59); with
+# nothing set this is DATA_DIR/serving. `or`, not the getenv default: Compose
+# passes an unset var through as "".
+SERVING_DIR = os.getenv("SERVING_DIR") or f"{DATA_DIR}/serving"
 
-# Sub-store roots. Each defaults under DATA_DIR, but can be pointed independently
-# so a worktree reads the shared corpus (ANTHEM_DIR, NPPES_DIR → the canonical
-# checkout's data/) while a rebuild it's iterating on lands locally (REFERENCE_DIR
-# / CMS_DIR / SUMMARY_DIR → ./data-local/…). GH #59 Part C. `reference/_common.py`
-# mirrors these for the builders. With nothing set this is exactly DATA_DIR.
-# `or` not the getenv default: Compose passes an unset var through as "" and
-# os.getenv would return that empty string.
-ANTHEM_DIR    = os.getenv("ANTHEM_DIR")    or f"{DATA_DIR}/anthem"
-NPPES_DIR     = os.getenv("NPPES_DIR")     or f"{DATA_DIR}/nppes"
-REFERENCE_DIR = os.getenv("REFERENCE_DIR") or f"{DATA_DIR}/reference"
-CMS_DIR       = os.getenv("CMS_DIR")       or f"{DATA_DIR}/cms"
-SUMMARY_DIR   = os.getenv("SUMMARY_DIR")   or f"{ANTHEM_DIR}/summary"
-# The build step's output (build/build.py — `make build`). Consumed by the
-# serving layer in #100; declared here now so the sub-store split is complete.
-SERVING_DIR   = os.getenv("SERVING_DIR")   or f"{DATA_DIR}/serving"
+# ── the serving tables ─────────────────────────────────────────────────────
+#
+# rates/net=<slug>/part.parquet  one row per negotiated price (the parser's
+#     grain) + scope / is_sentinel / source_kind / medicare_allowed. Hive-
+#     partitioned by network: a `net = ?` filter prunes to one directory, and
+#     that plus `billing_code = ?` is what makes every plan-scoped query cheap.
+# group_sets        (file_id, group_set_id, provider_group_id)  a price's roster
+# group_members     (file_id, provider_group_id, npi, tin_value)  a group's NPIs
+# group_networks    (file_id, provider_group_id, net, network_name)
+# provider_dim      one row per GA NPPES NPI, enriched
+# provider_affiliations  (npi, ccn, facility_name)
+# code_dim          one row per priced code: label, category, benchmark
+# evidence          (npi, billing_code, tier, ...)  billed | typical
+# rate_hist         roster-weighted $25 histogram per (net, code, setting,
+#                   scope, modifier, is_sentinel) — every browse view
+# cross_network_rollup   (code, net) -> n_groups, min/p10/median/p90/max
+RATES_GLOB = f"{SERVING_DIR}/rates/**/*.parquet"
+RATES_SRC = f"read_parquet('{RATES_GLOB}', hive_partitioning=1, union_by_name=true)"
 
-# Normalized rate store:
-#   prices/net=<slug>/<id>.parquet  — one row per (network × negotiated price),
-#     Hive-partitioned by network; carries file_id + group_set_id.
-#   group_sets/<id>.parquet         — file_id | group_set_id | provider_group_id,
-#     the deduplicated provider-group rosters. Join prices → group_sets on
-#     (file_id, group_set_id) to expand a price to its provider groups.
-PRICES_GLOB     = f"{ANTHEM_DIR}/prices/**/*.parquet"
-PRICES_SRC      = f"read_parquet('{PRICES_GLOB}', union_by_name=true, hive_partitioning=1)"
-GROUP_SETS_GLOB = f"{ANTHEM_DIR}/group_sets/*.parquet"
-GROUP_SETS_SRC  = f"read_parquet('{GROUP_SETS_GLOB}', union_by_name=true)"
-PROVIDERS_GLOB  = f"{ANTHEM_DIR}/providers/*.parquet"
-PROVIDERS_SRC   = f"read_parquet('{PROVIDERS_GLOB}', union_by_name=true)"
 
-CODES_GLOB       = f"{ANTHEM_DIR}/codes/*.parquet"
-NPI_LOOKUP_PATH  = f"{ANTHEM_DIR}/npi_lookup.parquet"
+def _table(name: str) -> str:
+    return f"read_parquet('{SERVING_DIR}/{name}.parquet')"
 
-# Browse-layer summary (scripts/build_rate_summary.py — `make build-summary`).
-# The /networks · /billing_codes · /procedure_categories endpoints read these
-# instead of scanning prices ⨝ group_sets (~1e9 rows). Absent until the build
-# runs; the endpoints fall back to the live scan (VOL_CTE) when so.
-RATE_SUMMARY_PATH = f"{SUMMARY_DIR}/rate_summary.parquet"
-RATE_HIST_PATH    = f"{SUMMARY_DIR}/rate_hist.parquet"
-CODE_ROLLUP_PATH  = f"{SUMMARY_DIR}/code_rollup.parquet"
-GA_NPPES_PATH    = f"{NPPES_DIR}/ga_providers.parquet"
-CODE_LABELS_PATH = f"{REFERENCE_DIR}/code_labels.parquet"
-NUCC_PATH        = f"{REFERENCE_DIR}/nucc_taxonomy.parquet"
 
-# CMS "Medicare Physician & Other Practitioners — by Provider and Service":
-# one row per (GA NPI × HCPCS × place-of-service) actually billed to Medicare
-# Part B. The evidence layer behind did_bill() — see serving/evidence.py and
-# reference/cms-utilization.md. Absent until `make cms-utilization` runs.
-CMS_UTILIZATION_PATH = f"{CMS_DIR}/ga_provider_service.parquet"
+GROUP_SETS_SRC = _table("group_sets")
+GROUP_MEMBERS_SRC = _table("group_members")
+GROUP_NETWORKS_SRC = _table("group_networks")
+PROVIDER_DIM_SRC = _table("provider_dim")
+PROVIDER_AFFIL_SRC = _table("provider_affiliations")
+CODE_DIM_SRC = _table("code_dim")
+EVIDENCE_SRC = _table("evidence")
+RATE_HIST_SRC = _table("rate_hist")
+ROLLUP_SRC = _table("cross_network_rollup")
+MANIFEST_PATH = f"{SERVING_DIR}/manifest.json"
 
-# CMS Medicare Physician Fee Schedule allowed amount per (code × modifier ×
-# facility/non-facility × Georgia locality) — the per-code benchmark / fallback
-# price behind serving/benchmark.py and /rates/quote's `medicare_allowed`.
-# Absent until `make mpfs` runs. See reference/mpfs.md.
-MPFS_GA_PATH = f"{DATA_DIR}/reference/mpfs_ga.parquet"
-
-# Per-specialty procedure prevalence, learned from CMS_UTILIZATION_PATH ∩ NPPES ∩
-# NUCC. Tier 2 of the provider↔procedure story: "typical for this specialty" when
-# there's no direct utilization row. Absent until `make specialty-profiles` runs.
-SPECIALTY_PROFILES_PATH = f"{REFERENCE_DIR}/specialty_procedure_profiles.parquet"
-
-# CMS Doctors & Clinicians (Care Compare / Provider Data Catalog) — a real
-# practice identity + a hospital-affiliation (CCN↔NPI) bridge, independent of
-# Anthem's coarse provider_references buckets. Read by serving/labels.py
-# (provider_card). Absent until `make doctors-clinicians` runs.
-DAC_GA_PATH             = f"{DATA_DIR}/reference/dac_ga.parquet"
-DAC_HOSPITAL_AFFIL_PATH = f"{DATA_DIR}/reference/dac_hospital_affiliations.parquet"
-
-# prices expanded to one row per provider group — the common join. A billing_code
-# / net filter on the outer query prunes `prices` before the join runs.
-PRICE_GROUPS_SRC = f"""(
-    SELECT p.*, m.provider_group_id
-    FROM {PRICES_SRC} p
-    JOIN {GROUP_SETS_SRC} m
-      ON m.file_id = p.file_id AND m.group_set_id = p.group_set_id
+# A price expanded to its provider groups — the common join. A `net` /
+# `billing_code` filter on the outer query prunes `rates` before the join runs.
+RATE_GROUPS_SRC = f"""(
+    SELECT r.*, gs.provider_group_id
+    FROM {RATES_SRC} r
+    JOIN {GROUP_SETS_SRC} gs
+      ON gs.file_id = r.file_id AND gs.group_set_id = r.group_set_id
 )"""
 
-# per-code provider-group volume — the browse-layer ranking hint behind
-# /billing_codes and /procedure_categories. Avoids a COUNT(DISTINCT group) over
-# the full prices ⨝ group_sets expansion: it sizes each roster once (tiny), then
-# sums roster sizes over each code's distinct rosters. That over-counts a group
-# that sits in several of a code's rosters — fine for a ranking hint, and a
-# precomputed exact summary replaces it in issue #10.
-VOL_CTE = f"""
-    WITH set_size AS (
-        SELECT file_id, group_set_id, COUNT(*) AS n
-        FROM {GROUP_SETS_SRC}
-        GROUP BY 1, 2
-    ),
-    code_sets AS (
-        SELECT DISTINCT billing_code, billing_code_type, file_id, group_set_id
-        FROM {PRICES_SRC}
-    )
-    SELECT cs.billing_code, cs.billing_code_type,
-           SUM(ss.n) AS provider_groups
-    FROM code_sets cs
-    JOIN set_size ss USING (file_id, group_set_id)
-    GROUP BY 1, 2
-"""
+_TABLES = ("group_sets", "group_members", "group_networks", "provider_dim",
+           "provider_affiliations", "code_dim", "evidence", "rate_hist",
+           "cross_network_rollup")
+
+
+def missing_build() -> list:
+    """Which serving tables are absent — [] when the build is complete."""
+    out = [t for t in _TABLES if not os.path.exists(f"{SERVING_DIR}/{t}.parquet")]
+    if not _glob.glob(RATES_GLOB, recursive=True):
+        out.insert(0, "rates")
+    if not os.path.exists(MANIFEST_PATH):
+        out.append("manifest.json")
+    return out
+
+
+def have_build() -> bool:
+    return not missing_build()
+
+
+_MANIFEST: Optional[tuple] = None   # (mtime, dict)
+
+
+def manifest() -> dict:
+    """The build's manifest.json (what it was built from, when, row counts).
+    Cached on the file's mtime so a rebuild is picked up without a restart.
+    {} when there is no build."""
+    global _MANIFEST
+    try:
+        mt = os.path.getmtime(MANIFEST_PATH)
+    except OSError:
+        return {}
+    if _MANIFEST is None or _MANIFEST[0] != mt:
+        try:
+            with open(MANIFEST_PATH) as f:
+                _MANIFEST = (mt, json.load(f))
+        except (OSError, ValueError):
+            return {}
+    return _MANIFEST[1]
+
+
+def built_with(input_name: str) -> bool:
+    """Whether a build input (nppes, nucc, cms_utilization, mpfs, dac, ...) was
+    present when the serving tables were built — the only sense in which a
+    reference dataset is "loaded" now that the API never reads it directly."""
+    return bool(manifest().get("inputs", {}).get(input_name))
+
 
 _DUCK_TMP = os.getenv("DUCKDB_TMP", "/tmp/duckdb_spill")
 _DUCK_MEM = os.getenv("DUCKDB_MEMORY_LIMIT", "4GB")
+_DUCK_THREADS = os.getenv("DUCKDB_THREADS")
+_CONN = None
+_CONN_LOCK = threading.Lock()
+
+
+def db():
+    """A cursor on the one process-wide DuckDB database.
+
+    The database is created once (memory limit, spill dir, thread count set
+    there, once) and kept for the life of the process, so Parquet metadata and
+    zonemaps stay cached across requests. Each call returns `cursor()` — a
+    lightweight connection to that same database with its own transaction and
+    temp-table namespace, which is what makes it safe to use from FastAPI's
+    request threads concurrently. Never `duckdb.connect()` per request.
+    """
+    global _CONN
+    if _CONN is None:
+        with _CONN_LOCK:
+            if _CONN is None:
+                import duckdb
+                conn = duckdb.connect()
+                try:
+                    os.makedirs(_DUCK_TMP, exist_ok=True)
+                    conn.execute(f"SET memory_limit = '{_DUCK_MEM}'")
+                    conn.execute(f"SET temp_directory = '{_DUCK_TMP}'")
+                    if _DUCK_THREADS:
+                        conn.execute(f"SET threads = {int(_DUCK_THREADS)}")
+                    conn.execute("SET preserve_insertion_order = false")
+                except Exception:
+                    pass
+                _CONN = conn
+    return _CONN.cursor()
 
 
 def network_slug(name: str) -> str:
@@ -123,14 +157,15 @@ def network_slug(name: str) -> str:
 
 def outpatient_scope(alias: str = "pg") -> str:
     """The slice the consumer rate views compare: outpatient professional
-    fee-for-service dollar amounts.
+    fee-for-service dollar amounts. The build bakes this into `rates.scope =
+    'outpatient_prof'` (build/build.py's OUTPATIENT_PROF; test_build.py pins the
+    two strings equal) — routes filter on the column, this is the definition.
 
     Drops institutional/facility lines, inpatient-only rates, `bundle` /
     `capitation` arrangements, and `percentage` / `per diem` / `derived` types —
     whose `negotiated_rate` is not a per-visit dollar figure (a "60.0" means 60%
     of billed charges, not $60). `setting = 'both'` stays: it applies in either
-    setting, outpatient included. Inpatient and the other types remain in the
-    store for a later dedicated view — see docs/known-gaps.md.
+    setting, outpatient included. See docs/known-gaps.md.
     """
     a = f"{alias}." if alias else ""
     return (
@@ -141,23 +176,23 @@ def outpatient_scope(alias: str = "pg") -> str:
     )
 
 
-def price_filters(billing_code, billing_code_type, network_name, setting, npi,
-                  specialty=None, scope=True):
-    """Shared WHERE for the price_groups source (alias pg). Returns (sql, params).
+def rate_filters(billing_code, billing_code_type, network_name, setting, npi,
+                 specialty=None, scope=True, drop_sentinel=False):
+    """Shared WHERE for the RATE_GROUPS_SRC source (alias pg). Returns (sql, params).
 
-    `specialty` (a NUCC classification/specialization label) keeps only groups
-    that contain at least one provider of that specialty — a coarse but useful
-    scope ("cardiologists' contracted rates for an echo"). Cheap when a
-    billing_code is also given (prices prune to one code first).
-
-    `scope=True` appends `outpatient_scope()` — the default for every consumer
-    rate view. Pass `scope=False` only for a view that deliberately spans
-    settings / arrangements.
+    `scope=True` keeps `scope = 'outpatient_prof'` — the default for every
+    consumer rate view. `drop_sentinel=True` removes the placeholder rows
+    (`is_sentinel`; jobs 1-3 do, the histogram doesn't). `npi=` keeps groups
+    containing that NPI; `specialty=` (a NUCC label) keeps groups containing at
+    least one provider of that specialty — coarse but useful, and cheap once a
+    `billing_code` has pruned `rates`.
     """
     conditions = ["1=1"]
     params: list = []
     if scope:
-        conditions.append(outpatient_scope("pg"))
+        conditions.append("pg.scope = 'outpatient_prof'")
+    if drop_sentinel:
+        conditions.append("NOT pg.is_sentinel")
     if billing_code:
         conditions += ["pg.billing_code = ?", "pg.billing_code_type = ?"]
         params += [billing_code, billing_code_type]
@@ -174,77 +209,17 @@ def price_filters(billing_code, billing_code_type, network_name, setting, npi,
         params.append(setting)
     if npi:
         conditions.append(f"""EXISTS (
-            SELECT 1 FROM {PROVIDERS_SRC} pv
-            WHERE pv.file_id = pg.file_id
-              AND pv.provider_group_id = pg.provider_group_id
-              AND pv.npi = ?)""")
+            SELECT 1 FROM {GROUP_MEMBERS_SRC} gm
+            WHERE gm.file_id = pg.file_id
+              AND gm.provider_group_id = pg.provider_group_id
+              AND gm.npi = ?)""")
         params.append(npi)
-    if specialty and os.path.exists(GA_NPPES_PATH) and os.path.exists(NUCC_PATH):
+    if specialty:
         conditions.append(f"""EXISTS (
-            SELECT 1 FROM {PROVIDERS_SRC} pv
-            JOIN read_parquet('{GA_NPPES_PATH}') n ON n.npi = pv.npi
-            JOIN read_parquet('{NUCC_PATH}') x ON x.taxonomy_code = n.taxonomy_code
-            WHERE pv.file_id = pg.file_id
-              AND pv.provider_group_id = pg.provider_group_id
-              AND (x.specialty ILIKE ? OR x.classification ILIKE ?))""")
+            SELECT 1 FROM {GROUP_MEMBERS_SRC} gm
+            JOIN {PROVIDER_DIM_SRC} pd ON pd.npi = gm.npi
+            WHERE gm.file_id = pg.file_id
+              AND gm.provider_group_id = pg.provider_group_id
+              AND (pd.specialty ILIKE ? OR pd.nucc_classification ILIKE ?))""")
         params += [f"%{specialty}%", f"%{specialty}%"]
     return " AND ".join(conditions), params
-
-
-def db():
-    """A fresh DuckDB connection. Bounds memory and lets big aggregates spill to
-    disk instead of OOM-killing the process. A persistent pooled connection + a
-    precomputed browse-layer summary are the next step (issue #10) — until then
-    the browse endpoints (/networks aside) full-scan prices ⨝ group_sets."""
-    import duckdb
-    conn = duckdb.connect()
-    try:
-        os.makedirs(_DUCK_TMP, exist_ok=True)
-        conn.execute(f"SET memory_limit = '{_DUCK_MEM}'")
-        conn.execute(f"SET temp_directory = '{_DUCK_TMP}'")
-        conn.execute("SET preserve_insertion_order = false")
-    except Exception:
-        pass
-    return conn
-
-
-def has_parquet(glob_dir: str) -> bool:
-    """Cheap check for whether any parquet has been written under a data subtree
-    (a bare read_parquet over an empty glob raises)."""
-    return bool(_glob.glob(glob_dir, recursive=True))
-
-
-def have_prices() -> bool:
-    return has_parquet(PRICES_GLOB)
-
-
-def have_summary() -> bool:
-    """The browse-layer rollups have been built (`make build-summary`) — what
-    `/networks`, `/billing_codes`, `/procedure_categories` read."""
-    return os.path.exists(RATE_SUMMARY_PATH) and os.path.exists(CODE_ROLLUP_PATH)
-
-
-def have_rate_hist() -> bool:
-    """The pre-bucketed histogram is present — gates the no-code network
-    overview (`/rates/distribution`) onto the summary path. Written by the same
-    build; split out so an older summary without it doesn't also knock the
-    rollup endpoints off their fast path."""
-    return os.path.exists(RATE_HIST_PATH)
-
-
-_NPPES_COLS: Optional[set] = None
-
-
-def nppes_cols(conn) -> set:
-    """Column names in the NPPES GA parquet (cached) — lets endpoints reference
-    address_line1/2 only after a re-extract that added them."""
-    global _NPPES_COLS
-    if _NPPES_COLS is None:
-        try:
-            _NPPES_COLS = {
-                r[0] for r in conn.execute(
-                    f"DESCRIBE SELECT * FROM read_parquet('{GA_NPPES_PATH}')").fetchall()
-            }
-        except Exception:
-            _NPPES_COLS = set()
-    return _NPPES_COLS

@@ -160,22 +160,23 @@ design, so two DuckDB processes never sit on RAM at once.
 one shared Parquet store (9.5 GB, not copied).
 
 A worktree must **never write** the shared store. If you're regenerating
-reference / CMS / summary parquet:
+reference / CMS / serving parquet:
 
 ```bash
 scripts/dev-setup.sh --rebuild-reference
-#   seeds ./data-local/{reference,cms,anthem/summary,serving} from the shared
-#   store and appends the sub-store split to .env
+#   seeds ./data-local/{reference,cms,serving} from the shared store and
+#   appends the sub-store split to .env
 ```
 
-The split (GH #59 Part C) is six env vars: `ANTHEM_DIR` / `NPPES_DIR` keep
-reading the shared corpus; `REFERENCE_DIR` / `CMS_DIR` / `SUMMARY_DIR` /
-`SERVING_DIR` point at `./data-local/…` (mounted at `/app/data-local` via the
-repo bind). Both `serving/data_sources.py` and `reference/_common.py` fall back
-to `DATA_DIR/<sub>` when a var is unset, so with no `.env` nothing changes. `make
+The split (GH #59 Part C) is five env vars: `ANTHEM_DIR` / `NPPES_DIR` keep
+reading the shared corpus; `REFERENCE_DIR` / `CMS_DIR` / `SERVING_DIR` point at
+`./data-local/…` (mounted at `/app/data-local` via the repo bind). Both
+`serving/data_sources.py` and `reference/_common.py` fall back to
+`DATA_DIR/<sub>` when a var is unset, so with no `.env` nothing changes. `make
 code-labels` / `cms-utilization` / `build` in that worktree then write locally
-while serving still reads `prices/`, `group_sets/`, `providers/` from the shared
-store.
+— the serving API reads **only** `SERVING_DIR` (#100); `make build` itself
+reads `prices/`, `group_sets/`, `providers/` from the shared corpus via
+`ANTHEM_DIR`.
 
 For work that mutates `data/anthem/` wholesale (parsing), use `TEST=1` (`test.*`
 schema + `data-test/`) or a fully separate stack with its own `./data`.
