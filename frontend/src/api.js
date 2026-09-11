@@ -52,6 +52,11 @@ export const searchBillingCodes = (q = '', billing_code_type) => {
 // RBCS categories present in the data: [{ category, subcategory, n_codes, provider_groups }].
 export const getProcedureCategories = () => api.get('/procedure_categories');
 
+// The curated service-line taxonomy + billing-code allowlists (#83, #100) —
+// { [name]: { taxonomy_codes, billing_codes } }. Replaces the frontend's own
+// hand-synced SERVICE_LINE_CODES copy.
+export const getServiceLines = () => api.get('/service_lines');
+
 // The provider "menu" — every procedure this NPI has a negotiated rate for, with
 // the rate range. Returns { npi, count, results: [{ billing_code, label,
 // rbcs_category, min_rate, median_rate, max_rate, n_rates }] }.
