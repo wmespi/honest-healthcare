@@ -33,14 +33,13 @@ is that the numbers are real.
 git fetch origin --tags -q
 
 # what shipped since the last brief — use the last `brief-<date>` tag if one
-# exists, else the last `tailnet-*` promote tag, else ~2 weeks
+# exists, else ~2 weeks
 git log --oneline --no-merges <last-marker>..origin/main
 
-make tiers                    # tailnet vs origin/main — the deploy gap
 gh issue list --state open --limit 50
 gh pr list --state open
 make footprint | tail -20     # disk sanity — flag any ⚠
-make journeys                 # journey pass/fail table  (once #72 lands)
+make test-live                # golden answers + journey pass/fail table
 ```
 
 Then **verify the product still answers correctly** — hit the live API for the
@@ -73,9 +72,7 @@ Six sections, in this order (front-load the synthesis):
    view.
 4. **Frontend** — only if there's something to say; findings + a wireframe if
    proposing a change.
-5. **Deploy / tiers** — `make tiers` output: what the tailnet serves, the
-   unpromoted commits, anything waiting on a promote decision.
-6. **What I did / what needs your call** — a done callout, then a short list of
+5. **What I did / what needs your call** — a done callout, then a short list of
    decisions blocked on the owner.
 
 Each of the owner's numbered work streams (currently: 1 agentic-dev safety net,

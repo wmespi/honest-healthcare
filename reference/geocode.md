@@ -1,4 +1,4 @@
-# `make geocode` — lat/long for GA PCP providers
+# `make reference STEP=geocode` — lat/long for GA PCP providers
 
 *Read this when working on the "how close is this provider" step of Flow A
 (issue #87, `docs/direction.md` build sequence step 1) — distance ranking
@@ -9,7 +9,7 @@ data only: the
 [US Census Bulk Geocoding API](https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html).
 One row per GA PCP-eligible NPI with a `latitude` / `longitude`.
 
-`make geocode` → `python3 -m reference.geocode --data-dir /app/data` in the
+`make reference STEP=geocode` → `python3 -m reference.geocode --data-dir /app/data` in the
 serving container (`reference/geocode.py`). `--test` / `--limit N` /
 `--batch-size N` / `--benchmark NAME` / `--census-response-file FILE` exist on
 the module (the last is test-only — see Tests below).
@@ -67,7 +67,7 @@ silently kept — a distance ranking must never show a provider states away as
 
 ## Re-run when
 
-- The NPPES pull refreshes (`make nppes`) and a PCP's address changes — this
+- The NPPES pull refreshes (`make reference STEP=nppes`) and a PCP's address changes — this
   builder doesn't currently diff against the prior run, it always re-geocodes
   every current candidate address from scratch (idempotent, just not
   incremental — fine at this scale, revisit if the candidate set grows).
@@ -85,4 +85,4 @@ candidate list regardless of its address). `--census-response-file` points
 the builder at `reference/testdata/geocode_census_response_sample.csv` — a
 canned Census-shaped response — instead of the real network call; only valid
 for a candidate list that fits in one batch, which the test fixture does by
-construction. Picked up by `make test-api` and `make check-local`.
+construction. Picked up by `make test`.

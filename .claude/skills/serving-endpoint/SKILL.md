@@ -56,10 +56,10 @@ Consumer labels live in `serving/labels.py` (`pos_bucket`, `MODIFIER_LABELS`,
 
 ## Finish
 
-1. Add a contract test to `serving/tests/test_coverage.py` — 200 + expected
+1. Add a contract test to `serving/tests/test_api_contract.py` — 200 + expected
    shape. If it resolves an NPI, add it to the `npi_with_rates` fixture flow.
 2. If the endpoint changes the rate-explorer state machine, add a
    `frontend/src/App.test.jsx` case (and update `api.js`).
-3. `docker compose restart serving`, then `make test-api`. Hit the new route by
+3. `docker compose restart serving`, then `make test`. Hit the new route by
    hand against live data for the 200 and the intended error codes.
 4. Update `serving/serving.md` if you added a route or a helper.

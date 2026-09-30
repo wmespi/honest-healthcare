@@ -2,7 +2,7 @@
 
 *Read this when working on queue selection, ordering, or recovering stuck
 `index_files` rows. The queue query + the target predicate live in
-`etl/extraction`; the HEAD-backfill (`make size`) in `etl/discovery`.*
+`etl/extraction`; the HEAD-backfill (`make discover`) in `etl/discovery`.*
 
 ## Status lifecycle
 
@@ -45,7 +45,7 @@ it is not in the queue.
 
 `file_size_bytes ASC NULLS LAST, id` (smallest first — fast feedback).
 `Content-Length` from the parse GET is written to `file_size_bytes` on every
-parse; `make size` backfills it ahead of time so the queue can be size-ordered.
+parse; `make discover` backfills it ahead of time so the queue can be size-ordered.
 
 ## Recovery
 

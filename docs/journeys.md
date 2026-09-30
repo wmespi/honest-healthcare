@@ -6,23 +6,22 @@ explorer. Each one is a persona + a plan + a clickpath + an expected outcome.*
 **Why this file exists.** When agents write most of the diff, nobody is holding
 the whole product in their head. A journey is the unit that keeps it honest: it's
 the sanity check a PR author walks before merge (`Journeys touched:` in the PR
-body), it's what `make journeys` asserts against the live API, and the status
+body), it's what `make test-live` asserts against the live API, and the status
 table below is the "how are the full flows doing" dashboard.
 
-`make journeys` runs the **API-level** assertions (needs the real corpus — local
+`make test-live` runs the **API-level** assertions (needs the real corpus — local
 only, not CI) and reports **latency** per journey: total wall time, call count,
 and the single slowest call (flagged `⚠` over ~1.5s — informational, not a
 failure). Browser-level Playwright specs that walk the actual clickpath are a
 follow-up ([#72](https://github.com/wmespi/honest-healthcare/issues/72)).
 
-**Every journey below has a Link** — a URL into the tailnet-promoted app,
+**Every journey below has a Link** — a URL into the running app,
 pre-loaded to that journey's endpoint via query params (`?plan=&specialty=&npi=
 &code=&bypass=1`; no plan-gate clicking, no typing a name). Click it, look, done —
 that's the sanity check for a PR. The app reads these once on load and keeps the
 address bar in sync as you navigate, so *any* state on the page is also a URL you
 can copy back into a PR. Links below point at a placeholder tailnet host
 (`<tailnet-host>:5173`) — swap in your own desktop's current MagicDNS name.
-They only resolve once this deep-link feature itself has been promoted.
 
 **Routing (#87).** `/` is the task-first landing, not the explorer — J1–J5
 below all target **`/explore`**, the general flow (unchanged behavior, just
@@ -128,6 +127,6 @@ Exchange cost-sharing files.
    `?bypass=1` for no plan — clickpath, API calls, expected, status).
 2. Add its assertion to `scripts/journeys.py` — pointed checks on the *specific*
    expected outcome (exact rate, benchmark band, tier), not a broad basket
-   (`make smoke-web` already does breadth).
+   (`test_golden.py` covers breadth).
 3. Reference it in PRs that touch its path: `Journeys touched: J1, J5`.
 4. When the Playwright rig lands, add the matching `frontend/journeys/jN.spec.js`.

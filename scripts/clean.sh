@@ -25,7 +25,7 @@ find . -type d -name __pycache__ -not -path './.venv/*' -not -path './frontend/n
   -exec rm -rf {} + 2>/dev/null || true
 say "cleared __pycache__"
 
-# data-local/ is a --rebuild-reference cache — keep unless asked
+# data-local/ holds a worktree-local SERVING_DIR build — keep unless asked
 if [ -d data-local ] && [ "${DATA_LOCAL:-}" = "1" ]; then
   say "rm data-local/  ($(du -sh data-local | cut -f1))"; rm -rf data-local
 elif [ -d data-local ]; then
@@ -34,7 +34,7 @@ fi
 
 # reference-builder download caches (data*/{cms,reference}/.cache) — the raw
 # CMS/NPPES source files. The built .parquet doesn't need them; a rebuild
-# re-downloads. Opt-in (CACHE=1) since a --rebuild-reference worktree wants them.
+# re-downloads. Opt-in (CACHE=1).
 if [ "${CACHE:-}" = "1" ]; then
   for cd in data*/*/.cache data*/.cache; do
     [ -d "$cd" ] && { say "rm $cd/  ($(du -sh "$cd" | cut -f1))"; rm -rf "$cd"; }

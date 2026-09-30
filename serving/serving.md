@@ -5,8 +5,7 @@
 There is no fallback to raw Parquet: a missing build is a `503` from `GET /`,
 not a slower degraded mode. Tests: `test_api_contract.py` (every route,
 hermetic — a synthetic raw fixture in `conftest.py` runs the real
-`build.build.build()`, then binds a `TestClient`); `make test-api` also runs
-`test_coverage.py` against the live API with the full `data/`. Add a route →
+`build.build.build()`, then binds a `TestClient`); `make test-live` runs the golden answers against the live API with the full `data/`. Add a route →
 add a contract test.
 
 Every route runs raw DuckDB SQL against `read_parquet(...)` on the serving

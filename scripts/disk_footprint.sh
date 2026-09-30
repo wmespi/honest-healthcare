@@ -3,9 +3,8 @@
 # the shared toolchains + git store, Docker, a headline TOTAL, and host free
 # space. `make footprint`.
 #
-# Every PR body includes this output (AGENTS.md / docs/worktrees.md) so a runaway
-# — a DuckDB query spilling into the repo, Docker build cache, an abandoned
-# worktree — is caught the moment it lands, not months later.
+# Run it when disk looks low — a runaway (a DuckDB query spilling into the repo,
+# Docker build cache, an abandoned worktree) is otherwise found months later.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 HERE="$PWD"

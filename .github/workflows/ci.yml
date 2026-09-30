@@ -80,7 +80,7 @@ jobs:
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
-            echo "::error::these files need 'make fmt':"
+            echo "::error::these files need gofmt (run 'make check'):"
             echo "$unformatted"
             exit 1
           fi
@@ -142,7 +142,9 @@ jobs:
         run: |
           docker compose exec -T -w /app serving python -m pytest serving/tests/test_golden.py -v
       - name: ETL e2e + NPPES fixtures
-        run: make test-e2e
+        run: |
+          bash scripts/etl_e2e_test.sh
+          bash scripts/nppes_test.sh
       - name: Stack logs on failure
         if: failure()
         run: docker compose logs

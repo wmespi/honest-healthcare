@@ -43,8 +43,7 @@ the product is headed — and which of these gaps that closes — is in
 - **Coverage confirmed for the target network, not quantified here.** Parsing
   `GA_JBNKMED0001` took the target network from zero attributed rates to
   populated (the `coverage/` one-off snapshots this replaced are gone —
-  #94). Don't trust a point-in-time count in a doc; regenerate one with `make
-  cov-probe LABEL=<label>` / `make cov-report`.
+  #94). Don't trust a point-in-time count in a doc; query the `coverage_log` table (`make psql`).
 
 ## Data scope
 
@@ -70,7 +69,7 @@ the product is headed — and which of these gaps that closes — is in
   min/median/max stay sane, but the volume-weighted `avg` still skews high and a
   code-level drill-down on a J-code shows the real millions. Not shoppable care —
   a `drug` scope flag (or dropping HCPCS J/Q from the consumer views) is the
-  proper fix; deferred. **Partial mitigation (GH #61):** `make mpfs` builds a
+  proper fix; deferred. **Partial mitigation (GH #61):** `make reference STEP=mpfs` builds a
   Medicare allowed amount per code (`data/reference/mpfs_ga.parquet`) and
   `/rates/quote` carries `medicare_allowed` + a `vs_medicare` ratio, so a
   drug-code rate can be shown against its benchmark ("$4.4M vs Medicare's $2k")
@@ -92,7 +91,7 @@ the product is headed — and which of these gaps that closes — is in
 - **`00810` (anesthesia) has no CPT fee-schedule rate in any parsed file** —
   anesthesia is typically priced in base units, not a flat CPT amount. Known,
   not a bug: tracked as `KNOWN_GAP_CODES` in
-  `serving/tests/test_coverage.py` and handled in `scripts/frontend_smoke.py`.
+  the retired coverage basket (#102).
 
 ## Provider ↔ procedure
 
@@ -100,13 +99,13 @@ the product is headed — and which of these gaps that closes — is in
   social worker in a rollup provider group "has" a $14k surgical rate because
   Anthem's `provider_references` are network-administration buckets, not
   practices. Two reference builds add real evidence:
-  - `make cms-utilization` → `did_bill(npi, code)` (Tier 1) from CMS "by Provider
+  - `make reference STEP=cms-utilization` → `did_bill(npi, code)` (Tier 1) from CMS "by Provider
     and Service" — [reference/cms-utilization.md](../reference/cms-utilization.md).
-  - `make specialty-profiles` → "typical for this specialty" (Tier 2) — codes
+  - `make reference STEP=specialty-profiles` → "typical for this specialty" (Tier 2) — codes
     billed by ≥3% of the provider's specialty —
     [reference/specialty-profiles.md](../reference/specialty-profiles.md).
 
-  - `make doctors-clinicians` → a real group-practice identity (`org_pac_id` +
+  - `make reference STEP=doctors-clinicians` → a real group-practice identity (`org_pac_id` +
     `org_name`) and the hospital-affiliation `ccn`↔`npi` bridge, independent of
     Anthem's buckets — [reference/doctors-clinicians.md](../reference/doctors-clinicians.md).
     Surfaced on `provider_card` (`group_name`, `years_in_practice`,
@@ -205,7 +204,7 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Operational
 
-- **`make nppes` write is not atomic** — `ga_providers.parquet` is briefly 0 bytes
+- **`make reference STEP=nppes` write is not atomic** — `ga_providers.parquet` is briefly 0 bytes
   during a re-extract and serving-layer queries touching it 500. Run when the API is
   idle.
 - **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` path prefix

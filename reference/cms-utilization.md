@@ -1,4 +1,4 @@
-# `make cms-utilization` — provider ↔ procedure evidence
+# `make reference STEP=cms-utilization` — provider ↔ procedure evidence
 
 *Read this when working on the "does this provider actually perform this
 procedure" question — the caveat on the cost card (job 1) and the badges on the
@@ -10,7 +10,7 @@ Service"](https://data.cms.gov/provider-summary-by-type-of-service/medicare-phys
 One row per `NPI × HCPCS × place-of-service` **actually billed to Medicare Part
 B**, filtered to Georgia rendering providers.
 
-`make cms-utilization` → `python3 -m reference.cms_utilization --data-dir /app/data`
+`make reference STEP=cms-utilization` → `python3 -m reference.cms_utilization --data-dir /app/data`
 in the serving container (`reference/cms_utilization.py`). `CMS_URL=` overrides
 the source; `YEAR=` overrides the stamped service year; `--cms-file` / `--test`
 exist on the module.
@@ -79,14 +79,14 @@ rows — `did_bill()` aggregates over them.
   the primary specialty source.
 - `typical_codes()` / `code_tiers()` → Tier 2. `code_tiers` classifies each
   (npi, code) as `billed` (Tier 1, this NPI billed it) / `typical` (≥ threshold
-  of the NPI's specialty bills it — from `make specialty-profiles`,
+  of the NPI's specialty bills it — from `make reference STEP=specialty-profiles`,
   [specialty-profiles.md](specialty-profiles.md)) / `group` (fan-out noise).
   `/providers/{npi}/procedures?tier=plausible` (default) keeps only billed +
   typical; `/rates/quote` returns the tier. **Retention:** a strict Tier-1 filter
   keeps only ~47% of priceable providers; Tier 1+2 keeps ~94%, trimming the menu
   from ~17k contracted codes to ~30 plausible ones.
 
-All three no-op to `None`/`{}` until `make cms-utilization` has run, so the API
+All three no-op to `None`/`{}` until `make reference STEP=cms-utilization` has run, so the API
 works without it.
 
 The frontend (`ProviderCostCard`, `ProviderMenu`) surfaces this: a
@@ -109,4 +109,4 @@ billed menu rows.
 
 `serving/tests/test_cms_utilization.py` — hermetic, runs the builder against
 `reference/testdata/cms_sample.csv` (15 rows: 12 GA + 1 FL + 1 TX + 1
-corrupt-NPI) in test isolation. Picked up by `make test-api`.
+corrupt-NPI) in test isolation. Picked up by `make test`.

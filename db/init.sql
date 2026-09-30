@@ -63,9 +63,9 @@ CREATE INDEX IF NOT EXISTS idx_index_file_plans_plan_id
     ON index_file_plans (plan_id text_pattern_ops);
 
 -- ── coverage_log — one observational row per parsed file (Phase 2) ──────────
--- What did this file contribute? Feeds `make cov-report`. Never read by the ETL.
--- file_id is UNIQUE (migration 004): the one-row-per-file invariant `cov-report`
--- keys on is the schema's job, and writeCoverageLog upserts on it. That
+-- What did this file contribute? Read it via `make psql`. Never read by the ETL.
+-- file_id is UNIQUE (migration 004): the one-row-per-file invariant
+-- readers key on is the schema's job, and writeCoverageLog upserts on it. That
 -- constraint's own index serves the file_id lookups, so no separate index.
 CREATE TABLE IF NOT EXISTS coverage_log (
     id SERIAL PRIMARY KEY,

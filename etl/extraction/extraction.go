@@ -523,7 +523,7 @@ func newParquetWriter[T any](path string) (*parquet.GenericWriter[T], io.Closer,
 // index_files metadata (market_types etc.) is joined in from the row itself. A
 // re-parse replaces the file's prior row — coverage_log.file_id is UNIQUE
 // (migration 004) and this is an upsert on it, so the table stays
-// one-row-per-file, which `make cov-report` keys on to spot distinct files that
+// one-row-per-file, which readers key on to spot distinct files that
 // parsed to identical counts (issue #52).
 func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location string, compressedBytes int64, totalCodesBefore int, note string, res *mrfResult) {
 	if note == "" {

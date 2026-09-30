@@ -31,7 +31,7 @@ export function ProviderCostCard({ data, loading, providerName, plan, rbcsCatego
   ].filter(Boolean).join(' · ');
 
   // CMS Physician Fee Schedule benchmark (issue #61) — mcr is null until
-  // `make mpfs` runs. Anchors the negotiated rate: <1.2× Medicare = in line,
+  // `make reference STEP=mpfs` runs. Anchors the negotiated rate: <1.2× Medicare = in line,
   // higher = worth noticing. `vs_medicare` compares the headline to the *global*
   // Medicare allowed, so it's meaningful when the headline is a whole-procedure
   // figure — a global rate, or a single-component rate that isn't a

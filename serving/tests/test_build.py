@@ -5,7 +5,7 @@ dir, runs build() against them with an injected plan-count map, and asserts the
 product rules: `scope`, `is_sentinel`, `source_kind` (plan_specific when the
 file serves one plan, else shared), that `rates` is the parser's price grain
 (no fan-out), and that `rate_hist.n` is roster-weighted. Picked up by
-`make check-local`.
+`make test LOCAL=1`.
 """
 import json
 import os
@@ -86,7 +86,7 @@ def _raw(root, collision=False):
 
 @pytest.fixture()
 def out(tmp_path, monkeypatch):
-    for v in ("ANTHEM_DIR", "NPPES_DIR", "REFERENCE_DIR", "CMS_DIR", "SERVING_DIR",
+    for v in ("SERVING_DIR",
               "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)
@@ -120,7 +120,7 @@ def test_empty_plan_counts_tags_everything_shared(tmp_path, monkeypatch):
     # plan_counts={} (not None) must skip the DATABASE_URL probe and tag every
     # row 'shared' without raising — executemany on an empty list is a DuckDB
     # error (regression: the api conftest fixture hit this).
-    for v in ("ANTHEM_DIR", "NPPES_DIR", "REFERENCE_DIR", "CMS_DIR", "SERVING_DIR",
+    for v in ("SERVING_DIR",
               "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)
@@ -220,7 +220,7 @@ def test_network_name_collision_kept_distinct(tmp_path, monkeypatch):
     # caught by #96's by_network golden test dropping a network from its
     # count). rate_hist / cross_network_rollup must key on (net, network_name),
     # not net alone, or one network's rates silently absorb the other's.
-    for v in ("ANTHEM_DIR", "NPPES_DIR", "REFERENCE_DIR", "CMS_DIR", "SERVING_DIR",
+    for v in ("SERVING_DIR",
               "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)

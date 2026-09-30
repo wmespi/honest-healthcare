@@ -108,69 +108,49 @@ single-item selection are variables:
 make start                  # Docker Desktop (if needed) + all containers
 make up / make down / make logs
 
-make discover               # Phase 1 — sync the master index into index_files + index_file_plans
+make discover               # Phase 1 — sync the master index into index_files + index_file_plans, then backfill sizes
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
-make parse                  # Phase 2 — stream pending files serving a target plan → Parquet
+make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, Doctors & Clinicians, geocode (skips what exists)
+make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
+make parse                  # Phase 2 — stream pending files serving a target plan → Parquet (needs the NPPES reference first)
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
-make build                  # raw + reference parquet → data/serving/ tables (price-grain rates, dims, evidence, rate_hist)
+make build                  # Phase 4 — raw + reference parquet → data/serving/ tables
 make build NET=<slug,slug>  #   a subset of network partitions
-make size                   # backfill index_files.file_size_bytes
-
-make nppes                  # NPPES national file → data/nppes/ga_providers.parquet (GA)
-make code-labels            # RBCS consumer procedure labels
-make taxonomy-labels        # NUCC provider specialty labels
-make cms-utilization        # CMS Medicare Part B — did this NPI bill this code
-make specialty-profiles     #   ...and what's typical for each specialty (Tier 2)
-make mpfs                   # CMS Physician Fee Schedule — Medicare allowed $ per code (GA benchmark)
-make doctors-clinicians     # CMS Care Compare — real group identity + hospital CCN↔NPI bridge
+make refresh                # the monthly job: discover → reference → parse → code-labels → build
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
-make check-local            # same gate on host toolchains, NO Docker + pytest contract + vitest
-                             #   works in any checkout, including canonical — but fails with
-                             #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until
-                             #   scripts/dev-setup.sh has been run there
-make test-all               # full sweep (stack must be up)
-make test-api / test-web / test-e2e
-make journeys               # assert the named user journeys against the live API (docs/journeys.md)
+make check LOCAL=1          #   same gate on host toolchains, NO Docker
+make test                   # every hermetic suite: check + serving pytest + vitest (+ ETL e2e)
+make test LOCAL=1           #   host toolchains, no Docker — the worktree gate; works in any checkout but fails with
+                             #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until scripts/dev-setup.sh has been run
+make test-live              # golden answers + user journeys against the live API + real corpus (docs/journeys.md)
 
 make worktree TOPIC=x       # new sibling worktree + branch off main, set up (GH #59)
-make stack-up / stack-down  # a feature worktree's own stack (own ports, from .env)
-make tiers                  # what the tailnet stack runs vs origin/main + unpromoted commits
-make preview REF=<ref>      # ephemeral stack for a ref before promoting it (localhost:5183)
-make promote [REF=]         # canonical only — advance the Tailscale-served stack, logged + tagged
-
-make cov-probe LABEL=before # coverage scorecard for the target plan
-make cov-report             # aggregate coverage_log
-make data-size              # rows + bytes per Parquet table + Postgres queue tables
+make worktree-rm TOPIC=x    # remove it once its PR merges
+make footprint / make clean # disk report / reclaim regenerable artifacts
 make psql / make migrate    # DB shell / apply db/migrations/*.sql
 make db-reset WHAT=processing|failed
 make db-snapshot / db-restore  # pg_dump the queue tables before/after a risky migration
-make sh S=serving          # shell into a container
+make fixture ID=5043        # truncated *.json.gz fixture from a file id
+make sh S=serving           # shell into a container
 ```
 
 **Parallel / worktree development** ([docs/worktrees.md](docs/worktrees.md), GH #59).
-The canonical checkout runs the one Tailscale-served stack, pinned to a local
-`tailnet` branch that moves **only** via `make promote` — so a merge to `main`
-doesn't reach the tailnet until you promote it (`make tiers` shows the gap,
-`make preview REF=` renders a candidate first). Feature work happens in sibling
-worktrees
-(`../hh-<topic>`, one per session/branch) that test on host toolchains via
-`make check-local` — **no Docker** — and merge to `main` serially (trunk +
-promotion, no `develop` branch). A worktree spins its own stack (`make stack-up`,
-ports from its gitignored `.env`) only for a live check; it reads the shared
-Parquet store via `HH_DATA_ROOT` and never writes `data/`. Gitignored files
-(`.env`, `.venv/`, `data/`) are normal files — read them by path; repo-wide
-search skips them.
+The canonical checkout runs the one always-up stack. Feature work happens in
+sibling worktrees (`../hh-<topic>`, one per session/branch) that test on host
+toolchains via `make test LOCAL=1` — **no Docker** — and merge to `main` serially
+(trunk, no `develop` branch). A worktree runs its own stack (`make start`, ports
+from its gitignored `.env`) only for a live check; it reads the shared Parquet
+store via `HH_DATA_ROOT` and must never write `data/` (use `TEST=1`, or
+`SERVING_DIR` for a local build). Gitignored files (`.env`, `.venv/`, `data/`)
+are normal files — read them by path; repo-wide search skips them.
 
-**Every PR body must include the output of `make footprint`** — this worktree's
-size, all worktrees, the shared git store + mise, Docker, stray DuckDB spill,
-and host-volume free space. It's the standing check against a runaway (a query
-spilling into the repo — a 176 GB `.tmp/` leak went unnoticed for a month
-because nothing surfaced it). `make clean` reclaims a worktree's regenerable
-artifacts (`DOCKER=1` also prunes the Docker store). Run `make worktree-rm
-TOPIC=<name>` once a PR merges — a lingering worktree is ~300 MB.
+Run `make footprint` when disk looks low (a 176 GB `.tmp/` DuckDB-spill leak went
+unnoticed for a month); `make clean` reclaims a worktree's regenerable artifacts
+(`DOCKER=1` also prunes the Docker store). Run `make worktree-rm TOPIC=<name>` once
+a PR merges — a lingering worktree is ~300 MB.
 
 ---
 

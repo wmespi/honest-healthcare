@@ -3,7 +3,7 @@ conftest.py (`api` fixture). Hermetic: no live server, no data/ mount.
 
 Checks response shape and the invariants a consumer relies on (sorted orders,
 min <= median <= max, the npi-without-code guard, evidence tiering, the curated
-plan map). Coverage-basket / real-data assertions stay in test_coverage.py.
+plan map). Real-data assertions live in test_golden.py.
 """
 BLUE_VALUE = "GA Blue Value HIX Individual Network"
 CARDIOLOGIST = 1000000001
@@ -264,7 +264,7 @@ def test_provider_search_by_name(api):
 def test_provider_card_carries_dac_identity(api):
     # /providers/{npi}/procedures and /rates/quote both embed provider_card,
     # which gains group_name / years_in_practice / hospital_affiliations when
-    # `make doctors-clinicians` has run (the conftest fixture builds it).
+    # `make reference STEP=doctors-clinicians` has run (the conftest fixture builds it).
     import datetime
 
     card = api.get(f"/providers/{CARDIOLOGIST}/procedures",

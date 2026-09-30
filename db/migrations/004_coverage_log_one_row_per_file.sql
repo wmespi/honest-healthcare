@@ -1,7 +1,7 @@
 -- Migration 004 — coverage_log: enforce one row per file
 --
 -- coverage_log's own comment has always said "one observational row per parsed
--- file", and `make cov-report` trusts it (issue #52's suspicious-completion
+-- file", and readers trust it (issue #52's suspicious-completion
 -- check keys on file_id). Nothing enforced it: file_id was a plain nullable
 -- column with only a non-unique index. writeCoverageLog tried to hold the
 -- invariant with `WITH prior AS (DELETE …) INSERT`, but that is fragile — it

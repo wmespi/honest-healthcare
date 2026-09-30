@@ -17,8 +17,8 @@ billed (NPI, HCPCS) is tagged with the provider's NUCC *classification*
 (distinct NPIs billing the code) / (distinct NPIs in the classification).
 
 Pure relational reshape over landed Parquet — Python/DuckDB per
-../AGENTS.md#the-language-principle. Depends on `make cms-utilization`,
-`make nppes`, and `make taxonomy-labels` having run.
+../AGENTS.md#the-language-principle. Depends on `make reference STEP=cms-utilization`,
+`make reference STEP=nppes`, and `make reference STEP=taxonomy-labels` having run.
 
 Output columns (data/reference/specialty_procedure_profiles.parquet):
   specialty            NUCC classification

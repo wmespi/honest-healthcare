@@ -146,7 +146,7 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 | Source | Adds | Cost | Effort |
 |---|---|---|---|
 | **CMS Hospital Care Compare** (Provider Data Catalog) | star rating, mortality, readmission, safety, HCAHPS patient experience, complication & infection rates | free | low — keyed by `CCN`; the CCN↔NPI bridge now exists (`dac_hospital_affiliations.parquet`) |
-| **CMS Doctors & Clinicians** (Care Compare) | ~~group linkage + facility affiliations~~ **done** (`make doctors-clinicians` → `dac_ga` + `dac_hospital_affiliations`); still open: MIPS scores, procedure-of-interest volume | free | low — keyed by `NPI`, joins directly |
+| **CMS Doctors & Clinicians** (Care Compare) | ~~group linkage + facility affiliations~~ **done** (`make reference STEP=doctors-clinicians` → `dac_ga` + `dac_hospital_affiliations`); still open: MIPS scores, procedure-of-interest volume | free | low — keyed by `NPI`, joins directly |
 | **CMS Medicare Inpatient Hospitals — by Provider & Service** (MS-DRG) | per-hospital discharge volume + payment + charge — the inpatient / surgical side Part B misses | free | low — same builder shape |
 | **CMS Medicare Physician & Other Practitioners — by Provider** (aggregate) | per-NPI beneficiary / service counts, patient & condition mix | free | low |
 | **CMS Provider of Services (POS)** + Hospital Enrollments (PECOS) | facility attributes (beds, ownership, services) and the CCN↔NPI / address bridge | free, quarterly | low |
@@ -188,7 +188,7 @@ lift longer than it must.
 
 1. **Geocode + distance + map** — Census batch-geocode the GA NPPES subset;
    lat/long onto the Parquet; distance filter/sort + a MapLibre map. *~days, free.*
-2. **CMS quality layer** — *partway done:* `make doctors-clinicians` landed the
+2. **CMS quality layer** — *partway done:* `make reference STEP=doctors-clinicians` landed the
    Doctors & Clinicians group identity + the `ccn`↔`npi` bridge
    (`dac_hospital_affiliations.parquet`). Still open: pull Hospital Care Compare
    (star rating, mortality, HCAHPS, infection rates — keyed by `ccn`), the POS /
