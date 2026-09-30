@@ -218,6 +218,16 @@ describe('default landing state', () => {
     expect(api.getRateDistribution).toHaveBeenCalledWith(undefined, undefined, BV, undefined, undefined, undefined);
     expect(api.getProviderMenu).not.toHaveBeenCalled();
   });
+
+  it('shows the typical range, not min / average / max, across all procedures (#51)', async () => {
+    renderExplorer();
+    await screen.findByText('Lower typical');
+    expect(screen.getByText('Upper typical')).toBeInTheDocument();
+    expect(screen.getByText('$60.00')).toBeInTheDocument();
+    expect(screen.getByText('$240.00')).toBeInTheDocument();
+    expect(screen.queryByText('Average')).not.toBeInTheDocument();
+    expect(screen.queryByText('Max')).not.toBeInTheDocument();
+  });
 });
 
 describe('plan-first gate', () => {

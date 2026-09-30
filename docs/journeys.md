@@ -59,7 +59,7 @@ footnote.
 | **Clickpath** | land → plan gate (pick plan) → "Family Medicine" → ranked provider list → pick a provider → provider menu → `99213` (office visit, established) |
 | **API calls** | `/specialties?network_name=` · `/providers/search?specialty=Family Medicine&network_name=` · `/providers/{npi}/procedures?network_name=` · `/rates/quote?billing_code=99213&npi={npi}&network_name=` |
 | **Expected** | One clear dollar figure, a Medicare benchmark line, and a "you'd pay ≈" once she's entered her cost-sharing. |
-| **Status** | ⚠️ **works, one rough edge left.** Quote returns `$82.05`, `medicare_allowed $86.75`, `vs_medicare 0.95`, `tier billed`. The benchmark-hidden-on-`basis:component` bug is fixed (#78) — the line now shows. Still open: the first "Family Medicine" search result is a physical-therapy group (specialty-classification bleed), tracked in [#73](https://github.com/wmespi/honest-healthcare/issues/73). |
+| **Status** | ⚠️ **works, one rough edge left.** Quote returns `$82.05`, `medicare_allowed $86.75`, `vs_medicare 0.95`, `tier billed`. The benchmark-hidden-on-`basis:component` bug is fixed (#78) — the line now shows. One thing that looks like a bug but isn't: the first "Family Medicine" result shows a physical-therapy *group name*. Checked against CMS data (#115) — the clinician's NUCC taxonomy and DAC `primary_specialty` both say family/general practice, and DAC itself lists GeorgiaLina Physical Therapy Associates as their enrolled group. The label is right; the group is what CMS reports, and the rate reaches them through that group's contract. |
 
 ### J2 — Rosa: a knee MRI
 
@@ -107,7 +107,7 @@ footnote.
 | **Clickpath** | land → "explore all networks without picking a plan" → network overview |
 | **API calls** | `GET /` · `/rates/distribution` (no `network_name`) |
 | **Expected** | No misleading aggregate presented as a finding; a clear signal that a plan is needed for real numbers. |
-| **Status** | ⚠️ **technically works, the numbers mislead.** The trust bar *does* warn ("All Networks mixes GA Blue Value with national mirror data"). But the page still renders a 4-stat grid — `median $425, avg $890, max $5,000+` — and a histogram, computed over **497 million rate entries across every code and every network**. That's a number nobody can act on, shown with the visual weight of an answer ([#73](https://github.com/wmespi/honest-healthcare/issues/73): retire the overview histogram). |
+| **Status** | ⚠️ **works; the overview no longer leads with misleading extremes (#115).** With a plan picked the page now shows the middle half of rates (`p25 / median / p75`, e.g. $25 / $175 / $525 for Blue Value) with a line saying it spans all procedures, instead of min / avg / max. With *no* plan (`bypass=1`) the trust bar still warns that "All Networks mixes GA Blue Value with national mirror data", and the pooled number is still not actionable ([#73](https://github.com/wmespi/honest-healthcare/issues/73)). |
 
 ---
 

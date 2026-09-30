@@ -63,7 +63,7 @@ the product is headed — and which of these gaps that closes — is in
     the scoped routes is *ignored*, not honoured.
   - **`negotiation_arrangement='bundle'`** — price covers other services too.
   A dedicated inpatient / facility view is the follow-up.
-- **HCPCS drug codes (J-codes) inflate pooled means.** `outpatient_scope()` does
+- **HCPCS drug codes (J-codes) inflate pooled means.** *(The no-procedure network overview no longer shows min / avg / max — it leads with p25 / median / p75, which the tails can't move (#115). The API still returns `min`/`max`/`avg`.)* `outpatient_scope()` does
   *not* exclude physician-administered drugs — some are gene therapies /
   biologics priced $3–4.5M per course (`J1411`, `J1413`, `J3391`…). The no-code
   network overview is served off `rate_hist` (buckets cap at $5k) so its

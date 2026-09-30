@@ -94,6 +94,17 @@ def test_distribution_99213_target_network(client):
     assert s["median"] == 82.05
 
 
+def test_network_overview_target_network(client):
+    # Captured 2026-09-30 (#115). The no-code overview pools ~9.3k unrelated
+    # procedures, so its min / avg / max are meaningless -- the UI now leads
+    # with the quartiles. Pin them and the pooled size; p25/p75 are $25-bucket
+    # lower edges off rate_hist, hence the round numbers.
+    s = client.get("/rates/distribution", params={"network_name": NET}).json()["summary"]
+    assert s["n_codes"] == 9302
+    assert s["total_entries"] == 452121
+    assert (s["p25"], s["median"], s["p75"]) == (25.0, 175.0, 525.0)
+
+
 def test_providers_99213(client):
     # No per-practice identity assertion here on purpose: 200 of 989
     # practices tie at the $56.84 network floor (all returned at the default

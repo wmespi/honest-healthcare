@@ -9,7 +9,7 @@ export const BV = 'GA Blue Value HIX Individual Network';
 export const OVERVIEW = {
   billing_code: 'ALL',
   billing_code_type: 'NETWORK',
-  summary: { min: 5, max: 2000, avg: 200, median: 120, provider_groups: 30, n_providers: null, total_entries: 500 },
+  summary: { min: 5, max: 2000, avg: 200, median: 120, p25: 60, p75: 240, provider_groups: 30, n_providers: null, total_entries: 500 },
   distribution: [
     { rate: 0, type: 'fee schedule', provider_groups: 10 },
     { rate: 100, type: 'fee schedule', provider_groups: 20 },

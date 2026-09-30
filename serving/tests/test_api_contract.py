@@ -73,6 +73,8 @@ def test_distribution_overview_from_summary(api):
     assert s["n_providers"] is None
     assert s["n_codes"] >= 1
     assert s["min"] <= s["median"] <= s["max"]
+    # robust spread for the no-code overview (#51): quartiles bracket the median
+    assert s["min"] <= s["p25"] <= s["median"] <= s["p75"] <= s["max"]
     assert s["total_entries"] >= 5
     assert isinstance(body["distribution"], list) and body["distribution"]
     assert all({"rate", "provider_groups"} <= b.keys() for b in body["distribution"])
