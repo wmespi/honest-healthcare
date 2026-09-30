@@ -92,7 +92,9 @@ def _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting
             (SELECT SUM(bucket * n)::DOUBLE / NULLIF(SUM(n), 0) FROM b),
             (SELECT MIN(bucket) FROM c WHERE cum >= tot / 2.0),
             (SELECT COUNT(DISTINCT billing_code) FROM {RATE_HIST_SRC} WHERE {hwhere}),
-            (SELECT SUM(n) FROM b)
+            (SELECT SUM(n) FROM b),
+            (SELECT MIN(bucket) FROM c WHERE cum >= tot * 0.25),
+            (SELECT MIN(bucket) FROM c WHERE cum >= tot * 0.75)
     """, hp + hp).fetchone()
 
     return {
@@ -104,6 +106,10 @@ def _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting
             "max_capped": srow[1] is not None and srow[1] >= 5000,  # overflow bucket
             "avg":    round(srow[2], 2) if srow[2] is not None else None,
             "median": round(srow[3], 2) if srow[3] is not None else None,
+            # robust spread: the interquartile range survives the tails that
+            # make min / max / avg meaningless over a no-code overview (#51)
+            "p25":    round(srow[6], 2) if srow[6] is not None else None,
+            "p75":    round(srow[7], 2) if srow[7] is not None else None,
             "provider_groups": None,   # not derivable without group_sets — #48
             "n_providers":     None,
             "n_codes":       None if billing_code else (srow[4] or 0),

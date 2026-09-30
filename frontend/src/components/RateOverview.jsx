@@ -25,20 +25,43 @@ export function RateOverview({ summary, specialty, selectedCode, buckets, median
         </span>
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {[
-          { label: 'Min',    value: fmt(summary.min),    color: 'text-emerald-400' },
-          { label: 'Median', value: fmt(summary.median), color: 'text-indigo-400'  },
-          { label: 'Average',value: fmt(summary.avg),    color: 'text-violet-400'  },
-          { label: 'Max',    value: summary.max_capped ? `${fmt(summary.max)}+` : fmt(summary.max), color: 'text-rose-400' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-            <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">{label}</div>
-            <div className={`text-2xl font-black ${color}`}>{value}</div>
+      {/* Summary stats. Across every procedure in a network (no code picked)
+          min / max / avg are dominated by unrelated, sometimes six-figure
+          codes (#51) -- show the typical middle of the distribution instead. */}
+      {selectedCode?.code ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          {[
+            { label: 'Min',    value: fmt(summary.min),    color: 'text-emerald-400' },
+            { label: 'Median', value: fmt(summary.median), color: 'text-indigo-400'  },
+            { label: 'Average',value: fmt(summary.avg),    color: 'text-violet-400'  },
+            { label: 'Max',    value: summary.max_capped ? `${fmt(summary.max)}+` : fmt(summary.max), color: 'text-rose-400' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+              <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">{label}</div>
+              <div className={`text-2xl font-black ${color}`}>{value}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-4 mb-3">
+            {[
+              { label: 'Lower typical', value: fmt(summary.p25),    color: 'text-emerald-400' },
+              { label: 'Median',        value: fmt(summary.median), color: 'text-indigo-400'  },
+              { label: 'Upper typical', value: fmt(summary.p75),    color: 'text-violet-400'  },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-2">{label}</div>
+                <div className={`text-2xl font-black ${color}`}>{value}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+          <p className="mb-8 text-xs text-slate-500">
+            The middle half of every rate line in this network, across all procedures
+            &mdash; not the price of any one thing. Pick a procedure for a real price.
+          </p>
+        </>
+      )}
 
       {specialty && selectedCode?.code && (
         <p className="mb-4 text-xs text-indigo-300/90">
