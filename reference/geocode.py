@@ -166,7 +166,7 @@ def main() -> None:
     out_path = f"{rd}/pcp_geocode.parquet"
 
     if not os.path.exists(ga_path):
-        raise SystemExit(f"{ga_path} not found -- run `make nppes` first")
+        raise SystemExit(f"{ga_path} not found -- run `make reference STEP=nppes` first")
 
     con = duckdb.connect()
     placeholders = ", ".join(f"'{c}'" for c in PCP_TAXONOMY_CODES)
@@ -196,7 +196,7 @@ def main() -> None:
     """).fetchone()
     print(f"→ {n_npi:,} GA PCP-eligible NPIs -> {n_addr:,} distinct addresses to geocode")
     if n_addr == 0:
-        raise SystemExit("no candidate addresses -- has `make nppes` run?")
+        raise SystemExit("no candidate addresses -- has `make reference STEP=nppes` run?")
 
     addr_rows = con.execute("""
         SELECT addr_id, address_line1, address_line2, city, state, postal_code

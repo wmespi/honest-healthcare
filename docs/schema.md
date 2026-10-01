@@ -7,9 +7,7 @@ both (`db/SCHEMA.md` is a thin pointer here).*
 The serving layer reads **Parquet**. Postgres holds only the discovery queue and two
 small reference/log tables.
 
-`make data-size` prints the current inventory — rows + on-disk bytes per Parquet
-table (with an `anthem/prices` breakdown by network partition) and per Postgres
-table. Use it to track the GA corpus toward the ~20 GB target and to spot
+`du -sh data/*` and `make psql` give the current inventory. Use it to track the GA corpus toward the ~20 GB target and to spot
 `index_files` bloat (parse status churn — `VACUUM (FULL)` reclaims it).
 
 **Why Parquet + DuckDB and not Postgres.** The workload is one sequential bulk
@@ -155,28 +153,28 @@ data/nppes/ga_providers.parquet
     address_line1 | address_line2 | city | state | postal_code
     ← join taxonomy_code to nucc_taxonomy.parquet for the real specialty label
 
-data/reference/code_labels.parquet     (make code-labels — reference/code-labels.md)
+data/reference/code_labels.parquet     (make reference STEP=code-labels — reference/code-labels.md)
     billing_code_type | billing_code | short_name
     rbcs_category | rbcs_subcategory | rbcs_family | rbcs_is_major | label | search_text
 
-data/reference/nucc_taxonomy.parquet   (make taxonomy-labels — reference/taxonomy-labels.md)
+data/reference/nucc_taxonomy.parquet   (make reference STEP=taxonomy-labels — reference/taxonomy-labels.md)
     taxonomy_code | grouping | classification | specialization
     display_name | specialty | is_individual
 
-data/cms/ga_provider_service.parquet   (make cms-utilization — reference/cms-utilization.md)
+data/cms/ga_provider_service.parquet   (make reference STEP=cms-utilization — reference/cms-utilization.md)
     npi | hcpcs_cd | place_of_service ('F'/'O')
     tot_benes | tot_srvcs | tot_bene_day_srvcs
     avg_mdcr_alowd_amt | provider_type | hcpcs_drug_ind | year
     ← one row per (GA NPI × HCPCS × POS) billed to Medicare Part B; the
       did_bill() evidence layer (serving/evidence.py). ~284k rows / ~34k NPIs.
 
-data/reference/specialty_procedure_profiles.parquet  (make specialty-profiles — reference/specialty-profiles.md)
+data/reference/specialty_procedure_profiles.parquet  (make reference STEP=specialty-profiles — reference/specialty-profiles.md)
     specialty (NUCC classification) | hcpcs_cd
     billers | specialty_providers | prevalence
     ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
       NUCC). ~5.8k rules / ~51 specialties. Read by evidence.code_tiers().
 
-data/reference/mpfs_ga.parquet         (make mpfs — reference/mpfs.md)
+data/reference/mpfs_ga.parquet         (make reference STEP=mpfs — reference/mpfs.md)
     billing_code | billing_code_type ('CPT' 5-digit, else 'HCPCS')
     modifier ('' | '26' | 'TC' | …) | pos ('nonfacility' | 'facility')
     locality ('01' Atlanta | '99' rest of GA) | medicare_allowed | status
@@ -186,7 +184,7 @@ data/reference/mpfs_ga.parquet         (make mpfs — reference/mpfs.md)
       are dropped. Read by serving/benchmark.medicare_allowed() → /rates/quote's
       `medicare_allowed` + `vs_medicare`. Physician fee schedule only — facility
       fees (OPPS/ASC/IPPS) are separate schedules, not modelled.
-data/reference/dac_ga.parquet          (make doctors-clinicians — reference/doctors-clinicians.md)
+data/reference/dac_ga.parquet          (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
     npi | last_name | first_name | credential | primary_specialty
     org_pac_id | org_name | grad_year | med_school | gender
     ← one row per NPI, from CMS Doctors & Clinicians (Care Compare). A real
@@ -194,7 +192,7 @@ data/reference/dac_ga.parquet          (make doctors-clinicians — reference/do
       buckets, plus demographics. Read by labels.provider_card() /
       /providers/search. GA-scoped (npi_lookup, else State='GA').
 
-data/reference/dac_hospital_affiliations.parquet   (make doctors-clinicians — reference/doctors-clinicians.md)
+data/reference/dac_hospital_affiliations.parquet   (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
     npi | ccn | facility_name
     ← many rows per NPI; the CCN↔NPI bridge for the Hospital Care Compare
       quality layer (roadmap step 2). ccn =

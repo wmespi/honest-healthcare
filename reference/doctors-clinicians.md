@@ -1,4 +1,4 @@
-# `make doctors-clinicians` — real practice identity + the CCN↔NPI bridge
+# `make reference STEP=doctors-clinicians` — real practice identity + the CCN↔NPI bridge
 
 *Read this when working on **who a provider really practices with** (the group
 name on the provider card / list) or the **hospital-affiliation** data that
@@ -13,7 +13,7 @@ Builds two Parquet tables under `data/reference/` from the **public** CMS
 | `dac_ga.parquet` | one row per NPI | `npi \| last_name \| first_name \| credential \| primary_specialty \| org_pac_id \| org_name \| grad_year \| med_school \| gender` |
 | `dac_hospital_affiliations.parquet` | many rows per NPI | `npi \| ccn \| facility_name` |
 
-`make doctors-clinicians` → `python3 -m reference.doctors_clinicians
+`make reference STEP=doctors-clinicians` → `python3 -m reference.doctors_clinicians
 --data-dir /app/data` in the serving container (`reference/doctors_clinicians.py`).
 `DAC_URL=` / `AFFIL_URL=` override the sources; `--dac-file` / `--affiliations-file`
 / `--test` exist on the module.
@@ -115,7 +115,7 @@ test fixture uses this layout so `--dac-file` produces both outputs offline.
 - `hospital_affiliations` — `[{ccn, facility_name}, …]`
 
 `/providers/search` annotates each row with `group_name` via a guarded LEFT JOIN.
-Everything degrades to `None` / `[]` / omitted until `make doctors-clinicians`
+Everything degrades to `None` / `[]` / omitted until `make reference STEP=doctors-clinicians`
 runs, so the API works without it.
 
 *Not yet wired:* `/rates/providers` still groups practice rows on Anthem's
@@ -149,5 +149,5 @@ National file's all-varchar NPI vs `npi_lookup`'s BIGINT caused a
 real-data-only `BinderException`).
 `serving/tests/test_api_contract.py` checks `provider_card` / the provider menu
 carry the new fields (the `conftest.py` fixture builds tiny `dac_ga` +
-`dac_hospital_affiliations` parquets). Picked up by `make check-local` and
-`make test-api`.
+`dac_hospital_affiliations` parquets). Picked up by `make test LOCAL=1` and
+`make test`.

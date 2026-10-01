@@ -22,14 +22,14 @@ import pytest
 # DATA_DIR / SERVING_DIR must be set before `serving.*` is imported
 # (data_sources.py freezes the glob paths at import time). conftest.py is
 # loaded before any test module. Repo-root relative (not "/app/…") so this
-# also runs on the host under `make check-local` — in the container the root
+# also runs on the host under `make test LOCAL=1` — in the container the root
 # resolves to /app. GH #59.
 _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 FIX_DIR = os.path.join(_REPO, "data-test", "apifix")
 os.environ["DATA_DIR"] = FIX_DIR
 os.environ["SERVING_DIR"] = f"{FIX_DIR}/serving"
 
-# `cd serving && pytest tests/` (make test-api) puts serving/ on sys.path but not
+# `cd serving && pytest tests/` (make test) puts serving/ on sys.path but not
 # the repo root — test_build.py imports `build.build` (which in turn imports
 # `serving.*` and `reference.*`). Prepend the root so it resolves everywhere.
 if _REPO not in sys.path:
@@ -300,7 +300,7 @@ def _build(data_dir: str) -> None:
              "NULL" if amt is None else amt, f"'{st}'")
             for bc, t, m, p, loc, amt, st in mpfs])
 
-    # ── CMS Doctors & Clinicians (make doctors-clinicians) ────────────────
+    # ── CMS Doctors & Clinicians (make reference STEP=doctors-clinicians) ────────────────
     # one row per NPI: real group identity + demographics
     dac = [
         (1000000001, "Adams", "Carol", "M.D.", "Cardiology",
@@ -365,9 +365,7 @@ def api_data():
 
 @pytest.fixture(scope="session")
 def api(api_data):
-    """A TestClient bound to the app, reading the fixture DATA_DIR in-process.
-    (test_coverage.py keeps its own `client` fixture — that one hits a live
-    server with the full data/ mounted.)"""
+    """A TestClient bound to the app, reading the fixture DATA_DIR in-process."""
     from fastapi.testclient import TestClient
     from serving.main import app
     with TestClient(app) as c:

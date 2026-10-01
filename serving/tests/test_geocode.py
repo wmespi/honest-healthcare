@@ -4,7 +4,7 @@ No network — runs the builder against a tiny committed NPPES fixture, with
 --census-response-file substituting for the real Census batch call (a canned
 response, reference/testdata/geocode_census_response_sample.csv). Test
 isolation (--test): writes data-test/, never data/. Picked up by
-`make test-api` and `make check-local`.
+`make test`.
 """
 import os
 import subprocess
@@ -13,7 +13,7 @@ import sys
 import duckdb
 import pytest
 
-# Repo-root relative so this runs on the host (`make check-local`) too; in the
+# Repo-root relative so this runs on the host (`make test LOCAL=1`) too; in the
 # container REPO resolves to /app. GH #59.
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CENSUS_RESPONSE = os.path.join(REPO, "reference/testdata/geocode_census_response_sample.csv")

@@ -132,10 +132,10 @@ def _load_plan_counts(con, test, override=None):
 
 
 def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
-    anthem = store_dir(data_dir, test, "anthem", "ANTHEM_DIR")
-    nppes = store_dir(data_dir, test, "nppes", "NPPES_DIR")
-    ref = store_dir(data_dir, test, "reference", "REFERENCE_DIR")
-    cms = store_dir(data_dir, test, "cms", "CMS_DIR")
+    anthem = store_dir(data_dir, test, "anthem")
+    nppes = store_dir(data_dir, test, "nppes")
+    ref = store_dir(data_dir, test, "reference")
+    cms = store_dir(data_dir, test, "cms")
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
 
     prices_dir = f"{anthem}/prices"
@@ -333,7 +333,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
     """)
 
     # ── provider_affiliations — the DAC hospital CCN<->NPI bridge, verbatim
-    #    (already GA-scoped by `make doctors-clinicians`). Empty when not built.
+    #    (already GA-scoped by `make reference STEP=doctors-clinicians`). Empty when not built.
     affil = f"{ref}/dac_hospital_affiliations.parquet"
     if os.path.exists(affil):
         con.execute(f"""
@@ -563,7 +563,7 @@ def main():
     serving_dir = args.serving_dir or _serving_dir(data_dir, args.test)
     networks = [s.strip() for s in args.networks.split(",")] if args.networks else None
 
-    if not os.path.isdir(f"{store_dir(data_dir, args.test, 'anthem', 'ANTHEM_DIR')}/prices"):
+    if not os.path.isdir(f"{store_dir(data_dir, args.test, 'anthem')}/prices"):
         raise SystemExit("no rate store — run `make parse` first")
     build(data_dir, serving_dir, networks, args.test)
 

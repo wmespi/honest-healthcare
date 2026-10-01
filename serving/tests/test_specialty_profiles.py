@@ -10,7 +10,7 @@ import sys
 import duckdb
 import pytest
 
-# Repo-root relative so this runs on the host (`make check-local`) too; in the
+# Repo-root relative so this runs on the host (`make test LOCAL=1`) too; in the
 # container REPO resolves to /app. GH #59.
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CMS = os.path.join(REPO, "data-test/cms/ga_provider_service.parquet")
@@ -54,7 +54,7 @@ def built():
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
     yield duckdb.connect()
     # Leave data-test/ clean — a stale data-test/nppes/ga_providers.parquet here
-    # makes the GA NPI filter in a later `make test-e2e` drop every synthetic row.
+    # makes the GA NPI filter in a later the e2e script drop every synthetic row.
     for p in (CMS, NPPES, NUCC, OUT):
         try:
             os.remove(p)

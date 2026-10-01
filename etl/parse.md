@@ -74,7 +74,7 @@ Ordering within the selected set is unchanged — smallest file first
    (`ON CONFLICT (billing_code) DO NOTHING`).
 6. Write the file's `coverage_log` row (row counts, new codes/NPIs/TINs, distinct
    networks/settings/billing-classes) — one row per file, a re-parse replaces it.
-   Observational: the ETL never reads it, but `make cov-report` gates on it.
+   Observational: the ETL never reads it; query it with `make psql`.
 7. After the whole run, write `npi_lookup.parquet` (dedup NPI → TIN across all
    files parsed this run).
 8. Mark the row `completed` (+ `completed_at`, + per-file `reporting_entity_*`), or
@@ -176,7 +176,7 @@ Harmless for a single-operator sequential run; real at scale.
   `stallTimeout` (3 min) — so a hung socket fails the file instead of blocking
   the queue. There is deliberately no *total* timeout: a multi-GB body streams
   for hours.
-- **HEAD size is a hint, not verified.** `make size` (HEAD) and the parse GET can
+- **HEAD size is a hint, not verified.** `make discover` (HEAD) and the parse GET can
   report different `Content-Length`; the parse GET is authoritative — it fetches
   the bytes actually parsed and overwrites `file_size_bytes` — and its body is
   reconciled against its own length. A deliberate non-check: a HEAD/GET mismatch

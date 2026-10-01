@@ -11,38 +11,33 @@ import sys
 import urllib.request
 
 
-def store_dir(data_dir: str, test: bool, sub: str, env: str = "") -> str:
-    """A data sub-store directory. `data-test/<sub>` under --test; otherwise the
-    `env` var if set (so a worktree can rebuild into ./data-local/<sub> while
-    serving still reads the shared corpus — GH #59 Part C), else
-    `<data_dir>/<sub>`. `serving/data_sources.py` mirrors the same env vars."""
-    if test:
-        return f"data-test/{sub}"
-    if env and os.getenv(env):
-        return os.environ[env]
-    return f"{data_dir}/{sub}"
+def store_dir(data_dir: str, test: bool, sub: str) -> str:
+    """A data sub-store directory: `data-test/<sub>` under --test, else `<data_dir>/<sub>`."""
+    return f"data-test/{sub}" if test else f"{data_dir}/{sub}"
 
 
 def ref_dir(data_dir: str, test: bool) -> str:
-    """The reference-output directory — honors REFERENCE_DIR (see store_dir)."""
-    return store_dir(data_dir, test, "reference", "REFERENCE_DIR")
+    """The reference-output directory."""
+    return store_dir(data_dir, test, "reference")
 
 
 def cms_dir(data_dir: str, test: bool) -> str:
-    """The CMS-output directory — honors CMS_DIR."""
-    return store_dir(data_dir, test, "cms", "CMS_DIR")
+    """The CMS-output directory."""
+    return store_dir(data_dir, test, "cms")
 
 
 def nppes_dir(data_dir: str, test: bool) -> str:
-    """The NPPES directory (read) — honors NPPES_DIR."""
-    return store_dir(data_dir, test, "nppes", "NPPES_DIR")
+    """The NPPES directory (read)."""
+    return store_dir(data_dir, test, "nppes")
 
 
 def serving_dir(data_dir: str, test: bool) -> str:
     """The build step's output directory — honors SERVING_DIR, so a worktree
     writes ./data-local/serving while reading the shared corpus. `build/build.py`
     and `serving/data_sources.py` mirror this."""
-    return store_dir(data_dir, test, "serving", "SERVING_DIR")
+    if not test and os.getenv("SERVING_DIR"):
+        return os.environ["SERVING_DIR"]
+    return store_dir(data_dir, test, "serving")
 
 
 def _atomic_write_bytes(path: str, data: bytes) -> None:

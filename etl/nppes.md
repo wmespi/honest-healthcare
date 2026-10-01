@@ -1,10 +1,10 @@
-# `make nppes` — NPPES Georgia provider subset
+# `make reference STEP=nppes` — NPPES Georgia provider subset
 
 *Read this when working on the provider-identity reference data.*
 
 Streams the CMS NPPES national dissemination file (~9 GB CSV in a zip) in a single
 pass and writes the **Georgia-only** subset to `data/nppes/ga_providers.parquet`.
-`make nppes` → `etl nppes` (package `etl/nppes`).
+`make reference STEP=nppes` → `etl nppes` (package `etl/nppes`).
 
 **In Go, not Python, by design** ([language principle](../AGENTS.md#the-language-principle)):
 it's a single-pass stream over a source too large to materialize — exactly what the
@@ -33,10 +33,10 @@ address_line1 | address_line2 | city | state | postal_code
 
 ## Dev loop
 
-- **`make test-e2e`** runs `extractNPPESGeorgia` hermetically over the 14-row
+- **`make test`** runs `extractNPPESGeorgia` hermetically over the 14-row
   `testdata/nppes_sample.csv` fixture with teardown — column mapping and taxonomy
   classification should never touch the 9 GB file.
 - The write to `ga_providers.parquet` is **not atomic** — during a re-extract the
-  file is briefly 0 bytes and serving-layer queries that touch it 500. Run `make nppes`
+  file is briefly 0 bytes and serving-layer queries that touch it 500. Run `make reference STEP=nppes`
   when the API is idle, or expect transient errors. See
   [../docs/known-gaps.md](../docs/known-gaps.md).

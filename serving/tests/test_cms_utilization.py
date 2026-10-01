@@ -10,7 +10,7 @@ import sys
 import duckdb
 import pytest
 
-# Repo-root relative so this runs on the host (`make check-local`) too; in the
+# Repo-root relative so this runs on the host (`make test LOCAL=1`) too; in the
 # container REPO resolves to /app. GH #59.
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 FIXTURE = os.path.join(REPO, "reference/testdata/cms_sample.csv")
@@ -27,7 +27,7 @@ def built():
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
     yield duckdb.connect()
     # Leave data-test/ clean — a stale ga_providers-adjacent parquet here would
-    # otherwise perturb a later `make test-e2e` in the same environment.
+    # otherwise perturb a later the e2e script in the same environment.
     try:
         os.remove(OUT)
     except FileNotFoundError:

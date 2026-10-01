@@ -1,4 +1,4 @@
-# `make mpfs` — Medicare Physician Fee Schedule benchmark
+# `make reference STEP=mpfs` — Medicare Physician Fee Schedule benchmark
 
 *Read this when working on the per-code "is this rate plausible" check on the
 cost card (job 1) or the `medicare_allowed` / `vs_medicare` fields on
@@ -10,7 +10,7 @@ One row per `(HCPCS/CPT code × modifier × facility|non-facility × Georgia
 locality)` with the Medicare **allowed amount** — the fee schedule's price
 before the 80/20 split.
 
-`make mpfs` → `python3 -m reference.mpfs --data-dir /app/data` in the serving
+`make reference STEP=mpfs` → `python3 -m reference.mpfs --data-dir /app/data` in the serving
 container (`reference/mpfs.py`). `CMS_URL=` overrides the source zip, `YEAR=`
 the stamped calendar year, `CF=` the conversion factor. `--rvu-file` /
 `--gpci-file` / `--test` exist on the module.
@@ -92,7 +92,7 @@ query the parquet directly on `locality = '01'`.
 ## Re-run when CMS publishes year N
 
 The RVU file is quarterly (corrections) and the whole schedule is re-based every
-January. Re-run `make mpfs YEAR=<N>` — and **check the conversion factor**: 2025
+January. Re-run `make reference STEP=mpfs ARGS="--year <N>"` — and **check the conversion factor**: 2025
 had a mid-year statutory change, and CMS occasionally omits the `CONVERSION
 FACTOR` column from the CSV. `CF_BY_YEAR` in `mpfs.py` is a hand-maintained
 fallback; verify it against that year's CMS final rule and pass `CF=` if needed.
@@ -123,5 +123,5 @@ split, a facility-`NA` code, a bundled `B` code, a carrier-priced `C` code) ×
 that must be filtered) in test isolation (`data-test/reference/`). Checks the
 RVU formula, the fac/non-fac PE split, status handling, and the GA filter.
 `serving/tests/test_api_contract.py::test_quote_carries_medicare_benchmark`
-covers the `/rates/quote` wiring. Picked up by `make test-api` and
-`make check-local`.
+covers the `/rates/quote` wiring. Picked up by `make test` and
+`make test LOCAL=1`.

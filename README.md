@@ -75,52 +75,40 @@ make start     # macOS — launches Docker Desktop if needed, then all container
 ```bash
 curl localhost:8000/        # → {"status":"ok", ...}
 open http://localhost:5173  # the UI loads (empty until step 5)
-make test-all               # full suite against committed fixtures
+make test                   # full suite against committed fixtures
 ```
 
 **5 — Load real rate data.** These pull large files from CMS / Anthem and take a
 while; run them in order, stop any time — the UI shows whatever has parsed.
 
 ```bash
-make nppes          # ~1 GB — Georgia provider registry (names, specialties,
-                    #   and the GA filter that keeps parse output small)
 make discover       # ~10 GB one-time — Anthem's master index → the file queue
+make reference STEP=nppes
+                    # ~1 GB — Georgia provider registry (names, specialties, and
+                    #   the GA filter that keeps parse output small) — before parse
 make parse          # streams the rate files that serve a plan in
                     #   etl/targets.yaml into Parquet, smallest first
 ```
 
-**6 — Consumer labels** (recommended — without these, procedures show as
-"Medical"/"Surgery" and specialties are blank):
+**6 — Reference data** — consumer labels (without them procedures show as
+"Medical"/"Surgery" and specialties are blank), provider↔procedure evidence
+(`billed to Medicare`, plausible-vs-group tiering), the Medicare benchmark
+(`vs_medicare`), real practice identity (CMS Doctors & Clinicians), and geocodes:
 
 ```bash
-make code-labels
-make taxonomy-labels
+make reference      # builds whatever is missing, in dependency order (~5 GB of
+                    #   downloads the first time); STEP=<name> runs one, FORCE=1 rebuilds all
 ```
 
-**7 — Provider↔procedure evidence** (optional — powers the "billed to Medicare"
-line and the plausible-vs-group menu tiering; the app works without it):
+**7 — Build the serving tables:**
 
 ```bash
-make cms-utilization      # ~3 GB — CMS Medicare Part B: did this NPI bill this code
-make specialty-profiles   # what each specialty typically bills (needs 6 + cms-utilization)
+make build          # raw + reference parquet → data/serving/
 ```
 
-**8 — Medicare benchmark** (optional — adds `medicare_allowed` + a `vs_medicare`
-ratio to a cost quote, a sanity check on group rates):
+After the first load, `make refresh` is the whole monthly job.
 
-```bash
-make mpfs                 # ~15 MB — CMS Physician Fee Schedule allowed $ per code (GA)
-```
-
-**9 — Real practice identity** (optional — the CMS Doctors & Clinicians group
-name + years-in-practice on the provider card, and the hospital-affiliation
-CCN↔NPI bridge for the quality layer):
-
-```bash
-make doctors-clinicians   # ~1 GB — CMS Care Compare: group PAC ID/name + hospital CCNs
-```
-
-The API picks up new Parquet automatically — just refresh the UI. `make help`
+After `make build`, the API picks up the new tables automatically — just refresh the UI. `make help`
 lists every workflow. To reach the UI from another device, open
 `http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on
 port 8000 of whatever host you loaded it from. `scripts/tailscale-up.sh` sets up
@@ -142,15 +130,12 @@ scripts/dev-setup.sh       # .venv + npm ci; run once in the canonical checkout
 
 make worktree TOPIC=my-thing        # → ../hh-my-thing on a new branch, fully set up
 cd ../hh-my-thing
-make check-local                    # gofmt · vet · build · go test · pytest · vitest — no Docker
+make test LOCAL=1                   # gofmt · vet · build · go test · pytest · vitest — no Docker
 ```
 
-The canonical checkout keeps running the one Tailscale-served stack, pinned to a
-`tailnet` branch that moves only via `make promote` — so merging to `main` never
-surprises the people on your tailnet. `make tiers` shows the gap; `make preview
-REF=<branch>` renders a candidate on an ephemeral stack first. Feature worktrees
-test on host toolchains and spin their own stack (`make stack-up`) only for a
-live check. Full runbook: [docs/worktrees.md](docs/worktrees.md).
+The canonical checkout runs the one always-up stack; feature worktrees test on
+host toolchains and run `make start` (own ports, from `.env`) only for a live
+check. Full runbook: [docs/worktrees.md](docs/worktrees.md).
 
 ---
 

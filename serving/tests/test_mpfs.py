@@ -2,7 +2,7 @@
 
 No network — runs the builder against committed PPRRVU + GPCI CSV fixtures in
 test isolation (writes data-test/reference/, never data/). Picked up by
-`make test-api` and `make check-local`.
+`make test`.
 """
 import os
 import subprocess
@@ -11,7 +11,7 @@ import sys
 import duckdb
 import pytest
 
-# Repo-root relative so this runs on the host (`make check-local`) too; in the
+# Repo-root relative so this runs on the host (`make test LOCAL=1`) too; in the
 # container REPO resolves to /app. GH #59.
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 RVU = os.path.join(REPO, "reference/testdata/mpfs_sample.csv")

@@ -15,7 +15,7 @@ them, just differently — GET /'s `reference_loaded` says which are on disk),
 or the API isn't reachable at all. Only `make test-live` (run
 via docker compose exec, so it shares the container's live localhost:8000)
 exercises the real assertions below; a bare `pytest serving/tests/test_golden.py`
-with nothing listening skips all of them. `make test-api` / `make test-all`
+with nothing listening skips all of them. `make test`
 explicitly exclude this file (Makefile) — it is not hermetic and must never
 gate on which build steps happen to have been run.
 """
@@ -32,7 +32,7 @@ NET = "GA Blue Value HIX Individual Network"
 def client():
     # /rates/by_network scans every GA network with no cache — 10-20s+ warm,
     # worse cold or under DUCKDB_MEMORY_LIMIT=2GB (a worktree's default).
-    # test_coverage.py uses the same 120s for the same reason.
+    # same 120s budget as the journeys harness.
     with httpx.Client(base_url=API_URL, timeout=120) as c:
         yield c
 

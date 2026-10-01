@@ -28,8 +28,8 @@ cat <<EOF
 $(printf '\033[32m✓\033[0m') worktree ready
 
   cd "$dir"          # ($branch)
-  make check-local              # host gate, no Docker
-  make stack-up                 # only when you need the app running
+  make test LOCAL=1             # host gate, no Docker
+  make start                    # only when you need the app running (own ports, from .env)
 
   when merged:  git worktree remove "$dir"   (or: make worktree-rm TOPIC=$topic)
 EOF

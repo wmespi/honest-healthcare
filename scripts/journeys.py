@@ -3,13 +3,12 @@
 User-journey assertions — the pointed "does the real flow still produce the right
 answer" checks behind docs/journeys.md.
 
-Unlike scripts/frontend_smoke.py (breadth: does every code in a basket have plan
-coverage), this is depth: for a handful of named personas, does the specific
+Unlike serving/tests/test_golden.py (pinned answers), this is depth: for a handful of named personas, does the specific
 expected outcome still hold — the canary rate, the benchmark band, the honest
 group-rate tier, the has-rates badge distinction.
 
 Needs the REAL corpus in the running stack (the assertions check real dollar
-figures), so this is a local tool — `make journeys` — not a CI gate. CI-safe
+figures), so this is a local tool — `make test-live` — not a CI gate. CI-safe
 browser specs against seeded data are a follow-up (#72).
 
 Also reports latency per journey — total wall time, call count, and the slowest

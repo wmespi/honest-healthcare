@@ -2,13 +2,10 @@
 # Set up host toolchains + per-worktree Docker config for parallel development
 # (GH #59). Idempotent — safe to re-run.
 #
-#   scripts/dev-setup.sh [--no-mise] [--rebuild-reference]
+#   scripts/dev-setup.sh [--no-mise]
 #
 #   --no-mise             use whatever python3 / node / go are on PATH instead of
 #                         installing pinned versions via mise
-#   --rebuild-reference   this worktree will regenerate reference/CMS/summary
-#                         parquet — seed ./data-local from the shared store and
-#                         append the sub-store split (REFERENCE_DIR/…) to .env
 #
 # The container-only quickstart (README.md) needs none of this.
 set -euo pipefail
@@ -16,11 +13,9 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 
 NO_MISE=0
-REBUILD_REF=0
 for a in "$@"; do
   case "$a" in
     --no-mise) NO_MISE=1 ;;
-    --rebuild-reference) REBUILD_REF=1 ;;
     *) echo "unknown flag: $a" >&2; exit 2 ;;
   esac
 done
@@ -58,8 +53,8 @@ else
   [ -n "$PY" ] || { echo "no python3 on PATH" >&2; exit 1; }
   "$PY" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3,10) else 1)' \
     || warn "python $("$PY" -V) is < 3.10 — serving targets may misbehave (container is 3.10)"
-  command -v go   >/dev/null || warn "no go on PATH — 'make check-local' Go steps will fail"
-  command -v node >/dev/null || warn "no node on PATH — 'make check-local' web steps will fail"
+  command -v go   >/dev/null || warn "no go on PATH — 'make check LOCAL=1' Go steps will fail"
+  command -v node >/dev/null || warn "no node on PATH — 'make test LOCAL=1' web steps will fail"
 fi
 
 # ── 2. python venv + dev deps ───────────────────────────────────────────────
@@ -103,36 +98,10 @@ EOF
   say ".env: wrote $NAME  (db $DBP · api $APIP · web $WEBP · data ← $CANONICAL/data)"
 fi
 
-# ── 5. optional: local reference/CMS/serving store (GH #59 Part C) ────────────
-# Read the big immutable stores from the shared corpus (ANTHEM_DIR/NPPES_DIR via
-# the HH_DATA_ROOT mount), write the rebuilt ones into this worktree's
-# data-local/ (already at /app/data-local via the repo mount). No override file.
-if [ "$REBUILD_REF" -eq 1 ]; then
-  say "data-local: seeding reference / cms / serving from $CANONICAL/data"
-  for d in reference cms serving; do
-    mkdir -p "data-local/$d"
-    [ -d "$CANONICAL/data/$d" ] && cp -Rn "$CANONICAL/data/$d/." "data-local/$d/" 2>/dev/null || true
-  done
-  # append the split to .env if not already there
-  if ! grep -q '^REFERENCE_DIR=' .env 2>/dev/null; then
-    cat >> .env <<'EOF'
-
-# --rebuild-reference (GH #59 Part C): read shared, write local.
-ANTHEM_DIR=/app/data/anthem
-NPPES_DIR=/app/data/nppes
-REFERENCE_DIR=/app/data-local/reference
-CMS_DIR=/app/data-local/cms
-SERVING_DIR=/app/data-local/serving
-EOF
-    say ".env: appended the sub-store split (rebuilds land in ./data-local/)"
-  fi
-fi
-
 cat <<EOF
 
 $(printf '\033[32m✓\033[0m') dev setup complete.
 
-  make check-local     host-side gate — gofmt, vet, build, go test, pytest contract, vitest (no Docker)
-$( [ "$IS_CANONICAL" -eq 1 ] || echo "  make stack-up        start this worktree's stack (own ports, from .env)" )
-$( [ "$IS_CANONICAL" -eq 1 ] && echo "  make start           the canonical stack (Tailscale-visible)" )
+  make test LOCAL=1    host-side gate — gofmt, vet, build, go test, pytest, vitest (no Docker)
+  make start           this checkout's stack$( [ "$IS_CANONICAL" -eq 1 ] || echo " (own ports, from .env)" )
 EOF

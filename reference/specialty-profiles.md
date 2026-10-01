@@ -1,4 +1,4 @@
-# `make specialty-profiles` — what each specialty typically bills
+# `make reference STEP=specialty-profiles` — what each specialty typically bills
 
 *Read this alongside [cms-utilization.md](cms-utilization.md) — it's Tier 2 of the
 provider↔procedure story (issue #14).*
@@ -7,9 +7,9 @@ Builds `data/reference/specialty_procedure_profiles.parquet`: for each provider
 specialty, the procedures a meaningful share of that specialty actually performs,
 learned from CMS Medicare utilization.
 
-`make specialty-profiles` → `python3 -m reference.specialty_profiles
+`make reference STEP=specialty-profiles` → `python3 -m reference.specialty_profiles
 --data-dir /app/data` in the serving container (`reference/specialty_profiles.py`).
-**Depends on** `make cms-utilization`, `make nppes`, and `make taxonomy-labels`
+**Depends on** `make reference STEP=cms-utilization`, `make reference STEP=nppes`, and `make reference STEP=taxonomy-labels`
 having run — it's a pure relational reshape over those three landed Parquets, no
 download.
 
@@ -64,4 +64,4 @@ prevalence           billers / specialty_providers  (0..1)
 
 `serving/tests/test_specialty_profiles.py` — hermetic, writes tiny CMS / NPPES /
 NUCC Parquets under `data-test/`, runs the builder, checks the prevalence math
-and the min-provider guard. Picked up by `make test-api`.
+and the min-provider guard. Picked up by `make test`.

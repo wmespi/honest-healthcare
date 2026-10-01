@@ -1,4 +1,4 @@
-# `make code-labels` — consumer procedure labels
+# `make reference STEP=code-labels` — consumer procedure labels
 
 *Read this when working on the "what is this procedure" layer that powers
 `/billing_codes` search and browse-by-category.*
@@ -8,7 +8,7 @@ Python over DuckDB ([language principle](../AGENTS.md#the-language-principle)): 
 joins the parsed `codes/*.parquet` against a small reference CSV and reshapes —
 SQL-shaped work, no streaming parser.
 
-`make code-labels` → `python3 -m reference.code_labels --data-dir /app/data` in the
+`make reference STEP=code-labels` → `python3 -m reference.code_labels --data-dir /app/data` in the
 serving container (`reference/code_labels.py`). `RBCS_URL=` overrides the source;
 `--rbcs-file` / `--test` exist on the module. Cache download + atomic Parquet
 write come from `reference/_common.py`, shared with `taxonomy_labels`.
