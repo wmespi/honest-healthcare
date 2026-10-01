@@ -26,7 +26,7 @@ can copy back into a PR. Links below point at a placeholder tailnet host
 **Routing (#87).** `/` is the task-first landing, not the explorer — J1–J5
 below all target **`/explore`**, the general flow (unchanged behavior, just
 demoted from front door to secondary path). The PCP flow now has a real route,
-**`/find-care/pcp`**, reachable from `/`'s "Find a primary care doctor" card;
+**`/find-care`**, reachable from `/`'s "Find a primary care doctor" card;
 its own journeys aren't written up as J-numbers yet (see
 [docs/testing.md](testing.md) / `App.test.jsx`'s "service-line locked mode"
 and "routing" describe blocks for that coverage today).

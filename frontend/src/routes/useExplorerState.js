@@ -11,6 +11,8 @@ import { bucketDistribution } from '../lib/distribution';
 // routes/Explorer.jsx (which is purely presentational) so each file stays a
 // readable size. `lockedServiceLine` is the one thing the route (not the user)
 // fixes for the component's whole lifetime (#87) — see Explorer.jsx's routing.
+const DEFAULT_RADIUS_MI = 10;
+
 export function useExplorerState(lockedServiceLine) {
   const navigate = useNavigate();
 
@@ -52,6 +54,11 @@ export function useExplorerState(lockedServiceLine) {
   // means navigating to /explore, not clearing a filter.
   const serviceLine = lockedServiceLine || '';
   const [npi, setNpi] = useState(deepLink.npi);
+  // Where the user is, for the PCP picker's distance ranking. The ZIP only
+  // reaches the API once it is a full 5 digits.
+  const [zip, setZipState] = useState(deepLink.zip);
+  const [radiusMi, setRadiusMi] = useState(Number(deepLink.radius) || DEFAULT_RADIUS_MI);
+  const near = /^\d{5}$/.test(zip) ? { zip, radius_mi: radiusMi } : undefined;
   const [npiLabel, setNpiLabel] = useState('');
 
   // The curated service-line billing-code allowlists (#83, #100) — fetched
@@ -111,10 +118,12 @@ export function useExplorerState(lockedServiceLine) {
     const qs = buildDeepLinkQuery({
       plan: selectedPlan, specialty, npi, bypass: bypassGate,
       code: selectedCode?.code, type: selectedCode?.type,
+      zip: near?.zip, radius: near && radiusMi !== DEFAULT_RADIUS_MI ? radiusMi : undefined,
     });
     const url = window.location.pathname + (qs ? `?${qs}` : '');
     window.history.replaceState(null, '', url);
-  }, [selectedPlan, specialty, npi, selectedCode, bypassGate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlan, specialty, npi, selectedCode, bypassGate, near?.zip, radiusMi]);
 
   // Ranked provider list for the chosen specialty OR service line (#83) — the
   // step between "pick your care" and a specific provider. Only when one scope
@@ -124,12 +133,13 @@ export function useExplorerState(lockedServiceLine) {
     if ((!specialty && !serviceLine) || npi || selectedCode?.code) { setSpecialtyProviders(null); return; }
     let cancelled = false;
     setSpecialtyProvidersLoading(true);
-    searchProviders('', specialty, 40, selectedPlan || undefined, serviceLine)
+    searchProviders('', specialty, 40, selectedPlan || undefined, serviceLine, near)
       .then(res => { if (!cancelled) setSpecialtyProviders(res.data); })
       .catch(() => { if (!cancelled) setSpecialtyProviders(null); })
       .finally(() => { if (!cancelled) setSpecialtyProvidersLoading(false); });
     return () => { cancelled = true; };
-  }, [specialty, serviceLine, npi, selectedCode, selectedPlan]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specialty, serviceLine, npi, selectedCode, selectedPlan, near?.zip, radiusMi]);
 
   // Compare-across-providers table — a code is chosen, NO provider filter, and a
   // plan is picked (rates are plan-specific; the endpoint requires a network).
@@ -325,6 +335,7 @@ export function useExplorerState(lockedServiceLine) {
     selectedPlan, setSelectedPlan, bypassGate, setBypassGate, gated,
     query, setQuery, suggestions, showSuggestions, setShowSuggestions, isFocused, setIsFocused,
     specialty, serviceLine, npi, npiLabel, activeCodeScope,
+    zip, setZip: setZipState, radiusMi, setRadiusMi, near,
     distribution, loading, selectedCode, error,
     providerRates, providerRatesLoading,
     providerMenu, providerMenuLoading, setMenuTier,

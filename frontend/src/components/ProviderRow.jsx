@@ -1,5 +1,32 @@
 import { titleCaseOrg } from '../lib/orgNames';
 
+// Two different facts, never one standing in for the other: the CMS MIPS score
+// is a quality measure (most PCPs have none); years in practice is
+// experience, from the Doctors & Clinicians graduation year. Each renders only
+// when it exists, under its own label.
+function QualitySignals({ s }) {
+  const hasMips = s.mips_score != null;
+  const hasYears = s.years_in_practice != null;
+  if (!hasMips && !hasYears) return null;
+  return (
+    <div className="flex items-center gap-3 mt-0.5 text-[11px]">
+      {hasMips && (
+        <span
+          className="text-amber-400 font-bold"
+          title={`CMS Merit-based Incentive Payment System score, 0–100${s.mips_year ? `, performance year ${s.mips_year}` : ''}`}
+        >
+          MIPS {Math.round(s.mips_score)}/100
+        </span>
+      )}
+      {hasYears && (
+        <span className="text-slate-400" title="Years since medical-school graduation (CMS Doctors & Clinicians)">
+          {s.years_in_practice} yrs in practice
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Row for one provider in the search dropdown. `disabled` (a provider with no
 // rate in the picked plan) renders inert — a listing, not a choice, so "is my
 // doctor in this plan?" is still answerable without the dead-end quote screen.
@@ -26,6 +53,11 @@ export function ProviderRow({ s, onPick, disabled, planLabel }) {
             ${s.min_rate.toFixed(0)}{s.min_rate_is_plausible === false && <sup className="text-slate-500">†</sup>}
           </span>
         )}
+        {s.distance_mi != null && (
+          <span className="text-[11px] font-bold text-sky-400 shrink-0" title="Straight-line distance from your ZIP">
+            {s.distance_mi.toFixed(1)} mi
+          </span>
+        )}
         {s.has_rates
           ? <span className="text-[9px] font-black uppercase tracking-wide text-emerald-400 shrink-0">has rates</span>
           : <span className="text-[9px] font-black uppercase tracking-wide text-slate-600 shrink-0">
@@ -38,6 +70,7 @@ export function ProviderRow({ s, onPick, disabled, planLabel }) {
       <div className={`text-[11px] mt-0.5 truncate ${s.has_rates ? 'text-slate-500' : 'text-slate-600'}`}>
         {[s.specialty, s.group_name && titleCaseOrg(s.group_name), s.city, `NPI ${s.npi}`].filter(Boolean).join(' · ')}
       </div>
+      <QualitySignals s={s} />
     </>
   );
   if (disabled) return <div className={`${cls} opacity-50 cursor-not-allowed`}>{inner}</div>;

@@ -18,6 +18,7 @@ import { TrustBar } from '../components/TrustBar';
 import { PlanGate } from '../components/PlanGate';
 import { SpecialtyProviderList } from '../components/SpecialtyProviderList';
 import { SpecialtyBrowser } from '../components/SpecialtyBrowser';
+import { LocationBar } from '../components/LocationBar';
 import { useExplorerState } from './useExplorerState';
 
 // Display labels for `service_line` values (#83) — keep in sync with
@@ -30,7 +31,7 @@ const SERVICE_LINE_LABELS = { pcp: 'Primary Care (PCP)' };
 // serviceLineCodes, not a local hand-synced copy (#100).
 const SERVICE_LINE_CODE_LABELS = { pcp: 'new patient visit' };
 
-// The rate explorer itself — one component, mounted at either /find-care/pcp
+// The rate explorer itself — one component, mounted at either /find-care
 // (locked to a service line, #83/#87) or /explore (the general flow). Not
 // rendered directly; see the routed `App` default export in App.jsx. All state
 // and data-fetching lives in useExplorerState — this file is presentation only.
@@ -78,6 +79,9 @@ export function Explorer({ lockedServiceLine }) {
                   </button></>
             }
           </p>
+        )}
+        {lockedServiceLine && !npi && !selectedCode?.code && (
+          <LocationBar zip={s.zip} onZip={s.setZip} radiusMi={s.radiusMi} onRadius={s.setRadiusMi} />
         )}
         {/* The network dropdown + free-text procedure search only make sense
             on the general explorer — a locked service-line route already

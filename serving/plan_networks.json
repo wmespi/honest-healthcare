@@ -7,6 +7,13 @@
       "market": "Individual / ACA exchange (Georgia)",
       "aliases": ["blue value", "blue value hmo", "blue value ind", "bluevalue"],
       "network_names": ["GA Blue Value HIX Individual Network"]
+    },
+    {
+      "plan": "Pathway PCP Copay Choice — Individual",
+      "carrier": "Anthem",
+      "market": "Individual / ACA exchange (Georgia)",
+      "aliases": ["pathway pcp copay choice", "pathway pcp", "pathway"],
+      "network_names": ["Pathway PCP Copay Choice"]
     }
   ]
 }

@@ -79,10 +79,12 @@ group_members.parquet          file_id | provider_group_id | npi | tin_value
 group_networks.parquet         file_id | provider_group_id | net | network_name
 provider_dim.parquet           npi | name | specialty | nucc_classification
     | nucc_grouping | cms_provider_type | org_name | group_name | org_pac_id
-    | grad_year | lat | lon | service_lines | is_hospital | is_clinic
+    | grad_year | lat | lon | mips_score | mips_source | mips_year
+    | service_lines | is_hospital | is_clinic
     | entity_type | last_name | first_name | taxonomy_code | taxonomy_group
     | address_line1 | address_line2 | city | postal_code
 provider_affiliations.parquet  npi | ccn | facility_name
+zip_centroids.parquet          zip | lat | lon
 code_dim.parquet               billing_code | billing_code_type | label
     | category | rbcs_subcategory | rbcs_family | rbcs_is_major | search_text
     | shoppable | medicare_allowed
@@ -173,6 +175,15 @@ data/reference/specialty_procedure_profiles.parquet  (make reference STEP=specia
     billers | specialty_providers | prevalence
     ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
       NUCC). ~5.8k rules / ~51 specialties. Read by evidence.code_tiers().
+
+data/reference/mips_ga.parquet         (make reference STEP=mips — reference/mips.md)
+    npi | mips_score | mips_source | performance_year
+    ← CMS MIPS overall score per GA clinician, newest performance year. Left-joined
+      into provider_dim; NULL for clinicians CMS publishes no score for.
+
+data/reference/zip_centroids.parquet   (make reference STEP=zip-centroids — reference/zip-centroids.md)
+    zip | lat | lon
+    ← Census Gazetteer ZCTA internal points; copied to serving/ for ?zip= distance.
 
 data/reference/mpfs_ga.parquet         (make reference STEP=mpfs — reference/mpfs.md)
     billing_code | billing_code_type ('CPT' 5-digit, else 'HCPCS')
