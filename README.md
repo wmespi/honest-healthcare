@@ -82,9 +82,9 @@ make test                   # full suite against committed fixtures
 while; run them in order, stop any time — the UI shows whatever has parsed.
 
 ```bash
-make discover       # ~10 GB one-time — Anthem's master index → the file queue
+make discover       # one-time, large download — Anthem's master index → the file queue
 make reference STEP=nppes
-                    # ~1 GB — Georgia provider registry (names, specialties, and
+                    # Georgia provider registry (names, specialties, and
                     #   the GA filter that keeps parse output small) — before parse
 make parse          # streams the rate files that serve a plan in
                     #   etl/targets.yaml into Parquet, smallest first
@@ -96,7 +96,7 @@ make parse          # streams the rate files that serve a plan in
 (`vs_medicare`), real practice identity (CMS Doctors & Clinicians), and geocodes:
 
 ```bash
-make reference      # builds whatever is missing, in dependency order (~5 GB of
+make reference      # builds whatever is missing, in dependency order (several GB of
                     #   downloads the first time); STEP=<name> runs one, FORCE=1 rebuilds all
 ```
 
@@ -113,7 +113,7 @@ lists every workflow. To reach the UI from another device, open
 `http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on
 port 8000 of whatever host you loaded it from. `scripts/tailscale-up.sh` sets up
 private off-network access; to send that link to someone who isn't a
-developer, see [docs/access.md](docs/access.md).
+developer, see [deploy/README.md](deploy/README.md#sharing-the-app-with-a-tester).
 
 ---
 
@@ -135,7 +135,7 @@ make test LOCAL=1                   # gofmt · vet · build · go test · pytest
 
 The canonical checkout runs the one always-up stack; feature worktrees test on
 host toolchains and run `make start` (own ports, from `.env`) only for a live
-check. Full runbook: [docs/worktrees.md](docs/worktrees.md).
+check. Rules and footprint: [AGENTS.md](AGENTS.md#parallel--worktree-development).
 
 ---
 

@@ -1,25 +1,17 @@
 # Storage schema — Parquet + Postgres
 
 *Read this when writing a query against the data or changing what the parser
-writes. This is the single source of truth for the layout — Parquet and Postgres
-both (`db/SCHEMA.md` is a thin pointer here).*
+writes. The single home for the on-disk layout — Parquet and Postgres both.*
 
-The serving layer reads **Parquet**. Postgres holds only the discovery queue and two
-small reference/log tables.
+The serving layer reads **Parquet**. Postgres holds only the discovery queue and one
+log table. `du -sh data/*` and `make psql` give the current inventory.
 
-`du -sh data/*` and `make psql` give the current inventory. Use it to track the GA corpus toward the ~20 GB target and to spot
-`index_files` bloat (parse status churn — `VACUUM (FULL)` reclaims it).
-
-**Why Parquet + DuckDB and not Postgres.** The workload is one sequential bulk
-writer (the ETL) and read-only analytical queries (the API) — the opposite of
-OLTP. Writing one Blue Value Georgia file to Postgres took ~2 hours; streaming it
-to Parquet takes ~7 minutes (the gap is WAL, index maintenance, and row-store
-overhead). Parquet's columnar ZSTD is ~10–20× smaller for repetitive rate data,
-DuckDB scans only the columns a query needs, and neither the ETL nor the API needs
-a server process.
+**Why Parquet + DuckDB, not Postgres.** One sequential bulk writer (the ETL) and
+read-only analytical queries (the API) — the opposite of OLTP. Columnar ZSTD is far
+smaller for repetitive rate data, DuckDB scans only the columns a query needs, and
+neither side needs a server process.
 
 ---
-
 ## Parquet — `data/anthem/` (a build input — `make build` reads this, the API doesn't)
 
 ```
@@ -30,22 +22,20 @@ prices/net=<slug>/{id}.parquet
     service_code | billing_class | modifier | setting
 ```
 One row per **(network × negotiated price)** — NOT fanned out per provider group.
-Hive-partitioned by `network_name` (slug = `etl/extraction/partition.go:slugifyNetwork` ==
-serving `network_slug()`); a network-filtered query adds `net = ?` and DuckDB
+Hive-partitioned by `network_name` (slug = `slugifyNetwork` in `etl/extraction/partition.go` == `network_slug()` in `serving/data_sources.py`); a network-filtered query adds `net = ?` and DuckDB
 prunes to the one directory. Join to `group_sets` on `(file_id, group_set_id)` to
 expand a price to its provider groups.
 
 - `service_code` — sorted `|`-joined place-of-service array.
 - `modifier` — sorted `|`-joined `billing_code_modifier` array: `"26"` = professional
-  / physician work, `"TC"` = technical / equipment + facility, `""` = global (~89%
-  of rows). `(billing_code, modifier, service_code, setting)` is what pins a rate
+  / physician work, `"TC"` = technical / equipment + facility, `""` = global (most rows). `(billing_code, modifier, service_code, setting)` is what pins a rate
   for a patient.
 
 ```
 group_sets/{id}.parquet     file_id | group_set_id | provider_group_id
 ```
 Deduplicated provider-group rosters. `group_set_id` = FNV-64a of a block's sorted
-`provider_reference` ids (`etl/extraction/stream.go:hashGroupSet`); written once per distinct
+`provider_reference` ids (`hashGroupSet` in `etl/extraction/stream.go`); written once per distinct
 roster per file. `prices ⨝ group_sets` reproduces every original
 `(code, rate, provider_group)` tuple exactly.
 
@@ -63,10 +53,9 @@ one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 
 ## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md), read straight by the API)
 
-`make build` (`build/build.py`) is the **only** thing `serving/` reads
-([#100](https://github.com/wmespi/honest-healthcare/issues/100)) — a missing
-table here is a `503` from `GET /`, never a fallback to raw `anthem/` /
-`nppes/` / `reference/` / `cms/`.
+`make build` (`build/build.py`) is the **only** thing `serving/` reads — a missing
+table here is a `503` from `GET /`, never a fallback to raw `anthem/` / `nppes/` /
+`reference/` / `cms/`.
 
 ```
 rates/net=<slug>/part.parquet
@@ -96,51 +85,44 @@ cross_network_rollup.parquet   billing_code | billing_code_type | net
 manifest.json                  built_at | networks | partial | inputs | rows
 ```
 
-`rates` is the parser's **price grain** — one row per negotiated price, no
-group fan-out (`group_set_id` links to `group_sets` for the join a query needs
-at read time, after pruning on `net` + `billing_code`). This is what keeps
-`make build` a routine full-store pass: the full `prices ⨝ group_sets`
-expansion is ~33.5 billion rows across the corpus, but the price rows
-themselves are ~645 million (~193 s to build, all 54 networks). `scope`
-(`serving/data_sources.outpatient_scope`), `is_sentinel` (a store-wide
-ceiling), `source_kind` (`plan_specific` | `shared`, from `index_file_plans`),
-and the MPFS benchmark are added at build time. **Rule 5** (AGENTS.md #5): the
-build keeps every row and tags `source_kind`; it does **not** collapse across
-files (`provider_group_id` is file-local) — that's resolved at read time, per
-practice, preferring `plan_specific` over `shared`
-([etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strategy)).
+`rates` is the parser's **price grain** — one row per negotiated price, no group
+fan-out (`group_set_id` links to `group_sets` for the join a query needs at read
+time, after pruning on `net` + `billing_code`). Fanning out to one row per
+`(price × provider group)` would be orders of magnitude larger. `scope` (`outpatient_scope` in
+`serving/data_sources.py`), `is_sentinel` (a store-wide ceiling), `source_kind`
+(`plan_specific` | `shared`, from `index_file_plans`), and the MPFS benchmark are
+added at build time. **Rule 5** (AGENTS.md): the build keeps every row and tags
+`source_kind`; it does **not** collapse across files (`provider_group_id` is
+file-local) — that's resolved at read time, per practice, preferring `plan_specific`
+over `shared` ([etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strategy)).
 
-`rate_hist` is the browse primitive: a $25-bucketed, roster-weighted histogram
-— `n` sums each price's roster size, `n_rates` is the raw price-row count.
-`is_sentinel` is a dimension (not a filter), so the histogram can still show
-the placeholder rows; `cross_network_rollup` (read straight by
-`/rates/by_network`) excludes them. Both replace the retired
-`summary/{rate_hist,rate_summary,code_rollup}` browse layer.
+`rate_hist` is the browse primitive: a $25-bucketed, roster-weighted histogram —
+`n` sums each price's roster size, `n_rates` is the raw price-row count.
+`is_sentinel` is a dimension (not a filter), so the histogram can show the
+placeholder rows; `cross_network_rollup` (read by `/rates/by_network`) excludes them.
 
-`provider_dim.org_name` (raw NPPES entity name) and `.group_name` (the CMS
-Doctors & Clinicians billing-group identity) are deliberately separate columns
-— folding them into one field would let a shared group affiliation silently
-overwrite an individual practitioner's own name in a search result (a real bug
-this build caught). `evidence` is scoped to NPIs reachable through a rate;
+`provider_dim.org_name` (raw NPPES entity name) and `.group_name` (the CMS Doctors &
+Clinicians billing-group identity) are deliberately separate columns: folding them
+would let a shared group affiliation overwrite an individual practitioner's own name
+in a search result. `evidence` is scoped to NPIs reachable through a rate;
 `provider_dim` is the full GA NPPES universe.
 
-The entity model: [docs/architecture.md](architecture.md#serving-entity-model-grain--provider-group).
+The entity model: [architecture.md](architecture.md#serving-entity-model-grain--provider-group).
 
-### Why the split
+### Why price grain + `group_sets`
 
-The MRF lists every participating provider group under nearly every billing code,
-so a flat layout fans out to one row per `(code × price × group × network)` — file
-28947 alone was 723M rows. `prices` + `group_sets` stores each roster once: file
-21057 went 682k → 76k price rows + 2.8k roster edges (~9×), and the ratio grows
-with file size. `PRICE_GROUPS_SRC` in the serving layer re-joins them.
+The MRF lists every participating provider group under nearly every billing code, so
+a flat layout fans out to one row per `(code × price × group × network)`. `rates` +
+`group_sets` stores each roster once; a query re-joins them after pruning.
 
 ### `network_name`
 
-The real, structured network label for a price — one member of the
+The structured network label for a price — one member of the
 `provider_references[].network_name` array (e.g. `"GA Blue Value HIX Individual
 Network"`), one value per row, equal to its `net` partition. **The reliable filter
 for the target plan.** A provider group in two networks lands in both partitions.
-There is no `plan_name` — `/plans` returns `[]`.
+`rates` carries no `plan_name`; `/plans` serves the curated plan → network bridge in
+`serving/plan_networks.json`, and the friendly plan picker filters on its network.
 
 ---
 
@@ -166,13 +148,13 @@ data/cms/ga_provider_service.parquet   (make reference STEP=cms-utilization — 
     tot_benes | tot_srvcs | tot_bene_day_srvcs
     avg_mdcr_alowd_amt | provider_type | hcpcs_drug_ind | year
     ← one row per (GA NPI × HCPCS × POS) billed to Medicare Part B; the
-      did_bill() evidence layer (serving/evidence.py). ~284k rows / ~34k NPIs.
+      did_bill() evidence layer (serving/evidence.py).
 
 data/reference/specialty_procedure_profiles.parquet  (make reference STEP=specialty-profiles — reference/specialty-profiles.md)
     specialty (NUCC classification) | hcpcs_cd
     billers | specialty_providers | prevalence
     ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
-      NUCC). ~5.8k rules / ~51 specialties. Read by evidence.code_tiers().
+      NUCC). Read by evidence.code_tiers().
 
 data/reference/mpfs_ga.parquet         (make reference STEP=mpfs — reference/mpfs.md)
     billing_code | billing_code_type ('CPT' 5-digit, else 'HCPCS')
@@ -182,8 +164,7 @@ data/reference/mpfs_ga.parquet         (make reference STEP=mpfs — reference/m
       mpRVU·GPCImp) × conversionFactor, per GA locality. medicare_allowed is
       NULL for carrier-priced (status 'C') rows; bundled / non-covered statuses
       are dropped. Read by serving/benchmark.medicare_allowed() → /rates/quote's
-      `medicare_allowed` + `vs_medicare`. Physician fee schedule only — facility
-      fees (OPPS/ASC/IPPS) are separate schedules, not modelled.
+      `medicare_allowed` + `vs_medicare`. Physician fee schedule only.
 data/reference/dac_ga.parquet          (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
     npi | last_name | first_name | credential | primary_specialty
     org_pac_id | org_name | grad_year | med_school | gender
@@ -203,35 +184,19 @@ data/reference/dac_hospital_affiliations.parquet   (make reference STEP=doctors-
 
 ---
 
-## Postgres — `honest_healthcare` (discovery + reference only)
+## Postgres — `honest_healthcare` (discovery queue + log only)
 
-```
-Host:  localhost:5432  (db:5432 inside Docker)   Database: honest_healthcare
-User / password: postgres / postgres
-```
+`localhost:5432` (`db:5432` in Docker), database `honest_healthcare`, user/password
+`postgres`/`postgres`. `db/init.sql` creates a fresh volume; `db/migrations/*.sql` are
+idempotent and `make migrate` applies them.
 
 | Table | Written by | Purpose |
 |---|---|---|
-| `index_files` | `make discover` / `make parse` | The parse queue — one row per MRF URL. `location` (signed URL, the natural key within a month), `status` (`pending`/`processing`/`completed`/`failed`/`skipped` — what each means, and why `skipped` is not `failed`, is in [../etl/queue.md](../etl/queue.md#status-lifecycle)), `file_size_bytes`, `market_types[]`, `hios_issuer_ids[]`, `plan_states[]`, per-file `reporting_entity_*`, `created_at`, `completed_at`, `failure_reason`. GIN indexes on the array columns. |
-| `index_file_plans` | `make discover` | The plan → file link — one row per `(file, plan)` the master index publishes, **scoped to Georgia individual-market plans** (`market_type == "individual"` or HIOS `plan_id[5:7] == "GA"` — not every plan in the index, which would run into the hundreds of millions of rows/month; [../etl/discover.md](../etl/discover.md)): `file_id` (FK, `ON DELETE CASCADE`), `plan_id`, `plan_id_type`, `plan_name`, `market_type`, unique on `(file_id, plan_id, plan_name, market_type)`. This is what answers *"which files serve plan X"* and what `etl parse -targets` selects the queue on ([../etl/parse.md](../etl/parse.md#target-selection)). Indexed on `plan_id` with `text_pattern_ops` for prefix lookup only — `plan_name` lookups are `ILIKE '%substring%'`, which no btree can serve, so there's no index on it. |
-| `billing_codes` | `make parse` | Reference upsert — `billing_code` PK, `billing_code_type`, `name`, `description`. `ON CONFLICT DO NOTHING` (first occurrence wins). |
-| `coverage_log` | `make parse` | One row per *parsed* file — `file_id` is `UNIQUE` (migration 004) and a re-parse upserts on it (a probe-`skipped` file gets no row, having never been parsed) — rate/provider row counts, new codes/NPIs/TINs, distinct networks/settings/billing-classes, `notes` (GA-filter drop counts). The ETL never reads it; `make cov-report` flags partial-looking `completed` files from it (#52). |
+| `index_files` | `make discover` / `make parse` | The parse queue — one row per MRF URL. `location` (signed URL, the natural key within a month), `status` (`pending`/`processing`/`completed`/`failed`/`skipped` — [etl/queue.md](../etl/queue.md#status-lifecycle)), `file_size_bytes`, `market_types[]`, `hios_issuer_ids[]`, `plan_states[]`, `reporting_entity_*`, `created_at`, `completed_at`, `failure_reason`. GIN indexes on the array columns. |
+| `index_file_plans` | `make discover` | The plan → file link — one row per `(file, plan)`, **scoped to Georgia individual-market plans** ([etl/discover.md](../etl/discover.md)): `file_id` (FK, `ON DELETE CASCADE`), `plan_id`, `plan_id_type`, `plan_name`, `market_type`, unique on `(file_id, plan_id, plan_name, market_type)`. Answers *"which files serve plan X"*; `etl parse -targets` selects the queue on it ([etl/parse.md](../etl/parse.md#target-selection)). Indexed on `plan_id` (`text_pattern_ops`, prefix lookup); `plan_name` lookups are `ILIKE '%…%'` and unindexed. |
+| `billing_codes` | `make parse` | Reference upsert — `billing_code` PK, `billing_code_type`, `name`, `description`; first occurrence wins. |
+| `coverage_log` | `make parse` | One row per *parsed* file (`file_id` `UNIQUE`; a re-parse upserts; a probe-`skipped` file gets none) — rate/provider row counts, new codes/NPIs/TINs, distinct networks/settings/billing-classes, `notes` (GA-filter drop counts). Nothing reads it back. |
 
-Status lifecycle and stuck-row recovery: [../etl/queue.md](../etl/queue.md).
-Discovery upsert strategy: [../etl/discover.md](../etl/discover.md).
-
-`db/migrations/*.sql` holds idempotent migrations for a running DB (`init.sql`
-only runs on a fresh volume); `make migrate` applies them. The pre-Parquet
-legacy tables (`negotiated_rates`, `provider_mappings`,
-`place_of_service_codes`, `vw_rates_detailed`) were dropped by
-`002_drop_legacy_tables.sql` and no longer exist in `init.sql` either.
-`003_index_file_plans.sql` adds `index_file_plans` and drops
-`index_files.plan_names TEXT[]` (+ its `idx_index_files_plan` GIN index) — the
-per-file array reserved for plan attribution and never populated, superseded by
-the relational form, which carries `plan_id` / `market_type` too and does not
-have to hold the plans × files cross-product in memory.
-
-Test isolation: `-test` / `make … TEST=1` writes `test.*` (same database,
-`search_path=test` via `TEST_DATABASE_URL`) and `data-test/`; both are safe to
-truncate. The `test` schema drifts when a `public` column is added — `make
-migrate` recreates it. See [testing.md](testing.md).
+Status lifecycle and stuck-row recovery: [etl/queue.md](../etl/queue.md). Discovery
+upsert strategy: [etl/discover.md](../etl/discover.md). Test isolation (`test.*`,
+`data-test/`): [testing.md](testing.md).
