@@ -16,7 +16,7 @@ the product is headed — and which of these gaps that closes — is in
   `provider_references`, and the two share no key. **Interim (GH #33):** a
   hand-curated `serving/plan_networks.json` maps friendly plan names → network,
   served by `/plans` and shown as a "Your plan" section in the network picker.
-  Today it holds one entry (Blue Value). Deriving it — from HIOS `plan_id` + a
+  It holds two hand-added entries (Blue Value, Pathway PCP Copay Choice). Deriving it — from HIOS `plan_id` + a
   CMS public-use file, or by intersecting a target plan's files with the networks
   those files carry — is still open.
 - **`network_name` is NOT uniform across files.** `GA_JBNKMED0001` (id 21057, the

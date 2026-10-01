@@ -16,10 +16,10 @@ code.
 
 **Current focus** *(update as the active work changes)* — Flow A "find care" is
 the live product surface: plan-first gating, the out-of-pocket estimator, and the
-CMS evidence + benchmark + practice-identity layers have shipped. Next is the
-geocode + distance + map step and the CMS hospital-quality layer that feed a real
-`/find-care` provider ranking — [docs/direction.md](docs/direction.md) build
-sequence steps 1–2 and 4. Don't restructure `etl/`, `serving/`, or `frontend/`
+CMS evidence + benchmark + practice-identity layers have shipped, and `/find-care`
+ranks PCPs on cost, distance and MIPS quality ([serving/serving.md](serving/serving.md)
+"Ranking"). Next is the map and the hospital-quality layer —
+[docs/direction.md](docs/direction.md) build sequence steps 1–2 and 4. Don't restructure `etl/`, `serving/`, or `frontend/`
 without a reason (rule 7).
 
 ---
@@ -110,7 +110,7 @@ make up / make down / make logs
 
 make discover               # Phase 1 — sync the master index into index_files + index_file_plans, then backfill sizes
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
-make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, Doctors & Clinicians, geocode (skips what exists)
+make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, Doctors & Clinicians, geocode, MIPS, ZIP centroids (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
 make parse                  # Phase 2 — stream pending files serving a target plan → Parquet (needs the NPPES reference first)
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
@@ -168,6 +168,7 @@ a PR merges — a lingering worktree is ~300 MB.
 | Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
 | Medicare Physician Fee Schedule benchmark (`medicare_allowed` / `vs_medicare` on a quote) | [reference/mpfs.md](reference/mpfs.md) |
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
+| CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |
 | The build step — raw + reference → serving tables, `scope` / `is_sentinel` / benchmark / rule 5 | [build/build.md](build/build.md) |
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |

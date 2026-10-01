@@ -34,7 +34,7 @@ export function Landing() {
         </motion.div>
 
         <Link
-          to="/find-care/pcp"
+          to="/find-care"
           className="group flex items-center justify-between gap-4 bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-3xl p-6 sm:p-8 transition-colors"
         >
           <div>

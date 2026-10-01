@@ -49,3 +49,12 @@ targets:
     # them at the front of the stream.
     network_patterns:
       - "GA Blue Value HIX*"
+
+  - name: PATHWAY PCP COPAY CHOICE - INDIV - ANTHEM
+    # A second Georgia individual plan, so the plan picker has a real choice.
+    # Same index shape as Blue Value: the index links it to every BlueCard-mirror
+    # shard, and the network label is what finds the file that carries it.
+    plan_name_patterns:
+      - "pathway pcp copay choice - indiv*"
+    network_patterns:
+      - "Pathway PCP Copay Choice*"

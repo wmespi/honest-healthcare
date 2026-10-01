@@ -17,11 +17,13 @@ from ..data_sources import (
     GROUP_SETS_SRC,
     PROVIDER_DIM_SRC,
     RATES_SRC,
+    ZIP_CENTROIDS_SRC,
     db,
     network_slug,
 )
 from ..evidence import DEFAULT_TYPICAL_THRESHOLD, all_billed_codes, billed_codes, typical_codes
 from ..labels import provider_card, strip_private
+from ..ranking import haversine_sql, pct_good_sql, score_sql
 from ..service_lines import SERVICE_LINES, SERVICE_LINE_BILLING_CODES
 
 router = APIRouter()
@@ -324,6 +326,8 @@ def search_providers(
     specialty: str = Query(default=""),
     service_line: str = Query(default=""),
     network_name: Optional[str] = None,
+    zip_code: Optional[str] = Query(default=None, alias="zip", pattern=r"^\d{5}$"),
+    radius_mi: Optional[float] = Query(default=None, gt=0, le=500),
     limit: int = Query(default=20, le=100),
 ):
     """Search providers by name, organization, city, or NPI against
@@ -342,7 +346,15 @@ def search_providers(
     in-scope-code rate this NPI has on that plan — and the list is ranked on
     it (cheapest first, no-rate last) instead of just alphabetically; without
     a plan a rate can't be computed (it's plan-specific), so `min_rate` is
-    null and the order is unchanged (#87)."""
+    null and the order is unchanged (#87).
+
+    `zip` adds `distance_mi` (straight-line miles from the ZIP's centroid to the
+    provider's geocoded address); `radius_mi` (needs `zip`) drops anyone farther
+    or without coordinates. With a `service_line` and a `zip` the list is
+    ordered on one blended `rank_score` (cost drops out without a plan); with a
+    plan alone it stays cheapest-first. Weights and formula in `serving/ranking.py`. `mips_score` (CMS MIPS, where the clinician has one)
+    and `years_in_practice` (DAC graduation year) ride on every row; they are
+    different signals and are never substituted for each other."""
     q = q.strip()
     specialty = specialty.strip()
     service_line = service_line.strip().lower()
@@ -351,7 +363,14 @@ def search_providers(
                                   f"(known: {', '.join(sorted(SERVICE_LINES))})")
     if not q and not specialty and not service_line:
         return []
+    if radius_mi is not None and not zip_code:
+        raise HTTPException(400, "radius_mi needs zip")
     conn = db()
+    here = None
+    if zip_code:
+        here = conn.execute(f"SELECT lat, lon FROM {ZIP_CENTROIDS_SRC} WHERE zip = ?", [zip_code]).fetchone()
+        if not here:
+            raise HTTPException(400, f"unknown zip: {zip_code}")
 
     rated_cte, rated_params, has_rates_expr = _rated_npi(network_name)
 
@@ -391,34 +410,67 @@ def search_providers(
     # there's no plausible-tier rate at all) — surfaced so the frontend never
     # shows a bare price that's secretly just the network's floor.
     sl_plausible_sel = "sr.min_rate_is_plausible" if sl_cte else "NULL"
-    order_by_rate = "(sr.min_rate IS NOT NULL) DESC, sr.min_rate ASC," if sl_cte else ""
+    order_by_rate = "(min_rate IS NOT NULL) DESC, min_rate ASC, "
 
+    if here:  # lat/lon came from our own zip_centroids table, so inlining them is safe
+        dist_sel = (f"ROUND(CASE WHEN g.lat IS NULL THEN NULL ELSE "
+                    f"{haversine_sql('g.lat', 'g.lon', repr(float(here[0])), repr(float(here[1])))} END, 1)")
+    else:
+        dist_sel = "NULL"
+    radius_sql = "WHERE distance_mi <= ?" if radius_mi is not None else ""
+    radius_params = [radius_mi] if radius_mi is not None else []
+
+    blended = bool(service_line and here)
     ctes = [c for c in (rated_cte, sl_cte) if c]
-    with_sql = f"WITH {', '.join(ctes)}" if ctes else ""
-    rows = conn.execute(f"""
-        {with_sql}
+    ctes.append(f"""cand AS (
         SELECT g.npi,
                COALESCE(NULLIF(g.org_name, ''), NULLIF(g.name, ''), CAST(g.npi AS VARCHAR)) AS name,
                g.city, g.nucc_classification AS taxonomy_group, g.is_hospital, g.is_clinic,
                {has_rates_expr} AS has_rates,
-               g.entity_type,
-               g.group_name,
+               g.entity_type, g.group_name,
                {sl_sel} AS min_rate,
                {sl_plausible_sel} AS min_rate_is_plausible,
-               g.specialty
+               g.specialty,
+               {dist_sel} AS distance_mi,
+               g.mips_score, g.mips_year,
+               CASE WHEN g.grad_year BETWEEN 1900 AND date_part('year', current_date)
+                    THEN CAST(date_part('year', current_date) - g.grad_year AS INTEGER) END AS years_in_practice
         FROM {PROVIDER_DIM_SRC} g
         {sl_join}
         WHERE {where}
-        -- cheapest-for-what-you-came-here-for first when we know it; otherwise
-        -- individuals carry the rates, so a specialty search wants doctors, not
-        -- the practice's org NPI (which is never in a roster).
-        ORDER BY {order_by_rate} has_rates DESC, (g.entity_type = 'individual') DESC,
-                 g.is_hospital DESC, g.is_clinic DESC, name
+    )""")
+    ctes.append(f"""scoped AS (SELECT * FROM cand {radius_sql})""")
+    if blended:
+        ctes.append(f"""scored AS (
+            SELECT *, {pct_good_sql("min_rate")} AS cost_good,
+                      {pct_good_sql("distance_mi")} AS distance_good,
+                      {pct_good_sql("mips_score", best_high=True)} AS quality_good
+            FROM scoped
+        )""")
+        final = f"""SELECT *, ROUND({score_sql(bool(sl_cte), bool(here))}, 3) AS rank_score FROM scored"""
+        # a provider with no price on the plan, or no coordinates for the ZIP, can't be
+        # compared on that axis — they follow everyone who can.
+        order = ("(min_rate IS NOT NULL) DESC, " if sl_cte else "") + \
+                ("(distance_mi IS NOT NULL) DESC, " if here else "") + \
+                "rank_score DESC, has_rates DESC, name"
+    else:
+        final = "SELECT *, NULL AS rank_score FROM scoped"
+        order = ((order_by_rate if sl_cte else "") +
+                 ("distance_mi ASC NULLS LAST, " if here else "") +
+                 "has_rates DESC, (entity_type = 'individual') DESC, is_hospital DESC, is_clinic DESC, name")
+    rows = conn.execute(f"""
+        WITH {', '.join(ctes)}
+        SELECT npi, name, city, taxonomy_group, is_hospital, is_clinic, has_rates,
+               entity_type, group_name, min_rate, min_rate_is_plausible, specialty,
+               distance_mi, mips_score, mips_year, years_in_practice, rank_score
+        FROM ({final})
+        ORDER BY {order}
         LIMIT {limit}
-    """, rated_params + sl_params + params).fetchall()
+    """, rated_params + sl_params + params + radius_params).fetchall()
     cols = ["npi", "name", "city", "taxonomy_group", "is_hospital", "is_clinic",
             "has_rates", "entity_type", "group_name", "min_rate",
-            "min_rate_is_plausible", "specialty"]
+            "min_rate_is_plausible", "specialty", "distance_mi", "mips_score",
+            "mips_year", "years_in_practice", "rank_score"]
     return [dict(zip(cols, r)) for r in rows]
 
 

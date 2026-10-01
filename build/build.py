@@ -15,7 +15,8 @@ reads (#100):
   group_members.parquet           (file_id, provider_group_id, npi, tin_value)
   group_networks.parquet          (file_id, provider_group_id, net, network_name)
       — which networks a file-local provider group is attributed to
-  provider_dim.parquet            NPPES GA + NUCC + DAC + geocode + service lines
+  provider_dim.parquet            NPPES GA + NUCC + DAC + geocode + MIPS + service lines
+  zip_centroids.parquet           (zip, lat, lon)  ZIP -> point, for distance search
   provider_affiliations.parquet   (npi, ccn, facility_name)  the DAC CCN<->NPI bridge
   code_dim.parquet                RBCS label + category + MPFS + shoppable flag
   evidence.parquet                (npi, billing_code, tier, ...)  billed rows carry
@@ -142,7 +143,8 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
     ref_p = {k: f"{ref}/{v}" for k, v in {
         "labels": "code_labels.parquet", "nucc": "nucc_taxonomy.parquet",
         "mpfs": "mpfs_ga.parquet", "dac": "dac_ga.parquet",
-        "geocode": "pcp_geocode.parquet", "profiles": "specialty_procedure_profiles.parquet",
+        "geocode": "pcp_geocode.parquet", "mips": "mips_ga.parquet",
+        "zips": "zip_centroids.parquet", "profiles": "specialty_procedure_profiles.parquet",
     }.items()}
     cms_util = f"{cms}/ga_provider_service.parquet"
     ga_nppes = f"{nppes}/ga_providers.parquet"
@@ -304,6 +306,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
             else "NULL AS address_line1, NULL AS address_line2")
     dac = f"LEFT JOIN read_parquet('{ref_p['dac']}') d ON d.npi = g.npi" if os.path.exists(ref_p["dac"]) else ""
     geo = f"LEFT JOIN read_parquet('{ref_p['geocode']}') gc ON gc.npi = g.npi" if os.path.exists(ref_p["geocode"]) else ""
+    mips = f"LEFT JOIN read_parquet('{ref_p['mips']}') mp ON mp.npi = g.npi" if os.path.exists(ref_p["mips"]) else ""
     nucc = f"LEFT JOIN read_parquet('{ref_p['nucc']}') nx ON nx.taxonomy_code = g.taxonomy_code" if os.path.exists(ref_p["nucc"]) else ""
     ptype = (f"LEFT JOIN (SELECT npi, any_value(provider_type) AS provider_type "
              f"FROM read_parquet('{cms_util}') WHERE provider_type IS NOT NULL GROUP BY npi) "
@@ -323,14 +326,25 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
                    {"d.grad_year" if dac else "NULL"} AS grad_year,
                    {"gc.latitude" if geo else "NULL"} AS lat,
                    {"gc.longitude" if geo else "NULL"} AS lon,
+                   {"mp.mips_score" if mips else "NULL::DOUBLE"} AS mips_score,
+                   {"mp.mips_source" if mips else "NULL::VARCHAR"} AS mips_source,
+                   {"mp.performance_year" if mips else "NULL::INTEGER"} AS mips_year,
                    {_service_line_expr("g.taxonomy_code")} AS service_lines,
                    g.is_hospital, g.is_clinic, g.entity_type,
                    g.last_name, g.first_name, g.taxonomy_code, g.taxonomy_group,
                    {addr}, g.city, g.postal_code
             FROM read_parquet('{ga_nppes}') g
-            {nucc} {ptype} {dac} {geo}
+            {nucc} {ptype} {dac} {geo} {mips}
         ) TO '{serving_dir}/provider_dim.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
+
+    # ── zip_centroids — ZIP -> lat/lon, copied so the API reads only serving/.
+    if os.path.exists(ref_p["zips"]):
+        con.execute(f"""COPY (SELECT zip, lat, lon FROM read_parquet('{ref_p['zips']}'))
+                        TO '{serving_dir}/zip_centroids.parquet' (FORMAT parquet, COMPRESSION zstd)""")
+    else:
+        con.execute("CREATE TEMP TABLE _zc (zip VARCHAR, lat DOUBLE, lon DOUBLE)")
+        con.execute(f"COPY _zc TO '{serving_dir}/zip_centroids.parquet' (FORMAT parquet, COMPRESSION zstd)")
 
     # ── provider_affiliations — the DAC hospital CCN<->NPI bridge, verbatim
     #    (already GA-scoped by `make reference STEP=doctors-clinicians`). Empty when not built.
@@ -533,6 +547,8 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
             "dac": os.path.exists(ref_p["dac"]),
             "dac_hospital_affiliations": os.path.exists(affil),
             "geocode": os.path.exists(ref_p["geocode"]),
+            "mips": os.path.exists(ref_p["mips"]),
+            "zip_centroids": os.path.exists(ref_p["zips"]),
             "plan_link": have_plan_link,
         },
         "rows": counts,
@@ -545,7 +561,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
 
 # Every table a complete build writes (besides the rates/ partition tree).
 TABLES = ("group_sets.parquet", "group_members.parquet", "group_networks.parquet",
-          "provider_dim.parquet", "provider_affiliations.parquet", "code_dim.parquet",
+          "provider_dim.parquet", "provider_affiliations.parquet", "zip_centroids.parquet", "code_dim.parquet",
           "evidence.parquet", "rate_hist.parquet", "cross_network_rollup.parquet")
 
 

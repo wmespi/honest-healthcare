@@ -21,7 +21,8 @@ tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
 | `evidence.py` | provider↔procedure evidence, read off the build's `evidence` table (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. `available()` / `profiles_available()` check `built_with(...)`. |
 | `benchmark.py` | `medicare_allowed(conn, code, type)` — the CMS Physician Fee Schedule allowed $ for a code in Georgia, off `code_dim`. `None` until MPFS was a build input. |
 | `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
-| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (`specialty=` fuzzy label match **or** `service_line=` exact taxonomy-code allowlist, e.g. `service_line=pcp`), `/specialties`, `/providers/ga`, `/service_lines` (the curated allowlists, for the frontend to stop hand-syncing its own copy) |
+| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (`specialty=` fuzzy label match **or** `service_line=` exact taxonomy-code allowlist, e.g. `service_line=pcp`; `zip=` + `radius_mi=` add distance — see Ranking), `/specialties`, `/providers/ga`, `/service_lines` (the curated allowlists, for the frontend to stop hand-syncing its own copy) |
+| `ranking.py` | The blended PCP ranking — `WEIGHTS` and the SQL for `distance_mi` / `rank_score`. The one place the weights live. |
 | `service_lines.py` | Curated NUCC taxonomy-code allowlists per service line (issue #83) — `SERVICE_LINES = {"pcp": [...]}`. Also `build/build.py`'s source for `provider_dim.service_lines`. |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
 
@@ -61,6 +62,34 @@ Supporting: `/rates/distribution` — the histogram + summary off `rate_hist`
 with a `network_name` or an `npi`, and 400s on `npi`-without-`billing_code`.
 Also `/networks`, `/providers/search`, `/specialties`, `/procedure_categories`,
 `/billing_codes`, `/providers/ga`, `/plans`, `/service_lines`.
+
+## Ranking (`/providers/search`)
+
+With a `service_line` and a `zip` (plus, optionally, a plan `network_name`), rows are
+ordered on one `rank_score` (0–1, higher is better), computed in `serving/ranking.py`:
+
+```
+rank_score = Σ weight × percentile(component) / Σ weight of the applicable components
+components : cost = min_rate (lower is better), distance = distance_mi (nearer is better),
+             quality = mips_score (higher is better)
+weights    : ranking.WEIGHTS
+```
+
+- Each percentile is taken **within the candidate set** of that request, so the
+  score ranks these providers against each other, not against an absolute scale.
+- A component that does not apply drops out and the others renormalise: no plan
+  → no cost. Without a `zip` there is no blend: a plan alone ranks cheapest-first
+  (`min_rate`), unchanged from before distance existed.
+- No MIPS score scores a neutral 0.5 on quality (not penalised, not rewarded).
+  `years_in_practice` is returned for display and is **not** scored.
+- A row with no price, or without coordinates when a `zip` is given, sorts after
+  every row that has one.
+- `zip` → `distance_mi` (haversine from the ZIP centroid, [reference/zip-centroids.md](../reference/zip-centroids.md)
+  to `provider_dim.lat/lon`, [reference/geocode.md](../reference/geocode.md)). `radius_mi` needs `zip` and drops
+  providers beyond it or without coordinates. An unknown `zip` is a 400.
+- `mips_score` / `mips_year` ([reference/mips.md](../reference/mips.md)) and
+  `years_in_practice` ride on every row as separate fields; neither stands in for
+  the other.
 
 ## Key helpers
 

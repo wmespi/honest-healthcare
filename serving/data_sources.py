@@ -32,6 +32,7 @@ SERVING_DIR = os.getenv("SERVING_DIR") or f"{DATA_DIR}/serving"
 # group_networks    (file_id, provider_group_id, net, network_name)
 # provider_dim      one row per GA NPPES NPI, enriched
 # provider_affiliations  (npi, ccn, facility_name)
+# zip_centroids     (zip, lat, lon)
 # code_dim          one row per priced code: label, category, benchmark
 # evidence          (npi, billing_code, tier, ...)  billed | typical
 # rate_hist         roster-weighted $25 histogram per (net, code, setting,
@@ -50,6 +51,7 @@ GROUP_MEMBERS_SRC = _table("group_members")
 GROUP_NETWORKS_SRC = _table("group_networks")
 PROVIDER_DIM_SRC = _table("provider_dim")
 PROVIDER_AFFIL_SRC = _table("provider_affiliations")
+ZIP_CENTROIDS_SRC = _table("zip_centroids")
 CODE_DIM_SRC = _table("code_dim")
 EVIDENCE_SRC = _table("evidence")
 RATE_HIST_SRC = _table("rate_hist")

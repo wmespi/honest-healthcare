@@ -29,6 +29,7 @@ export function SpecialtyProviderList({ specialty, label, providers, loading, on
   // it knows both a service line and a plan; when it does, say so, rather
   // than leaving "ranked cheapest first" as an unstated fact about the order.
   const rankedByCost = withRates.some(r => r.min_rate != null);
+  const nearYou = withRates.some(r => r.distance_mi != null);
   const hasFloorRate = withRates.some(r => r.min_rate != null && r.min_rate_is_plausible === false);
   const pick = (s) => onPick(String(s.npi), s.name || String(s.npi));
   return (
@@ -38,7 +39,7 @@ export function SpecialtyProviderList({ specialty, label, providers, loading, on
         <>
           <p className="text-slate-500 text-xs mt-1">
             {withRates.length.toLocaleString()} provider{withRates.length === 1 ? '' : 's'} with negotiated
-            rates in your plan{rankedByCost ? ', cheapest first' : ''}. Pick one to see what they charge.
+            rates in your plan{rankedByCost ? (nearYou ? ', ranked on cost, distance and quality' : ', cheapest first') : ''}. Pick one to see what they charge.
           </p>
           <div className="mt-4 divide-y divide-slate-800/60">
             {withRates.map((s, i) => <ProviderRow key={i} s={s} onPick={pick} />)}

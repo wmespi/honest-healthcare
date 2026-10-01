@@ -186,9 +186,11 @@ and Places content can't be cached beyond `place_id` — so ratings/hours can't
 Ordered so each step ships something usable and nothing waits on the multi-payer
 lift longer than it must.
 
-1. **Geocode + distance + map** — Census batch-geocode the GA NPPES subset;
-   lat/long onto the Parquet; distance filter/sort + a MapLibre map. *~days, free.*
-2. **CMS quality layer** — *partway done:* `make reference STEP=doctors-clinicians` landed the
+1. **Geocode + distance + map** — *partway done:* Census batch-geocode of GA PCPs, a
+   ZIP-centroid lookup, and a `distance_mi` filter/sort on `/providers/search`
+   are in. Still open: the MapLibre map. *~days, free.*
+2. **CMS quality layer** — *partway done:* the MIPS clinician score is in `provider_dim`
+   and the PCP ranking; `make reference STEP=doctors-clinicians` landed the
    Doctors & Clinicians group identity + the `ccn`↔`npi` bridge
    (`dac_hospital_affiliations.parquet`). Still open: pull Hospital Care Compare
    (star rating, mortality, HCAHPS, infection rates — keyed by `ccn`), the POS /
