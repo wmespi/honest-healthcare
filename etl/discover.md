@@ -16,61 +16,44 @@ link) from the Anthem master index. Cheap, incremental, safe to re-run.
 
 ## What it does
 
-1. Downloads the master index to a local gzip cache
-   (`data/anthem/index_cache.json.gz`, ~10 GB and growing month over month) via
-   parallel HTTP Range requests.
-   Re-runs on the same monthly URL skip the download unless `NO_CACHE=1`.
-2. Streams the JSON, walks every `reporting_structure`, and for each
-   `in_network_files` entry accumulates, per unique file URL:
-   - `market_types` — `individual` / `group`
-   - `hios_issuer_ids` — 5-digit HIOS issuer IDs (first 5 chars of each HIOS
-     `plan_id`; maps to state)
-   - `plan_states` — 2-letter state codes from HIOS `plan_id[5:7]` (positional,
-     deterministic — the no-regex GA signal)
-   - `reporting_entity_name` / `reporting_entity_type` — from the index root; the
-     parser later overwrites these with the per-file value
-   - `network_entity` — prefix before `" : "` in the file description (BlueCard
-     files only; else NULL)
-   - `description`, `location`
-3. Keeps the **plan → file link** itself: every `(reporting_plan,
-   in_network_file)` pair the structure publishes, **scoped to Georgia
-   individual-market plans** (`plan.market_type == "individual"` or the same
-   positional GA check `plan_states` uses — `plan_id[5:7] == "GA"`), becomes
-   one `index_file_plans` row — `plan_id`, `plan_id_type`, `plan_name`,
-   `market_type`, `file_id`. That is what makes *"which files serve plan X"*
-   answerable, and what [`parse`](parse.md) selects on instead of guessing from
-   a filename. The scope isn't `targets.yaml` — it's the project's whole
-   product boundary (AGENTS.md, `docs/direction.md`) — because the full
-   cross-product runs into the hundreds of millions of rows/month (almost all
-   of it employer-group plans nothing here selects on) for tens of GB of
-   Postgres, next to a single-digit-GB Parquet store on the same box.
+1. Downloads the master index to a local gzip cache (`data/anthem/index_cache.json.gz`,
+   multi-GB) via parallel HTTP Range requests; re-runs on the same monthly URL skip
+   the download unless `NO_CACHE=1`. The cache is only needed during a run.
+2. Streams the JSON, walks every `reporting_structure`, and per unique file URL
+   accumulates `market_types`, `hios_issuer_ids` (first 5 chars of each HIOS
+   `plan_id`), `plan_states` (2-letter state from `plan_id[5:7]` — the positional,
+   no-regex GA signal), `reporting_entity_*` (from the index root; the parser later
+   overwrites them with the per-file value), `network_entity` (prefix before `" : "`
+   in a BlueCard file description, else NULL), `description`, `location`.
+3. Keeps the **plan → file link**: every `(reporting_plan, in_network_file)` pair,
+   **scoped to Georgia individual-market plans** (`market_type == "individual"` or
+   `plan_id[5:7] == "GA"`), becomes an `index_file_plans` row (`plan_id`,
+   `plan_id_type`, `plan_name`, `market_type`, `file_id`). That answers *"which files
+   serve plan X"* and is what [`parse`](parse.md) selects on. The scope is the
+   project's product boundary (AGENTS.md, `docs/direction.md`), not `targets.yaml`:
+   the full cross-product is hundreds of millions of rows/month, almost all employer
+   plans nothing here selects on.
 4. Writes `data/anthem/index_schema.json` (a compact, array-truncated example).
 5. Bulk-loads via `COPY` into a `TEMP` staging table, then set-based
    `UPDATE … FROM _idx_stage` + `INSERT … LEFT JOIN … WHERE t.id IS NULL`. GIN
    indexes on the array columns are dropped before the write, rebuilt once after.
+6. Backfills `file_size_bytes` with HEAD requests so the queue can be size-ordered.
 
 ## Why the pairs never sit in memory
 
-`reporting_plans[] × in_network_files[]` is a cross-product — tens of millions of
-pairs across the full index — so accumulating them per file (the `plan_names[]`
-array `index_files` used to reserve a column for) blows the heap. Critical Rule 3
-applies to discovery too. Instead:
-
-- Each unique file URL gets a run-local `file_key` int as it is first seen. A
-  staged pair carries the 8-byte key, not the ~500-byte signed URL.
-- `planStager` buffers a bounded batch (200k pairs), deduplicates *within* the
-  batch — duplicates cluster, because a run of structures usually repeats the
-  same plans over the same shared network file — `COPY`s it to a `TEMP`
-  `_plan_stage`, and resets. Heap stays flat regardless of index size.
-- After the `index_files` upsert has assigned ids, one statement resolves
-  `file_key → id` and inserts `DISTINCT ON (file_id, plan_id, plan_name,
-  market_type) … ON CONFLICT DO NOTHING`. Cross-batch duplicates and re-runs are
-  both absorbed there, set-based, by Postgres.
+`reporting_plans[] × in_network_files[]` is a cross-product of tens of millions of
+pairs, so accumulating per file would blow the heap (Critical Rule 3 applies to
+discovery too). Instead each unique file URL gets a run-local `file_key` int on first
+sight, so a staged pair carries 8 bytes, not the signed URL; `planStager` buffers a
+bounded batch (200k pairs), dedupes within it, `COPY`s it to a `TEMP` `_plan_stage`
+and resets; after the `index_files` upsert assigns ids, one statement resolves
+`file_key → id` and inserts `DISTINCT ON (file_id, plan_id, plan_name, market_type)
+… ON CONFLICT DO NOTHING`. Cross-batch duplicates and re-runs are absorbed there.
 
 ## Monthly refresh — signed-URL expiry
 
-Every `location` is a CloudFront-signed URL (`?Expires=…&Signature=…`) that dies in
-~30 days, and the index's file paths carry a `YYYY-MM_` prefix — so **each month's
+Every `location` is a CloudFront-signed URL (`?Expires=…&Signature=…`) that dies after
+about a month, and the index's file paths carry a `YYYY-MM_` prefix — so **each month's
 files are new rows, not updates**.
 
 ```bash
@@ -81,10 +64,7 @@ make psql
 #   WHERE location LIKE '%/2026-08\_%' AND status IN ('pending','failed');
 ```
 
-`location` is not a cross-month key. A query-stripped `url_path` column would fix
-this — see [../docs/known-gaps.md](../docs/known-gaps.md). The multi-GB
-`index_cache.json.gz` is only needed during a run — safe to delete between refreshes.
-
+`location` is not a cross-month key ([../docs/known-gaps.md](../docs/known-gaps.md)).
 `index_file_plans.file_id` is `ON DELETE CASCADE`, so pruning a dead month's
 `index_files` rows takes their plan links with them.
 

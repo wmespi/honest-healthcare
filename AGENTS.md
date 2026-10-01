@@ -14,13 +14,10 @@ This file is the charter — read it first, then follow the [doc map](#where-to-
 to the detail for whatever you're touching. Keep it thin; detail lives next to the
 code.
 
-**Current focus** *(update as the active work changes)* — Flow A "find care" is
-the live product surface: plan-first gating, the out-of-pocket estimator, and the
-CMS evidence + benchmark + practice-identity layers have shipped. Next is the
-geocode + distance + map step and the CMS hospital-quality layer that feed a real
-`/find-care` provider ranking — [docs/direction.md](docs/direction.md) build
-sequence steps 1–2 and 4. Don't restructure `etl/`, `serving/`, or `frontend/`
-without a reason (rule 7).
+**Current focus** *(update as the active work changes)* — executing epic
+[#95](https://github.com/wmespi/honest-healthcare/issues/95), the plan of record, one
+PR per step; product direction in [docs/direction.md](docs/direction.md). Don't
+restructure `etl/`, `serving/`, or `frontend/` without a reason (rule 7).
 
 ---
 
@@ -29,31 +26,20 @@ without a reason (rule 7).
 Five stages, one direction: **discovery** (Go) queues MRF URLs and keeps the
 plan→file link → **extraction** (Go) streams the queued files to raw Parquet, a
 provider probe aborting empty downloads before `in_network` → **reference** (Go +
-Python/DuckDB) lands the public datasets → **build** (Python/DuckDB, `build/`)
-turns raw + reference into the serving tables and is where every product
-decision lives → **serving** (Python/DuckDB + FastAPI, `localhost:8000`) queries
-the Parquet in-process for the **frontend** (React, `localhost:5173`). Storage
-is Parquet+ZSTD under `data/{anthem,nppes,reference,cms,serving}/`; Postgres
-holds only the queue (`index_files` + `index_file_plans` + `billing_codes` +
-`coverage_log`).
-
-The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
-`extraction` / `nppes` / `fixture` packages; shared structs, config, and the
-progress reader live in `etl/core/`.
-
-The layer table and the three standing diagrams (data flow, serving entities,
-runtime) live in **[docs/architecture.md](docs/architecture.md)**; the on-disk
-layout in **[docs/schema.md](docs/schema.md)**. Docker services: `db`, `etl`,
-`serving`, `frontend` — each from a multi-stage Dockerfile in
-[deploy/](deploy/README.md) (`prod` target = deployable artifact; compose runs
-the `dev` target).
+Python/DuckDB) lands the public datasets → **build** (Python/DuckDB, `build/`) turns
+raw + reference into the serving tables and is where every product decision lives →
+**serving** (Python/DuckDB + FastAPI, `localhost:8000`) queries the Parquet in-process
+for the **frontend** (React, `localhost:5173`). Storage is Parquet+ZSTD under `data/`;
+Postgres holds only the queue. Layer table and diagrams:
+**[docs/architecture.md](docs/architecture.md)**; on-disk layout:
+**[docs/schema.md](docs/schema.md)**; images and ports: [deploy/](deploy/README.md).
 
 ---
 
 ## The language principle
 
 **Go** = single-pass streaming acquisition of large raw sources that can't be held
-in memory (MRF JSON, the ~9 GB NPPES CSV). Hand-rolled streaming parser, tight
+in memory (MRF JSON, the NPPES CSV). Hand-rolled streaming parser, tight
 memory control.
 
 **Python (over DuckDB)** = relational reshaping — joins, enrichment, aggregation
@@ -63,9 +49,8 @@ in C++.
 The dividing line is *"hand-rolled streaming parser vs. SQL-shaped transform"*, not
 extract-vs-serve. NPPES stays in Go even though it writes a dimension table,
 because the work is the stream. RBCS/NUCC/CMS-utilization are Python even though
-they're "extraction" — and the CMS file is ~3 GB — because the work is a
-filter/join over a CSV that DuckDB's parallel C++ reader chews through in
-seconds, not a hand-rolled streaming parse.
+they're "extraction", because the work is a filter/join over a CSV that DuckDB's
+parallel C++ reader handles, not a hand-rolled streaming parse.
 
 ---
 
@@ -93,8 +78,7 @@ seconds, not a hand-rolled streaming parse.
 7. **No structural churn during a feature push** — batch pure renames /
    reorganizations into a deliberate tidy window, land them, then update docs +
    memory once. A restructure PR mid-feature-run competes for review attention
-   and rebases badly against the open feature branches (the 2026-08-28 window ran
-   ~6 back-to-back structural PRs, one a ~2,300-line net-zero rename).
+   and rebases badly against the open feature branches.
 
 ---
 
@@ -137,20 +121,27 @@ make fixture ID=5043        # truncated *.json.gz fixture from a file id
 make sh S=serving           # shell into a container
 ```
 
-**Parallel / worktree development** ([docs/worktrees.md](docs/worktrees.md), GH #59).
-The canonical checkout runs the one always-up stack. Feature work happens in
-sibling worktrees (`../hh-<topic>`, one per session/branch) that test on host
-toolchains via `make test LOCAL=1` — **no Docker** — and merge to `main` serially
-(trunk, no `develop` branch). A worktree runs its own stack (`make start`, ports
-from its gitignored `.env`) only for a live check; it reads the shared Parquet
-store via `HH_DATA_ROOT` and must never write `data/` (use `TEST=1`, or
-`SERVING_DIR` for a local build). Gitignored files (`.env`, `.venv/`, `data/`)
-are normal files — read them by path; repo-wide search skips them.
+**Parallel / worktree development** (GH #59). The canonical checkout runs the one
+always-up stack on `main`. Feature work happens in sibling worktrees
+(`../hh-<topic>`, branch `espinoza/<type>/<topic>`, one per session) made by
+`make worktree TOPIC=x [TYPE=feat]`, which runs `scripts/dev-setup.sh` (`.venv`,
+`npm ci`, a gitignored `.env` with its own ports and `HH_DATA_ROOT`). Host toolchains
+are pinned by `.mise.toml` (`brew install mise` once, add its shell hook); run
+`scripts/dev-setup.sh` once in the canonical checkout. Test with `make test LOCAL=1`
+(no Docker), merge to `main` serially (trunk, no `develop`), then `make worktree-rm
+TOPIC=x` — a lingering worktree is hundreds of MB.
 
-Run `make footprint` when disk looks low (a 176 GB `.tmp/` DuckDB-spill leak went
-unnoticed for a month); `make clean` reclaims a worktree's regenerable artifacts
-(`DOCKER=1` also prunes the Docker store). Run `make worktree-rm TOPIC=<name>` once
-a PR merges — a lingering worktree is ~300 MB.
+- A worktree runs its own stack (`make start`) only for a live check; it **reads** the
+  shared Parquet store and must never write `data/` — use `TEST=1`, or
+  `SERVING_DIR=/app/data-local/serving` to rebuild serving tables locally.
+- Any ad-hoc `duckdb.connect()` must `SET temp_directory` (or go through `db()` in
+  `serving/data_sources.py`), or a spilling query fills the repo's `.tmp/`.
+  `make footprint` reports disk use; `make clean` reclaims regenerable artifacts
+  (`DOCKER=1` also prunes Docker).
+- One branch per worktree; after a manual `rm -rf` run `git worktree prune`; parallel
+  branches adding the same `db/migrations/NNN_*.sql` number conflict — renumber the
+  later one. Gitignored files (`.env`, `.venv/`, `data/`) are normal files — read them
+  by path; repo-wide search skips them.
 
 ---
 
@@ -173,19 +164,21 @@ a PR merges — a lingering worktree is ~300 MB.
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
 | API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
-| Container images — dev/prod targets, ports, what CI builds | [deploy/README.md](deploy/README.md) |
-| Sending a non-developer (tester, family member) the Tailscale link | [docs/access.md](docs/access.md) |
-| Test isolation, fixtures, e2e scripts, all test layers | [docs/testing.md](docs/testing.md) |
-| User journeys — the persona clickpaths every PR sanity-checks against | [docs/journeys.md](docs/journeys.md) |
+| Container images, ports, parallel stacks, sending a tester the Tailscale link | [deploy/README.md](deploy/README.md) |
+| The three test suites, isolation, fixtures, CI jobs | [docs/testing.md](docs/testing.md) |
+| User journeys — the persona clickpaths `make test-live` asserts | [docs/journeys.md](docs/journeys.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |
 | Where the product is headed — the two flows, the navigator direction, the data roadmap | [docs/direction.md](docs/direction.md) |
 | CMS spec | https://github.com/CMSgov/price-transparency-guide |
 
-[docs/schema.md](docs/schema.md) is the single authoritative schema — Parquet and
-Postgres both. `db/SCHEMA.md` is a thin pointer to it for anyone starting from the
-`db/` directory.
+**Doc rules** (`scripts/check_docs.py`, run by `make check` and CI, enforces links, `make`
+targets, file paths and reachability).
+1. One fact, one home — link, don't restate.
+2. No hand-typed numbers (counts, sizes, latencies): say "run X", with a command that exists.
+3. Describe the current state, never history (no "was", "used to", "since #NN" — that is git).
+4. A doc not reachable from the map above doesn't exist — link it or delete it.
+5. Helper docs cap at about 100 lines; a fixed gap is deleted from `docs/known-gaps.md`.
 
 **Doc naming.** ALL-CAPS is reserved for repo-meta files (`README.md`, `AGENTS.md`,
 `LICENSE`). Topic and helper docs are lowercase and — where a workflow exists —
-share the name of its `make` target / `etl` subcommand (`parse` → `parse.md`),
-so an agent that ran `make help` can guess the filename.
+share the name of its `make` target / `etl` subcommand (`parse` → `parse.md`).

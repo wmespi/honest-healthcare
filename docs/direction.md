@@ -22,8 +22,6 @@ user anonymous wherever possible.
 ## Two flows
 
 The app answers two different questions that need two different front doors.
-Today they're crammed into one filter bar — that's why the specialty control felt
-like a dead end.
 
 ### Flow A — Find care  *(as-needed)*
 
@@ -145,8 +143,8 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 
 | Source | Adds | Cost | Effort |
 |---|---|---|---|
-| **CMS Hospital Care Compare** (Provider Data Catalog) | star rating, mortality, readmission, safety, HCAHPS patient experience, complication & infection rates | free | low — keyed by `CCN`; the CCN↔NPI bridge now exists (`dac_hospital_affiliations.parquet`) |
-| **CMS Doctors & Clinicians** (Care Compare) | ~~group linkage + facility affiliations~~ **done** (`make reference STEP=doctors-clinicians` → `dac_ga` + `dac_hospital_affiliations`); still open: MIPS scores, procedure-of-interest volume | free | low — keyed by `NPI`, joins directly |
+| **CMS Hospital Care Compare** (Provider Data Catalog) | star rating, mortality, readmission, safety, HCAHPS patient experience, complication & infection rates | free | low — keyed by `CCN`; the CCN↔NPI bridge is `dac_hospital_affiliations.parquet` |
+| **CMS Doctors & Clinicians** (Care Compare) | group linkage + facility affiliations (`make reference STEP=doctors-clinicians` → `dac_ga` + `dac_hospital_affiliations`); open: MIPS scores, procedure-of-interest volume | free | low — keyed by `NPI`, joins directly |
 | **CMS Medicare Inpatient Hospitals — by Provider & Service** (MS-DRG) | per-hospital discharge volume + payment + charge — the inpatient / surgical side Part B misses | free | low — same builder shape |
 | **CMS Medicare Physician & Other Practitioners — by Provider** (aggregate) | per-NPI beneficiary / service counts, patient & condition mix | free | low |
 | **CMS Provider of Services (POS)** + Hospital Enrollments (PECOS) | facility attributes (beds, ownership, services) and the CCN↔NPI / address bridge | free, quarterly | low |
@@ -161,7 +159,7 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 | **CMS Health Insurance Exchange PUFs** (Plan Attributes + Benefits & Cost-Sharing especially) | structured per-plan deductible, OOP max, copays, coinsurance, metal, premium, counties, network/formulary URLs | free, annual CSV | med — kills the "user types their deductible" gap |
 | **QHP Landscape Files** | county plan list w/ premium, deductible, OOP, metal | free | low — GA moved to the "Georgia Access" state exchange for 2026; confirm GA still in the CMS files or pull Georgia Access's own data |
 | **QHP provider & formulary machine-readable JSON** (CMS schema, ≠ TiC) | per-plan in-network NPI roster + drug formulary | free | med — directory accuracy is poor, but it's the only machine-readable roster |
-| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs + `index_files.hios_issuer_ids`) | *derives* plan-name → network, retires the one-entry `serving/plan_networks.json` | free | med |
+| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs + `index_files.hios_issuer_ids`) | *derives* plan-name → network, retires the hand-curated `serving/plan_networks.json` | free | med |
 | CMS Marketplace Open Enrollment PUFs | enrollment by plan / metal / county | free | low — secondary |
 
 ### Geography (and the Google Maps question)
@@ -183,33 +181,29 @@ and Places content can't be cached beyond `place_id` — so ratings/hours can't
 
 ## Build sequence
 
-Ordered so each step ships something usable and nothing waits on the multi-payer
-lift longer than it must.
+The executable plan and its status live in epic
+[#95](https://github.com/wmespi/honest-healthcare/issues/95); this is the product
+order it serves — each step ships something usable and nothing waits on the
+multi-payer lift longer than it must.
 
-1. **Geocode + distance + map** — Census batch-geocode the GA NPPES subset;
-   lat/long onto the Parquet; distance filter/sort + a MapLibre map. *~days, free.*
-2. **CMS quality layer** — *partway done:* `make reference STEP=doctors-clinicians` landed the
-   Doctors & Clinicians group identity + the `ccn`↔`npi` bridge
-   (`dac_hospital_affiliations.parquet`). Still open: pull Hospital Care Compare
-   (star rating, mortality, HCAHPS, infection rates — keyed by `ccn`), the POS /
-   Hospital Enrollments facility attributes, and surface quality on the provider
-   card / ranking. *~1 week left, free.*
+1. **Geocode + distance + map** — Census batch-geocode, lat/long on the provider
+   table, distance filter/sort, a MapLibre map ([reference/geocode.md](../reference/geocode.md)).
+2. **CMS quality layer** — Doctors & Clinicians identity and the `ccn`↔`npi` bridge
+   exist ([reference/doctors-clinicians.md](../reference/doctors-clinicians.md)); open:
+   Hospital Care Compare (keyed by `ccn`), POS / Hospital Enrollments facility
+   attributes, quality on the provider card and ranking.
 3. **Medicare inpatient volume (MS-DRG)** — into the evidence tiers; fills the
-   surgical / admission hole Part B leaves. *~days, free.*
-4. **Ship Flow A — "Find care"** — dedicated route: procedure/need → ranked list
-   + map blending plan price, quality, volume, distance. *~1–2 weeks.*
-5. **Exchange PUFs + HIOS crosswalk** — real per-plan cost-sharing defaults for
-   the estimator; derive plan-name → network, retire `plan_networks.json`.
-   *~1 week, free.*
+   surgical / admission hole Part B leaves.
+4. **Ship Flow A — "Find care"** — a dedicated route: procedure/need → ranked list +
+   map blending plan price, quality, volume, distance.
+5. **Exchange PUFs + HIOS crosswalk** — per-plan cost-sharing defaults for the
+   estimator; derive plan-name → network, retire `plan_networks.json`.
 6. **Scale the rate store** ([#10](https://github.com/wmespi/honest-healthcare/issues/10))
-   — kill the fan-out, precompute the browse layer, add a `payer` dimension,
-   persistent bounded DuckDB. Prerequisite for 7–8. *weeks.*
-7. **Multi-payer rate ingestion** — per-carrier discovery adapters for the 2–3
-   largest GA individual carriers besides Anthem, feeding the shared parse →
-   Parquet → summary path. *weeks, free data.*
-8. **Ship Flow B — "Pick a plan"** — expected-care input → plans ranked by
-   estimated total annual cost; plan provider-directory JSON for in-network
-   checks. *weeks.*
+   — add a `payer` dimension; prerequisite for 7–8.
+7. **Multi-payer rate ingestion** — per-carrier discovery adapters for the largest GA
+   individual carriers besides Anthem, into the shared parse → build path.
+8. **Ship Flow B — "Pick a plan"** — expected-care input → plans ranked by estimated
+   total annual cost; provider-directory JSON for in-network checks.
 
-Hands-off booking (the navigator MVP) slots in after step 4 — it's a request form
-and an ops process, not an integration.
+Hands-off booking (the navigator MVP) slots in after step 4 — a request form and an
+ops process, not an integration.

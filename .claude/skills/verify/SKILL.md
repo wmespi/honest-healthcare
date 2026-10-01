@@ -24,8 +24,7 @@ description: >
 | Anything non-trivial before a PR | `make test` | full stack |
 | A change to a real answer (rates, rankings, labels) | `make test-live` | serving up, **real corpus** |
 
-`make check` = gofmt + vet + build + Go unit tests. It's the pre-commit
-gate — always run it. `make help` lists every target.
+`make check` = docs drift check + the Go gate; it's the pre-commit gate. `make help` lists every target.
 
 ## Footguns
 
@@ -33,24 +32,16 @@ gate — always run it. `make help` lists every target.
   usually picks up edits, but after adding/moving a module run
   `docker compose restart serving` before `make test`, and clear stale
   `serving/__pycache__` if imports act strange.
-- **Ad-hoc DuckDB queries spill into the repo.** Any `duckdb.connect()` you write
-  for a one-off check (not through `serving/data_sources.py:db()`) must
-  `SET temp_directory='/tmp/dsp'` first — otherwise a big aggregate spills to
-  `./.tmp/` in the repo root and breaks `git add`. Prefer a network-partition-
-  pruned path (`read_parquet('data/anthem/prices/net=<slug>/*.parquet')`) over
-  scanning all of `prices ⨝ group_sets`.
-- **`make reference STEP=nppes` is not atomic.** It rewrites `data/nppes/ga_providers.parquet`
-  in place; mid-run the file is 0 bytes and serving-layer queries that touch it 500.
-  Don't run it while relying on the API; wait for it to finish, then
-  `docker compose restart serving`.
+- **Ad-hoc DuckDB queries spill into the repo.** A one-off `duckdb.connect()` (not
+  through `serving/data_sources.py:db()`, which sets `DUCKDB_TMP`) must
+  `SET temp_directory='/tmp/dsp'` first, or a big aggregate spills to `./.tmp/`
+  and breaks `git add`. Read one `net=<slug>` partition of `data/serving/rates/`,
+  not the whole store.
+- **`make reference STEP=nppes` is not atomic** — mid-run the output file is 0
+  bytes and queries that touch it 500. Let it finish, then restart `serving`.
 - **`make test` and `make test-live` hit different data.** `test` is hermetic —
   fixtures, the `test` schema, mocked `./api` in vitest. A green `test` does not
   prove a serving-layer change works on real volume — run `test-live` too.
-- **Squash-merged base branch → cherry-pick, don't rebase.** When a stacked PR's
-  base was squash-merged into `main`, `git rebase origin/main` replays the
-  already-merged commits and conflicts. Instead:
-  `git checkout -B <branch> origin/main && git cherry-pick <your-commit>`, then
-  retarget the PR base to `main` (`gh pr edit <n> --base main`).
 
 ## Reporting
 

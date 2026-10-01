@@ -123,20 +123,12 @@ erDiagram
   }
 ```
 
-`rates` is the parser's **price grain** — no group fan-out — Hive-partitioned
-by `net=` exactly as `prices` is today, so every plan-scoped query prunes to
-one directory; `group_set_id` links to `group_sets` for the join a query needs
-at read time. `source_kind` is `plan_specific` or `shared` and drives AGENTS.md
-rule 5, which the read layer applies per practice (the build keeps every row).
-`cross_network_rollup` `(code, network) → n_groups, min, p10, median, p90, max`
-is derived from `rate_hist`'s roster-weighted CDF and replaces
-`/rates/by_network`'s live scan. `provider_dim.org_name` (raw NPPES entity
-name) and `.group_name` (the CMS Doctors & Clinicians identity) are separate
-columns on purpose — collapsing them let a shared group affiliation overwrite
-an individual's own name. The physical `rates` table also carries
-`service_code`, `negotiated_type`, `negotiation_arrangement`, `expiration_date`
-— the ERD names the grain, not every column, and that grain is not unique
-(POS variants, multi-roster rates).
+`rates` is the parser's **price grain** — no group fan-out — Hive-partitioned by
+`net=`, so every plan-scoped query prunes to one directory; `group_set_id` links to
+`group_sets` for the join a query needs at read time. `source_kind` is `plan_specific`
+or `shared` and drives AGENTS.md rule 5. The ERD names the grain, not every column
+(full column lists: [schema.md](schema.md)), and that grain is not unique (POS
+variants, multi-roster rates).
 
 ## Runtime
 
@@ -154,8 +146,5 @@ flowchart TB
   TS --> C1
 ```
 
-The `discover → parse → reference → build` chain runs across the etl (Go) and
-serving (Python) containers; a single `make refresh` wrapper is a Step 6 tidy.
-
-Postgres stays for the queue; replacing it with a small Parquet/CSV queue is a
-later, separate issue.
+The `discover → parse → reference → build` chain runs across the etl (Go) and serving
+(Python) containers; `make refresh` runs all of it.

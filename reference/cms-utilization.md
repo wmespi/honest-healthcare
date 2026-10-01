@@ -1,58 +1,33 @@
 # `make reference STEP=cms-utilization` — provider ↔ procedure evidence
 
-*Read this when working on the "does this provider actually perform this
-procedure" question — the caveat on the cost card (job 1) and the badges on the
-provider menu (job 4).*
+*Read this when working on "does this provider actually perform this procedure" —
+the caveat on the cost card and the badges on the provider menu.*
 
-Builds `data/cms/ga_provider_service.parquet` from **public data only**: CMS
-["Medicare Physician & Other Practitioners — by Provider and
-Service"](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners/medicare-physician-other-practitioners-by-provider-and-service).
-One row per `NPI × HCPCS × place-of-service` **actually billed to Medicare Part
-B**, filtered to Georgia rendering providers.
+**Builds** `data/cms/ga_provider_service.parquet` from CMS
+["Medicare Physician & Other Practitioners — by Provider and Service"](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners/medicare-physician-other-practitioners-by-provider-and-service):
+one row per `NPI × HCPCS × place-of-service` billed to Medicare Part B, Georgia
+rendering providers only. Module `reference/cms_utilization.py`; `CMS_URL=` overrides
+the source, `YEAR=` the stamped service year (via `ARGS`, e.g. `ARGS="--year 2024"`).
 
-`make reference STEP=cms-utilization` → `python3 -m reference.cms_utilization --data-dir /app/data`
-in the serving container (`reference/cms_utilization.py`). `CMS_URL=` overrides
-the source; `YEAR=` overrides the stamped service year; `--cms-file` / `--test`
-exist on the module.
+**Why.** Anthem's `provider_references` are network-administration buckets (one group
+can span thousands of NPIs and many specialties), so the rate resolver would show a
+social worker a surgical rate. `plausibility()` (`serving/labels.py`) is a hand-coded
+guess; this dataset replaces it with evidence: `did_bill(npi, code)`.
 
-## Why this exists
+**Python/DuckDB, not Go** ([language principle](../AGENTS.md#the-language-principle)):
+the work is a filter + projection over a quoted CSV that DuckDB's parallel reader
+handles in seconds, not a stream too big for memory.
 
-The MRF is a **rate sheet**. Anthem's `provider_references` are coarse
-network-administration buckets — one group can be ~7,000 NPIs across ~4,000 TINs
-and many specialties. So the rate resolver will happily show a clinical social
-worker a $14k surgical rate: the code is contracted to her *group*, not to her.
+**Source resolution.** `resolve_cms_url()` reads `data.cms.gov/data.json`, picks the
+newest `*_Prov_Svc.csv` (year from `_D<YY>_` in the filename), with a hard-coded
+fallback URL. The download resumes via HTTP Range into
+`data/cms/.cache/prov_svc_d<year>.csv` (year in the name, so a new year never reuses
+a stale CSV).
 
-`plausibility()` in `serving/labels.py` is a hand-coded heuristic (behavioral
-provider + procedural code → "unlikely"). It's a guess and wrong at the edges
-(NPs/PAs have broad scopes). This dataset replaces the guess with evidence for
-the Part B population: `did_bill(npi, code)` in `serving/evidence.py`.
-
-## Why Python/DuckDB and not Go
-
-The source CSV is ~3.25 GB (~9.8M rows, 28 columns, quoted free-text fields).
-That *sounds* like Go territory, but the work is a **filter + projection**, not a
-streaming parse of something that can't fit in memory (cf. NPPES at ~9 GB, which
-stays in Go). DuckDB's parallel, vectorized C++ CSV reader scans all cores,
-pushes the `state = 'GA'` filter down, handles the quoting correctly, and streams
-to Parquet out-of-core — **~4 seconds** on a dev Mac, versus minutes for a
-single-threaded Go `encoding/csv` pass and hundreds of lines more code. This is
-the [language principle](../AGENTS.md#the-language-principle) working as intended.
-
-## Source resolution
-
-`resolve_cms_url()` reads `data.cms.gov/data.json`, finds the dataset by title,
-and picks the newest `*_Prov_Svc.csv` distribution (year parsed from the
-`_D<YY>_` in the filename). Hard-coded fallback URL is the 2024 service year
-(published 2026-05). CMS re-stamps the path and bumps `D<YY>` annually.
-
-The download streams to `data/cms/.cache/prov_svc_d<year>.csv` with resume via
-HTTP Range (`reference/_common.py:fetch_to_cache_streaming`). Year is in the
-cache name so next year's run doesn't reuse a stale CSV.
-
-## Output — `data/cms/ga_provider_service.parquet`
+## Output
 
 ```
-npi | hcpcs_cd | place_of_service     ('F' facility / 'O' office/non-facility)
+npi | hcpcs_cd | place_of_service     ('F' facility / 'O' office)
 tot_benes | tot_srvcs | tot_bene_day_srvcs
 avg_mdcr_alowd_amt        avg Medicare allowed $ — a cross-check vs the MRF rate
 provider_type             Medicare's rendering-provider specialty
@@ -60,53 +35,32 @@ hcpcs_drug_ind            'Y' = Part B drug / J-code
 year                      service year
 ```
 
-~284k GA rows / ~34k NPIs / ~3k HCPCS codes (2024). F and O are kept as separate
-rows — `did_bill()` aggregates over them.
+F and O stay separate rows; `did_bill()` aggregates over them.
 
-## How the serving layer uses it (`serving/evidence.py`)
+## How serving uses it (`serving/evidence.py`)
 
 - `did_bill(conn, npi, code)` → `None` (file not built) · `{"billed": False}` ·
-  `{"billed": True, year, tot_srvcs, tot_benes, avg_mdcr_allowed, …}`.
-  `/rates/quote` returns this as `medicare_utilization`, and demotes
-  `plausibility` from `"unlikely"` when the provider demonstrably bills the code.
-- `billed_codes(conn, npi, codes)` → `{code: {tot_srvcs, tot_benes, year}}` for
-  the billed subset — one query, badges the `/providers/{npi}/procedures` menu
-  (`medicare` field per row).
-- `medicare_specialty(conn, npi)` → CMS's rendering-provider specialty label,
-  folded into `plausibility()` (`serving/labels.py`) — usually cleaner than a
-  stale / vague self-reported NUCC taxonomy. Fallback only: it's null for the
-  ~86% of GA providers with no Part B claims, so it can't replace NUCC/NPPES as
-  the primary specialty source.
-- `typical_codes()` / `code_tiers()` → Tier 2. `code_tiers` classifies each
-  (npi, code) as `billed` (Tier 1, this NPI billed it) / `typical` (≥ threshold
-  of the NPI's specialty bills it — from `make reference STEP=specialty-profiles`,
+  `{"billed": True, year, tot_srvcs, tot_benes, avg_mdcr_allowed, …}`. `/rates/quote`
+  returns it as `medicare_utilization` and demotes `plausibility` from `"unlikely"`
+  when the provider demonstrably bills the code.
+- `billed_codes(conn, npi, codes)` → billed subset, badging the
+  `/providers/{npi}/procedures` menu.
+- `medicare_specialty(conn, npi)` → CMS's specialty label, folded into
+  `plausibility()`; a fallback only (null for providers with no Part B claims).
+- `typical_codes()` / `code_tiers()` → Tier 2: each `(npi, code)` is `billed` (Tier 1)
+  / `typical` (billed by ≥ threshold of the NPI's specialty —
   [specialty-profiles.md](specialty-profiles.md)) / `group` (fan-out noise).
-  `/providers/{npi}/procedures?tier=plausible` (default) keeps only billed +
-  typical; `/rates/quote` returns the tier. **Retention:** a strict Tier-1 filter
-  keeps only ~47% of priceable providers; Tier 1+2 keeps ~94%, trimming the menu
-  from ~17k contracted codes to ~30 plausible ones.
+  `/providers/{npi}/procedures?tier=plausible` (default) keeps billed + typical.
 
-All three no-op to `None`/`{}` until `make reference STEP=cms-utilization` has run, so the API
-works without it.
+All no-op to `None`/`{}` until this step has run, so the API works without it.
 
-The frontend (`ProviderCostCard`, `ProviderMenu`) surfaces this: a
-"billed N times to Medicare in <year>" line on the cost card (or "no Part B
-claims either" when the group-rate caveat is showing), and a "Medicare" badge on
-billed menu rows.
+## Caveats (also in [../docs/known-gaps.md](../docs/known-gaps.md))
 
-## Caveats (also in [docs/known-gaps.md](../docs/known-gaps.md))
+- **Part B only** — misses pediatric, pure-commercial, cash-only. `billed: True` is
+  strong; `billed: False` is weak.
+- Records from **≤ 10 beneficiaries are excluded** from the source.
+- **~2-year lag**, single year.
+- Facility / organizational NPIs are mostly absent — a **practitioner** signal.
+- Drug codes are included; `hcpcs_drug_ind` lets the UI filter them.
 
-- **Medicare Part B only** — misses pediatric, pure-commercial, and cash-only
-  practice. `billed: True` is strong; `billed: False` is weak.
-- Records derived from **≤ 10 beneficiaries are excluded entirely** from the
-  source file — another reason absence proves little.
-- **~2-year lag** — 2024 is the latest available in 2026.
-- Type-2 (facility / organizational) NPIs are mostly absent — this is a
-  **practitioner** signal.
-- Drug codes (J-codes) are included; `hcpcs_drug_ind` lets the UI filter them.
-
-## Tests
-
-`serving/tests/test_cms_utilization.py` — hermetic, runs the builder against
-`reference/testdata/cms_sample.csv` (15 rows: 12 GA + 1 FL + 1 TX + 1
-corrupt-NPI) in test isolation. Picked up by `make test`.
+Tested by `serving/tests/test_cms_utilization.py` against `reference/testdata/cms_sample.csv`.

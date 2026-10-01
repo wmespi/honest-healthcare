@@ -4,9 +4,9 @@
 `data/serving/` — the build step's output (`make build`, [build/build.md](../build/build.md)).
 There is no fallback to raw Parquet: a missing build is a `503` from `GET /`,
 not a slower degraded mode. Tests: `test_api_contract.py` (every route,
-hermetic — a synthetic raw fixture in `conftest.py` runs the real
-`build.build.build()`, then binds a `TestClient`); `make test-live` runs the golden answers against the live API with the full `data/`. Add a route →
-add a contract test.
+hermetic — the `api` fixture in `conftest.py` runs the real `build.build.build()`
+on a synthetic raw set, then binds a `TestClient`); `make test-live` runs the golden
+answers against the live API. Add a route → add a contract test.
 
 Every route runs raw DuckDB SQL against `read_parquet(...)` on the serving
 tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
@@ -25,8 +25,10 @@ tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
 | `service_lines.py` | Curated NUCC taxonomy-code allowlists per service line (issue #83) — `SERVICE_LINES = {"pcp": [...]}`. Also `build/build.py`'s source for `provider_dim.service_lines`. |
 | `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans` |
 
-SQL still lives inline in the route handlers — moving it into a `queries/` module
-is a later step ([issue #13](https://github.com/wmespi/honest-healthcare/issues/13)).
+SQL lives inline in the route handlers
+([#13](https://github.com/wmespi/honest-healthcare/issues/13) tracks a `queries/` module).
+`main.py` is wiring only — don't add routes there; a genuinely new area gets
+`routers/<x>.py` (`router = APIRouter()`, `@router.get`) plus `app.include_router`.
 
 `RATE_GROUPS_SRC` = `rates ⨝ group_sets` on `(file_id, group_set_id)` — the join
 that expands a price row to its provider groups. Schema:
@@ -36,7 +38,7 @@ that expands a price row to its provider groups. Schema:
 
 Every rate view is scoped to **outpatient professional fee-for-service dollar
 rates** — `rates.scope = 'outpatient_prof'`, baked in at build time
-(`data_sources.outpatient_scope()` is the definition build/build.py pins
+(`outpatient_scope()` in `data_sources.py` is the definition `build/build.py` pins
 against; `test_build.py` guards the two staying equal). This drops facility/
 institutional lines, inpatient-only rates, `bundle`/`capitation`, and
 `percentage`/`per diem`/`derived` types. Every dollar view also drops
@@ -45,8 +47,7 @@ codes.
 
 Jobs 1 and 3 **require a `network_name`** (`400 {"detail": {"code":
 "network_required"}}` otherwise) — a rate is only comparable within a plan,
-kept as a product rule (not a scale guard — see the epic's checkpoint
-decisions on [#100](https://github.com/wmespi/honest-healthcare/issues/100)).
+a product rule, not a scale guard.
 
 | Route | Job | Returns |
 |---|---|---|
@@ -68,8 +69,8 @@ Also `/networks`, `/providers/search`, `/specialties`, `/procedure_categories`,
   `scope=True` (default) keeps `outpatient_prof`; `drop_sentinel=True` removes
   placeholders (jobs 1-3; the histogram keeps them so it can still show the
   full picture — known-gaps).
-- `network_slug()` — must stay identical to
-  `etl/extraction/partition.go:slugifyNetwork` (partition pruning depends on it).
+- `network_slug()` — must stay identical to `slugifyNetwork` in
+  `etl/extraction/partition.go` (partition pruning depends on it).
 - `provider_card(conn, npi)` (`labels.py`) — one `provider_dim` row +
   `hospital_affiliations` from `provider_affiliations`. `group_name` is the CMS
   Doctors & Clinicians identity; `org_name` is the raw NPPES entity name — the
@@ -82,11 +83,31 @@ Also `/networks`, `/providers/search`, `/specialties`, `/procedure_categories`,
   `reference_loaded` and every `available()` check in `evidence.py`/
   `benchmark.py` read it instead of checking a raw file's existence.
 
+## Query rules — get these wrong and it hangs
+
+- **Always go through `db()`** (sets `memory_limit` and the spill dir); never a bare
+  `duckdb.connect()`.
+- **Never filter by `npi` without a `billing_code`** — nothing prunes the code axis,
+  so it full-scans `rates`. `/rates/distribution` returns **400** for exactly this.
+  The "everything at this provider" view is `/providers/{npi}/procedures`, which
+  resolves the NPI to its `(file_id, group_set_id)` sets *first* (small), then joins.
+- **A `network_name` filter must partition-prune**: add `pg.net = ?` with
+  `network_slug(network_name)`. A filter on the `network_name` column does not prune.
+- **Expand to provider groups (`RATE_GROUPS_SRC`) only after a selective filter**
+  (`billing_code` or `npi`); over the whole store it is far too large. Browse
+  aggregates read `rate_hist` / `cross_network_rollup` instead.
+- Parameterise with `?`; never f-string user input into SQL (module-constant table and
+  column names are fine).
+
+## Finishing a route
+
+Add the contract test (`test_api_contract.py`: 200 + shape, and the intended error
+codes); if the explorer's state machine changes, update `frontend/src/api.js` and
+add a vitest case; `docker compose restart serving`, `make test`, then hit the route
+against live data.
+
 ## Known limits
 
-- `db()` is one process-wide DuckDB database; each call returns a lightweight
-  `cursor()` so Parquet metadata / zonemaps stay warm across requests instead
-  of being rebuilt per connection.
-- `/rates/providers ga_hospitals_only` filters the rows but not `summary`.
-- See [../docs/known-gaps.md](../docs/known-gaps.md) for the sentinel ceiling,
-  HCPCS drug-code outliers, and the `n_groups`-vs-`n_providers` distinction.
+[../docs/known-gaps.md](../docs/known-gaps.md) holds the sentinel ceiling, HCPCS
+drug-code outliers, the `n_groups`-vs-`n_providers` distinction, and
+`/rates/providers ga_hospitals_only` not filtering `summary`.
