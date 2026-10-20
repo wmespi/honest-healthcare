@@ -15,11 +15,10 @@ write come from `reference/_common.py`, shared with `taxonomy_labels`.
 
 ## Sources
 
-- **CMS Restructured BETOS Classification System (RBCS)** — 185 readable families
-  (`rbcs_family`, e.g. "Arthroplasty - Knee", "MRI/MRA - Spine"). `rbcs_subcategory`
-  covers ~84% of rate volume as a fallback. Public domain. URL is resolved from
-  `data.cms.gov/data.json` with a hard-coded RY2026 fallback (CMS re-stamps the
-  path yearly).
+- **CMS Restructured BETOS Classification System (RBCS)** — readable families
+  (`rbcs_family`, e.g. "Arthroplasty - Knee", "MRI/MRA - Spine"); `rbcs_subcategory`
+  is the coarser fallback. Public domain. URL resolved from `data.cms.gov/data.json`
+  with a hard-coded fallback (CMS re-stamps the path yearly).
 - **The MRF's own `codes.name`** → `short_name` (fallback label + search text).
 - **A hand-curated `FAMILY_SYNONYMS` map** in the module so "colonoscopy",
   "mri back", "blood test" resolve to the right family.

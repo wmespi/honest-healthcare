@@ -6,7 +6,7 @@
 # Multi-stack (GH #59): container names are unset so the project name
 # (COMPOSE_PROJECT_NAME, default = directory name) scopes everything, and the
 # host ports + data root are env-driven. Copy .env.example → .env in a worktree
-# to run a second stack alongside the canonical one; see docs/worktrees.md.
+# to run a second stack alongside the canonical one; see deploy/README.md.
 # With no .env this behaves exactly as before (project `honest-healthcare`,
 # ports 5432/8000/5173, ./data).
 services:

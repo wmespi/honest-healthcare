@@ -2,146 +2,75 @@
 
 *Read this before changing test setup, adding a fixture, or wiring CI.*
 
-| Command | Scope | Stack? |
+Three suites, each a `make` target (`make help` is the target list):
+
+| Command | Covers | Stack? |
 |---|---|---|
-| `make check` | Pre-commit gate — gofmt + vet + build + Go unit tests | etl up |
-| `make check LOCAL=1` | Same gate on **host toolchains** | **none** (host go — `scripts/dev-setup.sh`) |
-| `make test` | `check` + serving pytest (contract + reference builders + build; golden excluded) + vitest + the ETL e2e / NPPES fixtures | full stack |
-| `make test LOCAL=1` | `check LOCAL=1` + pytest + vitest on host toolchains; the worktree gate | **none** (host go / `.venv` / node) |
-| `make test-live` | Golden-answer regression (`test_golden.py`, #96) + the named persona journeys (`scripts/journeys.py`, [journeys.md](journeys.md)) against the live API | serving up, **real corpus** |
+| `make check` | docs drift (`scripts/check_docs.py`) + gofmt + vet + build + Go unit tests | etl up |
+| `make test` | `check` + serving pytest (contract, reference builders, build; golden excluded) + vitest + the ETL e2e / NPPES fixture scripts | full stack |
+| `make test-live` | golden answers (`serving/tests/test_golden.py`) + the named persona journeys ([journeys.md](journeys.md)) against the live API and real corpus | serving up, **real corpus** |
 
-Run `make test LOCAL=1` (a worktree, no Docker — [worktrees.md](worktrees.md)) or
-`make check` (canonical checkout) before every commit (Critical Rule — fast).
-`test LOCAL=1` covers everything CI gates except the ETL e2e fixtures, which need
-a stack; the real-corpus checks (`test-live`) are never part of the gate.
+`LOCAL=1` runs `check` / `test` on host toolchains with **no Docker** (go, `.venv`,
+node via `scripts/dev-setup.sh`; the e2e fixtures are skipped) — the worktree gate
+([worktrees](../AGENTS.md#parallel--worktree-development)). Run `make test LOCAL=1` before every commit. `test-live` is
+never part of the gate: it needs the real corpus and skips cleanly (not fails) when
+the target network isn't loaded or the API isn't reachable.
 
----
+## Test isolation (`TEST=1` / `-test`)
 
-## Test isolation (`-test` / `TEST=1`)
+Swaps two things: the **DB** (`TEST_DATABASE_URL`, `search_path=test`, so queue and
+`coverage_log` writes hit `test.*`) and the **Parquet root** (`data-test/…`). Both are
+safe to truncate at any time; a test run never touches `public.*` or `data/`
+(Critical Rule 4). Discovery in test mode caps at 100 reporting structures, parsing
+at 1 file (`LIMIT=` overrides).
 
-`-test` swaps two things:
-
-- **DB** — connects via `TEST_DATABASE_URL` (`search_path=test`); `billing_codes`,
-  `index_files`, `index_file_plans`, `coverage_log` writes hit `test.*`.
-- **Parquet** — output moves to `../data-test/anthem/…` and
-  `../data-test/nppes/ga_providers.parquet`.
-
-Both `test.*` and everything under `data-test/` are safe to truncate/delete at any
-time (Critical Rule 4 — never touch `public.*` or `data/` in a test run). Discovery
-in test mode caps at 100 reporting structures; parsing caps at 1 file
-(`LIMIT=` overrides).
-
-> The `test` schema is created once from `public` via `LIKE … INCLUDING ALL`, so it
-> **drifts** when a `public` column or table is added — and `LIKE` never copies
-> foreign keys, so those have to be re-declared. The newest
-> `db/migrations/*.sql` drops and recreates the whole `test` schema from
-> `public` — run `make migrate` after any schema change.
-
----
+The `test` schema is created from `public` via `LIKE … INCLUDING ALL`, which drifts
+when `public` changes and never copies foreign keys; the newest
+`db/migrations/*.sql` drops and recreates it — run `make migrate` after any schema change.
 
 ## Fixtures (committed)
 
 - `etl/extraction/testdata/synthetic_mrf.json` — hand-written MRF exercising every
-  parser branch; `extraction/stream_test.go` runs `streamMRF` over it (hermetic —
-  no network, no DB).
-- `etl/nppes/testdata/nppes_sample.csv` — ~14 rows for the NPPES GA extractor.
-- `reference/testdata/cms_sample.csv` — 15 rows for the CMS utilization builder
-  (12 GA + 1 FL + 1 TX + 1 corrupt-NPI). `serving/tests/test_cms_utilization.py`
-  and `test_specialty_profiles.py` run the `reference/` builders against it in
-  test isolation (`data-test/cms/`, `data-test/reference/`) — hermetic, picked up
-  by `make test`.
-- `reference/testdata/mpfs_sample.csv` + `mpfs_gpci_sample.csv` — a PPRRVU-shaped
-  RVU file (plain code, 26/TC split, facility-`NA` code, bundled `B`,
-  carrier-priced `C`) and a GPCI file (GA localities 01/99 + a Florida row to
-  filter). `serving/tests/test_mpfs.py` runs `reference/mpfs.py` against them in
-  test isolation (`data-test/reference/mpfs_ga.parquet`) — hermetic; checks the
-  RVU formula, the fac/non-fac PE split, and status handling.
-- `reference/testdata/dac_sample.csv` — 14 rows for the CMS Doctors & Clinicians
-  builder (9 GA clinicians incl. one with two groups + two hospitals, 2
-  out-of-state, 1 corrupt NPI), in the wide single-file layout so `--dac-file`
-  builds both outputs offline. `serving/tests/test_doctors_clinicians.py` runs it
-  in test isolation — hermetic, picked up by `make test`.
-- `serving/tests/conftest.py` (`api` fixture) — writes a small coherent set of
-  RAW Parquet (2 networks, 5 CPT codes with `-26`/`-TC` splits, 6 providers
-  incl. a hospital org NPI, + NPPES/NUCC/RBCS/CMS/profile/MPFS/DAC tables)
-  under `data-test/apifix/`, runs the real `build.build.build()` against it
-  exactly as `make build` would, and binds a FastAPI `TestClient` to the
-  resulting `data-test/apifix/serving/`. Drives `test_api_contract.py` — every
-  route, hermetic, no live server, no `data/` mount, and the same build code
-  path a real `make build` runs. Schemas track [schema.md](schema.md);
-  teardown removes the dir.
-- `serving/tests/test_golden.py` — **not hermetic, no fixture** — hits the live
-  API (`API_URL`, default `http://localhost:8000`) and checks 7 real answers
-  (a quote, a distribution rollup, a provider ranking, a PCP search, a
-  procedure count, a specialty count, a cross-network rollup) captured by
-  hand from the real corpus on 2026-09-04 against the target network (#96).
-  `pytest.skip`s, not fails, when the target network isn't in `GET /`'s
-  `networks` list, the API isn't reachable at all, or the wider reference
-  build the pins depend on (NPPES/NUCC, CMS utilization, MPFS — all
-  "optional" per `README.md`) isn't loaded. CI's `integration` job runs it
-  against an empty `data/` dir for exactly the first reason. `make test`
-  explicitly `--ignore`s this file — it isn't hermetic to a
-  stack's build state and must never gate the contract sweep. Run
-  for real via `make test-live` only.
-- `etl/extraction/testdata/fixtures/*.json.gz` — real, heavily-truncated MRFs from `make fixture` (first 25
-  provider refs, NPI lists capped at 10, first 25 in-network items that touch a
-  kept group, rates/prices capped). `synthetic.json.gz` drives `scripts/etl_e2e_test.sh`;
-  the rest are regression guards run by `TestFixtures_Parse`.
-
-  **Add a fixture only when a file has a genuinely new shape** — a GA plan file, a
-  vision/dental file, a file that failed. Not one per file; near-duplicate BlueCard
-  shards add nothing.
+  parser branch; `etl/extraction/stream_test.go` runs it hermetically.
+- `etl/extraction/testdata/fixtures/*.json.gz` — real, truncated MRFs from
+  `make fixture`; `synthetic.json.gz` drives the e2e script, the rest are regression
+  guards (`TestFixtures_Parse`). **Add one only for a genuinely new file shape.**
+- `etl/nppes/testdata/nppes_sample.csv` — NPPES GA extractor sample.
+- `reference/testdata/*` — small CMS / MPFS / DAC / geocode samples; each
+  `serving/tests/test_<builder>.py` runs its `reference/` builder against them in test
+  isolation.
+- `serving/tests/conftest.py` (`api` fixture) — writes a small coherent RAW Parquet set
+  under `data-test/apifix/`, runs the real `build.build.build()` on it, and binds a
+  FastAPI `TestClient` to the result. `test_api_contract.py` covers every route this
+  way, with no live server and the same build path `make build` runs. Schemas track
+  [schema.md](schema.md).
+- `serving/tests/test_golden.py` — **no fixture**: real answers (a quote, a rollup, a
+  provider ranking, counts) pinned against the live API (`API_URL`, default
+  `http://localhost:8000`).
 
 ## E2E scripts (with teardown)
 
-- `scripts/etl_e2e_test.sh` — parses `fixtures/synthetic.json.gz` in the `test`
-  schema, asserts row counts + `network_name` + a `coverage_log` row, then
-  `TRUNCATE test.*` + `rm -rf data-test/anthem` on exit. Zero residue.
-- `scripts/nppes_test.sh` — same shape for the NPPES GA extractor.
+`scripts/etl_e2e_test.sh` parses `synthetic.json.gz` in the `test` schema, asserts row
+counts, `network_name` and a `coverage_log` row, then truncates `test.*` and removes
+`data-test/anthem`. `scripts/nppes_test.sh` does the same for the NPPES extractor.
+`etl_e2e_test.sh` needs `data-test/nppes/ga_providers.parquet` absent (a stale copy
+makes the GA NPI filter drop every synthetic row) — every test tears down after itself,
+so `rm -rf data-test/*` is only needed after a killed run.
 
-`make test` runs both.
+## CI (`.github/workflows/ci.yml`)
 
-> **Ordering:** `etl_e2e_test.sh` only gets the clean "keep all NPIs" path when
-> `data-test/nppes/ga_providers.parquet` is absent — a stale copy makes the GA NPI
-> filter drop every synthetic row. Every test that writes `data-test/` now tears
-> it down (the e2e scripts delete through the `etl` container; the serving
-> fixtures `os.remove` on teardown), so `rm -rf data-test/*` is only needed if a
-> run was killed mid-flight.
+Runs on every PR and push to `main`. `changes` runs the docs drift check and sets
+`run` — `false` for a docs-only or draft PR, `true` otherwise — and the heavy jobs
+gate on it. `CI Gate` (`if: always()`, `needs` all jobs) is the **single required
+status check**: it passes only when every job succeeded or was legitimately skipped.
 
-## CI (GitHub Actions)
+| Job | Covers |
+|---|---|
+| `changes` | docs drift check; diffs the PR → `run` |
+| `go` | gofmt + vet + build + `go test ./...` (native `setup-go`, no stack) |
+| `web` | `npx vitest run` |
+| `integration` | `docker compose up db etl serving` + `make migrate`; contract + builder tests, `test_golden.py` (skips — no corpus), then the e2e scripts |
+| `images` | builds the three `prod` Dockerfile targets and smokes each |
+| `gate` | no upstream job failed or was cancelled |
 
-`.github/workflows/ci.yml` runs on every PR and on push to `main`. A `changes`
-job diffs the PR and sets `run` — `false` for a docs-only change (every path is a
-`*.md`, under `docs/`, or `LICENSE`) or a draft PR, `true` otherwise. The four
-heavy jobs are gated on `run == 'true'`; `CI Gate` (`if: always()`, `needs` all
-four) is the **single required status check** and passes only when every heavy
-job succeeded or was legitimately skipped. That replaces the old `paths-ignore` —
-which left the required checks stuck "pending" forever on a docs-only PR.
-
-| Job | Covers | How |
-|---|---|---|
-| `changes` | diffs the PR → `run` output (docs-only / draft ⇒ `false`) | `git diff --name-only`, no deps |
-| `go` | `gofmt -l` + `go vet` + `go build` + `go test ./...` | native `setup-go` (`etl/go.mod`), no stack |
-| `web` | `npx vitest run` | native `setup-node` 20, `npm ci` |
-| `integration` | `test_api_contract.py` (every route, hermetic) + the three reference-builder tests (CMS utilization, specialty profiles, MPFS) + `test_golden.py` (skips — no real corpus here), then `scripts/etl_e2e_test.sh` + `scripts/nppes_test.sh` (parse + NPPES fixtures) | `docker compose up db etl serving` + `make migrate` |
-| `images` | builds the three `prod` Dockerfile targets and smokes each (`etl --help`, `serving` GET /, `nginx` GET /) | raw `docker build --target prod` — catches Dockerfile / dep drift the compose `dev` targets don't |
-| `gate` (`CI Gate`) | asserts no upstream job failed / was cancelled | `join(needs.*.result)` |
-
-**Not in CI:** JS lint (`npm run lint`) has pre-existing errors — not gated until they're cleared.
-
-## Frontend — `frontend/src/App.test.jsx`
-
-vitest + Testing Library, hermetic (`vi.mock('./api')`, jsdom). Covers the
-rate-explorer state machine: the default network-overview load, and the regression
-that a **provider selected with no procedure** shows the
-`/providers/{npi}/procedures` menu and never fires an npi-only
-`/rates/distribution` (which full-scans and hangs). Config in
-`frontend/vite.config.js` (`test:` block) + `frontend/src/test/setup.js`.
-
-## Not yet implemented
-
-| Layer | Tool | Would cover |
-|---|---|---|
-| Journey clickpaths in a browser | Playwright | `frontend/journeys/jN.spec.js` walking [journeys.md](journeys.md) — the render bugs `make test-live` can't see (e.g. the Medicare line hidden when `basis !== 'global'`). Follow-up on #72 |
-| Frontend E2E | Playwright | Real browser: histogram render, filter chips, mobile layout |
-| ETL conflict-resolution | `go test ./...` | Plan-specific-file-wins rate override (Critical Rule 5) |
+JS lint (`npm run lint`) has pre-existing errors and is not gated.

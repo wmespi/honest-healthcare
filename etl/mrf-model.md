@@ -26,7 +26,8 @@ PLAN   plan_name "BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM"
   ├───────────────────────────────┐
   ▼                               ▼
 PLAN-SPECIFIC FILE            SHARED NETWORK FILE
-anthem/GA_JBNKMED0001.gz      ~244 other files, up to 144k plans each
+anthem/GA_JBNKMED0001.gz      many other files, each linked
+                              from many plans
   │  (both share the same internal schema)
   ▼
 RATE FILE (in-network JSON)
@@ -77,7 +78,8 @@ resolution is left entirely to the consumer.
 
 ## Conflict resolution strategy
 
-*Target design — documented here, not yet enforced in code (Critical Rule 5).*
+*Target design, not yet enforced in code (Critical Rule 5). `build/build.py` tags
+`source_kind`; the choice itself is applied at read time — [../build/build.md](../build/build.md).*
 
 | Scenario | Resolution |
 |---|---|
@@ -85,5 +87,5 @@ resolution is left entirely to the consumer.
 | Code in a shared file but not the plan-specific file | **Include it** — members reach it through the shared network |
 | Same code + provider group in two shared files | **Lower rate wins** — both are network-level |
 
-Implementation needs `source_file_id` and `plan_count` (plans the file serves) on
-every price row; queries then rank single-plan rows above multi-plan rows on tie-break.
+Of the files linked to the target plan, exactly one carries its network label
+(`etl/targets.yaml` `network_patterns`); the rest are shared files for other plans.

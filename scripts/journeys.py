@@ -3,13 +3,12 @@
 User-journey assertions — the pointed "does the real flow still produce the right
 answer" checks behind docs/journeys.md.
 
-Unlike serving/tests/test_golden.py (pinned answers), this is depth: for a handful of named personas, does the specific
-expected outcome still hold — the canary rate, the benchmark band, the honest
+Unlike serving/tests/test_golden.py (pinned answers), this is depth: for a handful
+of named personas, does the specific expected outcome still hold — the canary rate, the benchmark band, the honest
 group-rate tier, the has-rates badge distinction.
 
 Needs the REAL corpus in the running stack (the assertions check real dollar
-figures), so this is a local tool — `make test-live` — not a CI gate. CI-safe
-browser specs against seeded data are a follow-up (#72).
+figures), so this is a local tool — `make test-live` — not a CI gate.
 
 Also reports latency per journey — total wall time, call count, and the slowest
 single call (flagged over SLOW_CALL_MS). Latency is informational: a slow-but-
@@ -21,7 +20,7 @@ explicitly (or set API_URL) when testing a worktree's own stack; otherwise
 this silently tests whatever is on the canonical checkout's port instead.
 Exits 0 (skipping every journey, not failing them) if the target network
 isn't loaded -- same "no real corpus here" case serving/tests/test_golden.py
-skips on (#96). Otherwise exit 0 if every journey's assertions pass, 1
+skips on. Otherwise exit 0 if every journey's assertions pass, 1
 otherwise (latency never fails it).
 """
 import argparse

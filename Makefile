@@ -98,7 +98,8 @@ refresh: ## The monthly job — discover → reference (what's missing; NPPES ga
 
 ## ── Quality gates ────────────────────────────────────────────────────────────
 
-check: ## Go gate — fmt + vet + build + unit tests (etl container). LOCAL=1: host toolchains, no Docker
+check: ## Gate — docs drift + Go fmt/vet/build/unit tests (etl container). LOCAL=1: host toolchains, no Docker
+	@python3 scripts/check_docs.py
 	@if [ "$(LOCAL)" = 1 ]; then \
 	  command -v go >/dev/null || { echo "no host 'go' — run scripts/dev-setup.sh"; exit 1; }; \
 	  out=$$(gofmt -l etl); [ -z "$$out" ] || { printf 'gofmt needed:\n%s\n' "$$out"; exit 1; }; \
