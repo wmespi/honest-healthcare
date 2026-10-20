@@ -1,0 +1,49 @@
+{
+  "_comment": "Hand-copied from each plan's Anthem Summary of Benefits and Coverage (SBC), in-network column. Georgia's individual market left the federal exchange, so the CMS plan public-use files do not carry it. A cost share is {coinsurance: pct} or {text: <SBC wording>} when the plan uses a structure the estimator does not model. All figures assume the deductible applies first, as the SBC states for these rows.",
+  "variants": [
+    {
+      "id": "blue-value-silver-4500",
+      "network_name": "GA Blue Value HIX Individual Network",
+      "name": "Silver Blue Value HMO 4500",
+      "plan_year": 2026,
+      "deductible": 4500,
+      "oop_max": 10450,
+      "diagnostic": {"coinsurance": 40},
+      "imaging": {"text": "$300/day, then 50% coinsurance"},
+      "source": "https://sbc.anthem.com/dpsdeeplink/deepLink/AnthemSilverBlueValueHMO4500100VirtualPCP0SelectDrugs/8TK8/English/DG166709463215.pdf"
+    },
+    {
+      "id": "blue-value-silver-6000",
+      "network_name": "GA Blue Value HIX Individual Network",
+      "name": "Silver Blue Value HMO 6000",
+      "plan_year": 2026,
+      "deductible": 6000,
+      "oop_max": 9000,
+      "diagnostic": {"coinsurance": 40},
+      "imaging": {"coinsurance": 40},
+      "source": "https://sbc.anthem.com/dpsdeeplink/deepLink/AnthemSilverBlueValueHMO6000100VirtualPCP0SelectDrugs/8Y32/English/DG166709463690.pdf"
+    },
+    {
+      "id": "blue-value-gold-2550",
+      "network_name": "GA Blue Value HIX Individual Network",
+      "name": "Gold Blue Value HMO 2550",
+      "plan_year": 2026,
+      "deductible": 2550,
+      "oop_max": 8400,
+      "diagnostic": {"coinsurance": 15},
+      "imaging": {"coinsurance": 15},
+      "source": "https://sbc.anthem.com/dpsdeeplink/deepLink/AnthemGoldBlueValueHMO2550100VirtualPCP0SelectDrugsS03/8Y3Z/English/DG166709463500.pdf"
+    },
+    {
+      "id": "pathway-pcp-copay-choice-gold-1200",
+      "network_name": "Pathway PCP Copay Choice",
+      "name": "Gold Pathway PCP Copay Choice HMO 1200",
+      "plan_year": 2026,
+      "deductible": 1200,
+      "oop_max": 10600,
+      "diagnostic": {"coinsurance": 20},
+      "imaging": {"coinsurance": 35},
+      "source": "https://sbc.anthem.com/dpsdeeplink/deepLink/AnthemGoldPathwayPCPCopayChoiceHMO120050VirtualPCP0SelectDrugs/8TNC/English/DG166709463677.pdf"
+    }
+  ]
+}

@@ -24,10 +24,17 @@ const RESULT = {
   ],
 };
 
+const VARIANT = {
+  id: 'v1', network_name: BV, name: 'Gold Test HMO 1200', plan_year: 2026,
+  deductible: 1200, oop_max: 5000, diagnostic: { coinsurance: 20 }, imaging: { coinsurance: 35 },
+  source: 'https://sbc.anthem.com/x.pdf',
+};
+
 beforeEach(() => {
   installDefaultMocks(api);
   api.getServiceLines.mockResolvedValue({ data: { imaging: { menu: MENU } } });
   api.getImagingProviders.mockResolvedValue({ data: RESULT });
+  api.getPlanCostSharing.mockResolvedValue({ data: [VARIANT] });
 });
 
 const renderPage = () => render(<MemoryRouter><ImagingFinder /></MemoryRouter>);
@@ -75,5 +82,21 @@ describe('ImagingFinder', () => {
     await waitFor(() => expect(screen.getByRole('option', { name: 'Head CT' })).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText('Which scan?'), '70450');
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not load prices/i);
+  });
+
+  it('estimates the member\u2019s share once a plan version is chosen, and cites its source', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Head CT' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText('Which scan?'), '70450');
+    await screen.findByText('Marietta Imaging Partners');
+    expect(screen.queryByText(/you.d pay about/i)).not.toBeInTheDocument();
+
+    await user.selectOptions(await screen.findByLabelText('Your plan version'), 'v1');
+    expect(screen.getAllByText(/you.d pay about \$240\.00/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Gold Test HMO 1200 summary/ })).toHaveAttribute('href', 'https://sbc.anthem.com/x.pdf');
+
+    await user.type(screen.getByLabelText('Deductible met so far'), '1200');
+    expect(await screen.findByText(/you.d pay about \$84\.00/i)).toBeInTheDocument();
   });
 });
