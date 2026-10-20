@@ -26,7 +26,17 @@ export function ExplorerHeader({ lockedServiceLine }) {
       </nav>
 
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-10 sm:mb-12">
-        {lockedServiceLine === 'pcp' ? (
+        {lockedServiceLine === 'imaging' ? (
+          <>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tighter leading-[0.95] sm:leading-[0.9]">
+              Price an <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-500">imaging scan</span>
+            </h1>
+            <p className="text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
+              Compare what in-network practices have negotiated for an X-ray, ultrasound,
+              CT or MRI — before your benefits apply.
+            </p>
+          </>
+        ) : lockedServiceLine === 'pcp' ? (
           <>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tighter leading-[0.95] sm:leading-[0.9]">
               Find your <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-500">primary care doctor</span>

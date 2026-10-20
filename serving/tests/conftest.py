@@ -260,6 +260,7 @@ def _build(data_dir: str) -> None:
         (1000000001, "93000", "O", 130, 210, 205, 12.40, "Cardiology", "N", 2024),
         (1000000001, "99213", "O", 240, 410, 405, 84.10, "Cardiology", "N", 2024),
         (1000000003, "90837", "O", 60, 410, 405, 118.90, "Clinical Social Worker", "N", 2024),
+        (1000000004, "70450", "O", 90, 120, 118, 41.00, "Diagnostic Radiology", "N", 2024),
     ]
     _write(con, f"{data_dir}/cms/ga_provider_service.parquet",
            "npi, hcpcs_cd, place_of_service, tot_benes, tot_srvcs, tot_bene_day_srvcs, "
