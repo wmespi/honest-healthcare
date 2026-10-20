@@ -15,9 +15,10 @@ to the detail for whatever you're touching. Keep it thin; detail lives next to t
 code.
 
 **Current focus** *(update as the active work changes)* — executing epic
-[#95](https://github.com/wmespi/honest-healthcare/issues/95), the plan of record, one
-PR per step; product direction in [docs/direction.md](docs/direction.md). Don't
-restructure `etl/`, `serving/`, or `frontend/` without a reason (rule 7).
+[#120](https://github.com/wmespi/honest-healthcare/issues/120), the plan of record for
+Flow A (outpatient imaging first), one PR per step; product direction in
+[docs/direction.md](docs/direction.md). Don't restructure `etl/`, `serving/`, or
+`frontend/` without a reason (rule 7).
 
 ---
 
@@ -64,9 +65,10 @@ parallel C++ reader handles, not a hand-rolled streaming parse.
    exceed 10 GB.
 4. **Test mode is isolated** — `test.*` tables and `data-test/` are safe to
    truncate; a test run must never touch `public.*` or `data/`.
-5. **Plan-specific file wins on rate conflict** *(target design, not yet in code)* —
-   a single-plan file's rate overrides a shared-network file's for the same
-   `(billing_code + provider_group)`; the lower rate wins between two shared files.
+5. **Plan-specific file wins on rate conflict** *(half in code)* — a single-plan
+   file's rate overrides a shared-network file's for the same practice and code:
+   the build tags `source_kind`, `/rates/providers` applies the override at read
+   time. "The lower rate wins between two shared files" is not in code.
    [etl/mrf-model.md](etl/mrf-model.md#conflict-resolution-strategy).
 6. **Give regular status updates — the most-missed rule here.** On any multi-step
    task, post a short progress note *as each step lands* — what's done, what's
@@ -94,7 +96,7 @@ make up / make down / make logs
 
 make discover               # Phase 1 — sync the master index into index_files + index_file_plans, then backfill sizes
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
-make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, Doctors & Clinicians, geocode (skips what exists)
+make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, Doctors & Clinicians, geocode, MIPS, ZIP centroids (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
 make parse                  # Phase 2 — stream pending files serving a target plan → Parquet (needs the NPPES reference first)
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
@@ -159,6 +161,7 @@ TOPIC=x` — a lingering worktree is hundreds of MB.
 | Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
 | Medicare Physician Fee Schedule benchmark (`medicare_allowed` / `vs_medicare` on a quote) | [reference/mpfs.md](reference/mpfs.md) |
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
+| CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |
 | The build step — raw + reference → serving tables, `scope` / `is_sentinel` / benchmark / rule 5 | [build/build.md](build/build.md) |
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |

@@ -12,7 +12,7 @@ vi.mock('./api');
 // in routes/Explorer.test.jsx. This file is #87's routing behavior: does the
 // landing show, and do its two links land on the right locked/unlocked
 // Explorer. Both describe blocks share the same API mocks (navigating to
-// /find-care/pcp renders the real Explorer, which needs them).
+// /find-care renders the real Explorer, which needs them).
 beforeEach(() => installDefaultMocks(api));
 
 describe('routing (#87) — task-first landing', () => {
@@ -25,13 +25,13 @@ describe('routing (#87) — task-first landing', () => {
     expect(screen.queryByPlaceholderText(/search procedure or billing code/i)).not.toBeInTheDocument();
   });
 
-  it('the PCP card navigates to /find-care/pcp and shows the locked, PCP-scoped explorer', async () => {
+  it('the PCP card navigates to /find-care and shows the locked, PCP-scoped explorer', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText(/find a primary care doctor/i));
 
-    expect(window.location.pathname).toBe('/find-care/pcp');
-    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', '', 40, BV, 'pcp'));
+    expect(window.location.pathname).toBe('/find-care');
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', '', 40, BV, 'pcp', undefined));
     expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
     expect(screen.getAllByText('Primary Care (PCP)').length).toBeGreaterThan(0);
   });

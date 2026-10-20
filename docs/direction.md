@@ -182,7 +182,7 @@ and Places content can't be cached beyond `place_id` — so ratings/hours can't
 ## Build sequence
 
 The executable plan and its status live in epic
-[#95](https://github.com/wmespi/honest-healthcare/issues/95); this is the product
+[#120](https://github.com/wmespi/honest-healthcare/issues/120); this is the product
 order it serves — each step ships something usable and nothing waits on the
 multi-payer lift longer than it must.
 

@@ -25,6 +25,8 @@ STEPS=(
   "specialty-profiles|/app/data/reference/specialty_procedure_profiles.parquet|reference.specialty_profiles"
   "mpfs|/app/data/reference/mpfs_ga.parquet|reference.mpfs"
   "geocode|/app/data/reference/pcp_geocode.parquet|reference.geocode"
+  "mips|/app/data/reference/mips_ga.parquet|reference.mips"
+  "zip-centroids|/app/data/reference/zip_centroids.parquet|reference.zip_centroids"
 )
 
 if [ -n "$STEP" ]; then

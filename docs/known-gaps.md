@@ -115,7 +115,7 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Deferred by design
 
-- **Rule 5 runs at read time, not build time.** `build/build.py` drops exact
-  duplicate lines and tags every row `source_kind`, but the "plan-specific beats
-  shared" choice is not applied by serving yet. `source_kind` stays `shared` until
-  `make discover` repopulates `index_file_plans`.
+- **Rule 5 is half in code, at read time.** The build keeps every row and tags it
+  `source_kind`; `/rates/providers` makes a `plan_specific` row win over `shared`
+  per practice (`serving/routers/rates.py`). "The lower shared rate wins" is not
+  implemented, and the quote and menu routes do not apply the override.

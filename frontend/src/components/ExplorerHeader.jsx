@@ -2,7 +2,7 @@ import { ShieldCheck, TrendingUp } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 // The Explorer route's nav bar + hero — the copy changes when the route locks
-// a service line (#83/#87, e.g. /find-care/pcp) vs. the general /explore flow.
+// a service line (#83/#87, e.g. /find-care) vs. the general /explore flow.
 export function ExplorerHeader({ lockedServiceLine }) {
   return (
     <>

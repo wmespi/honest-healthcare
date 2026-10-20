@@ -9,7 +9,7 @@ Each Link is the app pre-loaded to that journey (`?plan=&specialty=&npi=&code=`,
 or `?bypass=1` for no plan); prefix it with your stack's host (`localhost:5173`).
 The address bar stays in sync as you navigate, so any page state is a copyable URL.
 `/` is the task-first landing; J1–J5 target `/explore`. The PCP flow lives at
-`/find-care/pcp` (coverage: `frontend/src/routes/*.test.jsx`).
+`/find-care` (coverage: `frontend/src/routes/*.test.jsx`).
 
 | Persona | Who | Plan |
 |---|---|---|

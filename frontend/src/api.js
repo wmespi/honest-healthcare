@@ -26,13 +26,16 @@ export const getNetworks = (q = '') => api.get('/networks', { params: q ? { q } 
 // `service_line` is an exact curated taxonomy-code allowlist (#83, e.g. "pcp")
 // — distinct from `specialty`, a fuzzy text match. Mutually exclusive in
 // practice; both are passed through untouched if given.
-export const searchProviders = (q, specialty, limit, network_name, service_line) =>
+// `near` ({ zip, radius_mi }) adds distance: rows gain `distance_mi` and the
+// list is ranked by the blended cost / distance / quality score.
+export const searchProviders = (q, specialty, limit, network_name, service_line, near) =>
     api.get('/providers/search', { params: {
         q: q || '',
         ...(specialty ? { specialty } : {}),
         ...(service_line ? { service_line } : {}),
         ...(limit ? { limit } : {}),
         ...(network_name ? { network_name } : {}),
+        ...(near?.zip ? { zip: near.zip, ...(near.radius_mi ? { radius_mi: near.radius_mi } : {}) } : {}),
     } });
 
 // NUCC specialties we hold GA providers for — the "pick your care" step.

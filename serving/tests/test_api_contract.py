@@ -365,6 +365,47 @@ def test_provider_search_service_line_without_network_has_no_min_rate(api):
     assert all(p["min_rate_is_plausible"] is None for p in body)
 
 
+def test_provider_search_distance_radius_and_blend(api, monkeypatch):
+    # Baker is ~1 mi from 30309, cheaper-and-farther Ng ~14 mi, no MIPS.
+    p = {"service_line": "pcp", "network_name": BLUE_VALUE, "zip": "30309", "limit": 50}
+    body = api.get("/providers/search", params=p).json()
+    by = {r["name"]: r for r in body}
+    assert by["Baker, David"]["distance_mi"] < 3 < 10 < by["Ng, Priya"]["distance_mi"]
+    assert by["Baker, David"]["mips_score"] == 90.0 and by["Baker, David"]["mips_year"] == 2024
+    assert by["Baker, David"]["years_in_practice"] > 20 and by["Ng, Priya"]["years_in_practice"] is None
+    assert by["Ng, Priya"]["mips_score"] is None
+    # default weights: cost 0.5 beats distance 0.3 + quality 0.2 on the Ng/Baker split
+    assert [r["name"] for r in body[:2]] == ["Ng, Priya", "Baker, David"]
+    assert by["Ng, Priya"]["rank_score"] > by["Baker, David"]["rank_score"]
+    # the weights live in one place: shift them and the order follows
+    import serving.ranking as ranking
+    monkeypatch.setattr(ranking, "WEIGHTS", {"cost": 0.1, "distance": 0.8, "quality": 0.1})
+    body = api.get("/providers/search", params=p).json()
+    assert [r["name"] for r in body[:2]] == ["Baker, David", "Ng, Priya"]
+    # radius drops the far one
+    near = api.get("/providers/search", params={**p, "radius_mi": 10}).json()
+    assert [r["name"] for r in near] == ["Baker, David"]
+
+
+def test_provider_search_plan_without_zip_stays_cheapest_first(api):
+    # The blend needs a ZIP; a plan alone is still pure cost order (golden-pinned).
+    body = api.get("/providers/search", params={"service_line": "pcp", "network_name": BLUE_VALUE, "limit": 50}).json()
+    priced = [r["min_rate"] for r in body if r["min_rate"] is not None]
+    assert priced == sorted(priced)
+    assert all(r["rank_score"] is None for r in body)
+
+
+def test_provider_search_zip_errors(api):
+    assert api.get("/providers/search", params={"service_line": "pcp", "zip": "00000"}).status_code == 400
+    assert api.get("/providers/search", params={"service_line": "pcp", "radius_mi": 5}).status_code == 400
+    assert api.get("/providers/search", params={"service_line": "pcp", "zip": "abc"}).status_code == 422
+
+
+def test_provider_search_without_zip_has_no_distance(api):
+    body = api.get("/providers/search", params={"service_line": "pcp"}).json()
+    assert all(p["distance_mi"] is None for p in body)
+
+
 def test_specialties_endpoint(api):
     body = api.get("/specialties", params={"q": "cardio"}).json()
     assert body
@@ -448,6 +489,13 @@ def test_plans_resolves_blue_value(api):
     assert bv is not None
     assert bv["network_name"] == BLUE_VALUE
     assert bv["available"] is True
+
+
+def test_plans_lists_every_curated_plan(api):
+    # Step 8 — a second GA individual plan sits beside Blue Value in the picker.
+    body = api.get("/plans").json()
+    names = {p["plan"] for p in body}
+    assert {"Blue Value HMO — Individual", "Pathway PCP Copay Choice — Individual"} <= names
 
 
 def test_service_lines_endpoint(api):

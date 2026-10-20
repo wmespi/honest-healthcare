@@ -28,14 +28,14 @@ describe('deep links (docs/journeys.md)', () => {
     ] });
     renderExplorer();
 
-    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV, ''));
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', 'Cardiovascular Disease', 40, BV, '', undefined));
     expect(await screen.findByText('ABBOTT, ASHLEY')).toBeInTheDocument();
     expect(screen.queryByText(/what kind of care do you need/i)).not.toBeInTheDocument();
   });
 
   // #87 — the service line is route-driven (lockedServiceLine), not a
   // ?service_line= query param — see ../App.test.jsx's routing describe block
-  // for how /find-care/pcp wires that prop up for real.
+  // for how /find-care wires that prop up for real.
   it('a locked PCP scope shows the ranked provider list, no free-text specialty UI', async () => {
     window.history.replaceState(null, '', `/?plan=${encodeURIComponent(BV)}`);
     api.searchProviders.mockResolvedValue({ data: [
@@ -43,7 +43,7 @@ describe('deep links (docs/journeys.md)', () => {
     ] });
     renderExplorer({ lockedServiceLine: 'pcp' });
 
-    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', '', 40, BV, 'pcp'));
+    await waitFor(() => expect(api.searchProviders).toHaveBeenCalledWith('', '', 40, BV, 'pcp', undefined));
     expect(await screen.findByText('BAKER, DAVID')).toBeInTheDocument();
     // appears twice — the filter-row chip and the ranked-list heading
     expect(screen.getAllByText('Primary Care (PCP)').length).toBe(2);

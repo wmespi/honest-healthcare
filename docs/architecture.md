@@ -14,7 +14,7 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 |---|---|---|---|
 | Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue; keeps the plan→file link (`index_file_plans`) |
 | Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → raw Parquet; a provider probe aborts a download before `in_network` when no wanted provider is in it |
-| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization, MPFS, DAC, geocode) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
+| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization, MPFS, DAC, geocode, MIPS, ZIP centroids) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
 | Build | Python + DuckDB | `build/` | Raw + reference Parquet → the serving tables; every product decision (scope, sentinel, benchmark, service lines, rule 5) lives here — [build/build.md](../build/build.md) |
 | Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | `frontend/` | Rate explorer — `localhost:5173` |
@@ -44,7 +44,7 @@ flowchart LR
   subgraph build [build - Python and DuckDB, all product decisions, minutes]
     RAW --> B[build.py]
     GA --> B
-    REF[(reference: RBCS, NUCC, MPFS, CMS util, DAC, geocode)] --> B
+    REF[(reference: RBCS, NUCC, MPFS, CMS util, DAC, geocode, MIPS, ZIPs)] --> B
     B --> SRV[(serving: rates by network price-grain, group_sets, group_members, group_networks, provider_dim, provider_affiliations, code_dim, evidence, rate_hist, cross_network_rollup)]
   end
   subgraph serve [serve]
