@@ -53,9 +53,10 @@ def _raw(root, collision=False):
         con.execute(f"COPY (SELECT * FROM (VALUES {', '.join(rows)}) t({cols})) "
                     f"TO '{root}/anthem/prices/net={SLUG}/{fid}.parquet' (FORMAT parquet)")
         # group_set 1 has two provider groups -> rate_hist.n weights each price
-        # row by 2, while n_rates counts it once.
+        # row by 2, while n_rates counts it once. group_set 9 is listed by the
+        # file but no price points at it, so the build must drop it.
         con.execute(f"COPY (SELECT * FROM (VALUES ({fid}, 1::BIGINT, 1::BIGINT), "
-                    f"({fid}, 1::BIGINT, 2::BIGINT)) "
+                    f"({fid}, 1::BIGINT, 2::BIGINT), ({fid}, 9::BIGINT, 3::BIGINT)) "
                     f"t(file_id, group_set_id, provider_group_id)) "
                     f"TO '{root}/anthem/group_sets/{fid}.parquet' (FORMAT parquet)")
         con.execute(f"COPY (SELECT * FROM (VALUES ({fid}, 1::BIGINT, '{NET}', 111::BIGINT, "
@@ -187,7 +188,7 @@ def test_manifest(out):
         m = json.load(f)
     assert m["networks"] == [SLUG] and m["partial"] is True and m["scope"] == "custom"
     assert m["inputs"]["nppes"] is True and m["inputs"]["cms_utilization"] is False
-    assert m["rows"]["rates"] == 44 and m["rows"]["group_sets"] == 4
+    assert m["rows"]["rates"] == 44 and m["rows"]["group_sets"] == 4  # the unpriced set 9 is not kept
     assert m["typical_threshold"] == 0.03
 
 

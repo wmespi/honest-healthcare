@@ -10,7 +10,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 | Table | Grain | Notes |
 |---|---|---|
 | `rates/net=<slug>/part.parquet` | one row per price (the parser's grain) | `scope`, `is_sentinel`, `source_kind`, `medicare_allowed`, `vs_medicare` added. Hive-partitioned by `net`. No group fan-out — expansion to provider groups happens at query time after pruning on `net` + `billing_code`. Holds only the built networks (below). |
-| `group_sets.parquet` | `(file_id, group_set_id, provider_group_id)` | a price's roster, unchanged from `anthem/group_sets`, scoped to files that reached `rates`. |
+| `group_sets.parquet` | `(file_id, group_set_id, provider_group_id)` | a price's roster, from `anthem/group_sets`, kept only for the sets a price in `rates` points at. |
 | `group_members.parquet` | `(file_id, provider_group_id, npi, tin_value)` | deduped from `anthem/providers`. |
 | `group_networks.parquet` | `(file_id, provider_group_id, net, network_name)` | which networks a file-local group is attributed to — `group_members ⨝ group_networks` answers "does this NPI have a rate in network X" without touching `rates`. |
 | `provider_dim.parquet` | one row per GA NPPES NPI | ⨝ NUCC specialty ⨝ CMS `provider_type` ⨝ DAC (`group_name`, `org_pac_id`, `grad_year`) ⨝ geocode (`lat`,`lon`) ⨝ MIPS (`mips_score`, `mips_source`, `mips_year`) + `service_lines`. **`org_name`** (raw NPPES entity name) and **`group_name`** (DAC's billing-group identity) are deliberately separate columns — a shared org affiliation must never overwrite an individual's own name. |

@@ -297,12 +297,14 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     sel_fids = [r[0] for r in con.execute(f"SELECT DISTINCT file_id FROM {rates_glob}").fetchall()]
     fid_list = ", ".join(str(f) for f in sel_fids)
 
-    # ── group_sets — the deduped rosters, for prices -> provider groups -> NPIs
+    # ── group_sets — the deduped rosters, for prices -> provider groups -> NPIs.
+    #    Only the sets a price points at: a file lists far more rosters than it prices.
     con.execute(f"""
         COPY (
             SELECT DISTINCT file_id, group_set_id, provider_group_id
             FROM read_parquet('{anthem}/group_sets/*.parquet', union_by_name=true)
             WHERE file_id IN ({fid_list})
+              AND (file_id, group_set_id) IN (SELECT DISTINCT file_id, group_set_id FROM {rates_glob})
         ) TO '{serving_dir}/group_sets.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
