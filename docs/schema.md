@@ -84,14 +84,14 @@ rate_hist.parquet              payer | net | network_name | billing_code_type
     | billing_code | setting | scope | modifier | is_sentinel | bucket | n | n_rates
 cross_network_rollup.parquet   billing_code | billing_code_type | net
     | network_name | n_groups | min_rate | p10 | median | p90 | max_rate
-manifest.json                  built_at | networks | partial | inputs | rows
+manifest.json                  built_at | networks | scope | partial | target_patterns | inputs | rows
 ```
 
 `rates` is the parser's **price grain** — one row per negotiated price, no group
 fan-out (`group_set_id` links to `group_sets` for the join a query needs at read
 time, after pruning on `net` + `billing_code`). Fanning out to one row per
 `(price × provider group)` would be orders of magnitude larger. `scope` (`outpatient_scope` in
-`serving/data_sources.py`), `is_sentinel` (a store-wide ceiling), `source_kind`
+`serving/data_sources.py`), `is_sentinel` (a ceiling over the built networks), `source_kind`
 (`plan_specific` | `shared`, from `index_file_plans`), and the MPFS benchmark are
 added at build time. **Rule 5** (AGENTS.md): the build keeps every row and tags
 `source_kind`; it does **not** collapse across files (`provider_group_id` is

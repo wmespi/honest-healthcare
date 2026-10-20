@@ -30,8 +30,6 @@ NET = "GA Blue Value HIX Individual Network"
 
 @pytest.fixture(scope="module")
 def client():
-    # /rates/by_network scans every GA network with no cache — 10-20s+ warm,
-    # worse cold or under DUCKDB_MEMORY_LIMIT=2GB (a worktree's default).
     # same 120s budget as the journeys harness.
     with httpx.Client(base_url=API_URL, timeout=120) as c:
         yield c
@@ -101,7 +99,9 @@ def test_network_overview_target_network(client):
     # lower edges off rate_hist, hence the round numbers.
     s = client.get("/rates/distribution", params={"network_name": NET}).json()["summary"]
     assert s["n_codes"] == 9302
-    assert s["total_entries"] == 452121
+    # 452121 on the full store; the target-scoped store's sentinel ceiling is
+    # computed over the two built networks only, which drops 148 placeholder-adjacent rows.
+    assert s["total_entries"] == 451973
     assert (s["p25"], s["median"], s["p75"]) == (25.0, 175.0, 525.0)
 
 
@@ -159,7 +159,7 @@ def test_by_network_45378(client):
     # query in the file; issuing it twice roughly doubles this file's wall
     # time and its exposure to a client-side timeout for no benefit.
     body = client.get("/rates/by_network", params={"billing_code": "45378"}).json()
-    assert len(body["networks"]) == 54
+    assert len(body["networks"]) == 2  # the two target networks; the store holds nothing else
     target = next(n for n in body["networks"] if n["network_name"] == NET)
     # Recaptured 2026-09-06 for #100: was "median of per-group medians" off a
     # live rates ⨝ group_sets scan; now a $25-bucketed, roster-weighted CDF

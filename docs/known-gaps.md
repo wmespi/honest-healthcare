@@ -88,11 +88,11 @@ Where the product is headed: [direction.md](direction.md) and epic
   provider appears in nearly every file. A precomputed `(npi) → group_set_id[]`
   index would remove the join.
 - **`rate_hist.n` is a roster-weighted ranking hint, not a distinct count** — a
-  group in several rosters counts per roster. Never render it as "N providers". A
-  `(payer, code) → n_providers` distinct rollup is
-  [#48](https://github.com/wmespi/honest-healthcare/issues/48); until then
-  `/rates/by_network` returns `n_providers: null`, and its `n_groups` counts a
-  group once per `(file_id, provider_group_id)`.
+  group in several rosters counts per roster. Never render it as "N providers".
+  `/rates/by_network` counts distinct NPIs live (one code, at most
+  `MAX_LIVE_PROVIDER_COUNT_NETWORKS` networks) and returns `n_providers: null` past
+  that; a precomputed `(network, code)` NPI count would fan out to hundreds of
+  millions of rows ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
 - **`/rates/providers` + `/rates/quote` require a `network_name`**
   (`400 {"code": "network_required"}`): the unpruned cross-network expansion spills
   tens of GB and a precomputed `(code, network, tin) → rate` rollup is infeasible.

@@ -86,7 +86,7 @@ parse: ## Phase 2 — stream pending files that serve a target plan into Parquet
 reference: ## Phase 3 — build every reference dataset (NPPES, labels, CMS, MPFS, geocode, MIPS, ZIP centroids), skipping what exists. STEP=<name> · FORCE=1 · ARGS="--flag v"
 	@bash scripts/reference.sh
 
-build: ## Phase 4 — raw + reference parquet -> data/serving/ tables. NET=<slug,slug> for a subset. TEST=1
+build: ## Phase 4 — raw + reference parquet -> data/serving/ tables, for the networks in etl/targets.yaml. NET=all for every network, NET=<slug,slug> for a subset. TEST=1
 	docker compose exec -T -w /app -e DUCKDB_TMP= serving python3 -m build.build --data-dir /app/data $(if $(NET),--networks "$(NET)",) $(if $(filter 1,$(TEST)),--test,)
 
 refresh: ## The monthly job — discover → reference (what's missing; NPPES gates parse) → parse → code-labels (needs parsed codes) → build

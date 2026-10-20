@@ -9,7 +9,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 
 | Table | Grain | Notes |
 |---|---|---|
-| `rates/net=<slug>/part.parquet` | one row per price (the parser's grain) | `scope`, `is_sentinel`, `source_kind`, `medicare_allowed`, `vs_medicare` added. Hive-partitioned by `net`. No group fan-out — expansion to provider groups happens at query time after pruning on `net` + `billing_code`, so a full-store build is routine (`make build` prints its own timings). |
+| `rates/net=<slug>/part.parquet` | one row per price (the parser's grain) | `scope`, `is_sentinel`, `source_kind`, `medicare_allowed`, `vs_medicare` added. Hive-partitioned by `net`. No group fan-out — expansion to provider groups happens at query time after pruning on `net` + `billing_code`. Holds only the built networks (below). |
 | `group_sets.parquet` | `(file_id, group_set_id, provider_group_id)` | a price's roster, unchanged from `anthem/group_sets`, scoped to files that reached `rates`. |
 | `group_members.parquet` | `(file_id, provider_group_id, npi, tin_value)` | deduped from `anthem/providers`. |
 | `group_networks.parquet` | `(file_id, provider_group_id, net, network_name)` | which networks a file-local group is attributed to — `group_members ⨝ group_networks` answers "does this NPI have a rate in network X" without touching `rates`. |
@@ -20,7 +20,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 | `rate_hist.parquet` | `(net, code, setting, scope, modifier, is_sentinel, bucket)` | a $25 roster-weighted histogram — `n` sums each price's `group_set` size, `n_rates` is the raw price-row count. `is_sentinel` is a dimension (not a filter) so the histogram can still show the placeholder rows; the rollup below excludes them. |
 | `cross_network_rollup.parquet` | `(code, network)` | `n_groups`, `min`/`p10`/`median`/`p90`/`max` off the `rate_hist` CDF (global modifier, outpatient-prof, non-sentinel). Read straight by `/rates/by_network`. |
 | `zip_centroids.parquet` | one row per ZIP | A copy of `reference/zip_centroids.parquet` so the API reads only `serving/`. |
-| `manifest.json` | one object | `built_at`, `networks` built, `partial` (whether `--networks` narrowed it), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/dac/geocode/mips/zip_centroids/plan_link — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
+| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/dac/geocode/mips/zip_centroids/plan_link — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
 
 ## The product rules
 
@@ -28,8 +28,8 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
   (professional · FFS · outpatient/both · fee-schedule/negotiated); everything
   else is `other`. `serving/tests/test_build.py` pins the two strings equal.
 - **`is_sentinel`** — `rate ≤ max($1, 5% of the code's median rate)`, computed
-  store-wide (pre-fan-out) with `approx_quantile` — a `NET=` build must not
-  shift it.
+  over the networks this build holds (pre-fan-out) with `approx_quantile`, so the
+  same code can flag differently in a `targets` build and an `all` build.
 - **`medicare_allowed` / `vs_medicare`** — GA median MPFS allowed $ for the
   code + modifier, non-facility; `vs_medicare` = `rate / allowed`.
 - **Rule 5** (AGENTS.md #5, `etl/mrf-model.md#conflict-resolution-strategy`) —
@@ -41,10 +41,20 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
   same code. `source_kind` is `shared` for every row until `make discover` has
   populated `index_file_plans`.
 
+## Scope
+
+By default the build reads only the `net=` partitions whose network name matches a
+`network_patterns` entry in [`etl/targets.yaml`](../etl/targets.yaml) — the same
+patterns the parse probe uses — and removes any other `rates/net=*` directory from
+the serving dir, so the store holds exactly the networks in the manifest. Raw
+partitions for other networks stay on disk and a `NET=all` build serves them. A
+build that matches nothing exits non-zero rather than writing an empty store.
+
 ## Running it
 
 ```
-make build                 # every partition, in the serving container
+make build                 # the networks in etl/targets.yaml, in the serving container
+make build NET=all         # every network partition
 make build NET=<slug,slug> # a subset of network partitions
 make build TEST=1          # data-test/
 python -m build.build --data-dir <path> --serving-dir <path> [--networks <slugs>]

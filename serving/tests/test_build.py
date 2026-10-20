@@ -13,7 +13,7 @@ import os
 import duckdb
 import pytest
 
-from build.build import OUTPATIENT_PROF, TABLES, build
+from build.build import OUTPATIENT_PROF, TABLES, build, target_partitions, target_patterns
 from serving.data_sources import outpatient_scope
 
 SLUG = "test-net"
@@ -92,7 +92,7 @@ def out(tmp_path, monkeypatch):
     root = str(tmp_path)
     _raw(root)
     serving = f"{root}/serving"
-    build(root, serving, networks=[SLUG], test=False, plan_counts={10: 1, 20: 400})
+    build(root, serving, networks=[SLUG], test=False, plan_counts={10: 1, 20: 400}, scope="custom")
     return duckdb.connect(), serving
 
 
@@ -185,7 +185,7 @@ def test_manifest(out):
     con, serving = out
     with open(f"{serving}/manifest.json") as f:
         m = json.load(f)
-    assert m["networks"] == [SLUG] and m["partial"] is True
+    assert m["networks"] == [SLUG] and m["partial"] is True and m["scope"] == "custom"
     assert m["inputs"]["nppes"] is True and m["inputs"]["cms_utilization"] is False
     assert m["rows"]["rates"] == 44 and m["rows"]["group_sets"] == 4
     assert m["typical_threshold"] == 0.03
@@ -249,3 +249,71 @@ def test_network_name_collision_kept_distinct(tmp_path, monkeypatch):
     net2_row = next(r for r in rollup if r[0] == NET2)
     assert (net_row[1], net_row[2], net_row[3]) == (6, 50.0, 125.0)
     assert (net2_row[1], net2_row[2], net2_row[3]) == (1, 200.0, 225.0)
+
+
+def _add_net(root, slug, name, fid, rate, n=1):
+    """A second `net=` partition holding n $rate lines for 99213."""
+    os.makedirs(f"{root}/anthem/prices/net={slug}", exist_ok=True)
+    con = duckdb.connect()
+    cols = ("file_id, group_set_id, network_name, billing_code_type, billing_code, "
+            "negotiation_arrangement, negotiated_type, negotiated_rate, expiration_date, "
+            "service_code, billing_class, modifier, setting, net")
+    row = (f"({fid}, 1, '{name}', 'CPT', '99213', 'ffs', 'negotiated', {rate}, "
+           f"'2025-12-31', '11', 'professional', '', 'outpatient', '{slug}')")
+    con.execute(f"COPY (SELECT * FROM (VALUES {', '.join([row] * n)}) t({cols})) TO '{root}/anthem/prices/net={slug}/{fid}.parquet' (FORMAT parquet)")
+    con.execute(f"COPY (SELECT * FROM (VALUES ({fid}, 1::BIGINT, 1::BIGINT)) "
+                f"t(file_id, group_set_id, provider_group_id)) "
+                f"TO '{root}/anthem/group_sets/{fid}.parquet' (FORMAT parquet)")
+    con.execute(f"COPY (SELECT * FROM (VALUES ({fid}, 1::BIGINT, '{name}', 111::BIGINT, 'npi', '999')) "
+                f"t(file_id, provider_group_id, network_name, npi, tin_type, tin_value)) "
+                f"TO '{root}/anthem/providers/{fid}.parquet' (FORMAT parquet)")
+
+
+@pytest.fixture()
+def two_nets(tmp_path, monkeypatch):
+    for v in ("SERVING_DIR", "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+        monkeypatch.delenv(v, raising=False)
+    root = str(tmp_path)
+    _raw(root)
+    _add_net(root, "other-net", "Other Net", 40, 9000.0, n=5)
+    return root
+
+
+def test_target_partitions_match_network_names(two_nets):
+    prices = f"{two_nets}/anthem/prices"
+    assert target_partitions(prices, ["test net*"]) == [SLUG]
+    assert target_partitions(prices, ["TEST NET", "other net"]) == ["other-net", SLUG]
+    assert target_partitions(prices, ["nothing*"]) == []
+
+
+def test_target_patterns_read_from_yaml(tmp_path):
+    f = tmp_path / "t.yaml"
+    f.write_text("targets:\n  - name: a\n    network_patterns: ['A*', 'B*']\n  - name: b\n    network_patterns: ['C*']\n")
+    assert target_patterns(str(f)) == ["A*", "B*", "C*"]
+
+
+def test_scoped_build_holds_only_the_named_networks(two_nets):
+    serving = f"{two_nets}/serving"
+    build(two_nets, serving, networks=[SLUG, "other-net"], plan_counts={}, scope="all")
+    assert sorted(os.listdir(f"{serving}/rates")) == ["net=other-net", f"net={SLUG}"]
+    # narrowing the same serving dir drops the partition that is no longer built
+    build(two_nets, serving, networks=[SLUG], plan_counts={}, scope="targets", patterns=["test net*"])
+    assert os.listdir(f"{serving}/rates") == [f"net={SLUG}"]
+    with open(f"{serving}/manifest.json") as f:
+        m = json.load(f)
+    assert m["scope"] == "targets" and m["partial"] is True and m["target_patterns"] == ["test net*"]
+
+
+def test_sentinel_ceiling_covers_only_the_built_networks(two_nets):
+    # other-net's five $9000 lines pull 99213's pooled median to $9000 (ceiling
+    # $450), which would flag test-net's own $60/$100 lines as placeholders.
+    def n_sentinel_99213(serving):
+        return duckdb.connect().execute(
+            f"SELECT COUNT(*) FROM read_parquet('{serving}/rates/**/*.parquet') "
+            f"WHERE billing_code = '99213' AND net = '{SLUG}' AND is_sentinel").fetchone()[0]
+    solo = f"{two_nets}/solo"
+    build(two_nets, solo, networks=[SLUG], plan_counts={}, scope="custom")
+    both = f"{two_nets}/both"
+    build(two_nets, both, networks=[SLUG, "other-net"], plan_counts={}, scope="all")
+    assert n_sentinel_99213(solo) == 0
+    assert n_sentinel_99213(both) > 0
