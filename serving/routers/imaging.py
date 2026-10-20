@@ -71,7 +71,7 @@ def imaging_providers(
     group's roster, so an imaging-taxonomy NPI on the roster does not make the
     practice an imaging practice. A practice counts when its own billing NPI is
     an imaging clinic/center, or it has an imaging-taxonomy provider who billed
-    Medicare for one of the menu scans (CMS utilization, `evidence`). A practice's own rates differ by contract, so each component
+    Medicare for this scan (CMS utilization, `evidence`). A practice's own rates differ by contract, so each component
     carries `min` / `typical` (the median) / `max`. `basis` is `global`
     (one all-in rate), `split` (technical + professional, summed), or
     `professional_only` / `technical_only` (a part of the price; ranked after
@@ -97,11 +97,10 @@ def imaging_providers(
     dist = (f"CASE WHEN pd.lat IS NULL THEN NULL ELSE "
             f"{haversine_sql('pd.lat', 'pd.lon', repr(float(here[0])), repr(float(here[1])))} END"
             if here else "NULL")
-    menu = SERVICE_LINE_BILLING_CODES["imaging"]
     rows = conn.execute(f"""
         WITH bn AS (
             SELECT DISTINCT npi FROM {EVIDENCE_SRC}
-            WHERE tier = 'billed' AND billing_code IN ({", ".join("?" * len(menu))})
+            WHERE tier = 'billed' AND billing_code = ?
         ),
         j AS (
             SELECT gm.tin_value, gm.npi, gm.npi IN (SELECT npi FROM bn) AS billed,
@@ -146,7 +145,7 @@ def imaging_providers(
         LEFT JOIN {PROVIDER_DIM_SRC} tn ON tn.npi = TRY_CAST(l.tin_value AS BIGINT)
         WHERE l.any_billed OR CONTAINS(',' || COALESCE(tn.service_lines, '') || ',', ',imaging,')
         GROUP BY l.tin_value, l.n_providers, l.dist, COALESCE(l.near_city, l.city), l.member_org, l.indiv, tn.org_name
-    """, menu + params).fetchall()
+    """, [billing_code] + params).fetchall()
 
     results = []
     for (tin, n, dist_mi, city, member_org, indiv, tin_org, gl, gm, gh, tl, tm, th, pl, pm, ph) in rows:
