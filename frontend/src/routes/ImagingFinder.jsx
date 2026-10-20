@@ -227,7 +227,7 @@ export function ImagingFinder() {
                   <div>
                     <p className="text-slate-200 font-semibold mb-1">What it does not cover</p>
                     <ul className="list-disc pl-5 space-y-1">
-                      {IMAGING_EXPLAIN.limits.map(l => <li key={l}>{l}</li>)}
+                      {(variant ? IMAGING_EXPLAIN.limits : [IMAGING_EXPLAIN.noShare, ...IMAGING_EXPLAIN.limits]).map(l => <li key={l}>{l}</li>)}
                     </ul>
                   </div>
                 </div>
