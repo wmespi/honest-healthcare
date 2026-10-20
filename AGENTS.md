@@ -102,7 +102,8 @@ make parse                  # Phase 2 — stream pending files serving a target 
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
-make build                  # Phase 4 — raw + reference parquet → data/serving/ tables
+make build                  # Phase 4 — raw + reference parquet → data/serving/ tables, for the networks in etl/targets.yaml
+make build NET=all          #   every network partition
 make build NET=<slug,slug>  #   a subset of network partitions
 make refresh                # the monthly job: discover → reference → parse → code-labels → build
 

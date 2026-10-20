@@ -35,6 +35,8 @@ from ..benchmark import medicare_allowed as _medicare_allowed
 
 router = APIRouter()
 
+MAX_LIVE_PROVIDER_COUNT_NETWORKS = 6
+
 
 def _dist_from_hist(conn, billing_code, billing_code_type, network_name, setting):
     """Rate distribution off `rate_hist` — no `rates` scan. Serves the no-code
@@ -252,6 +254,22 @@ def rates_by_network(
     if not rows:
         raise HTTPException(404, detail=f"No rates for {billing_code_type}:{billing_code} in any network")
 
+    # Distinct NPIs per network, live: one code over a few networks is cheap,
+    # a store holding dozens of networks is not (the rollup has no NPI count),
+    # so past a handful the field stays null.
+    n_providers = {}
+    if len(rows) <= MAX_LIVE_PROVIDER_COUNT_NETWORKS:
+        where, params = rate_filters(billing_code, billing_code_type, None, None, None,
+                                     drop_sentinel=True)
+        n_providers = dict(conn.execute(f"""
+            SELECT pg.network_name, COUNT(DISTINCT gm.npi)
+            FROM {RATE_GROUPS_SRC} pg
+            JOIN {GROUP_MEMBERS_SRC} gm
+              ON gm.file_id = pg.file_id AND gm.provider_group_id = pg.provider_group_id
+            WHERE {where}
+            GROUP BY 1
+        """, params).fetchall())
+
     def block(r):
         p10, p90 = r[4], r[5]
         spread = round(p90 / p10, 1) if p10 and p10 > 0 else None
@@ -260,7 +278,7 @@ def rates_by_network(
             "min": r[1], "max": r[2], "median": r[3],
             "typical_low": p10, "typical_high": p90,
             "n_groups": r[6],
-            "n_providers": None,  # not derivable from the rollup — was a live count
+            "n_providers": n_providers.get(r[0]),
             "spread": spread,  # p90/p10; ~1 = flat, >3 = provider matters a lot
         }
 

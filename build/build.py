@@ -27,14 +27,16 @@ reads (#100):
       off the rate_hist CDF — read straight by /rates/by_network
   manifest.json                   built_at, which inputs were present, row counts
 
-`rates` is the parser's price grain — no group fan-out — so `make build` is a
-routine full-store pass (expansion happens at query time after pruning on `net`
-+ `billing_code`). Rule 5 keeps every row and tags `source_kind`; the read layer
+`rates` is the parser's price grain — no group fan-out (expansion happens at
+query time after pruning on `net` + `billing_code`). By default only the
+networks named in etl/targets.yaml are built; `--networks all` builds every
+partition. Rule 5 keeps every row and tags `source_kind`; the read layer
 resolves MRF redundancy per practice (#100). Reads the shared corpus read-only;
 writes only SERVING_DIR.
 """
 import argparse
 import datetime
+import fnmatch
 import glob
 import json
 import os
@@ -132,7 +134,39 @@ def _load_plan_counts(con, test, override=None):
     return True
 
 
-def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
+TARGETS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "etl", "targets.yaml")
+
+
+def target_patterns(path=TARGETS_PATH):
+    """Every `network_patterns` entry in etl/targets.yaml — the network labels
+    the target plans' rates carry."""
+    import yaml
+    with open(path) as f:
+        targets = (yaml.safe_load(f) or {}).get("targets") or []
+    return [pat for t in targets for pat in (t.get("network_patterns") or [])]
+
+
+def target_partitions(prices_dir, patterns):
+    """The `net=<slug>` partitions whose network_name matches a target pattern
+    (case-insensitive, `*` wildcard — the same rule the parse probe uses). A
+    partition holds one network, so its first file's first row names it."""
+    con = duckdb.connect()
+    hits = []
+    for d in sorted(x for x in os.listdir(prices_dir) if x.startswith("net=")):
+        files = sorted(glob.glob(f"{prices_dir}/{d}/*.parquet"))
+        if not files:
+            continue
+        row = con.execute(f"SELECT network_name FROM read_parquet('{files[0]}') LIMIT 1").fetchone()
+        name = (row[0] if row else "") or ""
+        if any(fnmatch.fnmatchcase(name.lower(), p.lower()) for p in patterns):
+            hits.append(d[4:])
+    con.close()
+    return hits
+
+
+def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
+          scope="all", patterns=None):
     anthem = store_dir(data_dir, test, "anthem")
     nppes = store_dir(data_dir, test, "nppes")
     ref = store_dir(data_dir, test, "reference")
@@ -150,9 +184,6 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
     ga_nppes = f"{nppes}/ga_providers.parquet"
 
     all_parts = sorted(d for d in os.listdir(prices_dir) if d.startswith("net="))
-    all_scan = ("read_parquet([" + ", ".join(
-        f"'{prices_dir}/{d}/*.parquet'" for d in all_parts) + "], "
-        "hive_partitioning=1, union_by_name=true)")
     if networks:
         want = {n[4:] if n.startswith("net=") else n for n in networks}
         parts = [d for d in all_parts if d[4:] in want]
@@ -161,8 +192,19 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
             raise SystemExit(f"no price partition for {sorted(missing)}")
     else:
         parts = all_parts
+    parts_scan = ("read_parquet([" + ", ".join(
+        f"'{prices_dir}/{d}/*.parquet'" for d in parts) + "], "
+        "hive_partitioning=1, union_by_name=true)")
 
+    # The serving store holds exactly the networks this build names: a partition
+    # left from an earlier, wider build would leak into rate_hist, the rollup
+    # and every roster below.
     rates_out = f"{serving_dir}/rates"
+    keep = {d for d in parts}
+    if os.path.isdir(rates_out):
+        for d in os.listdir(rates_out):
+            if d.startswith("net=") and d not in keep:
+                shutil.rmtree(f"{rates_out}/{d}", ignore_errors=True)
     for d in parts:
         shutil.rmtree(f"{rates_out}/net={d[4:]}", ignore_errors=True)
     if os.getenv("DUCKDB_TMP") is None:  # only a spill dir we own
@@ -178,14 +220,14 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
 
     t0 = time.time()
 
-    # ── code sentinel ceiling: max($1, 5% of the code's scoped median rate).
-    #    Store-wide (all networks), matching the retired _sentinel_ceiling; one
-    #    scalar pass, approx_quantile keeps per-code state O(1).
+    # ── code sentinel ceiling: max($1, 5% of the code's scoped median rate),
+    #    over the networks this build covers; one scalar pass, approx_quantile
+    #    keeps per-code state O(1).
     con.execute(f"""
         CREATE TEMP TABLE code_ceiling AS
         SELECT billing_code_type, billing_code,
                greatest(1.0, round(0.05 * approx_quantile(negotiated_rate, 0.5), 2)) AS ceiling
-        FROM {all_scan}
+        FROM {parts_scan}
         WHERE {OUTPATIENT_PROF} AND negotiated_rate > 0
         GROUP BY 1, 2
     """)
@@ -536,7 +578,9 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None):
     manifest = {
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "networks": [d[4:] for d in parts],
-        "partial": networks is not None,
+        "partial": scope != "all",
+        "scope": scope,
+        "target_patterns": list(patterns or []),
         "inputs": {
             "nppes": os.path.exists(ga_nppes),
             "nucc": os.path.exists(ref_p["nucc"]),
@@ -571,17 +615,34 @@ def main():
     ap.add_argument("--serving-dir", default=None,
                     help="output dir (default: SERVING_DIR env, else <data-dir>/serving)")
     ap.add_argument("--networks", default=None,
-                    help="comma-separated net slugs to build (default: all partitions)")
+                    help="comma-separated net slugs, or `all` for every partition "
+                         "(default: the networks etl/targets.yaml names; `--test` "
+                         "builds every partition)")
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
     data_dir = "data-test" if args.test else args.data_dir
     serving_dir = args.serving_dir or _serving_dir(data_dir, args.test)
-    networks = [s.strip() for s in args.networks.split(",")] if args.networks else None
-
-    if not os.path.isdir(f"{store_dir(data_dir, args.test, 'anthem')}/prices"):
+    prices_dir = f"{store_dir(data_dir, args.test, 'anthem')}/prices"
+    if not os.path.isdir(prices_dir):
         raise SystemExit("no rate store — run `make parse` first")
-    build(data_dir, serving_dir, networks, args.test)
+
+    patterns, scope = [], "all"
+    if args.networks and args.networks.strip().lower() == "all":
+        networks = None
+    elif args.networks:
+        networks, scope = [s.strip() for s in args.networks.split(",")], "custom"
+    elif args.test:
+        networks = None
+    else:
+        patterns = target_patterns()
+        networks = target_partitions(prices_dir, patterns)
+        scope = "targets"
+        if not networks:
+            raise SystemExit(f"no price partition matches the target network_patterns "
+                             f"{patterns} — run `make parse`, or build everything with NET=all")
+        print(f"  scope: targets -> {len(networks)} network(s): {', '.join(networks)}")
+    build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns)
 
 
 if __name__ == "__main__":
