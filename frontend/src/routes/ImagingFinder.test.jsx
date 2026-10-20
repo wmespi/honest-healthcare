@@ -99,4 +99,15 @@ describe('ImagingFinder', () => {
     await user.type(screen.getByLabelText('Deductible met so far'), '1200');
     expect(await screen.findByText(/you.d pay about \$84\.00/i)).toBeInTheDocument();
   });
+
+  it('only says it cannot show a share while no plan version is chosen', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Head CT' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText('Which scan?'), '70450');
+    await screen.findByText('Marietta Imaging Partners');
+    expect(screen.getByText(/shows prices only, not your share/i)).toBeInTheDocument();
+    await user.selectOptions(await screen.findByLabelText('Your plan version'), 'v1');
+    expect(screen.queryByText(/shows prices only, not your share/i)).not.toBeInTheDocument();
+  });
 });
