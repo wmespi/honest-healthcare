@@ -1,11 +1,11 @@
-# `make reference STEP=geocode` — lat/long for GA PCP providers
+# `make reference STEP=geocode` — lat/long for GA PCP and imaging providers
 
 *Read this when working on "how close is this provider" — distance ranking and,
 eventually, the provider map (`docs/direction.md` build sequence).*
 
 **Builds** `data/reference/pcp_geocode.parquet` from the free, keyless
 [US Census Bulk Geocoding API](https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html):
-one row per GA PCP-eligible NPI with `latitude` / `longitude`. Module
+one row per GA PCP- or imaging-eligible NPI with `latitude` / `longitude`. Module
 `reference/geocode.py`; module flags `--test`, `--limit N`, `--batch-size N`,
 `--benchmark NAME`, `--census-response-file FILE` (test-only; pass via `ARGS`).
 
@@ -13,10 +13,11 @@ one row per GA PCP-eligible NPI with `latitude` / `longitude`. Module
 be cached beyond a `place_id` (`docs/direction.md`, "Geography"); the Census geocoder
 is free and gives coordinates we own and can cache indefinitely.
 
-**Why PCP-scoped.** The batch endpoint takes at most 10,000 addresses per request;
-geocoding all of GA NPPES before a second service line needs it isn't worth the run
-time or risk. The candidate set is `PCP_TAXONOMY_CODES`, which mirrors the constant of
-the same name in `serving/service_lines.py` — **kept in sync by hand**.
+**Why service-line-scoped.** The batch endpoint takes at most 10,000 addresses per request;
+geocoding all of GA NPPES isn't worth the run time or risk. The candidate set is
+`PCP_TAXONOMY_CODES` plus `IMAGING_TAXONOMY_CODES`, mirrors of the constants of the same
+name in `serving/service_lines.py`; `serving/tests/test_geocode.py` fails if they drift.
+The output keeps the name `pcp_geocode.parquet`.
 
 **Address dedup.** Many PCPs share an address, so the builder geocodes *distinct
 addresses* and rejoins the coordinate onto every NPI there.
@@ -37,7 +38,7 @@ addresses* and rejoins the coordinate onto every NPI there.
 
 - The NPPES pull refreshes and addresses change. The builder always re-geocodes every
   candidate address (idempotent, not incremental).
-- `PCP_TAXONOMY_CODES` changes — update the mirrored copy here too.
+- Either taxonomy list changes — update the mirrored copy here too.
 
 Tested by `serving/tests/test_geocode.py`, hermetic: a tiny NPPES fixture covers
 shared-address dedup, a `No_Match`, and a non-PCP NPI that must never reach the

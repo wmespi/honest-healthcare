@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Build data/reference/pcp_geocode.parquet — lat/long for every GA PCP-eligible
-NPPES provider address, via the free US Census Bulk Geocoding API.
+Build data/reference/pcp_geocode.parquet — lat/long for every GA PCP- or
+imaging-eligible NPPES provider address, via the free US Census Bulk Geocoding API.
 
   https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html
 
@@ -58,7 +58,8 @@ MAX_BATCH = 10_000  # Census's hard per-request cap
 GA_LAT_RANGE = (30.3, 35.1)
 GA_LON_RANGE = (-85.7, -80.7)
 
-# Mirrors serving/service_lines.py:PCP_TAXONOMY_CODES — see the module
+# Mirrors serving/service_lines.py:PCP_TAXONOMY_CODES / IMAGING_TAXONOMY_CODES
+# (serving/tests/test_geocode.py fails if they drift) — see the module
 # docstring above for why this isn't a cross-package import.
 PCP_TAXONOMY_CODES = [
     "207Q00000X",  # Family Medicine (general)
@@ -69,6 +70,14 @@ PCP_TAXONOMY_CODES = [
     "363LA2200X",  # Nurse Practitioner — Adult Health
     "363L00000X",  # Nurse Practitioner — generic (no specialization on file)
 ]
+
+IMAGING_TAXONOMY_CODES = [
+    "2085R0202X", "2085N0700X", "2085B0100X", "2085P0229X", "2085D0003X",
+    "2085N0904X", "2085R0204X", "2085U0001X",  # Radiology
+    "261QM1200X", "261QR0200X", "261QR0206X", "261QR0207X", "261QR0208X",  # Imaging centers
+]
+
+GEOCODE_TAXONOMY_CODES = PCP_TAXONOMY_CODES + IMAGING_TAXONOMY_CODES
 
 
 def _multipart_body(fields: dict, file_field: str, file_name: str, file_bytes: bytes):
@@ -169,7 +178,7 @@ def main() -> None:
         raise SystemExit(f"{ga_path} not found -- run `make reference STEP=nppes` first")
 
     con = duckdb.connect()
-    placeholders = ", ".join(f"'{c}'" for c in PCP_TAXONOMY_CODES)
+    placeholders = ", ".join(f"'{c}'" for c in GEOCODE_TAXONOMY_CODES)
 
     # Distinct addresses first — a shared practice address shouldn't cost
     # Census (or us) a lookup per NPI. row_number() gives each distinct
@@ -194,7 +203,7 @@ def main() -> None:
           AND address_line1 IS NOT NULL AND address_line1 <> ''
           AND postal_code IS NOT NULL AND postal_code <> ''
     """).fetchone()
-    print(f"→ {n_npi:,} GA PCP-eligible NPIs -> {n_addr:,} distinct addresses to geocode")
+    print(f"→ {n_npi:,} GA PCP- and imaging-eligible NPIs -> {n_addr:,} distinct addresses to geocode")
     if n_addr == 0:
         raise SystemExit("no candidate addresses -- has `make reference STEP=nppes` run?")
 

@@ -115,3 +115,10 @@ def test_matched_but_outside_georgia_is_dropped(built):
     # match-status check, is what has to catch it.
     rows = built.execute(f"SELECT npi FROM read_parquet('{OUT}') WHERE npi = 2000000005").fetchall()
     assert rows == []
+
+
+def test_geocode_candidates_mirror_the_service_lines():
+    sys.path.insert(0, REPO)
+    from reference.geocode import GEOCODE_TAXONOMY_CODES
+    from serving.service_lines import IMAGING_TAXONOMY_CODES, PCP_TAXONOMY_CODES
+    assert set(GEOCODE_TAXONOMY_CODES) == set(PCP_TAXONOMY_CODES) | set(IMAGING_TAXONOMY_CODES)
