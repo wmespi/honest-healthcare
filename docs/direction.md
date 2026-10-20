@@ -184,7 +184,9 @@ and Places content can't be cached beyond `place_id` — so ratings/hours can't
 ## Build sequence
 
 Ordered so each step ships something usable and nothing waits on the multi-payer
-lift longer than it must.
+lift longer than it must. The active sequence for Flow A is the epic
+[#120](https://github.com/wmespi/honest-healthcare/issues/120); the list below is
+the longer-range map it draws from.
 
 1. **Geocode + distance + map** — *partway done:* Census batch-geocode of GA PCPs, a
    ZIP-centroid lookup, and a `distance_mi` filter/sort on `/providers/search`
