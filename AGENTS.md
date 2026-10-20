@@ -79,9 +79,10 @@ seconds, not a hand-rolled streaming parse.
    exceed 10 GB.
 4. **Test mode is isolated** — `test.*` tables and `data-test/` are safe to
    truncate; a test run must never touch `public.*` or `data/`.
-5. **Plan-specific file wins on rate conflict** *(target design, not yet in code)* —
-   a single-plan file's rate overrides a shared-network file's for the same
-   `(billing_code + provider_group)`; the lower rate wins between two shared files.
+5. **Plan-specific file wins on rate conflict** *(half in code)* — a single-plan
+   file's rate overrides a shared-network file's for the same practice and code:
+   the build tags `source_kind`, `/rates/providers` applies the override at read
+   time. "The lower rate wins between two shared files" is not in code.
    [etl/mrf-model.md](etl/mrf-model.md#conflict-resolution-strategy).
 6. **Give regular status updates — the most-missed rule here.** On any multi-step
    task, post a short progress note *as each step lands* — what's done, what's

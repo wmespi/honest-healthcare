@@ -217,11 +217,8 @@ the product is headed — and which of these gaps that closes — is in
 
 ## Deferred by design
 
-- **Rule 5 selection runs at read time, not build time.** `build/build.py`
-  drops the exact-duplicate rate lines and tags every surviving row
-  `source_kind` (`plan_specific` | `shared`), but the "plan-specific beats
-  shared / lower shared wins" *choice* isn't applied until the serving layer
-  reads it — and the serving layer doesn't yet
-  ([#100](https://github.com/wmespi/honest-healthcare/issues/100)). Also
-  `source_kind` is uniformly `shared` until `make discover` repopulates Step 1's
-  `index_file_plans` on the canonical box.
+- **Rule 5 is half in code, at read time.** `build/build.py` keeps every row and
+  tags it `source_kind` (`plan_specific` | `shared`); `/rates/providers` makes a
+  `plan_specific` row win over `shared` per practice
+  (`serving/routers/rates.py`). The "lower shared rate wins" half is not
+  implemented, and the quote and menu routes do not apply the override.
