@@ -119,3 +119,14 @@ Where the product is headed: [direction.md](direction.md) and epic
   `source_kind`; `/rates/providers` makes a `plan_specific` row win over `shared`
   per practice (`serving/routers/rates.py`). "The lower shared rate wins" is not
   implemented, and the quote and menu routes do not apply the override.
+
+## Imaging
+
+- **Imaging prices exclude the facility fee.** Anthem's professional file carries the
+  doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
+  hospital bills its own fee in a file we do not carry, so a hospital-based practice
+  shows a reading-only price and says so.
+- **Imaging practice lists carry some non-imaging practices.** A group's price is
+  attached to every clinician on its roster, so a practice with one Medicare-billing
+  imaging clinician (an orthopedic or anesthesia group, say) can appear beside the
+  radiology groups.

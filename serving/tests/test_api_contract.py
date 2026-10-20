@@ -505,3 +505,39 @@ def test_service_lines_endpoint(api):
     assert "pcp" in body
     assert "207Q00000X" in body["pcp"]["taxonomy_codes"]
     assert "99204" in body["pcp"]["billing_codes"]
+
+
+def test_service_lines_imaging_menu(api):
+    body = api.get("/service_lines").json()
+    menu = body["imaging"]["menu"]
+    assert any(m["code"] == "70450" and m["group"] and m["label"] for m in menu)
+    assert body["imaging"]["billing_codes"] == [m["code"] for m in menu]
+    assert "2085R0202X" in body["imaging"]["taxonomy_codes"]
+
+
+def test_imaging_providers_splits_global_technical_professional(api):
+    r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
+    assert r.status_code == 200
+    body = r.json()
+    rows = {p["practice_id"]: p for p in body["results"]}
+    row = rows["1000000010"]
+    assert row["basis"] == "global"
+    assert row["typical_rate"] == 240.0
+    assert row["global"]["typical"] == 240.0
+    assert row["technical"]["typical"] == 175.0
+    assert row["professional"]["typical"] == 70.0
+
+
+def test_imaging_providers_excludes_non_imaging_networks(api):
+    r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
+    assert "1000000030" not in {p["practice_id"] for p in r.json()["results"]}
+
+
+def test_imaging_providers_rejects_bad_requests(api):
+    assert api.get("/imaging/providers", params={"billing_code": "99213", "network_name": BLUE_VALUE}).status_code == 400
+    r = api.get("/imaging/providers", params={"billing_code": "70450"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "network_required"
+    assert api.get("/imaging/providers", params={
+        "billing_code": "70450", "network_name": BLUE_VALUE, "radius_mi": 10}).status_code == 400
+    assert api.get("/imaging/providers", params={
+        "billing_code": "70450", "network_name": BLUE_VALUE, "zip": "00000"}).status_code == 400

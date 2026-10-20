@@ -36,6 +36,15 @@ describe('routing (#87) — task-first landing', () => {
     expect(screen.getAllByText('Primary Care (PCP)').length).toBeGreaterThan(0);
   });
 
+  it('the imaging card navigates to /find-care/imaging', async () => {
+    const user = userEvent.setup();
+    api.getServiceLines.mockResolvedValue({ data: { imaging: { menu: [] } } });
+    render(<App />);
+    await user.click(screen.getByText(/price an imaging scan/i));
+    expect(window.location.pathname).toBe('/find-care/imaging');
+    expect(await screen.findByLabelText('Which scan?')).toBeInTheDocument();
+  });
+
   it('the secondary link navigates to /explore, the general flow', async () => {
     const user = userEvent.setup();
     render(<App />);

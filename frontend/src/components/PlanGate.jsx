@@ -27,12 +27,14 @@ export function PlanGate({ selectedPlan, onSelect, onBrowseAll, heading, body, b
       <div className="mt-6 flex justify-center">
         <NetworkDropdown selectedPlan={selectedPlan} onSelect={onSelect} />
       </div>
-      <button
-        onClick={onBrowseAll}
-        className="mt-6 text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
-      >
-        {browseLabel || 'Explore all networks without picking a plan'}
-      </button>
+      {onBrowseAll && (
+        <button
+          onClick={onBrowseAll}
+          className="mt-6 text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
+        >
+          {browseLabel || 'Explore all networks without picking a plan'}
+        </button>
+      )}
     </motion.div>
   );
 }

@@ -47,6 +47,19 @@ export function Landing() {
         </Link>
 
         <Link
+          to="/find-care/imaging"
+          className="group mt-4 flex items-center justify-between gap-4 bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-3xl p-6 sm:p-8 transition-colors"
+        >
+          <div>
+            <h2 className="text-white font-black text-xl tracking-tight">Price an imaging scan</h2>
+            <p className="text-slate-500 text-sm mt-1.5 max-w-md">
+              X-ray, ultrasound, CT or MRI: what each in-network practice has negotiated.
+            </p>
+          </div>
+          <ChevronDown size={20} className="text-slate-600 group-hover:text-indigo-400 shrink-0 -rotate-90 transition-colors" />
+        </Link>
+
+        <Link
           to="/explore"
           className="mt-8 self-start text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
         >

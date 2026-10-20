@@ -24,7 +24,7 @@ from ..data_sources import (
 from ..evidence import DEFAULT_TYPICAL_THRESHOLD, all_billed_codes, billed_codes, typical_codes
 from ..labels import provider_card, strip_private
 from ..ranking import haversine_sql, pct_good_sql, score_sql
-from ..service_lines import SERVICE_LINES, SERVICE_LINE_BILLING_CODES
+from ..service_lines import SERVICE_LINES, SERVICE_LINE_BILLING_CODES, SERVICE_LINE_MENUS
 
 router = APIRouter()
 
@@ -141,7 +141,9 @@ def get_service_lines():
     frontend/src/App.jsx's SERVICE_LINE_CODES)."""
     return {
         name: {"taxonomy_codes": codes,
-               "billing_codes": SERVICE_LINE_BILLING_CODES.get(name, [])}
+               "billing_codes": SERVICE_LINE_BILLING_CODES.get(name, []),
+               "menu": [{"code": c, "label": l, "group": g}
+                        for c, l, g in SERVICE_LINE_MENUS.get(name, [])]}
         for name, codes in SERVICE_LINES.items()
     }
 
