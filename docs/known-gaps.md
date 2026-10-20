@@ -130,3 +130,12 @@ Where the product is headed: [direction.md](direction.md) and epic
   attached to every clinician on its roster, so a practice with one Medicare-billing
   imaging clinician (an orthopedic or anesthesia group, say) can appear beside the
   radiology groups.
+- **Plan cost sharing covers a few plan versions.** `serving/plan_cost_sharing.json` is
+  copied by hand from Anthem summaries of benefits, because Georgia's individual market
+  is not in the CMS plan-attributes file. Cost-sharing-reduction variants, Bronze, and
+  Pathway Silver are not carried; a member on one of those picks "Not sure" and sees the
+  price without a share. Refresh the file each plan year.
+- **Some imaging cost shares are not estimated.** A structure such as "$300 a day, then
+  50% coinsurance" is shown as the plan's own words, not turned into a dollar figure. A
+  screening mammogram is shown as preventive. Every estimate assumes the deductible
+  progress the member typed in and no other care this year.

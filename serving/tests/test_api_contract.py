@@ -541,3 +541,17 @@ def test_imaging_providers_rejects_bad_requests(api):
         "billing_code": "70450", "network_name": BLUE_VALUE, "radius_mi": 10}).status_code == 400
     assert api.get("/imaging/providers", params={
         "billing_code": "70450", "network_name": BLUE_VALUE, "zip": "00000"}).status_code == 400
+
+
+def test_plan_cost_sharing_lists_sourced_versions_for_a_network(api):
+    r = api.get("/plans/cost_sharing", params={"network_name": BLUE_VALUE})
+    assert r.status_code == 200
+    versions = r.json()
+    assert versions and all(v["network_name"] == BLUE_VALUE for v in versions)
+    for v in versions:
+        assert v["deductible"] > 0 and v["oop_max"] >= v["deductible"]
+        assert v["source"].startswith("https://sbc.anthem.com/")
+        for kind in ("diagnostic", "imaging"):
+            assert ("coinsurance" in v[kind]) != ("text" in v[kind])
+    assert api.get("/plans/cost_sharing", params={"network_name": "Nope"}).json() == []
+    assert api.get("/plans/cost_sharing").status_code == 422

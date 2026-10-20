@@ -55,6 +55,7 @@ export function installDefaultMocks(api) {
       network_name: 'GA Blue Value HIX Individual Network', available: true },
   ] });
   api.getProcedureCategories.mockResolvedValue({ data: [] });
+  api.getPlanCostSharing.mockResolvedValue({ data: [] });
   api.searchBillingCodes.mockResolvedValue({ data: [] });
   api.getRateDistribution.mockResolvedValue({ data: OVERVIEW });
   api.getRatesByProvider.mockResolvedValue({ data: { billing_code: '99213', summary: { min: 40, max: 120, n_groups: 3, n_providers: 900 }, results: [] } });

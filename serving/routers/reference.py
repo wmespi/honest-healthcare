@@ -4,6 +4,7 @@
   /billing_codes         consumer-label / synonym / code search
   /procedure_categories  RBCS categories present in the data
   /plans                 friendly plan name -> network_name (curated, GH #33)
+  /plans/cost_sharing    sourced deductible / out-of-pocket max / imaging cost share per plan version
 
 The first three read the precomputed `rate_hist` / `code_dim` — never a `rates`
 scan, which is ~645M rows store-wide (issue #10).
@@ -148,3 +149,19 @@ def get_plans(q: str = Query(default="")):
     # available plans first
     out.sort(key=lambda x: (not x["available"], x["plan"]))
     return out
+
+
+_COST_SHARING_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plan_cost_sharing.json")
+
+
+@router.get("/plans/cost_sharing")
+def get_plan_cost_sharing(network_name: str = Query(...)):
+    """The plan versions on one network with the cost sharing copied from each
+    Summary of Benefits and Coverage, so the estimator starts from the plan's
+    own numbers instead of the member's memory. Empty when none are sourced."""
+    try:
+        with open(_COST_SHARING_PATH) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return [v for v in data.get("variants", []) if v.get("network_name") == network_name]

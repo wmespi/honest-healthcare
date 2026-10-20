@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getImagingProviders, getServiceLines } from '../api';
+import { getImagingProviders, getPlanCostSharing, getServiceLines } from '../api';
 import { fmt } from '../lib/format';
 import { shortNetwork } from '../lib/networkLabels';
-import { IMAGING_EXPLAIN, basisNote } from '../lib/explain';
+import { IMAGING_EXPLAIN, COST_SHARE_EXPLAIN, basisNote } from '../lib/explain';
+import { scanShare } from '../lib/costShare';
 import { ExplorerHeader } from '../components/ExplorerHeader';
 import { LocationBar } from '../components/LocationBar';
 import { PlanGate } from '../components/PlanGate';
@@ -39,7 +40,16 @@ function Parts({ row }) {
   );
 }
 
-function ResultRow({ row }) {
+function Share({ share }) {
+  if (!share) return null;
+  if (share.kind === 'amount') {
+    return <p className="text-sm text-emerald-400 font-semibold mt-2">You&rsquo;d pay about {fmt(share.amount)}</p>;
+  }
+  const text = share.kind === 'preventive' ? COST_SHARE_EXPLAIN.preventive : COST_SHARE_EXPLAIN.unmodelled(share.text);
+  return <p className="text-[11px] text-slate-400 mt-2 max-w-xs ml-auto">{text}</p>;
+}
+
+function ResultRow({ row, share }) {
   const part = row.global || row.professional || row.technical;
   const ranged = part && part.max > part.min;
   const hasDistance = row.distance_mi != null;
@@ -60,6 +70,7 @@ function ResultRow({ row }) {
           <div className="text-[11px] text-slate-500 mt-0.5">{fmt(part.min)} to {fmt(part.max)} across contracts</div>
         )}
         <Parts row={row} />
+        <Share share={share} />
       </div>
     </li>
   );
@@ -76,6 +87,9 @@ export function ImagingFinder() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [variants, setVariants] = useState([]);
+  const [variantId, setVariantId] = useState('');
+  const [metInput, setMetInput] = useState('');
 
   useEffect(() => {
     try {
@@ -87,6 +101,14 @@ export function ImagingFinder() {
   useEffect(() => {
     getServiceLines().then(r => setMenu(r.data?.imaging?.menu || [])).catch(() => setError('Could not load the scan list.'));
   }, []);
+
+  useEffect(() => {
+    setVariantId('');
+    if (!network) { setVariants([]); return; }
+    let live = true;
+    getPlanCostSharing(network).then(r => { if (live) setVariants(r.data || []); }).catch(() => { if (live) setVariants([]); });
+    return () => { live = false; };
+  }, [network]);
 
   const near = /^\d{5}$/.test(zip) ? { zip, radius_mi: radiusMi } : undefined;
   useEffect(() => {
@@ -104,6 +126,8 @@ export function ImagingFinder() {
 
   const groups = useMemo(() => groupMenu(menu), [menu]);
   const scan = menu.find(m => m.code === code);
+  const variant = variants.find(v => v.id === variantId);
+  const deductibleMet = Math.max(parseFloat(metInput) || 0, 0);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 w-full font-sans selection:bg-indigo-500/30 overflow-x-hidden">
@@ -146,6 +170,32 @@ export function ImagingFinder() {
               </select>
             </label>
 
+            {variants.length > 0 && (
+              <div className="mb-6 flex flex-wrap items-end gap-x-4 gap-y-3 text-xs text-slate-400">
+                <label>
+                  <span className="block mb-2 font-semibold uppercase tracking-widest text-[10px] text-slate-500">Your plan version</span>
+                  <select
+                    value={variantId} aria-label="Your plan version"
+                    onChange={e => setVariantId(e.target.value)}
+                    className="w-full sm:w-72 bg-slate-900 border border-slate-800 focus:border-indigo-500/60 rounded-lg px-3 h-10 text-sm text-slate-200 outline-none"
+                  >
+                    <option value="">Not sure / skip</option>
+                    {variants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </label>
+                {variant && (
+                  <label>
+                    <span className="block mb-2 font-semibold uppercase tracking-widest text-[10px] text-slate-500">Deductible met so far</span>
+                    <input
+                      type="number" inputMode="decimal" min="0" placeholder="0" aria-label="Deductible met so far"
+                      value={metInput} onChange={e => setMetInput(e.target.value)}
+                      className="w-28 bg-slate-900 border border-slate-800 focus:border-indigo-500/60 rounded-lg px-3 h-10 text-sm text-slate-200 outline-none"
+                    />
+                  </label>
+                )}
+              </div>
+            )}
+
             <LocationBar zip={zip} onZip={setZip} radiusMi={radiusMi} onRadius={setRadiusMi} />
 
             {error && <p role="alert" className="mb-6 text-sm text-amber-400">{error}</p>}
@@ -159,12 +209,21 @@ export function ImagingFinder() {
                 </p>
                 {data.results.length === 0
                   ? <p className="text-sm text-slate-400">No in-network practices have a price for this scan{near ? ' within that distance' : ''}.</p>
-                  : <ul className="space-y-3">{data.results.map(r => <ResultRow key={r.practice_id} row={r} />)}</ul>}
+                  : <ul className="space-y-3">{data.results.map(r => <ResultRow key={r.practice_id} row={r} share={scanShare(variant, scan, r.typical_rate, deductibleMet)} />)}</ul>}
 
                 <div className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/40 p-5 text-xs text-slate-400 leading-relaxed space-y-3">
                   <p><span className="text-slate-200 font-semibold">What this number is. </span>{IMAGING_EXPLAIN.number}</p>
                   <p><span className="text-slate-200 font-semibold">How you pay it. </span>{IMAGING_EXPLAIN.pay}</p>
                   <p><span className="text-slate-200 font-semibold">Where it comes from. </span>{IMAGING_EXPLAIN.source}</p>
+                  {variant && (
+                    <p>
+                      <span className="text-slate-200 font-semibold">Your share. </span>
+                      {COST_SHARE_EXPLAIN.source} {COST_SHARE_EXPLAIN.assumption(deductibleMet)}{' '}
+                      <a href={variant.source} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-slate-200">
+                        {variant.name} summary ({variant.plan_year})
+                      </a>
+                    </p>
+                  )}
                   <div>
                     <p className="text-slate-200 font-semibold mb-1">What it does not cover</p>
                     <ul className="list-disc pl-5 space-y-1">

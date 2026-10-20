@@ -58,6 +58,9 @@ export const getProcedureCategories = () => api.get('/procedure_categories');
 // The curated service-line taxonomy + billing-code allowlists (#83, #100) —
 // { [name]: { taxonomy_codes, billing_codes } }. Replaces the frontend's own
 // hand-synced SERVICE_LINE_CODES copy.
+export const getPlanCostSharing = (network_name) =>
+  api.get('/plans/cost_sharing', { params: { network_name } });
+
 export const getImagingProviders = (billing_code, network_name, near) =>
   api.get('/imaging/providers', { params: { billing_code, network_name, ...(near || {}) } });
 
