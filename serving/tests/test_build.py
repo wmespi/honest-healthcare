@@ -153,6 +153,39 @@ def test_scope_and_sentinel(out):
     assert s["88888"] is True and s["99213"] is False
 
 
+def test_scope_keeps_office_lines_and_falls_back_for_facility_only_codes(tmp_path, monkeypatch):
+    for v in ("SERVING_DIR", "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+        monkeypatch.delenv(v, raising=False)
+    root = str(tmp_path)
+    _raw(root)
+    con = duckdb.connect()
+
+    def price(code, rate, svc):
+        return (f"(40, 1, '{NET}', 'CPT', '{code}', 'ffs', 'negotiated', {rate}, "
+                f"'2025-12-31', '{svc}', 'professional', '', 'outpatient', '{SLUG}')")
+
+    rows = [price("99213", 100.0, "11|10"), price("99213", 30.0, "22|24"),
+            price("99213", 90.0, "CSTM-00"), price("45378", 400.0, "24|22")]
+    con.execute(f"COPY (SELECT * FROM (VALUES {', '.join(rows)}) t(file_id, group_set_id, network_name, "
+                "billing_code_type, billing_code, negotiation_arrangement, negotiated_type, "
+                "negotiated_rate, expiration_date, service_code, billing_class, modifier, setting, net)) "
+                f"TO '{root}/anthem/prices/net={SLUG}/40.parquet' (FORMAT parquet)")
+    con.execute(f"COPY (SELECT * FROM (VALUES (40, 1::BIGINT, 1::BIGINT)) t(file_id, group_set_id, "
+                f"provider_group_id)) TO '{root}/anthem/group_sets/40.parquet' (FORMAT parquet)")
+    con.execute(f"COPY (SELECT * FROM (VALUES (40, 1::BIGINT, '{NET}', 111::BIGINT, 'npi', '999')) "
+                "t(file_id, provider_group_id, network_name, npi, tin_type, tin_value)) "
+                f"TO '{root}/anthem/providers/40.parquet' (FORMAT parquet)")
+    serving = f"{root}/serving"
+    build(root, serving, networks=[SLUG], test=False, plan_counts={}, scope="custom")
+    got = {(r[0], r[1]): r[2] for r in con.execute(
+        "SELECT billing_code, negotiated_rate, scope "
+        f"FROM read_parquet('{serving}/rates/**/*.parquet') WHERE file_id = 40").fetchall()}
+    assert got[("99213", 100.0)] == "outpatient_prof"
+    assert got[("99213", 90.0)] == "outpatient_prof"
+    assert got[("99213", 30.0)] == "other"
+    assert got[("45378", 400.0)] == "outpatient_prof"
+
+
 def test_rate_hist_roster_weighted(out):
     con, serving = out
     # group_set 1 holds 2 provider groups, so n = 2 * n_rates for each bucket.
