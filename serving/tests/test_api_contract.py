@@ -449,14 +449,14 @@ def test_ga_providers_hospitals_only(api):
 
 def test_networks_endpoint(api):
     # served from the browse summary (make build-summary); n_rates is the exact
-    # price-row count per network — 17 Blue Value (the original 13, incl. the 3
+    # price-row count per network — 18 Blue Value (the original 13, incl. the 3
     # out-of-scope noise rows: rate_summary counts "what exists", not the
     # scoped view; plus 4 for the #87 cost-sort / plausible-tier fixture —
     # Baker's 99204 and 99202 rates, Ng's 99204 rate, and Ng's unrelated $10
-    # 12002 row) + 5 Open Access.
+    # 12002 row, and the facility-only 70450 line) + 5 Open Access.
     body = api.get("/networks").json()
     counts = {r["network_name"]: r["n_rates"] for r in body}
-    assert counts == {BLUE_VALUE: 17, "GA Blue Open Access POS Network": 5}
+    assert counts == {BLUE_VALUE: 18, "GA Blue Open Access POS Network": 5}
     # sorted by volume desc
     assert [r["n_rates"] for r in body] == sorted((r["n_rates"] for r in body), reverse=True)
 
@@ -526,6 +526,12 @@ def test_imaging_providers_splits_global_technical_professional(api):
     assert row["global"]["typical"] == 240.0
     assert row["technical"]["typical"] == 175.0
     assert row["professional"]["typical"] == 70.0
+
+
+def test_imaging_providers_ignores_facility_only_price_lines(api):
+    r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
+    row = {p["practice_id"]: p for p in r.json()["results"]}["1000000010"]
+    assert row["global"]["max"] == 240.0 and row["global"]["min"] == 240.0
 
 
 def test_imaging_providers_excludes_non_imaging_networks(api):

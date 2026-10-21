@@ -58,6 +58,13 @@ def _price(glob, tech, pro):
     return None, None
 
 
+# A price line applies in an office when its place-of-service list names 11 or
+# says it holds everywhere (CSTM-00). A line for hospital or facility sites only
+# is a different price for a different visit and never joins a practice's quote.
+OFFICE_POS = ("(COALESCE(pg.service_code, '') IN ('', 'CSTM-00') "
+              "OR CONTAINS('|' || pg.service_code || '|', '|11|'))")
+
+
 @router.get("/imaging/providers")
 def imaging_providers(
     billing_code: str,
@@ -77,7 +84,8 @@ def imaging_providers(
     `professional_only` / `technical_only` (a part of the price; ranked after
     every complete one). `zip` adds `distance_mi` and `city` of the nearest
     imaging provider; `radius_mi` drops practices farther away or without
-    coordinates. Plan-specific rates win over shared ones within a practice and
+    coordinates. Only price lines that apply in an office (place of service 11)
+    count. Plan-specific rates win over shared ones within a practice and
     component (AGENTS.md rule 5)."""
     if billing_code not in SERVICE_LINE_BILLING_CODES["imaging"]:
         raise HTTPException(400, f"not an imaging menu code: {billing_code!r}")
@@ -113,6 +121,7 @@ def imaging_providers(
             JOIN {PROVIDER_DIM_SRC} pd ON pd.npi = gm.npi
             WHERE {where}
               AND COALESCE(pg.modifier, '') IN ('', 'TC', '26')
+              AND {OFFICE_POS}
               AND CONTAINS(',' || COALESCE(pd.service_lines, '') || ',', ',imaging,')
         ),
         ruled AS (

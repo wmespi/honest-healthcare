@@ -126,6 +126,10 @@ Where the product is headed: [direction.md](direction.md) and epic
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
   hospital bills its own fee in a file we do not carry, so a hospital-based practice
   shows a reading-only price and says so.
+- **A practice can show a price range for one scan.** When a billing ID sits under more
+  than one fee schedule for the same scan, the file does not say which applies to a
+  given patient ([price lines](../etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
+  The row shows the typical price and the range; ask the practice which contract applies.
 - **Imaging practice lists carry some non-imaging practices.** A group's price is
   attached to every clinician on its roster, so a practice with one Medicare-billing
   imaging clinician (an orthopedic or anesthesia group, say) can appear beside the
