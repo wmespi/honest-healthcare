@@ -26,7 +26,11 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 
 - **`scope`** — `outpatient_prof` mirrors `serving/data_sources.outpatient_scope`
   (professional · FFS · outpatient/both · fee-schedule/negotiated); everything
-  else is `other`. `serving/tests/test_build.py` pins the two strings equal.
+  else is `other`. `serving/tests/test_build.py` pins the two strings equal. The
+  column also drops a line whose place-of-service list leaves out office (`11`)
+  when the same code has an office-applicable line; a code priced only for
+  facility sites keeps what it has
+  ([etl/mrf-model.md](../etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
 - **`is_sentinel`** — `rate ≤ max($1, 5% of the code's median rate)`, computed
   over the networks this build holds (pre-fan-out) with `approx_quantile`, so the
   same code can flag differently in a `targets` build and an `all` build.

@@ -86,10 +86,10 @@ def test_distribution_99213_target_network(client):
         "billing_code": "99213", "network_name": NET,
     }).json()
     s = body["summary"]
-    assert s["provider_groups"] == 34
-    assert s["n_providers"] == 22710
-    assert s["total_entries"] == 62
-    assert s["median"] == 82.05
+    assert s["provider_groups"] == 9
+    assert s["n_providers"] == 22522
+    assert s["total_entries"] == 14
+    assert s["median"] == 78.06
 
 
 def test_network_overview_target_network(client):
@@ -98,16 +98,14 @@ def test_network_overview_target_network(client):
     # with the quartiles. Pin them and the pooled size; p25/p75 are $25-bucket
     # lower edges off rate_hist, hence the round numbers.
     s = client.get("/rates/distribution", params={"network_name": NET}).json()["summary"]
-    assert s["n_codes"] == 9302
-    # 452121 on the full store; the target-scoped store's sentinel ceiling is
-    # computed over the two built networks only, which drops 148 placeholder-adjacent rows.
-    assert s["total_entries"] == 451973
-    assert (s["p25"], s["median"], s["p75"]) == (25.0, 175.0, 525.0)
+    assert s["n_codes"] == 9305
+    assert s["total_entries"] == 44837
+    assert (s["p25"], s["median"], s["p75"]) == (25.0, 175.0, 550.0)
 
 
 def test_providers_99213(client):
-    # No per-practice identity assertion here on purpose: 200 of 989
-    # practices tie at the $56.84 network floor (all returned at the default
+    # No per-practice identity assertion here on purpose: a block of
+    # practices ties at the network floor (all returned at the default
     # `limit`), and which one lands first is not deterministic run-to-run —
     # confirmed by hand, three runs, three different leaders (no `ORDER BY`
     # tiebreak past (min_rate, max_rate) in rates.py). That's a real, if
@@ -119,24 +117,24 @@ def test_providers_99213(client):
         "billing_code": "99213", "network_name": NET,
     }).json()
     assert body["summary"] == {
-        "min": 56.84, "max": 123.08, "avg": 73.78, "median": 90.5,
-        "n_rows": 2622, "n_groups": 12, "n_providers": 6566, "n_practices": 989,
+        "min": 59.42, "max": 123.08, "avg": 83.6, "median": 82.05,
+        "n_rows": 2766, "n_groups": 5, "n_providers": 21345, "n_practices": 2763,
     }
 
 
 def test_providers_search_pcp(client):
-    # Same shape of risk as above, one level less severe: 16 PCPs tie at the
-    # $37.91 network floor, and providers.py's ORDER BY breaks ties on
+    # Same shape of risk as above, one level less severe: several PCPs tie at the
+    # network floor, and providers.py's ORDER BY breaks ties on
     # `name` (alphabetical) with no `npi` tiebreak after it — a routine
     # NPPES refresh adding an earlier-alphabetical name at the same floor
     # would flip who lands in slot 0 with zero rate change. min_rate is
     # stable regardless of tie order; membership within the full tied group
-    # (limit=25 comfortably covers all 16) is the most a name-sorted list
+    # (limit=25 covers the tied group) is the most a name-sorted list
     # can promise for one specific identity.
     body = client.get("/providers/search", params={
         "service_line": "pcp", "network_name": NET, "limit": 25,
     }).json()
-    assert body[0]["min_rate"] == 37.91
+    assert body[0]["min_rate"] == 54.57
     assert 1013104652 in {r["npi"] for r in body}
 
 
@@ -151,7 +149,7 @@ def test_specialties_count(client):
     # limit defaults to 60 (providers.py) -- without an explicit limit this
     # pins the route's default page size, not a corpus fact.
     body = client.get("/specialties", params={"network_name": NET, "limit": 500}).json()
-    assert len(body) == 297
+    assert len(body) == 298
 
 
 def test_by_network_45378(client):

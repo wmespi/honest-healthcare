@@ -74,6 +74,15 @@ def _scope(a=""):
 OUTPATIENT_PROF = _scope()
 
 
+# A price line applies in an office when its place-of-service list names 11 or
+# says it holds everywhere. A professional line for hospital / facility sites
+# only is a different price for a different visit.
+def _office(a=""):
+    a = f"{a}." if a else ""
+    return (f"(COALESCE({a}service_code, '') IN ('', 'CSTM-00') "
+            f"OR CONTAINS('|' || {a}service_code || '|', '|11|'))")
+
+
 def _connect(spill):
     con = duckdb.connect()
     con.execute("SET preserve_insertion_order = false")
@@ -258,7 +267,8 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
             f"pr.billing_code_type, pr.billing_code, COALESCE({mod}, '') AS modifier, "
             f"pr.setting, pr.service_code, pr.negotiated_type, pr.negotiation_arrangement, "
             f"pr.expiration_date, pr.negotiated_rate, "
-            f"CASE WHEN {_scope('pr')} THEN 'outpatient_prof' ELSE 'other' END AS scope, "
+            f"CASE WHEN {_scope('pr')} AND ({_office('pr')} OR oc.billing_code IS NULL) "
+            f"THEN 'outpatient_prof' ELSE 'other' END AS scope, "
             f"pr.negotiated_rate <= COALESCE(cc.ceiling, 1.0) AS is_sentinel, "
             f"{src_kind} AS source_kind, mp.medicare_allowed, "
             f"CASE WHEN mp.medicare_allowed > 0 "
@@ -272,6 +282,13 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
         have = {r[0] for r in con.execute(f"DESCRIBE SELECT * FROM {pq}").fetchall()}
         cols = rate_cols("pr.modifier" if "modifier" in have else "CAST(NULL AS VARCHAR)")
         mp_mod = "COALESCE(pr.modifier, '')" if "modifier" in have else "''"
+        # Codes with at least one office-applicable line keep only those; a code
+        # priced only for facility sites (colonoscopy) keeps what it has.
+        con.execute(f"""
+            CREATE OR REPLACE TEMP TABLE office_codes AS
+            SELECT DISTINCT billing_code_type, billing_code
+            FROM {pq} pr WHERE {_scope('pr')} AND {_office('pr')}
+        """)
         os.makedirs(f"{rates_out}/net={slug}", exist_ok=True)
         con.execute(f"""
             COPY (
@@ -280,6 +297,8 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                 LEFT JOIN code_ceiling cc
                   ON cc.billing_code_type = pr.billing_code_type AND cc.billing_code = pr.billing_code
                 {plan_join}
+                LEFT JOIN office_codes oc
+                  ON oc.billing_code_type = pr.billing_code_type AND oc.billing_code = pr.billing_code
                 LEFT JOIN mpfs mp
                   ON mp.billing_code = pr.billing_code
                  AND mp.billing_code_type = pr.billing_code_type
@@ -310,13 +329,16 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
 
     # ── group_members — the roster, network-free: (rates ⨝ group_sets ⨝
     #    group_members) expands a price to its NPIs exactly as prices ⨝
-    #    group_sets ⨝ providers did.
+    #    group_sets ⨝ providers did. Only groups a price reaches: a file lists
+    #    far more provider_references than it prices.
     providers_src = f"read_parquet('{anthem}/providers/*.parquet', union_by_name=true)"
     con.execute(f"""
         COPY (
             SELECT DISTINCT file_id, provider_group_id, npi, tin_value
             FROM {providers_src}
             WHERE file_id IN ({fid_list})
+              AND (file_id, provider_group_id) IN (
+                  SELECT file_id, provider_group_id FROM read_parquet('{serving_dir}/group_sets.parquet'))
         ) TO '{serving_dir}/group_members.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
