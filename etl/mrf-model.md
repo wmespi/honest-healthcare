@@ -76,6 +76,39 @@ resolution is left entirely to the consumer.
 
 ---
 
+## Several price lines for one provider and code
+
+A clinician can sit under more than one price for the same billing code. The file
+carries a few fields on each price line that tell the lines apart; read them before
+treating a spread as a disagreement:
+
+| Field | What it separates |
+|---|---|
+| `service_code` | CMS place-of-service list the line covers: office (`11`), hospital outpatient (`22`, `19`), ASC (`24`), ER (`23`), inpatient (`21`), plus others. A long list means one rate across settings. `CSTM-00` means every place of service. |
+| `billing_code_modifier` | `26` professional (reading), `TC` technical (equipment), none = global |
+| `billing_class` | `professional` or `institutional` claim |
+| `setting` | `inpatient`, `outpatient`, or `both` |
+| `negotiation_arrangement` (on the code) | `ffs`, `bundle`, `capitation` |
+| `negotiated_type` | `negotiated`, `fee schedule`, `percentage`, `per diem`, `derived` |
+| `expiration_date` | contract end; `9999-12-31` for none |
+| `additional_information` | optional free text; the extractor does not keep it |
+
+Two lines for one provider and code that agree on all of these have no recorded reason
+to differ. Nothing in the file says which contract applies to a given patient, so a
+quote that merges them shows a range and says so.
+
+Where a price applies is a list of `provider_references`. A reference is a bucket of
+many billing IDs and clinicians, not a practice, and buckets can overlap, so a practice
+joins a price only through the buckets that hold it. The file is rebuilt and replaced
+on every release, and its bucket layout changes with it; a build never assumes ids
+carry over between releases. Re-run `make refresh` to move to the current release.
+
+The imaging codes in the Anthem Georgia file are priced on office professional lines
+only; hospital and ASC imaging is billed on institutional claims that this file does
+not hold ([facility fees](../docs/known-gaps.md#imaging)).
+
+---
+
 ## Conflict resolution strategy
 
 *Target design, not yet enforced in code (Critical Rule 5). `build/build.py` tags

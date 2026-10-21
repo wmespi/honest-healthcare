@@ -138,7 +138,9 @@ def _build(data_dir: str) -> None:
     # 70450 — global + professional (-26) + technical (-TC), office & hosp-outpatient
     price(100, BLUE_VALUE, "70450", 240.00)
     price(100, BLUE_VALUE, "70450", 70.00, mod="26")
-    price(100, BLUE_VALUE, "70450", 175.00, mod="TC", svc="22", setting="outpatient")
+    price(100, BLUE_VALUE, "70450", 175.00, mod="TC")
+    # a facility-only line for the same practice and scan — never part of an office quote
+    price(100, BLUE_VALUE, "70450", 800.00, svc="22")
     price(300, OPEN_ACCESS, "70450", 265.00)
     # 45378 — ASC + hospital outpatient
     price(300, BLUE_VALUE, "45378", 410.00, svc="24", setting="outpatient")
