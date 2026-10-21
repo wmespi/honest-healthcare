@@ -84,7 +84,7 @@ rate_hist.parquet              payer | net | network_name | billing_code_type
     | billing_code | setting | scope | modifier | is_sentinel | bucket | n | n_rates
 cross_network_rollup.parquet   billing_code | billing_code_type | net
     | network_name | n_groups | min_rate | p10 | median | p90 | max_rate
-manifest.json                  built_at | networks | scope | partial | target_patterns | inputs | rows
+manifest.json                  built_at | networks | scope | partial | target_patterns | codes | inputs | rows
 ```
 
 `rates` is the parser's **price grain** — one row per negotiated price, no group

@@ -49,7 +49,7 @@ from reference._common import serving_dir as _serving_dir, store_dir
 # The curated service-line taxonomy lists. Still under serving/ this step —
 # the prod serving image ships only serving/, so serving can't import from
 # build/; a later tidy consolidates them.
-from serving.service_lines import SERVICE_LINES
+from serving.service_lines import PRICED_BILLING_CODES, SERVICE_LINES
 from serving.data_sources import network_slug
 
 HIST_WIDTH = 25      # $ bucket width — matches the retired build_rate_summary
@@ -175,7 +175,7 @@ def target_partitions(prices_dir, patterns):
 
 
 def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
-          scope="all", patterns=None):
+          scope="all", patterns=None, codes=None):
     anthem = store_dir(data_dir, test, "anthem")
     nppes = store_dir(data_dir, test, "nppes")
     ref = store_dir(data_dir, test, "reference")
@@ -183,6 +183,11 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
 
     prices_dir = f"{anthem}/prices"
+    # codes=None prices every code; a list keeps rates, rosters and evidence for
+    # those billing codes only.
+    code_list = ", ".join(f"'{c}'" for c in codes) if codes else ""
+    code_pr = f"AND pr.billing_code IN ({code_list})" if codes else ""
+    code_ev = f"AND hcpcs_cd IN ({code_list})" if codes else ""
     ref_p = {k: f"{ref}/{v}" for k, v in {
         "labels": "code_labels.parquet", "nucc": "nucc_taxonomy.parquet",
         "mpfs": "mpfs_ga.parquet", "dac": "dac_ga.parquet",
@@ -238,6 +243,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                greatest(1.0, round(0.05 * approx_quantile(negotiated_rate, 0.5), 2)) AS ceiling
         FROM {parts_scan}
         WHERE {OUTPATIENT_PROF} AND negotiated_rate > 0
+          {code_ev.replace("hcpcs_cd", "billing_code")}
         GROUP BY 1, 2
     """)
 
@@ -303,6 +309,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                   ON mp.billing_code = pr.billing_code
                  AND mp.billing_code_type = pr.billing_code_type
                  AND mp.modifier = {mp_mod}
+                WHERE 1=1 {code_pr}
             ) TO '{rates_out}/net={slug}/part.parquet' (FORMAT parquet, COMPRESSION zstd)
         """)
         kept = con.execute(
@@ -477,7 +484,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                        AS avg_mdcr_allowed,
                    bool_or(hcpcs_drug_ind = 'Y') AS is_drug
             FROM read_parquet('{cms_util}')
-            WHERE npi IN (SELECT npi FROM {gm})
+            WHERE npi IN (SELECT npi FROM {gm}) {code_ev}
             GROUP BY 1, 2
         """)
     if os.path.exists(cms_util) and os.path.exists(ref_p["profiles"]) and os.path.exists(ref_p["nucc"]):
@@ -493,7 +500,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                 WHERE g.npi IN (SELECT npi FROM {gm})
             ) s
             JOIN read_parquet('{ref_p["profiles"]}') sp ON sp.specialty = s.classification
-            WHERE sp.prevalence >= {TYPICAL_THRESHOLD}
+            WHERE sp.prevalence >= {TYPICAL_THRESHOLD} {code_ev.replace("hcpcs_cd", "sp.hcpcs_cd")}
               AND NOT EXISTS (
                 SELECT 1 FROM read_parquet('{cms_util}') b
                 WHERE b.npi = s.npi AND b.hcpcs_cd = sp.hcpcs_cd)
@@ -605,6 +612,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
         "partial": scope != "all",
         "scope": scope,
         "target_patterns": list(patterns or []),
+        "codes": sorted(codes) if codes else "all",
         "inputs": {
             "nppes": os.path.exists(ga_nppes),
             "nucc": os.path.exists(ref_p["nucc"]),
@@ -643,6 +651,9 @@ def main():
                          "(default: the networks etl/targets.yaml names; `--test` "
                          "builds every partition)")
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
+    ap.add_argument("--all-codes", action="store_true",
+                    help="price every billing code, not just the priced service lines' menus "
+                         "(`--test` always does)")
     args = ap.parse_args()
 
     data_dir = "data-test" if args.test else args.data_dir
@@ -666,7 +677,8 @@ def main():
             raise SystemExit(f"no price partition matches the target network_patterns "
                              f"{patterns} — run `make parse`, or build everything with NET=all")
         print(f"  scope: targets -> {len(networks)} network(s): {', '.join(networks)}")
-    build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns)
+    codes = None if args.all_codes or args.test else PRICED_BILLING_CODES
+    build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns, codes=codes)
 
 
 if __name__ == "__main__":
