@@ -20,7 +20,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 | `rate_hist.parquet` | `(net, code, setting, scope, modifier, is_sentinel, bucket)` | a $25 roster-weighted histogram — `n` sums each price's `group_set` size, `n_rates` is the raw price-row count. `is_sentinel` is a dimension (not a filter) so the histogram can still show the placeholder rows; the rollup below excludes them. |
 | `cross_network_rollup.parquet` | `(code, network)` | `n_groups`, `min`/`p10`/`median`/`p90`/`max` off the `rate_hist` CDF (global modifier, outpatient-prof, non-sentinel). Read straight by `/rates/by_network`. |
 | `zip_centroids.parquet` | one row per ZIP | A copy of `reference/zip_centroids.parquet` so the API reads only `serving/`. |
-| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/dac/geocode/mips/zip_centroids/plan_link — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
+| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; null for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/dac/geocode/mips/zip_centroids/plan_link — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
 
 ## The product rules
 
@@ -54,12 +54,17 @@ the serving dir, so the store holds exactly the networks in the manifest. Raw
 partitions for other networks stay on disk and a `NET=all` build serves them. A
 build that matches nothing exits non-zero rather than writing an empty store.
 
+Rates, rosters and evidence cover only the billing codes of the service lines in
+`serving/service_lines.py` (`PRICED_SERVICE_LINES`) unless `ALL_CODES=1`; the
+manifest's `codes` says which. A code outside them has no price in the store.
+
 ## Running it
 
 ```
 make build                 # the networks in etl/targets.yaml, in the serving container
 make build NET=all         # every network partition
 make build NET=<slug,slug> # a subset of network partitions
+make build ALL_CODES=1      # every billing code, not just the priced service lines
 make build TEST=1          # data-test/
 python -m build.build --data-dir <path> --serving-dir <path> [--networks <slugs>]
 ```

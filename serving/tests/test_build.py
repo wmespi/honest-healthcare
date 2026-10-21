@@ -186,6 +186,32 @@ def test_scope_keeps_office_lines_and_falls_back_for_facility_only_codes(tmp_pat
     assert got[("45378", 400.0)] == "outpatient_prof"
 
 
+def test_codes_scopes_rates_to_the_listed_billing_codes(tmp_path, monkeypatch):
+    for v in ("SERVING_DIR", "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+        monkeypatch.delenv(v, raising=False)
+    root = str(tmp_path)
+    _raw(root)
+    con = duckdb.connect()
+    rows = [f"(41, 1, '{NET}', 'CPT', '{c}', 'ffs', 'negotiated', {r}, '2025-12-31', '11', "
+            f"'professional', '', 'outpatient', '{SLUG}')" for c, r in (("70551", 180.0), ("99213", 100.0))]
+    con.execute(f"COPY (SELECT * FROM (VALUES {', '.join(rows)}) t(file_id, group_set_id, network_name, "
+                "billing_code_type, billing_code, negotiation_arrangement, negotiated_type, "
+                "negotiated_rate, expiration_date, service_code, billing_class, modifier, setting, net)) "
+                f"TO '{root}/anthem/prices/net={SLUG}/41.parquet' (FORMAT parquet)")
+    con.execute(f"COPY (SELECT * FROM (VALUES (41, 1::BIGINT, 1::BIGINT)) t(file_id, group_set_id, "
+                f"provider_group_id)) TO '{root}/anthem/group_sets/41.parquet' (FORMAT parquet)")
+    con.execute(f"COPY (SELECT * FROM (VALUES (41, 1::BIGINT, '{NET}', 111::BIGINT, 'npi', '999')) "
+                "t(file_id, provider_group_id, network_name, npi, tin_type, tin_value)) "
+                f"TO '{root}/anthem/providers/41.parquet' (FORMAT parquet)")
+    serving = f"{root}/serving"
+    build(root, serving, networks=[SLUG], test=False, plan_counts={}, scope="custom", codes=["70551"])
+    kept = {r[0] for r in con.execute(
+        f"SELECT billing_code FROM read_parquet('{serving}/rates/**/*.parquet') WHERE file_id = 41").fetchall()}
+    assert kept == {"70551"}
+    with open(f"{serving}/manifest.json") as f:
+        assert json.load(f)["codes"] == ["70551"]
+
+
 def test_rate_hist_roster_weighted(out):
     con, serving = out
     # group_set 1 holds 2 provider groups, so n = 2 * n_rates for each bucket.

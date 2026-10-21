@@ -3,7 +3,8 @@
 Unlike test_api_contract.py (hermetic, a synthetic fixture via TestClient),
 this hits an actually-running server (`API_URL`, default
 http://localhost:8000) and checks its answers against dollar figures and
-counts captured by hand from the real corpus on 2026-09-04 (see #96). The
+counts captured from the real corpus (see #96). The store prices the imaging menu only
+(serving/service_lines.py PRICED_SERVICE_LINES). The
 point is regression, not correctness: if a later step in #95's epic changes
 one of these on purpose, recapture it and say why in that PR; if it moves by
 accident, this is what's supposed to catch it before a user does.
@@ -59,109 +60,40 @@ def _require_live_target_corpus(client):
         pytest.skip(f"reference data not loaded at {API_URL}: {', '.join(missing)}")
 
 
-def test_quote_99213_abbasi(client):
-    # The standing canary (also asserted by scripts/journeys.py): Suzanne
-    # Abbasi personally billed 99213 to Medicare, so this is a "billed"-tier
-    # quote, not a group floor.
-    body = client.get("/rates/quote", params={
-        "billing_code": "99213", "network_name": NET, "npi": 1285125310,
+def test_priced_corpus_size(client):
+    root = client.get("/").json()
+    assert sorted(root["networks"]) == [NET, "Pathway PCP Copay Choice"]
+    assert root["total_prices"] == 2819
+
+
+def test_imaging_70551_emory_quotes_one_flat_price(client):
+    # Emory Medical Care Foundation sits in a single fee-schedule bucket for a
+    # brain MRI: one office line, so min = typical = max. The price lines that
+    # differ by place of service never join an office quote (#129).
+    body = client.get("/imaging/providers", params={
+        "billing_code": "70551", "network_name": NET, "zip": "30322", "limit": 200,
     }).json()
-    assert body["tier"] == "billed"
-    assert body["headline"]["rate"] == 82.05
-    assert body["medicare_allowed"] == 86.75
-    assert body["vs_medicare"] == pytest.approx(0.95, abs=0.01)
+    emory = next(r for r in body["results"] if r["practice_id"] == "1306002829")
+    assert emory["global"] == {"min": 180.49, "typical": 180.49, "max": 180.49}
+    assert emory["technical"]["typical"] == 114.01
+    assert emory["professional"]["typical"] == 66.48
 
 
-def test_distribution_99213_target_network(client):
-    # Network-scoped and live off `prices`/`group_sets` regardless of
-    # whether the browse summary (rate_summary/code_rollup, #10) has been
-    # built. GET /'s total_prices/priceable_npis are NOT used for this kind
-    # of pin: main.py silently switches their source on have_summary(), so
-    # they can disagree with what /rates/quote and this endpoint themselves
-    # read, and would move on a routine `make parse` + `make build-summary`
-    # gap, not just once #94 parks non-target Parquet. This is the closest
-    # thing to a stable "is the corpus what we think it is" check until a
-    # whole-store equivalent lands (#96's own suggested fallback).
-    body = client.get("/rates/distribution", params={
-        "billing_code": "99213", "network_name": NET,
+def test_imaging_70551_practice_count(client):
+    body = client.get("/imaging/providers", params={
+        "billing_code": "70551", "network_name": NET, "limit": 200,
     }).json()
-    s = body["summary"]
-    assert s["provider_groups"] == 9
-    assert s["n_providers"] == 22522
-    assert s["total_entries"] == 14
-    assert s["median"] == 78.06
+    assert body["n_practices"] == 89
 
 
-def test_network_overview_target_network(client):
-    # Captured 2026-09-30 (#115). The no-code overview pools ~9.3k unrelated
-    # procedures, so its min / avg / max are meaningless -- the UI now leads
-    # with the quartiles. Pin them and the pooled size; p25/p75 are $25-bucket
-    # lower edges off rate_hist, hence the round numbers.
-    s = client.get("/rates/distribution", params={"network_name": NET}).json()["summary"]
-    assert s["n_codes"] == 9305
-    assert s["total_entries"] == 44837
-    assert (s["p25"], s["median"], s["p75"]) == (25.0, 175.0, 550.0)
+def test_every_imaging_menu_code_is_priced(client):
+    codes = client.get("/service_lines").json()["imaging"]["billing_codes"]
+    for code in codes:
+        body = client.get("/imaging/providers", params={
+            "billing_code": code, "network_name": NET, "limit": 5}).json()
+        assert body["n_practices"] > 0, code
 
 
-def test_providers_99213(client):
-    # No per-practice identity assertion here on purpose: a block of
-    # practices ties at the network floor (all returned at the default
-    # `limit`), and which one lands first is not deterministic run-to-run —
-    # confirmed by hand, three runs, three different leaders (no `ORDER BY`
-    # tiebreak past (min_rate, max_rate) in rates.py). That's a real, if
-    # minor, finding about /rates/providers' missing tiebreak, worth its own
-    # issue, but Step 0 doesn't touch serving/routers/* to fix it. The
-    # aggregate summary is order-independent and exact, so it's what's
-    # pinned here.
-    body = client.get("/rates/providers", params={
-        "billing_code": "99213", "network_name": NET,
-    }).json()
-    assert body["summary"] == {
-        "min": 59.42, "max": 123.08, "avg": 83.6, "median": 82.05,
-        "n_rows": 2766, "n_groups": 5, "n_providers": 21345, "n_practices": 2763,
-    }
-
-
-def test_providers_search_pcp(client):
-    # Same shape of risk as above, one level less severe: several PCPs tie at the
-    # network floor, and providers.py's ORDER BY breaks ties on
-    # `name` (alphabetical) with no `npi` tiebreak after it — a routine
-    # NPPES refresh adding an earlier-alphabetical name at the same floor
-    # would flip who lands in slot 0 with zero rate change. min_rate is
-    # stable regardless of tie order; membership within the full tied group
-    # (limit=25 covers the tied group) is the most a name-sorted list
-    # can promise for one specific identity.
-    body = client.get("/providers/search", params={
-        "service_line": "pcp", "network_name": NET, "limit": 25,
-    }).json()
-    assert body[0]["min_rate"] == 54.57
-    assert 1013104652 in {r["npi"] for r in body}
-
-
-def test_procedures_count(client):
-    body = client.get("/providers/1285125310/procedures", params={
-        "network_name": NET,
-    }).json()
-    assert body["count"] == 68
-
-
-def test_specialties_count(client):
-    # limit defaults to 60 (providers.py) -- without an explicit limit this
-    # pins the route's default page size, not a corpus fact.
-    body = client.get("/specialties", params={"network_name": NET, "limit": 500}).json()
-    assert len(body) == 298
-
-
-def test_by_network_45378(client):
-    # One call backing two assertions, not two calls — this is the slowest
-    # query in the file; issuing it twice roughly doubles this file's wall
-    # time and its exposure to a client-side timeout for no benefit.
-    body = client.get("/rates/by_network", params={"billing_code": "45378"}).json()
-    assert len(body["networks"]) == 2  # the two target networks; the store holds nothing else
-    target = next(n for n in body["networks"] if n["network_name"] == NET)
-    # Recaptured 2026-09-06 for #100: was "median of per-group medians" off a
-    # live rates ⨝ group_sets scan; now a $25-bucketed, roster-weighted CDF
-    # value off cross_network_rollup (the architect's checkpoint decision —
-    # "p10/median/p90 derived from the CDF at read time"). A different
-    # statistic, not a regression.
-    assert target["median"] == 287.5
+def test_imaging_needs_a_plan(client):
+    r = client.get("/imaging/providers", params={"billing_code": "70551"})
+    assert r.status_code == 400

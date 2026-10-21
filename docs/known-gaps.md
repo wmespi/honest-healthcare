@@ -31,6 +31,10 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Data scope
 
+- **Only the priced service lines have prices.** The build keeps the billing codes of
+  `PRICED_SERVICE_LINES` (`serving/service_lines.py`); every other code (PCP visits,
+  the Explorer's long tail) has no rate in the store, so those routes return nothing for
+  it. Add a line to the tuple, or `make build ALL_CODES=1`, to price more.
 - **Consumer rate views show outpatient professional fee-for-service only.**
   `outpatient_scope()` (`serving/data_sources.py`) gates `/rates/providers`,
   `/rates/by_network`, `/rates/quote` and the no-code `/rates/distribution` overview

@@ -105,6 +105,7 @@ make parse TEST=1           #   test isolation (test schema + data-test/)
 make build                  # Phase 4 — raw + reference parquet → data/serving/ tables, for the networks in etl/targets.yaml
 make build NET=all          #   every network partition
 make build NET=<slug,slug>  #   a subset of network partitions
+make build ALL_CODES=1       #   every billing code, not just the priced service lines' menus
 make refresh                # the monthly job: discover → reference → parse → code-labels → build
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests

@@ -110,3 +110,9 @@ SERVICE_LINE_BILLING_CODES = {
             "99381", "99382", "99383", "99384", "99385", "99386", "99387"],
     "imaging": [code for code, _, _ in IMAGING_MENU],
 }
+
+# The service lines the build prices. The build keeps rates, rosters and
+# evidence for these lines' codes only; add a line here to price it too.
+PRICED_SERVICE_LINES = ("imaging",)
+PRICED_BILLING_CODES = sorted({c for line in PRICED_SERVICE_LINES
+                               for c in SERVICE_LINE_BILLING_CODES[line]})

@@ -33,7 +33,8 @@ import urllib.parse
 import urllib.request
 
 NET = "GA Blue Value HIX Individual Network"
-CANARY_99213 = 82.05  # 99213 on Blue Value — must not move without a known reason
+CANARY_70551 = 180.49  # brain MRI at Emory Medical Care Foundation on Blue Value — must not move without a known reason
+EMORY_PRACTICE = "1306002829"
 SLOW_CALL_MS = 1500   # a single API call slower than this gets flagged (not a failure)
 
 _calls = []  # (path, ms) for the journey currently running — reset per journey
@@ -79,32 +80,37 @@ def first_provider_with_quote(api, specialty, code):
 # ── journeys ────────────────────────────────────────────────────────────────
 # each returns (ok: bool, detail: str)
 
+def imaging(api, code, **extra):
+    body, status = get(api, "/imaging/providers", billing_code=code,
+                       network_name=NET, zip="30322", limit=200, **extra)
+    return body, status
+
+
 def j1(api):
-    prov, q = first_provider_with_quote(api, "Family Medicine", "99213")
-    if not q:
-        return False, "no Family Medicine provider returned a 99213 quote"
-    h = q["headline"]
+    body, status = imaging(api, "70551")
+    rows = (body or {}).get("results") or []
+    if status != 200 or not rows:
+        return False, f"/imaging/providers 70551 returned {status} / {len(rows)} practices"
+    emory = next((r for r in rows if r["practice_id"] == EMORY_PRACTICE), None)
     checks = [
-        (h["rate"] == CANARY_99213, f"rate {h['rate']} (want {CANARY_99213})"),
-        (q.get("medicare_allowed", 0) > 0, f"medicare_allowed {q.get('medicare_allowed')}"),
-        (0.85 <= (q.get("vs_medicare") or 0) <= 1.05, f"vs_medicare {q.get('vs_medicare')}"),
-        (bool((q.get("provider") or {}).get("group_name")), "provider.group_name present"),
+        (emory is not None, "Emory Medical Care Foundation listed"),
+        (emory and emory["global"]["typical"] == CANARY_70551, f"Emory typical {emory and emory['global']['typical']} (want {CANARY_70551})"),
+        (emory and emory["global"]["min"] == emory["global"]["max"], "Emory quotes one price, not a range"),
+        (sum(r["distance_mi"] is not None for r in rows) >= 0.95 * len(rows), "nearly every practice has a distance from the ZIP"),
     ]
     bad = [msg for ok, msg in checks if not ok]
-    who = f"{prov['name']} ({prov['npi']})"
-    return (not bad), (f"{who}: " + ("; ".join(bad) if bad else
-            f"${h['rate']} · {q['vs_medicare']}× Medicare · {q['provider']['group_name']}"))
+    return (not bad), ("; ".join(bad) if bad else
+            f"{len(rows)} practices · Emory ${CANARY_70551} flat · nearest {rows[0]['distance_mi']} mi")
 
 
 def j2(api):
-    prov, q = first_provider_with_quote(api, "Family Medicine", "73721")
-    if not q:
-        return False, "no provider returned a 73721 (knee MRI) quote"
-    h = q["headline"]
-    ok = bool(h["basis"] == "global" and (q.get("medicare_allowed") or 0) > 0
-              and q.get("vs_medicare"))
-    return ok, (f"{prov['npi']}: basis {h['basis']} · ${h['rate']} · "
-                f"{q.get('vs_medicare')}× Medicare · tier {q.get('tier')}")
+    body, status = imaging(api, "73721")
+    rows = (body or {}).get("results") or []
+    if status != 200 or not rows:
+        return False, f"/imaging/providers 73721 returned {status} / {len(rows)} practices"
+    complete = [r for r in rows if r["basis"] in ("global", "split")]
+    ok = bool(complete) and all(r["typical_rate"] > 0 for r in complete)
+    return ok, f"{len(rows)} practices · {len(complete)} with a complete price · first basis {rows[0]['basis']}"
 
 
 def j3(api):
@@ -116,51 +122,19 @@ def j3(api):
         return False, "some rows missing the has_rates field (the badge can't render)"
     has = sum(1 for r in rows if r["has_rates"])
     nope = len(rows) - has
-    # the point of J3 is the distinction is representable; both sides present is
-    # ideal but a name that's all-in or all-out is still a valid answer
     return True, f"{len(rows)} rows · {has} in-plan / {nope} not — badge distinction intact"
 
 
 def j4(api):
-    health, hs = get(api, "/")
-    dist, ds = get(api, "/rates/distribution")
-    if hs != 200 or ds != 200:
-        return False, f"GET / → {hs}, /rates/distribution → {ds}"
-    s = dist.get("summary", {})
-    checks = [
-        ((health.get("priceable_npis") or 0) > 0, "priceable_npis > 0"),
-        (len(health.get("networks") or []) > 0, "networks listed"),
-        ((s.get("total_entries") or 0) > 100_000_000, f"overview spans {s.get('total_entries'):,} entries (all-network aggregate — documented as misleading)"),
-    ]
-    bad = [m for ok, m in checks if not ok]
-    return (not bad), ("; ".join(bad) if bad else
-            f"{health['priceable_npis']:,} NPIs · {len(health['networks'])} networks · "
-            f"overview aggregate {s['total_entries']:,} entries")
-
-
-def j5(api):
-    prov, q = first_provider_with_quote(api, "Gastroenterology", "45378")
-    if not q:
-        return False, "no Gastroenterology provider returned a 45378 (colonoscopy) quote"
-    h = q["headline"]
-    bn, _ = get(api, "/rates/by_network", billing_code="45378", billing_code_type="CPT")
-    n_nets = len(((bn or {}).get("networks")) or [])
-    checks = [
-        (h["rate"] > 0, f"rate {h['rate']}"),
-        (q.get("vs_medicare") and q["vs_medicare"] < 1.0, f"vs_medicare {q.get('vs_medicare')} (< 1.0 expected on Blue Value)"),
-        (n_nets >= 2, f"by_network returned {n_nets} networks (cross-plan compare)"),
-    ]
-    bad = [m for ok, m in checks if not ok]
-    return (not bad), (f"{prov['npi']}: " + ("; ".join(bad) if bad else
-            f"${h['rate']} · {q['vs_medicare']}× Medicare · tier {q['tier']} · {n_nets} networks compared"))
+    body, status = get(api, "/imaging/providers", billing_code="70551")
+    return status == 400, f"no plan -> {status} (want 400: imaging needs a plan)"
 
 
 JOURNEYS = [
-    ("J1", "Rosa — routine check-up cost (99213)", j1),
+    ("J1", "Rosa — brain MRI price (70551)", j1),
     ("J2", "Rosa — knee MRI (73721)", j2),
     ("J3", "Rosa — is my doctor in this plan?", j3),
-    ("J4", "Dana — browsing with no plan", j4),
-    ("J5", "Rosa — screening colonoscopy (45378)", j5),
+    ("J4", "Dana — imaging with no plan", j4),
 ]
 
 

@@ -175,7 +175,7 @@ def imaging_providers(
         })
     complete = ("global", "split")
     results.sort(key=lambda r: (r["basis"] not in complete, r["typical_rate"], r["distance_mi"] is None,
-                                r["distance_mi"] or 0, r["practice_name"] or ""))
+                                r["distance_mi"] or 0, r["practice_name"] or "", r["practice_id"]))
     # Same-named TINs fold into the first (cheapest, then nearest) row.
     merged, seen = [], {}
     for r in results:
