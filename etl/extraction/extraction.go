@@ -543,7 +543,7 @@ func writeCoverageLog(ctx context.Context, conn *pgx.Conn, fileID int, location 
 			distinct_settings, distinct_billing_classes, billing_code_types, notes
 		)
 		SELECT
-			$1, $2, NULLIF($3, 0)::bigint,
+			$1, $2, NULLIF($3::bigint, 0),
 			$4, $5, $6, $7, $8, $9,
 			$10::text[], i.plan_states, i.hios_issuer_ids, i.market_types,
 			$11::text[], $12::text[], $13::text[], $14
