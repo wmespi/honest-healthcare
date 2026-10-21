@@ -40,6 +40,17 @@ function Parts({ row }) {
   );
 }
 
+function FacilityEstimate({ estimate }) {
+  if (!estimate) return null;
+  const { title, body } = IMAGING_EXPLAIN.facility(fmt(estimate.amount));
+  return (
+    <div className="mb-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-slate-300 leading-relaxed">
+      <p className="text-amber-300 font-semibold mb-1">{title} <span className="font-normal text-amber-300/70">· estimate</span></p>
+      <p>{body}</p>
+    </div>
+  );
+}
+
 function Share({ share }) {
   if (!share) return null;
   if (share.kind === 'amount') {
@@ -207,6 +218,7 @@ export function ImagingFinder() {
                 <p className="text-xs text-slate-500 mb-5">
                   {data.n_practices} in-network {data.n_practices === 1 ? 'practice' : 'practices'}, cheapest first and partial prices last
                 </p>
+                <FacilityEstimate estimate={data.facility_estimate} />
                 {data.results.length === 0
                   ? <p className="text-sm text-slate-400">No in-network practices have a price for this scan{near ? ' within that distance' : ''}.</p>
                   : <ul className="space-y-3">{data.results.map(r => <ResultRow key={r.practice_id} row={r} share={scanShare(variant, scan, r.typical_rate, deductibleMet)} />)}</ul>}

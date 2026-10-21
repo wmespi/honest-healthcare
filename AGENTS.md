@@ -96,7 +96,7 @@ make up / make down / make logs
 
 make discover               # Phase 1 — sync the master index into index_files + index_file_plans, then backfill sizes
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
-make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, Doctors & Clinicians, geocode, MIPS, ZIP centroids (skips what exists)
+make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
 make parse                  # Phase 2 — stream pending files serving a target plan → Parquet (needs the NPPES reference first)
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
@@ -162,6 +162,7 @@ TOPIC=x` — a lingering worktree is hundreds of MB.
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
 | Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
 | Medicare Physician Fee Schedule benchmark (`medicare_allowed` / `vs_medicare` on a quote) | [reference/mpfs.md](reference/mpfs.md) |
+| Medicare hospital-outpatient (OPPS) rate — the labelled facility estimate on the imaging screen | [reference/opps.md](reference/opps.md) |
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
 | CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |

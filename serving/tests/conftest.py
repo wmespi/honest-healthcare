@@ -303,6 +303,11 @@ def _build(data_dir: str) -> None:
              "NULL" if amt is None else amt, f"'{st}'")
             for bc, t, m, p, loc, amt, st in mpfs])
 
+    # ── CMS OPPS Addendum B (make reference STEP=opps) — national hospital rate ──
+    _write(con, f"{data_dir}/reference/opps.parquet",
+           "billing_code, billing_code_type, status_indicator, apc, payment_rate, year",
+           [("'70450'", "'CPT'", "'Q3'", "'5522'", 106.81, 2026)])
+
     # ── CMS Doctors & Clinicians (make reference STEP=doctors-clinicians) ────────────────
     # one row per NPI: real group identity + demographics
     dac = [

@@ -16,6 +16,7 @@ const MENU = [
 const stat = (min, typical, max) => ({ min, typical, max });
 const RESULT = {
   billing_code: '70450', network_name: BV, n_practices: 2,
+  facility_estimate: { amount: 106.81, source: 'medicare_opps', kind: 'estimate' },
   results: [
     { practice_id: '1', practice_name: 'Marietta Imaging Partners', city: 'Marietta', distance_mi: 4.2, n_providers: 3,
       basis: 'global', typical_rate: 240, global: stat(200, 240, 300), technical: null, professional: null },
@@ -61,6 +62,17 @@ describe('ImagingFinder', () => {
     expect(screen.getByText(/complete price/i)).toBeInTheDocument();
     expect(screen.getByText(/reading only/i)).toBeInTheDocument();
     expect(screen.getByText(/hospital and facility fees are not included/i)).toBeInTheDocument();
+  });
+
+  it('labels the hospital fee as a Medicare-based estimate, not an Anthem price', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Head CT' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText('Which scan?'), '70450');
+    const box = (await screen.findByText(/if a hospital does the scan/i)).closest('div');
+    expect(box).toHaveTextContent(/estimate/i);
+    expect(box).toHaveTextContent(/\$106\.81/);
+    expect(box).toHaveTextContent(/not a price anthem has published/i);
   });
 
   it('sends the ZIP and radius only once the ZIP is five digits', async () => {

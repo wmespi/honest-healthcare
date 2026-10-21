@@ -83,7 +83,7 @@ parse: ## Phase 2 — stream pending files that serve a target plan into Parquet
 	  $(if $(LIMIT),-limit $(LIMIT),) \
 	  $(if $(FIXTURE),-fixture "$(FIXTURE)",)
 
-reference: ## Phase 3 — build every reference dataset (NPPES, labels, CMS, MPFS, geocode, MIPS, ZIP centroids), skipping what exists. STEP=<name> · FORCE=1 · ARGS="--flag v"
+reference: ## Phase 3 — build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, ZIP centroids), skipping what exists. STEP=<name> · FORCE=1 · ARGS="--flag v"
 	@bash scripts/reference.sh
 
 build: ## Phase 4 — raw + reference parquet -> data/serving/ tables, for the networks in etl/targets.yaml. NET=all for every network, NET=<slug,slug> for a subset. ALL_CODES=1 prices every code, not just the priced service lines. TEST=1

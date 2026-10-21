@@ -76,7 +76,7 @@ provider_affiliations.parquet  npi | ccn | facility_name
 zip_centroids.parquet          zip | lat | lon
 code_dim.parquet               billing_code | billing_code_type | label
     | category | rbcs_subcategory | rbcs_family | rbcs_is_major | search_text
-    | shoppable | medicare_allowed
+    | shoppable | medicare_allowed | opps_payment
 evidence.parquet               npi | billing_code | tier ('billed' | 'typical')
     | prevalence | year | tot_srvcs | tot_benes | tot_bene_days
     | avg_mdcr_allowed | is_drug
@@ -176,6 +176,10 @@ data/reference/mpfs_ga.parquet         (make reference STEP=mpfs — reference/m
       NULL for carrier-priced (status 'C') rows; bundled / non-covered statuses
       are dropped. Read by serving/benchmark.medicare_allowed() → /rates/quote's
       `medicare_allowed` + `vs_medicare`. Physician fee schedule only.
+data/reference/opps.parquet            (make reference STEP=opps — reference/opps.md)
+    billing_code | billing_code_type | status_indicator | apc | payment_rate | year
+    ← CMS OPPS Addendum B: the national Medicare hospital-outpatient payment per code;
+      codes with no dollar rate are dropped. Read by the build → code_dim.opps_payment.
 data/reference/dac_ga.parquet          (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
     npi | last_name | first_name | credential | primary_specialty
     org_pac_id | org_name | grad_year | med_school | gender

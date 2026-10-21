@@ -1,0 +1,9 @@
+	Addendum B.-- OPPS Payment by HCPCS Code for CY 2026											
+	CPT codes and descriptions only are copyright 2025 American Medical Association.  All Rights Reserved.  Applicable FARS/DFARS Apply. Dental codes (D codes) are copyright 2025 American Dental Association.  All Rights Reserved.											
+HCPCS Code	Short Descriptor	SI	APC	Relative Weight	Payment Rate	National Unadjusted Copayment	 Minimum Unadjusted Copayment	IRA Coinsurance Percentage	Adjusted Beneficiary Copayment	Drug and Device Pass-Through Expiration during Calendar Year	Note	* Indicates a Change
+70551	Mri brain stem w/o dye	Q3	5523	2.6666	$243.77	.	$48.76					
+72148	Mri lumbar spine w/o dye	Q3	5523	2.6666	$243.77	.	$48.76					
+76700	Us exam abdom complete	Q3	5522	1.1684	$106.81	.	$21.37					
+77067	Scr mammo bi incl cad	A										
+78452	Ht muscle image spect mult	S	5593	14.4691	"$1,322.69"	.	$264.54					
+0001F	Heart failure composite	E1										

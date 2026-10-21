@@ -190,7 +190,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     code_ev = f"AND hcpcs_cd IN ({code_list})" if codes else ""
     ref_p = {k: f"{ref}/{v}" for k, v in {
         "labels": "code_labels.parquet", "nucc": "nucc_taxonomy.parquet",
-        "mpfs": "mpfs_ga.parquet", "dac": "dac_ga.parquet",
+        "mpfs": "mpfs_ga.parquet", "opps": "opps.parquet", "dac": "dac_ga.parquet",
         "geocode": "pcp_geocode.parquet", "mips": "mips_ga.parquet",
         "zips": "zip_centroids.parquet", "profiles": "specialty_procedure_profiles.parquet",
     }.items()}
@@ -437,6 +437,8 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     #    procedure code (excludes HCPCS Level II incl. J/Q drugs, RC, MS-DRG,
     #    APC, ICD, CDT — #51).
     labels = f"LEFT JOIN read_parquet('{ref_p['labels']}') cl USING (billing_code_type, billing_code)" if os.path.exists(ref_p["labels"]) else ""
+    opps = (f"LEFT JOIN read_parquet('{ref_p['opps']}') op USING (billing_code_type, billing_code)"
+            if os.path.exists(ref_p["opps"]) else "")
     con.execute(f"""
         COPY (
             WITH used AS (SELECT DISTINCT billing_code_type, billing_code FROM {rates_glob}),
@@ -453,9 +455,11 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                    {"cl.search_text" if labels else "NULL"} AS search_text,
                    (u.billing_code_type = 'CPT'
                     AND regexp_full_match(u.billing_code, '[0-9]{{5}}')) AS shoppable,
-                   mg.medicare_allowed
+                   mg.medicare_allowed,
+                   {"op.payment_rate" if opps else "CAST(NULL AS DOUBLE)"} AS opps_payment
             FROM used u
             {labels}
+            {opps}
             LEFT JOIN nm USING (billing_code_type, billing_code)
             LEFT JOIN mg USING (billing_code, billing_code_type)
         ) TO '{serving_dir}/code_dim.parquet' (FORMAT parquet, COMPRESSION zstd)
@@ -620,6 +624,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
             "cms_utilization": os.path.exists(cms_util),
             "specialty_profiles": os.path.exists(ref_p["profiles"]),
             "mpfs": os.path.exists(ref_p["mpfs"]),
+            "opps": os.path.exists(ref_p["opps"]),
             "dac": os.path.exists(ref_p["dac"]),
             "dac_hospital_affiliations": os.path.exists(affil),
             "geocode": os.path.exists(ref_p["geocode"]),
