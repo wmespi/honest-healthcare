@@ -20,7 +20,7 @@ The address bar stays in sync as you navigate, so any page state is a copyable U
 
 | ID | Journey | Link | Clickpath | Expected |
 |---|---|---|---|---|
-| J1 | Rosa: what does a brain MRI cost near me? | `/find-care/imaging?plan=GA Blue Value HIX Individual Network&code=70551&zip=30322` | plan gate → scan → ZIP | Practices ranked by price and distance; a practice with one contract shows one price, not a range |
+| J1 | Rosa: what does a brain MRI cost near me? | `/find-care/imaging?plan=GA Blue Value HIX Individual Network&code=70551&zip=30322` | plan gate → scan → ZIP | Practices ranked by price and distance; a practice with one contract shows one price, not a range; the hospital fee shows as a labelled estimate |
 | J2 | Rosa: a knee MRI | `…&code=73721` | scan picker → results | Complete (technical + professional) prices first, part-prices after |
 | J3 | Rosa: is my doctor in this plan? | `/explore?plan=GA Blue Value HIX Individual Network&npi=1285125310` | provider search by name → "has rates" / "not in plan" badge | Answer without a dead-end quote screen; no-rate providers render inert |
 

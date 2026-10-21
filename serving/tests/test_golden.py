@@ -79,6 +79,11 @@ def test_imaging_70551_emory_quotes_one_flat_price(client):
     assert emory["professional"]["typical"] == 66.48
 
 
+def test_imaging_70551_carries_a_medicare_facility_estimate(client):
+    body = client.get("/imaging/providers", params={"billing_code": "70551", "network_name": NET}).json()
+    assert body["facility_estimate"] == {"amount": 243.77, "source": "medicare_opps", "kind": "estimate"}
+
+
 def test_imaging_70551_practice_count(client):
     body = client.get("/imaging/providers", params={
         "billing_code": "70551", "network_name": NET, "limit": 200,

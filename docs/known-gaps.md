@@ -129,7 +129,9 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **Imaging prices exclude the facility fee.** Anthem's professional file carries the
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
   hospital bills its own fee in a file we do not carry, so a hospital-based practice
-  shows a reading-only price and says so.
+  shows a reading-only price and says so. The screen adds Medicare's hospital-outpatient
+  rate as a labelled estimate ([reference/opps.md](../reference/opps.md)); hospital
+  price-transparency files would be the real source, and mammography has no estimate.
 - **A practice can show a price range for one scan.** When a billing ID sits under more
   than one fee schedule for the same scan, the file does not say which applies to a
   given patient ([price lines](../etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).

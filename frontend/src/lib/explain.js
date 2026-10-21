@@ -10,8 +10,12 @@ export const IMAGING_EXPLAIN = {
     "Anthem's public price-transparency files for the plan you picked, matched to practices by their billing ID.",
   noShare:
     'Pick your plan version above to see what you would pay. Without it this page shows prices only, not your share.',
+  facility: (amount) => ({
+    title: 'If a hospital does the scan',
+    body: `Medicare pays a hospital about ${amount} for the facility part of this scan. Treat it as a rough guide: it is Medicare\u2019s national rate, not a price Anthem has published for any hospital, and what your plan pays a hospital can differ. An imaging center’s all-in price already includes it.`,
+  }),
   limits: [
-    'Hospital and facility fees are not included. When a hospital performs the scan, it bills its own fee separately, and the price shown covers only the doctor who reads the images.',
+    'Hospital and facility fees are not included in the prices shown. When a hospital performs the scan, it bills its own fee separately, and some prices cover just the doctor who reads the images.',
     'A practice can hold several contracts. The typical price is the middle one; the range shows the cheapest and the dearest.',
     'Out-of-network care is not priced. Confirm the practice is in your network before you book.',
   ],

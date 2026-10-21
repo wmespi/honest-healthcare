@@ -96,6 +96,7 @@ def j1(api):
         (emory is not None, "Emory Medical Care Foundation listed"),
         (emory and emory["global"]["typical"] == CANARY_70551, f"Emory typical {emory and emory['global']['typical']} (want {CANARY_70551})"),
         (emory and emory["global"]["min"] == emory["global"]["max"], "Emory quotes one price, not a range"),
+        ((body.get("facility_estimate") or {}).get("kind") == "estimate", "hospital fee shown as a labelled estimate"),
         (sum(r["distance_mi"] is not None for r in rows) >= 0.95 * len(rows), "nearly every practice has a distance from the ZIP"),
     ]
     bad = [msg for ok, msg in checks if not ok]

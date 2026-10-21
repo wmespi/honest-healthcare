@@ -4,7 +4,8 @@
                        imaging, priced for one scan on one plan
 
 A price here is the *professional* side of a scan as Anthem files it, not a
-facility charge: a freestanding imaging center bills one global rate; a
+facility charge (`facility_estimate` is Medicare's rate for the hospital's part,
+labelled an estimate): a freestanding imaging center bills one global rate; a
 hospital-based radiologist bills only the reading (modifier 26) and the
 hospital bills the technical part (TC) separately, in a file we do not carry.
 The row says which of those it is (`basis`) so the UI never presents a partial
@@ -24,6 +25,7 @@ from ..data_sources import (
     db,
     rate_filters,
 )
+from ..benchmark import opps_payment
 from ..ranking import haversine_sql
 from ..service_lines import SERVICE_LINE_BILLING_CODES
 
@@ -63,6 +65,15 @@ def _price(glob, tech, pro):
 # is a different price for a different visit and never joins a practice's quote.
 OFFICE_POS = ("(COALESCE(pg.service_code, '') IN ('', 'CSTM-00') "
               "OR CONTAINS('|' || pg.service_code || '|', '|11|'))")
+
+
+def _facility_estimate(conn, billing_code):
+    """Medicare's national hospital-outpatient rate for the scan: an estimate of the
+    hospital's part, not a price Anthem filed. None when the code has no OPPS rate."""
+    amount = opps_payment(conn, billing_code)
+    if amount is None:
+        return None
+    return {"amount": amount, "source": "medicare_opps", "kind": "estimate"}
 
 
 @router.get("/imaging/providers")
@@ -190,5 +201,6 @@ def imaging_providers(
         "billing_code": billing_code,
         "network_name": network_name,
         "n_practices": len(results),
+        "facility_estimate": _facility_estimate(conn, billing_code),
         "results": results[:limit],
     }

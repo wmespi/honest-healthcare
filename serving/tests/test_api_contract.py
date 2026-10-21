@@ -561,3 +561,8 @@ def test_plan_cost_sharing_lists_sourced_versions_for_a_network(api):
             assert ("coinsurance" in v[kind]) != ("text" in v[kind])
     assert api.get("/plans/cost_sharing", params={"network_name": "Nope"}).json() == []
     assert api.get("/plans/cost_sharing").status_code == 422
+
+
+def test_imaging_providers_carries_a_labelled_facility_estimate(api):
+    r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
+    assert r.json()["facility_estimate"] == {"amount": 106.81, "source": "medicare_opps", "kind": "estimate"}

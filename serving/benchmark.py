@@ -13,8 +13,8 @@ across the two GA GPCI localities, global modifier — on `code_dim.medicare_all
 `None` when MPFS wasn't a build input or the code isn't on the physician fee
 schedule (bundled / not covered / carrier-priced / facility-only).
 
-Physician fee schedule only. Facility fees (hospital-outpatient OPPS, ASC,
-inpatient IPPS) are separate schedules — see reference/mpfs.md.
+Physician fee schedule only. Facility fees are separate schedules; the
+hospital-outpatient (OPPS) rate is `opps_payment()` below — see reference/opps.md.
 """
 from .data_sources import CODE_DIM_SRC, built_with
 
@@ -31,6 +31,20 @@ def medicare_allowed(conn, billing_code: str, billing_code_type: str = "CPT"):
     row = conn.execute(f"""
         SELECT medicare_allowed FROM {CODE_DIM_SRC}
         WHERE billing_code = ? AND billing_code_type = ? AND medicare_allowed IS NOT NULL
+        LIMIT 1
+    """, [billing_code, billing_code_type]).fetchone()
+    return round(row[0], 2) if row and row[0] is not None else None
+
+
+def opps_payment(conn, billing_code: str, billing_code_type: str = "CPT"):
+    """National Medicare hospital-outpatient (OPPS) payment $ for one code — the
+    hospital's side of a scan done in a hospital — or None when OPPS wasn't a
+    build input or the code carries no OPPS rate."""
+    if not built_with("opps"):
+        return None
+    row = conn.execute(f"""
+        SELECT opps_payment FROM {CODE_DIM_SRC}
+        WHERE billing_code = ? AND billing_code_type = ? AND opps_payment IS NOT NULL
         LIMIT 1
     """, [billing_code, billing_code_type]).fetchone()
     return round(row[0], 2) if row and row[0] is not None else None
