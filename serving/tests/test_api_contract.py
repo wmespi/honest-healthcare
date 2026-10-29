@@ -566,3 +566,12 @@ def test_plan_cost_sharing_lists_sourced_versions_for_a_network(api):
 def test_imaging_providers_carries_a_labelled_facility_estimate(api):
     r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
     assert r.json()["facility_estimate"] == {"amount": 106.81, "source": "medicare_opps", "kind": "estimate"}
+
+
+def test_pos_label_drops_telehealth_on_procedural_codes():
+    # #29: "Office / telehealth" only fits a visit; a scan is not telehealth.
+    from serving.labels import pos_label
+    assert pos_label("office", "Evaluation and Management") == "Office / telehealth"
+    assert pos_label("office", "Imaging") == "Office"
+    assert pos_label("office", None) == "Office / telehealth"
+    assert pos_label("asc", "Imaging") == "Ambulatory surgery center"

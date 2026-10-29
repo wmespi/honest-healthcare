@@ -24,9 +24,9 @@ from ..data_sources import (
 )
 from ..labels import (
     MODIFIER_LABELS,
-    POS_LABELS,
     plausibility,
     pos_bucket,
+    pos_label,
     provider_card,
     strip_private,
 )
@@ -561,6 +561,11 @@ def rate_quote(
     if not rows:
         raise HTTPException(404, detail=f"No rate for {billing_code_type}:{billing_code} at this provider")
 
+    lab = conn.execute(f"""
+        SELECT category, rbcs_family FROM {CODE_DIM_SRC}
+        WHERE billing_code = ? AND billing_code_type = ? LIMIT 1
+    """, [billing_code, billing_code_type]).fetchone()
+
     # Fold (modifier, pos_bucket) → rate range.
     comps: dict = {}
     for modifier, service_code, setting, ntype, lo, hi, n in rows:
@@ -578,7 +583,7 @@ def rate_quote(
             (
                 {
                     "pos_bucket": b,
-                    "pos_label": POS_LABELS.get(b, b),
+                    "pos_label": pos_label(b, lab[0] if lab else None),
                     "min_rate": round(v["min"], 2),
                     "max_rate": round(v["max"], 2),
                     "negotiated_type": v["negotiated_type"],
@@ -626,15 +631,10 @@ def rate_quote(
     med_spec = medicare_specialty(conn, npi)
 
     plaus = None
-    if card:
-        lab = conn.execute(f"""
-            SELECT category, rbcs_family FROM {CODE_DIM_SRC}
-            WHERE billing_code = ? AND billing_code_type = ? LIMIT 1
-        """, [billing_code, billing_code_type]).fetchone()
-        if lab:
-            plaus = plausibility(card.get("_grouping"), card.get("_classification"),
-                                 card.get("specialty"), lab[0], lab[1],
-                                 medicare_type=med_spec)
+    if card and lab:
+        plaus = plausibility(card.get("_grouping"), card.get("_classification"),
+                             card.get("specialty"), lab[0], lab[1],
+                             medicare_type=med_spec)
 
     # When the provider demonstrably bills this code, the "group's rate, not the
     # individual's" framing that a weak cross-specialty heuristic triggers is
