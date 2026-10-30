@@ -10,6 +10,8 @@ from .data_sources import PROVIDER_AFFIL_SRC, PROVIDER_DIM_SRC
 
 # ── place of service ────────────────────────────────────────────────────────
 
+_PROCEDURAL_CATS = {"Procedure", "Imaging", "Test", "Anesthesia"}
+
 POS_LABELS = {
     "office": "Office / telehealth",
     "asc": "Ambulatory surgery center",
@@ -20,6 +22,15 @@ POS_LABELS = {
     "unspecified": "Setting not specified",
     "facility": "Facility setting",
 }
+
+
+def pos_label(bucket, category=None):
+    """Consumer label for a bucket. "Office / telehealth" only fits a visit; on a
+    procedural code (a scan, a surgery) a telehealth setting is not a thing, so
+    the label drops to "Office"."""
+    if bucket == "office" and category in _PROCEDURAL_CATS:
+        return "Office"
+    return POS_LABELS.get(bucket, bucket)
 
 
 def pos_bucket(service_code):
@@ -57,7 +68,6 @@ MODIFIER_LABELS = {
 
 _BEHAVIORAL = ("social worker", "counselor", "psychologist", "behavior analyst",
                "psychiatric", "mental health", "behavioral health")
-_PROCEDURAL_CATS = {"Procedure", "Imaging", "Test", "Anesthesia"}
 
 
 def provider_card(conn, npi: int):
