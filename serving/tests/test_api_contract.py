@@ -6,7 +6,12 @@ min <= median <= max, the npi-without-code guard, evidence tiering, the curated
 plan map). Real-data assertions live in test_golden.py.
 """
 BLUE_VALUE = "GA Blue Value HIX Individual Network"
-CARDIOLOGIST = 1000000001
+# Fixture providers by specialty (see conftest.py); add a row as tests need one.
+SPECIALTY_NPI = {
+    "cardiologist": 1000000001,
+    "radiologist": 1000000004,
+    "nurse_practitioner": 1000000011,  # Ng: PCP-eligible, own group
+}
 LCSW = 1000000003
 HOSPITAL_ORG = 1000000005
 
@@ -91,7 +96,7 @@ def test_distribution_overview_from_summary(api):
 
 
 def test_distribution_rejects_npi_without_code(api):
-    r = api.get("/rates/distribution", params={"npi": CARDIOLOGIST})
+    r = api.get("/rates/distribution", params={"npi": SPECIALTY_NPI["cardiologist"]})
     assert r.status_code == 400
 
 
@@ -112,7 +117,7 @@ def test_rates_providers_requires_network(api):
     r = api.get("/rates/providers", params={"billing_code": "99213"})
     assert r.status_code == 400
     assert r.json()["detail"]["code"] == "network_required"
-    q = api.get("/rates/quote", params={"billing_code": "99213", "npi": CARDIOLOGIST})
+    q = api.get("/rates/quote", params={"billing_code": "99213", "npi": SPECIALTY_NPI["cardiologist"]})
     assert q.status_code == 400
     assert q.json()["detail"]["code"] == "network_required"
 
@@ -193,7 +198,7 @@ def test_rates_by_network_sorted_and_bounded(api):
 
 def test_quote_components_and_evidence(api):
     r = api.get("/rates/quote", params={"billing_code": "70450", "billing_code_type": "CPT",
-                                        "npi": 1000000004,  # radiologist in a Blue Value group
+                                        "npi": SPECIALTY_NPI["radiologist"],  # in a Blue Value group
                                         "network_name": BLUE_VALUE})
     assert r.status_code == 200
     body = r.json()
@@ -215,7 +220,7 @@ def test_quote_carries_medicare_benchmark(api):
     # amount + a headline/Medicare ratio. 99213 fixture rows: 67.20 (loc 01) +
     # 63.36 (loc 99) nonfacility → median 65.28.
     body = api.get("/rates/quote",
-                   params={"billing_code": "99213", "npi": CARDIOLOGIST,
+                   params={"billing_code": "99213", "npi": SPECIALTY_NPI["cardiologist"],
                            "network_name": BLUE_VALUE}).json()
     assert "medicare_allowed" in body and "vs_medicare" in body
     assert body["medicare_allowed"] == 65.28
@@ -225,17 +230,17 @@ def test_quote_carries_medicare_benchmark(api):
 
 def test_quote_medicare_billed_flag(api):
     # the cardiologist billed 93000 to Medicare in the fixture
-    body = api.get("/rates/quote", params={"billing_code": "93000", "npi": CARDIOLOGIST,
+    body = api.get("/rates/quote", params={"billing_code": "93000", "npi": SPECIALTY_NPI["cardiologist"],
                                            "network_name": BLUE_VALUE}).json()
     mu = body["medicare_utilization"]
     assert mu is not None and mu["billed"] is True
 
 
 def test_provider_menu_tiers(api):
-    r = api.get(f"/providers/{CARDIOLOGIST}/procedures", params={"network_name": BLUE_VALUE})
+    r = api.get(f"/providers/{SPECIALTY_NPI['cardiologist']}/procedures", params={"network_name": BLUE_VALUE})
     assert r.status_code == 200
     body = r.json()
-    assert body["npi"] == CARDIOLOGIST
+    assert body["npi"] == SPECIALTY_NPI["cardiologist"]
     assert body["count"] == len(body["results"])
     assert {"tier", "group_count"} <= body.keys()
     for row in body["results"]:
@@ -246,7 +251,7 @@ def test_provider_menu_tiers(api):
     assert codes.get("93000") == "billed"    # Tier 1 — billed to Medicare
     assert codes.get("70450") == "typical"   # Tier 2 — typical for Cardiovascular Disease
     # ?tier=all is a superset
-    all_body = api.get(f"/providers/{CARDIOLOGIST}/procedures",
+    all_body = api.get(f"/providers/{SPECIALTY_NPI['cardiologist']}/procedures",
                        params={"network_name": BLUE_VALUE, "tier": "all", "limit": 500}).json()
     assert len(all_body["results"]) >= len(body["results"])
 
@@ -254,7 +259,7 @@ def test_provider_menu_tiers(api):
 def test_provider_search_by_name(api):
     body = api.get("/providers/search", params={"q": "adams", "limit": 5}).json()
     assert body
-    hit = next((p for p in body if p["npi"] == CARDIOLOGIST), None)
+    hit = next((p for p in body if p["npi"] == SPECIALTY_NPI["cardiologist"]), None)
     assert hit and {"specialty", "entity_type", "has_rates"} <= hit.keys()
     assert hit["has_rates"] is True
     # CMS Doctors & Clinicians group name is annotated onto each row
@@ -267,7 +272,7 @@ def test_provider_card_carries_dac_identity(api):
     # `make reference STEP=doctors-clinicians` has run (the conftest fixture builds it).
     import datetime
 
-    card = api.get(f"/providers/{CARDIOLOGIST}/procedures",
+    card = api.get(f"/providers/{SPECIALTY_NPI['cardiologist']}/procedures",
                    params={"network_name": BLUE_VALUE}).json()["provider"]
     assert card["group_name"] == "Peachtree Cardiology Associates"
     assert card["years_in_practice"] == datetime.date.today().year - 2005
@@ -575,3 +580,27 @@ def test_pos_label_drops_telehealth_on_procedural_codes():
     assert pos_label("office", "Imaging") == "Office"
     assert pos_label("office", None) == "Office / telehealth"
     assert pos_label("asc", "Imaging") == "Ambulatory surgery center"
+
+
+def test_quote_office_setting_label_follows_the_code_category(api):
+    # #29 end to end: the label comes through /rates/quote, so a route that
+    # stopped calling pos_label would fail here (the unit test above would not).
+    def settings(code, npi):
+        body = api.get("/rates/quote", params={"billing_code": code, "billing_code_type": "CPT",
+                                               "npi": npi, "network_name": BLUE_VALUE}).json()
+        return {s["pos_bucket"]: s["pos_label"] for c in body["components"] for s in c["settings"]}
+    assert settings("70450", SPECIALTY_NPI["radiologist"])["office"] == "Office"  # Imaging
+    assert settings("99213", SPECIALTY_NPI["cardiologist"])["office"] == "Office / telehealth"
+
+
+def test_quote_without_a_category_keeps_the_legacy_office_label(api):
+    # Negative case: 12002 (a wound repair, so really a procedure) is priced for the
+    # NP but has no RBCS label, hence no category. The label falls back to the
+    # category-less text instead of failing the quote. Pins today's behaviour; see PR #134.
+    r = api.get("/rates/quote", params={"billing_code": "12002", "billing_code_type": "CPT",
+                                        "npi": SPECIALTY_NPI["nurse_practitioner"],
+                                        "network_name": BLUE_VALUE})
+    assert r.status_code == 200
+    labels = {s["pos_label"] for c in r.json()["components"] for s in c["settings"]
+              if s["pos_bucket"] == "office"}
+    assert labels == {"Office / telehealth"}
