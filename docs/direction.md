@@ -29,6 +29,10 @@ Already on a plan → pick a procedure or a need → a ranked list **and map** o
 providers/facilities, blending **price on their plan**, **quality / volume**, and
 **distance**.
 
+- **Exploring:** "find the cheapest care near me" as the lead experience: a service
+  and an address or ZIP give a table of providers and rates, supplemented by a map.
+  The frontend-only mock at `/mock/find-care` is where this gets decided
+  ([plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460)).
 - Anchored on one network (theirs).
 - Needs: geocoding, CMS quality (hospital + clinician), inpatient volume.
 - **Closest to shippable** — rates exist; the rest is cheap public data.
@@ -161,6 +165,18 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 | **QHP provider & formulary machine-readable JSON** (CMS schema, ≠ TiC) | per-plan in-network NPI roster + drug formulary | free | med — directory accuracy is poor, but it's the only machine-readable roster |
 | **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs + `index_files.hios_issuer_ids`) | *derives* plan-name → network, retires the hand-curated `serving/plan_networks.json` | free | med |
 | CMS Marketplace Open Enrollment PUFs | enrollment by plan / metal / county | free | low — secondary |
+
+### Other pricing inputs
+
+Turquoise Health's "Clear Rates" diagram lists six pricing inputs: payer MRFs, hospital MRFs, claims, Medicare, references and contracts.
+We use payer MRFs (Anthem only), Medicare and references today.
+Hospital MRFs are probably unavoidable for real facility prices, but they come later.
+
+| Source | Adds | Cost | Effort |
+|---|---|---|---|
+| **Hospital MRFs** (hospital price transparency rule) | each hospital's own negotiated facility prices, in place of the Medicare estimate on the imaging screen | free (mandated) | high: every hospital publishes its own file |
+| Claims | what was actually paid, not only what was negotiated | licensed | high |
+| Contracts | the agreements behind the rates | private | no known route to this data |
 
 ### Geography (and the Google Maps question)
 

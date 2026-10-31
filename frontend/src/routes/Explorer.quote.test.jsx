@@ -294,7 +294,7 @@ describe('Medicare utilization evidence (issue #14)', () => {
 
   it('collapses group-tier rates behind "show all" and expands on click', async () => {
     const user = userEvent.setup();
-    api.getProviderMenu.mockImplementation((npi, net, setting, q = '', tier = 'plausible') => {
+    api.getProviderMenu.mockImplementation((npi, net, setting, q, tier = 'plausible') => {
       if (tier === 'all') return Promise.resolve({ data: {
         npi: 123, tier: 'all', group_count: 1, specialty: 'Cardiology', count: 2,
         results: [
