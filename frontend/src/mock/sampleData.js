@@ -2,7 +2,13 @@
 // comes from real data, and the names are made up so a sample price never sits next
 // to a real business.
 
-export const SAMPLE_PLAN = 'Blue Value HMO';
+// priceFactor stands in for each plan negotiating its own rates.
+export const PLANS = [
+  { id: 'blue-value', name: 'Blue Value HMO', carrier: 'Anthem', needsReferral: true, priceFactor: 1 },
+  { id: 'pathway', name: 'Pathway PCP Copay Choice', carrier: 'Anthem', needsReferral: false, priceFactor: 1.14 },
+  { id: 'hartwell-silver', name: 'Hartwell Silver PPO', carrier: 'Sample Health', needsReferral: false, priceFactor: 0.88 },
+  { id: 'hartwell-bronze', name: 'Hartwell Bronze HMO', carrier: 'Sample Health', needsReferral: true, priceFactor: 1.27 },
+];
 
 export const KIND_LABELS = {
   imaging: 'Imaging center',
@@ -27,6 +33,90 @@ export const SERVICES = [
   { id: 'blood-count', name: 'Complete blood count', group: 'Labs', basePrice: 22, kinds: ['lab', 'clinic', 'hospital'], keywords: 'cbc blood work' },
   { id: 'cholesterol-panel', name: 'Cholesterol panel', group: 'Labs', basePrice: 34, kinds: ['lab', 'clinic', 'hospital'], keywords: 'lipid blood work' },
 ];
+
+const SCAN_PARTS = [
+  { label: 'The scan', share: 0.82 },
+  { label: 'Radiologist’s reading', share: 0.18 },
+];
+const CONTRAST = 'Contrast dye, which makes it a different and pricier scan';
+const OUTSIDE_NETWORK = 'Someone outside your network taking part, such as whoever reads the scan. Federal law limits most of these bills.';
+const NOT_COVERED = 'Your plan not covering it, for example if a required approval was missed';
+const ASK_APPROVAL = 'Does my plan need to approve this first?';
+const ASK_ALL_IN = 'Is this everything, or will anyone else send me a separate bill?';
+const ASK_NETWORK = 'Is everyone involved in my network?';
+const ASK_EXACT = 'Is this the exact service my doctor ordered?';
+const SCAN_ASKS = [ASK_APPROVAL, ASK_ALL_IN, ASK_NETWORK, ASK_EXACT];
+
+// What the screen says about each service. Plain-language sample copy, which would
+// need a clinical review before anyone relied on it.
+export const SERVICE_DETAILS = {
+  'mri-lower-back': {
+    about: 'Uses magnets and radio waves to picture your lower spine, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.',
+    parts: SCAN_PARTS, hospitalFee: true, couldAdd: [CONTRAST, OUTSIDE_NETWORK, NOT_COVERED], asks: SCAN_ASKS,
+  },
+  'mri-knee': {
+    about: 'Uses magnets and radio waves to picture the bones, cartilage and ligaments in your knee, with no radiation. It usually takes 30 to 45 minutes. Tell them about any metal implants.',
+    parts: SCAN_PARTS, hospitalFee: true, couldAdd: [CONTRAST, OUTSIDE_NETWORK, NOT_COVERED], asks: SCAN_ASKS,
+  },
+  'mri-brain': {
+    about: 'Uses magnets and radio waves to picture your brain, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.',
+    parts: SCAN_PARTS, hospitalFee: true, couldAdd: [CONTRAST, OUTSIDE_NETWORK, NOT_COVERED], asks: SCAN_ASKS,
+  },
+  'ct-abdomen': {
+    about: 'Combines X-rays from many angles into detailed pictures of your abdomen and pelvis. The scan itself usually takes a few minutes, though the visit runs longer.',
+    parts: SCAN_PARTS, hospitalFee: true, couldAdd: [CONTRAST, OUTSIDE_NETWORK, NOT_COVERED], asks: SCAN_ASKS,
+  },
+  'chest-xray': {
+    about: 'A quick, low-dose X-ray of your heart and lungs. It usually takes about 15 minutes.',
+    parts: SCAN_PARTS, hospitalFee: true, couldAdd: [OUTSIDE_NETWORK, NOT_COVERED], asks: [ASK_ALL_IN, ASK_NETWORK, ASK_EXACT],
+  },
+  'abdominal-ultrasound': {
+    about: 'Uses sound waves to picture the organs in your abdomen, with no radiation. It usually takes about 30 minutes, and you may be asked not to eat beforehand.',
+    parts: SCAN_PARTS, hospitalFee: true, couldAdd: [OUTSIDE_NETWORK, NOT_COVERED], asks: SCAN_ASKS,
+  },
+  mammogram: {
+    about: 'A low-dose X-ray that screens for breast cancer. It usually takes about 20 minutes.',
+    preventive: 'Screening mammograms are usually $0 in network because they count as preventive care. The most you would pay matters if yours is billed as diagnostic.',
+    parts: SCAN_PARTS, hospitalFee: true, couldAdd: ['Being billed as diagnostic rather than screening', OUTSIDE_NETWORK], asks: [ASK_ALL_IN, ASK_NETWORK, 'Will this be billed as a screening?'],
+  },
+  colonoscopy: {
+    about: 'A doctor checks your colon with a thin camera while you are sedated. Plan for most of a day, including prep the day before and a ride home.',
+    preventive: 'A screening colonoscopy is usually $0 in network because it counts as preventive care. One done to look into symptoms usually is not.',
+    parts: [
+      { label: 'Facility fee', share: 0.5 },
+      { label: 'The doctor', share: 0.3 },
+      { label: 'Anesthesia', share: 0.15 },
+      { label: 'Lab work on any samples', share: 0.05 },
+    ],
+    couldAdd: ['Being billed as diagnostic rather than screening', OUTSIDE_NETWORK, NOT_COVERED],
+    asks: [ASK_APPROVAL, ASK_ALL_IN, 'Is the anesthesiologist in my network?', 'Will this be billed as a screening?'],
+  },
+  'primary-care-visit': {
+    about: 'A first visit to get to know a primary care doctor and go over your health history. Expect about 30 to 60 minutes.',
+    noReferral: true,
+    parts: [{ label: 'The visit', share: 1 }],
+    couldAdd: ['Tests or shots ordered during the visit', NOT_COVERED],
+    asks: ['Are you taking new patients on my plan?', 'Could anything today be billed separately?'],
+  },
+  'pt-evaluation': {
+    about: 'A first session where a physical therapist assesses how you move and sets a treatment plan. Expect about an hour.',
+    parts: [{ label: 'The evaluation', share: 1 }],
+    couldAdd: ['Follow-up sessions, which are billed separately', NOT_COVERED],
+    asks: [ASK_APPROVAL, 'How many follow-up sessions should I expect?', 'How many sessions does my plan cover each year?'],
+  },
+  'blood-count': {
+    about: 'A common blood test that measures your red cells, white cells and platelets. The draw takes a few minutes, and no fasting is usually needed.',
+    parts: [{ label: 'The test', share: 1 }],
+    couldAdd: ['Other tests ordered at the same draw', 'A separate fee for drawing the blood'],
+    asks: ['Is there a separate fee for the draw?', 'Is the lab that runs this in my network?'],
+  },
+  'cholesterol-panel': {
+    about: 'A blood test that measures your cholesterol and triglycerides. The draw takes a few minutes, and you may be asked to fast beforehand.',
+    parts: [{ label: 'The test', share: 1 }],
+    couldAdd: ['Other tests ordered at the same draw', 'A separate fee for drawing the blood'],
+    asks: ['Is there a separate fee for the draw?', 'Is the lab that runs this in my network?'],
+  },
+};
 
 const HOURS_BY_KIND = {
   imaging: 'Mon to Sat, 7am to 7pm',

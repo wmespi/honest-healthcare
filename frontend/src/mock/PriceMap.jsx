@@ -142,5 +142,6 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
     }
   }, [map, results, selectedId]);
 
-  return <div ref={containerRef} className="size-full" />;
+  // `isolate` keeps pin z-indexes inside the map, so they can't show through the header's lists.
+  return <div ref={containerRef} className="isolate size-full" />;
 }

@@ -1,7 +1,10 @@
-import { KIND_LABELS, PLACES, PROVIDERS, SAMPLE_ADDRESSES, SERVICES } from './sampleData';
+import { KIND_LABELS, PLACES, PLANS, PROVIDERS, SAMPLE_ADDRESSES, SERVICES, SERVICE_DETAILS } from './sampleData';
 
 export const RADIUS_OPTIONS = [5, 10, 25, 50];
 
+const ENOUGH_CHOICES = 5;
+const HOSPITAL_FEE_SHARE = 0.45;
+const MEDICARE_SHARE_OF_BASE = 0.4;
 const EARTH_RADIUS_MI = 3958.8;
 const toRadians = (degrees) => (degrees * Math.PI) / 180;
 
@@ -14,6 +17,7 @@ export function distanceMiles(a, b) {
 }
 
 const normalize = (text) => text.trim().toLowerCase();
+const roundedMiles = (origin, provider) => Math.round(distanceMiles(origin, provider) * 10) / 10;
 
 // Stands in for a geocoder: a known ZIP anywhere in the text, or a place name.
 export function resolveLocation(text) {
@@ -46,6 +50,24 @@ export function suggestServices(text) {
     .map((s) => ({ id: s.id, label: s.name, hint: s.group }));
 }
 
+export function suggestPlans(text) {
+  const query = normalize(text ?? '');
+  return PLANS
+    .filter((p) => normalize(`${p.name} ${p.carrier}`).includes(query))
+    .map((p) => ({ id: p.id, label: p.name, hint: p.carrier }));
+}
+
+// Opens on the tightest area with real choices, so a dense neighborhood stays local
+// and a suburb still gets an answer.
+export function defaultRadius({ serviceId, origin }) {
+  const service = SERVICES.find((s) => s.id === serviceId);
+  const distances = PROVIDERS
+    .filter((p) => service.kinds.includes(p.kind))
+    .map((p) => roundedMiles(origin, p));
+  return RADIUS_OPTIONS.find((radius) => distances.filter((d) => d <= radius).length >= ENOUGH_CHOICES)
+    ?? RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1];
+}
+
 // A small, stable wobble so two providers at the same priceLevel don't tie.
 function wobble(key) {
   let hash = 0;
@@ -58,49 +80,74 @@ function median(sorted) {
   return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
+// The separate charges behind a price. They always add up to the price exactly.
+function priceParts(details, kind, price) {
+  const parts = kind === 'hospital' && details.hospitalFee
+    ? [
+      { label: 'Hospital facility fee', share: HOSPITAL_FEE_SHARE },
+      ...details.parts.map((p) => ({ ...p, share: p.share * (1 - HOSPITAL_FEE_SHARE) })),
+    ]
+    : details.parts;
+  let remaining = price;
+  return parts.map((part, index) => {
+    const amount = index === parts.length - 1 ? remaining : Math.round(price * part.share);
+    remaining -= amount;
+    return { label: part.label, amount };
+  });
+}
+
 const SORTS = {
   price: (a, b) => a.price - b.price || a.distanceMi - b.distanceMi,
   distance: (a, b) => a.distanceMi - b.distanceMi || a.price - b.price,
 };
 
 // The response this mock wants from a future API: one row per provider for one
-// service near one place, with the comparisons the screen shows already worked out.
-export function findCare({ serviceId, origin, radiusMi, sort = 'price' }) {
+// service, plan and place, with the comparisons the screen shows already worked out.
+export function findCare({ serviceId, planId, origin, radiusMi, sort = 'price' }) {
   const service = SERVICES.find((s) => s.id === serviceId);
+  const plan = PLANS.find((p) => p.id === planId);
+  const details = SERVICE_DETAILS[serviceId];
+  const medicareRate = Math.round(service.basePrice * MEDICARE_SHARE_OF_BASE);
+
   const offering = PROVIDERS
     .filter((p) => service.kinds.includes(p.kind))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      kindLabel: KIND_LABELS[p.kind],
-      neighborhood: p.neighborhood,
-      address: p.address,
-      phone: p.phone,
-      hours: p.hours,
-      lat: p.lat,
-      lon: p.lon,
-      price: Math.max(1, Math.round(service.basePrice * p.priceLevel * wobble(p.id + service.id))),
-      distanceMi: Math.round(distanceMiles(origin, p) * 10) / 10,
-    }));
+    .map((p) => {
+      const scaled = service.basePrice * p.priceLevel * plan.priceFactor * wobble(p.id + service.id + plan.id);
+      const price = Math.max(1, Math.round(scaled));
+      return {
+        id: p.id,
+        name: p.name,
+        kindLabel: KIND_LABELS[p.kind],
+        neighborhood: p.neighborhood,
+        address: p.address,
+        phone: p.phone,
+        hours: p.hours,
+        lat: p.lat,
+        lon: p.lon,
+        price,
+        parts: priceParts(details, p.kind, price),
+        distanceMi: roundedMiles(origin, p),
+      };
+    });
 
   const nearby = offering.filter((p) => p.distanceMi <= radiusMi);
   if (nearby.length === 0) {
     const closest = [...offering].sort(SORTS.distance)[0];
     const widerRadiusMi = RADIUS_OPTIONS.find((r) => closest.distanceMi <= r) ?? null;
-    return { results: [], cheapest: null, typicalPrice: null, closestOutside: closest, widerRadiusMi };
+    return { results: [], cheapest: null, medianPrice: null, medicareRate, closestOutside: closest, widerRadiusMi };
   }
 
-  const typicalPrice = median(nearby.map((p) => p.price).sort((a, b) => a - b));
+  const medianPrice = median(nearby.map((p) => p.price).sort((a, b) => a - b));
   const cheapest = [...nearby].sort(SORTS.price)[0];
   const closest = [...nearby].sort(SORTS.distance)[0];
   const results = nearby
     .map((p) => ({
       ...p,
-      priceVsTypical: p.price - typicalPrice,
+      priceVsMedian: p.price - medianPrice,
       isCheapest: p.id === cheapest.id,
       isClosest: p.id === closest.id,
     }))
     .sort(SORTS[sort]);
 
-  return { results, cheapest, typicalPrice, closestOutside: null, widerRadiusMi: null };
+  return { results, cheapest, medianPrice, medicareRate, closestOutside: null, widerRadiusMi: null };
 }

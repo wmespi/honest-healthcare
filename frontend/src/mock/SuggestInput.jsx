@@ -3,7 +3,7 @@ import { clsx } from 'clsx';
 
 // A text field with a pick list, used for both the service and the location.
 export function SuggestInput({
-  label, hideLabel, icon, placeholder, text, options, invalid,
+  label, hideLabel, icon, placeholder, text, options, invalid, className, listClassName,
   onTextChange, onPick, onEnter, onBlur,
 }) {
   const Icon = icon;
@@ -48,7 +48,7 @@ export function SuggestInput({
   };
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className={clsx('relative min-w-0 flex-1', className)}>
       <label
         htmlFor={id}
         className={hideLabel ? 'sr-only' : 'mb-1.5 block text-sm font-medium text-slate-700'}
@@ -95,7 +95,10 @@ export function SuggestInput({
           role="listbox"
           aria-label={label}
           onMouseDown={(event) => event.preventDefault()}
-          className="absolute left-0 right-0 top-full z-30 mt-1.5 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl shadow-slate-900/10"
+          className={clsx(
+            'absolute top-full z-30 mt-1.5 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl shadow-slate-900/10',
+            listClassName ? `left-0 right-0 ${listClassName}` : 'left-0 right-0',
+          )}
         >
           {options.map((option, index) => (
             <li
