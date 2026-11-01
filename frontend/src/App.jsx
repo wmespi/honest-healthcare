@@ -1,7 +1,10 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Explorer } from './routes/Explorer';
 import { Landing } from './components/Landing';
 import { ImagingFinder } from './routes/ImagingFinder';
+
+const FindCareMock = lazy(() => import('./mock/FindCareMock'));
 
 // Routes (#87): "/" leads with the task, "/find-care" is that task locked
 // to the PCP service line (#83), "/find-care/imaging" prices a scan, "/explore" is the pre-existing general flow —
@@ -16,6 +19,7 @@ export default function App() {
         <Route path="/find-care/imaging" element={<ImagingFinder />} />
         <Route path="/find-care/pcp" element={<Navigate to="/find-care" replace />} />
         <Route path="/explore" element={<Explorer />} />
+        <Route path="/mock/find-care" element={<Suspense fallback={null}><FindCareMock /></Suspense>} />
         <Route path="*" element={<Landing />} />
       </Routes>
     </BrowserRouter>
