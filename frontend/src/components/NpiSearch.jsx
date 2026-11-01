@@ -12,11 +12,10 @@ import { ProviderRow } from './ProviderRow';
 export function NpiSearch({ selectedNpi, onSelect, network, label }) {
   const [query, setQuery] = useState('');
   const [selectedLabel, setSelectedLabel] = useState('');
-  const [matches, setMatches] = useState([]);
+  const [providers, setProviders] = useState([]);
   const [open, setOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const ref = useRef(null);
-  const providers = isFocused && query.length > 0 ? matches : [];
 
   useEffect(() => {
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -25,10 +24,10 @@ export function NpiSearch({ selectedNpi, onSelect, network, label }) {
   }, []);
 
   useEffect(() => {
-    if (!isFocused || query.length === 0) return;
+    if (!isFocused || query.length === 0) { setProviders([]); return; }
     const t = setTimeout(() => {
       searchProviders(query, undefined, undefined, network || undefined)
-        .then(r => { setMatches(r.data); setOpen(true); }).catch(() => {});
+        .then(r => { setProviders(r.data); setOpen(true); }).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
   }, [query, isFocused, network]);
