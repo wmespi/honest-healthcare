@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi } from 'vitest';
 import App from '../App';
 import FindCareMock from './FindCareMock';
+import { LOCATIONS } from './sampleData';
 
 // MapLibre needs WebGL, which jsdom doesn't have.
 vi.mock('./PriceMap', () => ({ PriceMap: () => null }));
@@ -21,7 +22,7 @@ const rowNames = () => within(screen.getByRole('table'))
 const headline = () => screen.getByRole('heading', { level: 1 }).textContent;
 
 async function fillStartCard(user, { service, location, plan }) {
-  await user.click(screen.getByLabelText('What do you need?'));
+  await user.click(screen.getByLabelText('What scan do you need?'));
   await user.click(screen.getByRole('option', { name: service }));
   await user.type(screen.getByLabelText('Where are you?'), location);
   if (plan) {
@@ -39,7 +40,7 @@ describe('find care mock', () => {
     expect(screen.getByText('Sample data')).toBeInTheDocument();
   });
 
-  it('goes from a service, a ZIP and a plan to the lowest ceiling and a table', async () => {
+  it('goes from a scan, a ZIP and a plan to the lowest ceiling and a table', async () => {
     const user = userEvent.setup();
     open();
     await fillStartCard(user, { service: /MRI of the lower back/, location: '30306', plan: /Blue Value HMO/ });
@@ -52,7 +53,7 @@ describe('find care mock', () => {
   it('asks for a plan, because prices depend on it', async () => {
     const user = userEvent.setup();
     open();
-    await fillStartCard(user, { service: /Colonoscopy/, location: '30306' });
+    await fillStartCard(user, { service: /CT of the abdomen/, location: '30306' });
     expect(screen.getByRole('alert')).toHaveTextContent(/your plan/);
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
@@ -60,7 +61,7 @@ describe('find care mock', () => {
   it('asks for a place it can find, and stays on the start card', async () => {
     const user = userEvent.setup();
     open();
-    await fillStartCard(user, { service: /Colonoscopy/, location: '90210', plan: /Blue Value HMO/ });
+    await fillStartCard(user, { service: /CT of the abdomen/, location: '90210', plan: /Blue Value HMO/ });
     expect(screen.getByRole('alert')).toHaveTextContent(/metro Atlanta/);
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
@@ -119,7 +120,7 @@ describe('find care mock', () => {
     expect(screen.getByRole('columnheader', { name: /Distance/ })).toHaveAttribute('aria-sort', 'ascending');
   });
 
-  it('shows more providers within a wider radius', async () => {
+  it('shows more places within a wider radius', async () => {
     const user = userEvent.setup();
     open(MRI);
     const before = rowNames().length;
@@ -128,7 +129,7 @@ describe('find care mock', () => {
     expect(screen.getByText('Cheapest within 25 miles')).toBeInTheDocument();
   });
 
-  it('opens a provider to show what makes up the price and how to reach them', async () => {
+  it('opens a place to show what makes up the price and how to reach it', async () => {
     const user = userEvent.setup();
     open(MRI);
     await user.click(screen.getByRole('button', { name: 'Beltline Imaging' }));
@@ -136,6 +137,72 @@ describe('find care mock', () => {
     expect(screen.getByText('Radiologist’s reading')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Directions/ })).toBeInTheDocument();
     expect(screen.getByText(/310 Krog St NE/)).toBeInTheDocument();
+  });
+
+  it('shows the range only at a place with more than one rate', async () => {
+    const user = userEvent.setup();
+    open(MRI);
+    await user.click(screen.getByRole('button', { name: 'Beltline Imaging' }));
+    expect(screen.queryByText('Rates on file here')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clearpath Radiology' }));
+    expect(screen.getByText('Rates on file here')).toBeInTheDocument();
+    expect(screen.getByText('Lowest')).toBeInTheDocument();
+    expect(screen.getByText('Highest')).toBeInTheDocument();
+    expect(screen.getByText(/Clearpath Radiology and Midtown Radiology Partners bill here/)).toBeInTheDocument();
+  });
+
+  it('lists the doctors at a place, and says what the score is', async () => {
+    const user = userEvent.setup();
+    open(MRI);
+    await user.click(screen.getByRole('button', { name: 'Beltline Imaging' }));
+    const { doctors } = LOCATIONS.find((l) => l.id === 'img-beltline');
+    for (const doctor of doctors) expect(screen.getByText(doctor.name)).toBeInTheDocument();
+    expect(screen.getByText(/isn’t a patient review/)).toBeInTheDocument();
+    expect(screen.queryByText(/Medicare hospital rating/)).not.toBeInTheDocument();
+  });
+
+  it('shortens a long doctor list, and gives a hospital its rating', async () => {
+    const user = userEvent.setup();
+    open(MRI);
+    await user.click(screen.getByRole('button', { name: 'Ponce Street Medical Center' }));
+    expect(screen.getByText('Medicare hospital rating: 4 of 5 stars')).toBeInTheDocument();
+
+    const { doctors } = LOCATIONS.find((l) => l.id === 'hos-ponce');
+    const last = doctors[doctors.length - 1].name;
+    expect(screen.queryByText(last)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: `Show all ${doctors.length} doctors` }));
+    expect(screen.getByText(last)).toBeInTheDocument();
+  });
+
+  it('finds a place by a doctor who works there', async () => {
+    const user = userEvent.setup();
+    open(MRI);
+    const { doctors } = LOCATIONS.find((l) => l.id === 'img-beltline');
+    await user.type(screen.getByRole('searchbox', { name: 'Find a place or doctor' }), doctors[1].name);
+    expect(rowNames()).toEqual(['Beltline Imaging']);
+    expect(screen.getByText(`${doctors[1].name} works here`)).toBeInTheDocument();
+    expect(screen.getByText(/^1 of \d+ places?$/)).toBeInTheDocument();
+  });
+
+  it('says when no place or doctor matches', async () => {
+    const user = userEvent.setup();
+    open(MRI);
+    await user.type(screen.getByRole('searchbox', { name: 'Find a place or doctor' }), 'nobody');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByText(/matches “nobody”/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+  });
+
+  it('includes an orthopedic practice for a knee scan, but not a back scan', () => {
+    const knee = open('?service=knee-xray&loc=30306&plan=blue-value&r=10');
+    expect(rowNames()).toContain('Howell Mill Orthopedics');
+    knee.unmount();
+    open(`${MRI}&r=10`);
+    expect(rowNames()).not.toContain('Howell Mill Orthopedics');
   });
 
   it('explains the service, with referral advice only on an HMO', async () => {
@@ -158,9 +225,9 @@ describe('find care mock', () => {
 
   it('offers a wider search when nothing is nearby', async () => {
     const user = userEvent.setup();
-    open('?service=colonoscopy&loc=30096&plan=blue-value&r=5');
+    open('?service=mri-lower-back&loc=30114&plan=blue-value&r=5');
     expect(screen.getByText('Nothing within 5 miles')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Show within 10 miles' }));
+    await user.click(screen.getByRole('button', { name: 'Show within 25 miles' }));
     expect(screen.getByRole('table')).toBeInTheDocument();
   });
 });

@@ -20,7 +20,7 @@ export function SearchFields({ serviceId, location, planId, compact, onSearch })
 
   const submit = (nextService, place, nextPlan) => {
     if (!nextService) {
-      setError({ field: 'service', message: 'Pick a service from the list.' });
+      setError({ field: 'service', message: 'Pick a scan from the list.' });
     } else if (!resolveLocation(place)) {
       setError({ field: 'location', message: LOCATION_ERROR });
     } else if (!nextPlan) {
@@ -35,10 +35,10 @@ export function SearchFields({ serviceId, location, planId, compact, onSearch })
     <>
       <SuggestInput
         className="col-span-2"
-        label="What do you need?"
+        label="What scan do you need?"
         hideLabel={compact}
         icon={Search}
-        placeholder="MRI, colonoscopy, blood work..."
+        placeholder="MRI, CT, X-ray..."
         text={serviceText}
         options={suggestServices(serviceText === service?.name ? '' : serviceText)}
         invalid={error?.field === 'service'}

@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { clsx } from 'clsx';
 import { ArrowDown, Navigation, Phone } from 'lucide-react';
 import { miles, money } from './format';
+
+const DOCTORS_SHOWN = 4;
 
 function SortHeader({ label, shortLabel, sortKey, sort, onSort, className }) {
   const active = sort === sortKey;
@@ -67,7 +69,64 @@ function Breakdown({ parts, total }) {
   );
 }
 
-function ProviderRow({ provider, selected, highlighted, layoutKey, onSelect, onHover }) {
+// Only for a place with more than one rate, since one rate has nothing to compare.
+function RatesHere({ location }) {
+  const rates = [['Lowest', location.minRate], ['Median', location.medianRate], ['Highest', location.maxRate]];
+  return (
+    <div>
+      <h3 className="text-[13px] font-semibold text-slate-900">Rates on file here</h3>
+      <dl className="mt-1.5 grid grid-cols-3 gap-2">
+        {rates.map(([label, amount]) => (
+          <div key={label}>
+            <dt className="text-[13px] leading-5 text-slate-500">{label}</dt>
+            <dd className="text-sm font-semibold leading-6 tabular-nums text-slate-900">{money(amount)}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-1.5 text-pretty text-[13px] leading-5 text-slate-600">
+        Your plan lists more than one rate here without saying which applies, so ask which you&rsquo;d get.
+        {location.billers.length > 1 && <> {new Intl.ListFormat('en').format(location.billers)} bill here.</>}
+      </p>
+    </div>
+  );
+}
+
+function DoctorsHere({ doctors }) {
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? doctors : doctors.slice(0, DOCTORS_SHOWN);
+  return (
+    <div className="border-t border-emerald-900/10 pt-3">
+      <h3 className="text-[13px] font-semibold text-slate-900">Doctors here</h3>
+      <ul className="mt-1.5 space-y-1.5">
+        {shown.map((doctor) => (
+          <li key={doctor.name} className="flex items-baseline justify-between gap-3 text-sm leading-5">
+            <div className="min-w-0">
+              <div className="truncate text-slate-900">{doctor.name}</div>
+              <div className="truncate text-[13px] text-slate-500">{doctor.specialty}</div>
+            </div>
+            <div className="shrink-0 text-[13px] tabular-nums text-slate-600">
+              {doctor.score === null ? 'No score' : `Score ${doctor.score}`}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {doctors.length > shown.length && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="mt-2 rounded text-[13px] font-medium text-emerald-800 hover:text-emerald-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+        >
+          Show all {doctors.length} doctors
+        </button>
+      )}
+      <p className="mt-2 text-pretty text-[13px] leading-5 text-slate-500">
+        Score is Medicare&rsquo;s clinician quality score, out of 100. It isn&rsquo;t a patient review.
+      </p>
+    </div>
+  );
+}
+
+function LocationRow({ location, selected, highlighted, layoutKey, onSelect, onHover }) {
   const rowRef = useRef(null);
 
   // Picking a pin on the map brings its row into view.
@@ -75,7 +134,7 @@ function ProviderRow({ provider, selected, highlighted, layoutKey, onSelect, onH
     if (selected) rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
   }, [selected]);
 
-  const directions = `https://www.google.com/maps/dir/?api=1&destination=${provider.lat},${provider.lon}`;
+  const directions = `https://www.google.com/maps/dir/?api=1&destination=${location.lat},${location.lon}`;
 
   return (
     <>
@@ -84,8 +143,8 @@ function ProviderRow({ provider, selected, highlighted, layoutKey, onSelect, onH
         layout="position"
         layoutDependency={layoutKey}
         transition={{ duration: 0.25, ease: 'easeOut' }}
-        onClick={() => onSelect(provider.id)}
-        onMouseEnter={() => onHover(provider.id)}
+        onClick={() => onSelect(location.id)}
+        onMouseEnter={() => onHover(location.id)}
         onMouseLeave={() => onHover(null)}
         className={clsx(
           'cursor-pointer scroll-mt-10 border-b border-slate-100 transition-colors',
@@ -99,22 +158,25 @@ function ProviderRow({ provider, selected, highlighted, layoutKey, onSelect, onH
               aria-expanded={selected}
               className="rounded text-left text-[15px] font-semibold text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
             >
-              {provider.name}
+              {location.name}
             </button>
-            {provider.isCheapest && <Badge tone="cheapest">Cheapest</Badge>}
-            {provider.isClosest && <Badge tone="closest">Closest</Badge>}
+            {location.isCheapest && <Badge tone="cheapest">Cheapest</Badge>}
+            {location.isClosest && <Badge tone="closest">Closest</Badge>}
           </div>
           <div className="mt-0.5 text-[13px] text-slate-500">
-            {provider.kindLabel}, {provider.neighborhood}
+            {location.kindLabel}, {location.neighborhood}
           </div>
+          {location.matchedDoctor && (
+            <div className="mt-0.5 text-[13px] font-medium text-emerald-800">{location.matchedDoctor} works here</div>
+          )}
         </td>
         <td className="whitespace-nowrap px-2 py-3.5 text-right align-top text-[15px] tabular-nums text-slate-700 sm:px-4">
-          {miles(provider.distanceMi)}
+          {miles(location.distanceMi)}
         </td>
         <td className="whitespace-nowrap py-3.5 pl-2 pr-4 text-right align-top sm:pr-6">
-          <div className="text-[17px] font-semibold leading-6 tabular-nums text-slate-900">{money(provider.price)}</div>
+          <div className="text-[17px] font-semibold leading-6 tabular-nums text-slate-900">{money(location.maxRate)}</div>
           <div className="mt-0.5 hidden text-[13px] tabular-nums sm:block">
-            <PriceComparison difference={provider.priceVsMedian} />
+            <PriceComparison difference={location.maxVsMedian} />
           </div>
         </td>
       </motion.tr>
@@ -129,30 +191,37 @@ function ProviderRow({ provider, selected, highlighted, layoutKey, onSelect, onH
                 transition={{ duration: 0.18, ease: 'easeOut' }}
                 className="overflow-hidden"
               >
-                <div className={clsx('grid gap-4 px-4 pb-4 sm:px-6', provider.parts.length > 1 && 'sm:grid-cols-2 sm:gap-8')}>
-                  {provider.parts.length > 1 && <Breakdown parts={provider.parts} total={provider.price} />}
-                  <div className="flex flex-col gap-3">
-                    <div className="text-sm leading-6 text-slate-600">
-                      <div>{provider.address}</div>
-                      <div>{provider.hours}</div>
+                <div className="px-4 pb-4 sm:px-6">
+                  <div className="grid gap-4 sm:grid-cols-2 sm:gap-8">
+                    <div className="space-y-4">
+                      <Breakdown parts={location.parts} total={location.maxRate} />
+                      {location.minRate !== location.maxRate && <RatesHere location={location} />}
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                    <a
-                      href={directions}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(event) => event.stopPropagation()}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-sm font-medium text-white transition-colors hover:bg-slate-700"
-                    >
-                      <Navigation size={14} aria-hidden="true" /> Directions
-                    </a>
-                    <a
-                      href={`tel:${provider.phone.replace(/\D/g, '')}`}
-                      onClick={(event) => event.stopPropagation()}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium tabular-nums text-slate-800 transition-colors hover:bg-slate-50"
-                    >
-                      <Phone size={14} aria-hidden="true" /> {provider.phone}
-                    </a>
+                    <div className="flex flex-col gap-3">
+                      <div className="text-sm leading-6 text-slate-600">
+                        <div>{location.address}</div>
+                        <div>{location.hours}</div>
+                        {location.stars !== null && <div>Medicare hospital rating: {location.stars} of 5 stars</div>}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={directions}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-sm font-medium text-white transition-colors hover:bg-slate-700"
+                        >
+                          <Navigation size={14} aria-hidden="true" /> Directions
+                        </a>
+                        <a
+                          href={`tel:${location.phone.replace(/\D/g, '')}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium tabular-nums text-slate-800 transition-colors hover:bg-slate-50"
+                        >
+                          <Phone size={14} aria-hidden="true" /> {location.phone}
+                        </a>
+                      </div>
+                      <DoctorsHere doctors={location.doctors} />
                     </div>
                   </div>
                 </div>
@@ -167,21 +236,27 @@ function ProviderRow({ provider, selected, highlighted, layoutKey, onSelect, onH
 
 export function ResultsTable({ results, sort, layoutKey, selectedId, highlightId, onSort, onSelect, onHover }) {
   return (
-    <table className="w-full border-separate border-spacing-0 text-left">
+    <table className="w-full table-fixed border-separate border-spacing-0 text-left">
+      {/* Fixed widths, so opening a row or narrowing the list can't move the columns. */}
+      <colgroup>
+        <col />
+        <col className="w-[88px] sm:w-28" />
+        <col className="w-[92px] sm:w-44" />
+      </colgroup>
       <thead className="sticky top-0 z-10 bg-white text-[13px] text-slate-500 shadow-[inset_0_-1px_0_var(--color-slate-200)]">
         <tr>
-          <th scope="col" className="py-2.5 pl-4 pr-2 font-medium sm:pl-6">Provider</th>
+          <th scope="col" className="py-2.5 pl-4 pr-2 font-medium sm:pl-6">Place</th>
           <SortHeader label="Distance" sortKey="distance" sort={sort} onSort={onSort} className="px-2 sm:px-4" />
           <SortHeader label="Most you’d pay" shortLabel="Max" sortKey="price" sort={sort} onSort={onSort} className="pl-2 pr-4 sm:pr-6" />
         </tr>
       </thead>
       <tbody>
-        {results.map((provider) => (
-          <ProviderRow
-            key={provider.id}
-            provider={provider}
-            selected={provider.id === selectedId}
-            highlighted={provider.id === highlightId}
+        {results.map((location) => (
+          <LocationRow
+            key={location.id}
+            location={location}
+            selected={location.id === selectedId}
+            highlighted={location.id === highlightId}
             layoutKey={layoutKey}
             onSelect={onSelect}
             onHover={onHover}

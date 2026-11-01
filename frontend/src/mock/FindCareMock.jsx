@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MotionConfig, motion } from 'framer-motion';
 import { clsx } from 'clsx';
+import { Search, X } from 'lucide-react';
 import { AboutService } from './AboutService';
 import { PriceMap } from './PriceMap';
 import { ResultsTable } from './ResultsTable';
 import { SearchFields } from './SearchFields';
 import { PLANS, SERVICES, SERVICE_DETAILS } from './sampleData';
-import { RADIUS_OPTIONS, defaultRadius, findCare, resolveLocation } from './search';
+import { RADIUS_OPTIONS, defaultRadius, filterResults, findCare, resolveLocation } from './search';
 import { miles, money } from './format';
 
 function Brand() {
@@ -17,7 +18,7 @@ function Brand() {
 function SampleDataTag() {
   return (
     <span
-      title="The practices and prices on this page are made up."
+      title="The places, doctors and prices on this page are made up."
       className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900"
     >
       Sample data
@@ -51,21 +52,47 @@ function RadiusPicker({ radiusMi, onChange }) {
 }
 
 function RateExplainer({ plan }) {
-  return <>This is the rate {plan.name} negotiated. Depending on your deductible and coinsurance, you may pay less.</>;
+  return <>Each price is the highest rate {plan.name} negotiated at that place. Depending on your deductible and coinsurance, you may pay less.</>;
+}
+
+function ResultFilter({ text, onChange }) {
+  return (
+    <div className="relative order-last w-full sm:order-none sm:w-auto sm:min-w-0 sm:max-w-56 sm:flex-1">
+      <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+      <input
+        type="search"
+        aria-label="Find a place or doctor"
+        value={text}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Find a place or doctor"
+        className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700 [&::-webkit-search-cancel-button]:appearance-none"
+      />
+      {text && (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => onChange('')}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 transition-colors hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-emerald-700"
+        >
+          <X size={14} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
 }
 
 // The straight answer, before any table: the lowest ceiling nearby, and what it's for.
 function Answer({ search, radiusMi, plan, preventive }) {
-  const { cheapest, medianPrice, medicareRate, results } = search;
+  const { cheapest, nearbyMedian, medicareRate, results } = search;
   return (
     <div className="px-4 pb-4 pt-5 sm:px-6">
       <p className="text-[13px] font-medium text-emerald-700">Cheapest within {radiusMi} miles</p>
       <h1 className="mt-1 text-balance text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px] sm:leading-9">
-        <span className="tabular-nums">{money(cheapest.price)}</span> is the most you&rsquo;d pay at {cheapest.name}
+        <span className="tabular-nums">{money(cheapest.maxRate)}</span> is the most you&rsquo;d pay at {cheapest.name}
       </h1>
       <p className="mt-1.5 text-[15px] text-slate-600">
         {miles(cheapest.distanceMi)} away.
-        {results.length > 1 && <> The median nearby is {money(medianPrice)}.</>}
+        {results.length > 1 && <> The median nearby is {money(nearbyMedian)}.</>}
         {' '}Medicare pays about {money(medicareRate)}.
       </p>
       <p className="mt-1 hidden text-pretty text-sm text-slate-500 sm:block">
@@ -83,7 +110,7 @@ function NothingNearby({ closest, radiusMi, widerRadiusMi, onWiden }) {
     <div className="px-4 py-10 sm:px-6">
       <h1 className="text-xl font-bold tracking-tight text-slate-900">Nothing within {radiusMi} miles</h1>
       <p className="mt-1 text-[15px] text-slate-600">
-        The closest is {closest.name}, {miles(closest.distanceMi)} away, where the most you&rsquo;d pay is {money(closest.price)}.
+        The closest is {closest.name}, {miles(closest.distanceMi)} away, where the most you&rsquo;d pay is {money(closest.maxRate)}.
       </p>
       {widerRadiusMi && (
         <button
@@ -102,6 +129,7 @@ export default function FindCareMock() {
   const [params, setParams] = useSearchParams();
   const [selectedId, setSelectedId] = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
+  const [filterText, setFilterText] = useState('');
 
   const serviceId = params.get('service');
   const location = params.get('loc');
@@ -123,6 +151,7 @@ export default function FindCareMock() {
     () => (hasSearch ? findCare({ serviceId, planId, origin, radiusMi, sort }) : null),
     [hasSearch, serviceId, planId, origin, radiusMi, sort],
   );
+  const shown = useMemo(() => filterResults(search?.results ?? [], filterText), [search, filterText]);
 
   const update = (changes) => {
     setParams((current) => {
@@ -136,6 +165,7 @@ export default function FindCareMock() {
   };
   const applySearch = ({ serviceId: nextService, location: nextLocation, planId: nextPlan }) => {
     setSelectedId(null);
+    setFilterText('');
     // A new service or place starts from its own default area, not the last one chosen.
     const sameArea = nextService === serviceId && nextLocation === location;
     update({ service: nextService, loc: nextLocation, plan: nextPlan, ...(sameArea ? {} : { r: null }) });
@@ -164,25 +194,33 @@ export default function FindCareMock() {
                   <AboutService serviceName={service.name} details={SERVICE_DETAILS[serviceId]} plan={plan} />
                   <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 sm:px-6">
                     <span className="text-[13px] text-slate-500">
-                      {search.results.length} {search.results.length === 1 ? 'provider' : 'providers'}
+                      {shown.length !== search.results.length && `${shown.length} of `}
+                      {search.results.length} {search.results.length === 1 ? 'place' : 'places'}
                       <span className="hidden sm:inline"> on your plan</span>
                     </span>
+                    <ResultFilter text={filterText} onChange={setFilterText} />
                     <RadiusPicker radiusMi={radiusMi} onChange={(r) => update({ r })} />
                   </div>
-                  <ResultsTable
-                    results={search.results}
-                    sort={sort}
-                    layoutKey={`${serviceId}|${location}|${planId}|${radiusMi}|${sort}`}
-                    selectedId={selectedId}
-                    highlightId={hoveredId}
-                    onSort={(nextSort) => update({ sort: nextSort })}
-                    onSelect={toggleSelected}
-                    onHover={setHoveredId}
-                  />
+                  {shown.length > 0 ? (
+                    <ResultsTable
+                      results={shown}
+                      sort={sort}
+                      layoutKey={`${serviceId}|${location}|${planId}|${radiusMi}|${sort}|${filterText}`}
+                      selectedId={selectedId}
+                      highlightId={hoveredId}
+                      onSort={(nextSort) => update({ sort: nextSort })}
+                      onSelect={toggleSelected}
+                      onHover={setHoveredId}
+                    />
+                  ) : (
+                    <p className="border-t border-slate-200 px-4 py-6 text-sm text-slate-600 sm:px-6">
+                      No place or doctor within {radiusMi} miles matches &ldquo;{filterText.trim()}&rdquo;.
+                    </p>
+                  )}
                   <div className="space-y-1 px-4 py-4 text-[13px] leading-5 text-slate-500 sm:px-6">
                     <p className="sm:hidden"><RateExplainer plan={plan} /></p>
-                    <p>Median is the middle price among the providers listed here, so it changes with your search.</p>
-                    <p>Medicare is what Medicare pays for the same service. It doesn&rsquo;t change with your search or your plan.</p>
+                    <p>Median is the middle of the prices listed here, so it changes with your search.</p>
+                    <p>Medicare is what Medicare pays for the same scan. It doesn&rsquo;t change with your search or your plan.</p>
                   </div>
                 </>
               ) : (
@@ -205,7 +243,7 @@ export default function FindCareMock() {
             <PriceMap
               origin={hasSearch ? origin : null}
               radiusMi={radiusMi}
-              results={search?.results ?? []}
+              results={shown}
               highlightId={hoveredId}
               selectedId={selectedId}
               onHover={setHoveredId}
@@ -225,7 +263,7 @@ export default function FindCareMock() {
                   Know the most you could pay before you go
                 </h1>
                 <p className="mb-6 mt-2 text-pretty text-[15px] text-slate-600">
-                  Compare what your plan has agreed with each provider near you, and find the cheapest.
+                  Compare what your plan has agreed with imaging centers and hospitals near you, and find the cheapest.
                 </p>
                 <SearchFields serviceId={serviceId} location={location} planId={planId} onSearch={applySearch} />
               </motion.div>

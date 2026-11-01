@@ -14,10 +14,10 @@ function NoteList({ title, items }) {
   );
 }
 
-// What a person should know about the service itself, whichever provider they pick.
+// What a person should know about the scan itself, whichever place they pick.
 export function AboutService({ serviceName, details, plan }) {
   const [open, setOpen] = useState(false);
-  const referral = plan.needsReferral && !details.noReferral
+  const referral = plan.needsReferral
     ? [`${plan.name} is an HMO, so you’ll likely need a referral from your primary care doctor.`]
     : [];
 

@@ -1,4 +1,4 @@
-import { KIND_LABELS, PLACES, PLANS, PROVIDERS, SAMPLE_ADDRESSES, SERVICES, SERVICE_DETAILS } from './sampleData';
+import { KIND_LABELS, LOCATIONS, PLANS, SAMPLE_ADDRESSES, SCAN_PARTS, SERVICES, ZIP_AREAS } from './sampleData';
 
 export const RADIUS_OPTIONS = [5, 10, 25, 50];
 
@@ -17,7 +17,7 @@ export function distanceMiles(a, b) {
 }
 
 const normalize = (text) => text.trim().toLowerCase();
-const roundedMiles = (origin, provider) => Math.round(distanceMiles(origin, provider) * 10) / 10;
+const roundedMiles = (origin, place) => Math.round(distanceMiles(origin, place) * 10) / 10;
 
 // Stands in for a geocoder: a known ZIP anywhere in the text, or a place name.
 export function resolveLocation(text) {
@@ -25,14 +25,14 @@ export function resolveLocation(text) {
   if (!query) return null;
   const zip = query.match(/\b\d{5}\b/)?.[0];
   const place = zip
-    ? PLACES.find((p) => p.zip === zip)
-    : PLACES.find((p) => normalize(p.name) === query);
+    ? ZIP_AREAS.find((p) => p.zip === zip)
+    : ZIP_AREAS.find((p) => normalize(p.name) === query);
   return place ? { lat: place.lat, lon: place.lon, placeName: place.name } : null;
 }
 
 export function suggestLocations(text) {
   const query = normalize(text ?? '');
-  const places = PLACES.map((p) => ({ id: p.zip, label: p.zip, hint: p.name }));
+  const places = ZIP_AREAS.map((p) => ({ id: p.zip, label: p.zip, hint: p.name }));
   const addresses = SAMPLE_ADDRESSES.map((a) => ({ id: a, label: a }));
   if (!query) return places.slice(0, 6);
   const options = [...places, ...addresses];
@@ -46,8 +46,8 @@ export function suggestLocations(text) {
 export function suggestServices(text) {
   const query = normalize(text ?? '');
   return SERVICES
-    .filter((s) => normalize(`${s.name} ${s.group} ${s.keywords}`).includes(query))
-    .map((s) => ({ id: s.id, label: s.name, hint: s.group }));
+    .filter((s) => normalize(`${s.name} ${s.keywords}`).includes(query))
+    .map((s) => ({ id: s.id, label: s.name }));
 }
 
 export function suggestPlans(text) {
@@ -61,14 +61,14 @@ export function suggestPlans(text) {
 // and a suburb still gets an answer.
 export function defaultRadius({ serviceId, origin }) {
   const service = SERVICES.find((s) => s.id === serviceId);
-  const distances = PROVIDERS
+  const distances = LOCATIONS
     .filter((p) => service.kinds.includes(p.kind))
     .map((p) => roundedMiles(origin, p));
   return RADIUS_OPTIONS.find((radius) => distances.filter((d) => d <= radius).length >= ENOUGH_CHOICES)
     ?? RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1];
 }
 
-// A small, stable wobble so two providers at the same priceLevel don't tie.
+// A small, stable wobble so two places at the same priceLevel don't tie.
 function wobble(key) {
   let hash = 0;
   for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) % 1000;
@@ -81,13 +81,13 @@ function median(sorted) {
 }
 
 // The separate charges behind a price. They always add up to the price exactly.
-function priceParts(details, kind, price) {
-  const parts = kind === 'hospital' && details.hospitalFee
+function priceParts(kind, price) {
+  const parts = kind === 'hospital'
     ? [
       { label: 'Hospital facility fee', share: HOSPITAL_FEE_SHARE },
-      ...details.parts.map((p) => ({ ...p, share: p.share * (1 - HOSPITAL_FEE_SHARE) })),
+      ...SCAN_PARTS.map((p) => ({ ...p, share: p.share * (1 - HOSPITAL_FEE_SHARE) })),
     ]
-    : details.parts;
+    : SCAN_PARTS;
   let remaining = price;
   return parts.map((part, index) => {
     const amount = index === parts.length - 1 ? remaining : Math.round(price * part.share);
@@ -97,23 +97,25 @@ function priceParts(details, kind, price) {
 }
 
 const SORTS = {
-  price: (a, b) => a.price - b.price || a.distanceMi - b.distanceMi,
-  distance: (a, b) => a.distanceMi - b.distanceMi || a.price - b.price,
+  price: (a, b) => a.maxRate - b.maxRate || a.distanceMi - b.distanceMi,
+  distance: (a, b) => a.distanceMi - b.distanceMi || a.maxRate - b.maxRate,
 };
 
-// The response this mock wants from a future API: one row per provider for one
-// service, plan and place, with the comparisons the screen shows already worked out.
+// The response this mock wants from a future API: one row per place for one scan and
+// plan, with the lowest, median and highest rate on file there. The most someone could
+// pay is the highest, since the file doesn't say which rate applies to them.
 export function findCare({ serviceId, planId, origin, radiusMi, sort = 'price' }) {
   const service = SERVICES.find((s) => s.id === serviceId);
   const plan = PLANS.find((p) => p.id === planId);
-  const details = SERVICE_DETAILS[serviceId];
   const medicareRate = Math.round(service.basePrice * MEDICARE_SHARE_OF_BASE);
 
-  const offering = PROVIDERS
+  const offering = LOCATIONS
     .filter((p) => service.kinds.includes(p.kind))
     .map((p) => {
-      const scaled = service.basePrice * p.priceLevel * plan.priceFactor * wobble(p.id + service.id + plan.id);
-      const price = Math.max(1, Math.round(scaled));
+      // Keyed by name, so every office of one practice shares a price.
+      const scaled = service.basePrice * p.priceLevel * plan.priceFactor * wobble(p.name + service.id + plan.id);
+      const maxRate = Math.max(1, Math.round(scaled));
+      const minRate = Math.round(maxRate * (1 - p.spread));
       return {
         id: p.id,
         name: p.name,
@@ -124,8 +126,13 @@ export function findCare({ serviceId, planId, origin, radiusMi, sort = 'price' }
         hours: p.hours,
         lat: p.lat,
         lon: p.lon,
-        price,
-        parts: priceParts(details, p.kind, price),
+        stars: p.stars,
+        billers: p.billers,
+        doctors: p.doctors,
+        minRate,
+        medianRate: Math.round((minRate + maxRate) / 2),
+        maxRate,
+        parts: priceParts(p.kind, maxRate),
         distanceMi: roundedMiles(origin, p),
       };
     });
@@ -134,20 +141,33 @@ export function findCare({ serviceId, planId, origin, radiusMi, sort = 'price' }
   if (nearby.length === 0) {
     const closest = [...offering].sort(SORTS.distance)[0];
     const widerRadiusMi = RADIUS_OPTIONS.find((r) => closest.distanceMi <= r) ?? null;
-    return { results: [], cheapest: null, medianPrice: null, medicareRate, closestOutside: closest, widerRadiusMi };
+    return { results: [], cheapest: null, nearbyMedian: null, medicareRate, closestOutside: closest, widerRadiusMi };
   }
 
-  const medianPrice = median(nearby.map((p) => p.price).sort((a, b) => a - b));
+  const nearbyMedian = median(nearby.map((p) => p.maxRate).sort((a, b) => a - b));
   const cheapest = [...nearby].sort(SORTS.price)[0];
   const closest = [...nearby].sort(SORTS.distance)[0];
   const results = nearby
     .map((p) => ({
       ...p,
-      priceVsMedian: p.price - medianPrice,
+      maxVsMedian: p.maxRate - nearbyMedian,
       isCheapest: p.id === cheapest.id,
       isClosest: p.id === closest.id,
     }))
     .sort(SORTS[sort]);
 
-  return { results, cheapest, medianPrice, medicareRate, closestOutside: null, widerRadiusMi: null };
+  return { results, cheapest, nearbyMedian, medicareRate, closestOutside: null, widerRadiusMi: null };
+}
+
+// Narrows the list to a place or doctor by name. A doctor match moves to the top of that
+// place's doctors, so someone with a referral sees them first.
+export function filterResults(results, text) {
+  const query = normalize(text ?? '');
+  if (!query) return results;
+  return results.flatMap((result) => {
+    if (normalize(result.name).includes(query)) return [result];
+    const doctor = result.doctors.find((d) => normalize(d.name).includes(query));
+    if (!doctor) return [];
+    return [{ ...result, matchedDoctor: doctor.name, doctors: [doctor, ...result.doctors.filter((d) => d !== doctor)] }];
+  });
 }

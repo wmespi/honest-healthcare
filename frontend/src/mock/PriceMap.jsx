@@ -98,26 +98,26 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
     return () => marker.remove();
   }, [map, origin, radiusMi]);
 
-  // One price pin per provider. Cheaper pins sit on top where they overlap.
+  // One price pin per place. Cheaper pins sit on top where they overlap.
   useEffect(() => {
     if (!map) return undefined;
     const pins = pinsRef.current;
-    const byPrice = [...results].sort((a, b) => b.price - a.price);
-    byPrice.forEach((provider, index) => {
+    const byPrice = [...results].sort((a, b) => b.maxRate - a.maxRate);
+    byPrice.forEach((location, index) => {
       const root = document.createElement('div');
       const pin = document.createElement('button');
       pin.type = 'button';
-      pin.textContent = money(provider.price);
-      pin.setAttribute('aria-label', `${provider.name}, ${money(provider.price)}`);
-      pin.addEventListener('mouseenter', () => handlersRef.current.onHover(provider.id));
+      pin.textContent = money(location.maxRate);
+      pin.setAttribute('aria-label', `${location.name}, ${money(location.maxRate)}`);
+      pin.addEventListener('mouseenter', () => handlersRef.current.onHover(location.id));
       pin.addEventListener('mouseleave', () => handlersRef.current.onHover(null));
       pin.addEventListener('click', (event) => {
         event.stopPropagation();
-        handlersRef.current.onSelect(provider.id);
+        handlersRef.current.onSelect(location.id);
       });
       root.appendChild(pin);
-      const marker = new maplibregl.Marker({ element: root }).setLngLat([provider.lon, provider.lat]).addTo(map);
-      pins.set(provider.id, { marker, root, pin, cheapest: provider.isCheapest, baseZ: index + 1 });
+      const marker = new maplibregl.Marker({ element: root }).setLngLat([location.lon, location.lat]).addTo(map);
+      pins.set(location.id, { marker, root, pin, cheapest: location.isCheapest, baseZ: index + 1 });
     });
     return () => {
       pins.forEach(({ marker }) => marker.remove());
@@ -136,9 +136,9 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
   // Picking a row brings its pin into view, without moving a map that already shows it.
   useEffect(() => {
     if (!map || !selectedId) return;
-    const provider = results.find((r) => r.id === selectedId);
-    if (provider && !map.getBounds().contains([provider.lon, provider.lat])) {
-      map.easeTo({ center: [provider.lon, provider.lat], duration: 500 });
+    const location = results.find((r) => r.id === selectedId);
+    if (location && !map.getBounds().contains([location.lon, location.lat])) {
+      map.easeTo({ center: [location.lon, location.lat], duration: 500 });
     }
   }, [map, results, selectedId]);
 
