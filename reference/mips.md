@@ -1,7 +1,6 @@
 # `make reference STEP=mips` — CMS MIPS quality score per clinician
 
-*Read this when working on the quality signal in the PCP picker (`/find-care`)
-or on how `provider_dim.mips_score` is sourced.*
+*Read this when working on how `provider_dim.mips_score` is sourced.*
 
 Builds `data/reference/mips_ga.parquet` — `npi | mips_score | mips_source |
 performance_year` — from the Provider Data Catalog's newest
@@ -34,9 +33,7 @@ the plan's priced PCPs.
 ## Downstream
 
 `build/build.py` left-joins this file into `provider_dim` (`mips_score`,
-`mips_source`, `mips_year`). `/providers/search` returns the score on every row
-and feeds it to the blended ranking — [serving/serving.md](../serving/serving.md)
-"Ranking".
+`mips_source`, `mips_year`). No route returns the score today.
 
 ## Re-run when
 

@@ -48,14 +48,11 @@ def _table(name: str) -> str:
 
 GROUP_SETS_SRC = _table("group_sets")
 GROUP_MEMBERS_SRC = _table("group_members")
-GROUP_NETWORKS_SRC = _table("group_networks")
 PROVIDER_DIM_SRC = _table("provider_dim")
-PROVIDER_AFFIL_SRC = _table("provider_affiliations")
 ZIP_CENTROIDS_SRC = _table("zip_centroids")
 CODE_DIM_SRC = _table("code_dim")
 EVIDENCE_SRC = _table("evidence")
 RATE_HIST_SRC = _table("rate_hist")
-ROLLUP_SRC = _table("cross_network_rollup")
 MANIFEST_PATH = f"{SERVING_DIR}/manifest.json"
 
 # A price expanded to its provider groups — the common join. A `net` /
@@ -178,50 +175,17 @@ def outpatient_scope(alias: str = "pg") -> str:
     )
 
 
-def rate_filters(billing_code, billing_code_type, network_name, setting, npi,
-                 specialty=None, scope=True, drop_sentinel=False):
+def rate_filters(billing_code, billing_code_type, network_name, drop_sentinel=False):
     """Shared WHERE for the RATE_GROUPS_SRC source (alias pg). Returns (sql, params).
 
-    `scope=True` keeps `scope = 'outpatient_prof'` — the default for every
-    consumer rate view. `drop_sentinel=True` removes the placeholder rows
-    (`is_sentinel`; jobs 1-3 do, the histogram doesn't). `npi=` keeps groups
-    containing that NPI; `specialty=` (a NUCC label) keeps groups containing at
-    least one provider of that specialty — coarse but useful, and cheap once a
-    `billing_code` has pruned `rates`.
+    Keeps `scope = 'outpatient_prof'`, the slice every consumer rate view compares.
+    `drop_sentinel=True` removes the placeholder rows (`is_sentinel`).
     """
-    conditions = ["1=1"]
-    params: list = []
-    if scope:
-        conditions.append("pg.scope = 'outpatient_prof'")
+    conditions = ["pg.scope = 'outpatient_prof'",
+                  "pg.billing_code = ?", "pg.billing_code_type = ?",
+                  # net is the Hive partition key — prunes the scan to one directory.
+                  "pg.net = ?"]
+    params: list = [billing_code, billing_code_type, network_slug(network_name)]
     if drop_sentinel:
         conditions.append("NOT pg.is_sentinel")
-    if billing_code:
-        conditions += ["pg.billing_code = ?", "pg.billing_code_type = ?"]
-        params += [billing_code, billing_code_type]
-    if network_name:
-        # net is the Hive partition key — prunes the scan to one directory.
-        conditions.append("pg.net = ?")
-        params.append(network_slug(network_name))
-    if scope and setting not in (None, "", "outpatient", "both"):
-        # `inpatient` / `ancillary` can't narrow an outpatient-scoped view —
-        # ignore rather than return an empty screen (the inpatient view is #TBD).
-        setting = None
-    if setting:
-        conditions.append("pg.setting = ?")
-        params.append(setting)
-    if npi:
-        conditions.append(f"""EXISTS (
-            SELECT 1 FROM {GROUP_MEMBERS_SRC} gm
-            WHERE gm.file_id = pg.file_id
-              AND gm.provider_group_id = pg.provider_group_id
-              AND gm.npi = ?)""")
-        params.append(npi)
-    if specialty:
-        conditions.append(f"""EXISTS (
-            SELECT 1 FROM {GROUP_MEMBERS_SRC} gm
-            JOIN {PROVIDER_DIM_SRC} pd ON pd.npi = gm.npi
-            WHERE gm.file_id = pg.file_id
-              AND gm.provider_group_id = pg.provider_group_id
-              AND (pd.specialty ILIKE ? OR pd.nucc_classification ILIKE ?))""")
-        params += [f"%{specialty}%", f"%{specialty}%"]
     return " AND ".join(conditions), params

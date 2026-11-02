@@ -1,7 +1,7 @@
 """Honest Healthcare API — FastAPI over DuckDB / the serving Parquet tables.
 
 App wiring only. Table sources and the connection live in data_sources.py;
-consumer-label helpers in labels.py; the routes in routers/. See serving/serving.md.
+the routes in routers/. See serving/serving.md.
 """
 import datetime as _dt
 import glob as _glob
@@ -15,7 +15,7 @@ from .data_sources import (
     CODE_DIM_SRC, GROUP_MEMBERS_SRC, GROUP_SETS_SRC, RATE_HIST_SRC, RATES_GLOB,
     SERVING_DIR, db, manifest, missing_build,
 )
-from .routers import imaging, providers, rates, reference
+from .routers import imaging, reference
 
 app = FastAPI(title="Honest Healthcare API")
 
@@ -27,8 +27,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(rates.router)
-app.include_router(providers.router)
 app.include_router(imaging.router)
 app.include_router(reference.router)
 

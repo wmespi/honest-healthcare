@@ -1,9 +1,8 @@
 """Raw + reference Parquet -> the serving tables (docs/architecture.md 2b).
 
 One re-runnable pass. Every product decision that used to live in a serving-layer
-SQL string is here: the outpatient-professional `scope`, the sentinel-price rule
-(was `serving/routers/rates.py:_sentinel_ceiling`), the Medicare benchmark
-(`serving/benchmark.py`), the service-line allowlists (`serving/service_lines.py`),
+SQL string is here: the outpatient-professional `scope`, the sentinel-price rule,
+the Medicare benchmarks, the service-line allowlists (`serving/service_lines.py`),
 and the browse rollup (was `scripts/build_rate_summary.py`).
 
 Outputs, under SERVING_DIR (else <data-dir>/serving) — the ONLY thing the API
@@ -24,7 +23,7 @@ reads (#100):
   rate_hist.parquet               roster-weighted $25 histogram per
       (net, code, setting, scope, modifier, is_sentinel) — the browse primitive
   cross_network_rollup.parquet    (code, network) -> n_groups, min/p10/median/p90/max
-      off the rate_hist CDF — read straight by /rates/by_network
+      off the rate_hist CDF
   manifest.json                   built_at, which inputs were present, row counts
 
 `rates` is the parser's price grain — no group fan-out (expansion happens at
@@ -468,9 +467,8 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     # ── evidence: (npi, billing_code, tier, ...) for NPIs reachable through a
     #    rate. billed (this NPI billed it to Medicare Part B) wins over typical
     #    (>= TYPICAL_THRESHOLD of the NPI's NUCC classification bill it). A
-    #    billed row carries the utilization detail /rates/quote shows
-    #    (serving/evidence.did_bill's aggregation, over place-of-service); a
-    #    typical row carries the classification's prevalence so the read layer
+    #    billed row carries the utilization detail, aggregated over
+    #    place-of-service; a typical row carries the classification's prevalence so the read layer
     #    can tighten the threshold per request.
     gm = f"read_parquet('{serving_dir}/group_members.parquet')"
     ev_cols = ("npi, billing_code, tier, prevalence, year, tot_srvcs, tot_benes, "
@@ -524,8 +522,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     #    each price row contributes its group_set's provider-group count, so
     #    `SUM(n)` over a slice approximates the fanned-out (group × rate) volume
     #    without materialising it; `n_rates` is the raw price-row count. The
-    #    network overview rolls modifiers up; /rates/by_network filters to the
-    #    global (`''`) rate. p10/median/p90 come off the CDF at serve time.
+    #    rollup below filters to the global (`''`) rate.
     #    `is_sentinel` is a dimension so the histogram can still show the
     #    placeholder rows (known-gaps) while the rollup below excludes them.
     #    Replaces summary/{rate_hist,rate_summary,code_rollup}.
@@ -559,7 +556,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     """)
 
     # ── cross_network_rollup — (code, network) -> roster-weighted volume +
-    #    min/p10/median/p90/max, read straight by /rates/by_network. Derived
+    #    min/p10/median/p90/max. Derived
     #    from the rate_hist CDF (global, outpatient-prof, non-sentinel,
     #    non-overflow buckets); a percentile is the bucket where the cumulative
     #    weight crosses the threshold, at its midpoint; min/max are the bucket

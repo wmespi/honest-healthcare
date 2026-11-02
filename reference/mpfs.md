@@ -1,7 +1,6 @@
 # `make reference STEP=mpfs` — Medicare Physician Fee Schedule benchmark
 
-*Read this when working on the per-code "is this rate plausible" check on the cost
-card or the `medicare_allowed` / `vs_medicare` fields on `/rates/quote`.*
+*Read this when working on the per-code Medicare benchmark, `code_dim.medicare_allowed`.*
 
 **Builds** `data/reference/mpfs_ga.parquet` from the CMS
 [Physician Fee Schedule Relative Value Files](https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files):
@@ -14,8 +13,8 @@ with the Medicare **allowed amount** (the price before the 80/20 split). Module
 honest per-provider rate. A Medicare amount per code gives a sanity check ("$180 vs
 Medicare's $60" vs a multi-million-dollar drug code,
 [#51](https://github.com/wmespi/honest-healthcare/issues/51)) and a fallback price.
-`/rates/quote` returns `medicare_allowed` (GA non-facility) and `vs_medicare` (headline
-rate ÷ that); both are `null` until this step has run.
+The build puts the GA non-facility amount on `code_dim` and `rates`, `null` until this
+step has run. No route returns it today.
 
 ## Formula
 
@@ -51,8 +50,7 @@ A `NA` indicator on the NON-FAC / FACILITY PE RVU drops that POS row.
 ## Georgia localities
 
 `01` Atlanta metro and `99` rest of state. The builder filters GPCI to Georgia and
-keeps `locality`; `serving/benchmark.medicare_allowed()` takes the **median across
-localities present**. For Atlanta specifically, query `locality = '01'`.
+keeps `locality`; the build takes the **median across localities present**. For Atlanta specifically, query `locality = '01'`.
 
 ## Re-run when CMS publishes a new year
 

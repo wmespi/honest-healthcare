@@ -9,9 +9,7 @@
 // prior auth, out-of-network, separate facility fees, and whether copays count
 // toward the deductible / OOP max (plans vary).
 
-export const COPAY_BUCKETS = ['primary', 'specialist', 'imaging', 'surgery', 'emergency'];
-
-export const COPAY_LABELS = {
+const COPAY_LABELS = {
   primary: 'Primary care visit',
   specialist: 'Specialist visit',
   imaging: 'Imaging (MRI, CT, X-ray)',
@@ -21,7 +19,7 @@ export const COPAY_LABELS = {
 
 // Map an RBCS category (+ optional setting) to a copay bucket, or null when the
 // service is normally cost-shared by coinsurance rather than a flat copay.
-export function copayBucket({ rbcsCategory, setting } = {}) {
+function copayBucket({ rbcsCategory, setting } = {}) {
   const s = (setting || '').toLowerCase();
   if (s === 'er' || s === 'emergency') return 'emergency';
   const c = (rbcsCategory || '').toLowerCase();
@@ -72,19 +70,4 @@ export function estimate(rate, plan = {}, ctx = {}) {
   else assumption = `deductible partly met, then ${coins}%`;
 
   return { amount, basis: dedLeft > 0 ? 'deductible' : 'coinsurance', assumption };
-}
-
-/** Estimate a [lo, hi] rate range. Returns null if `estimate` can't. */
-export function estimateRange(lo, hi, plan, ctx) {
-  const a = estimate(lo, plan, ctx);
-  const b = estimate(hi, plan, ctx);
-  if (!a || !b) return null;
-  return { low: a.amount, high: b.amount, basis: b.basis, assumption: b.assumption };
-}
-
-/** Is there enough in `plan` to produce any estimate? */
-export function planIsConfigured(plan = {}) {
-  const c = plan.coinsurance;
-  if (typeof c === 'number' && c >= 0 && c <= 100) return true;
-  return Object.values(plan.copays || {}).some((v) => typeof v === 'number' && v >= 0);
 }

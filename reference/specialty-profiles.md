@@ -9,7 +9,7 @@ CMS Medicare utilization. Module `reference/specialty_profiles.py`. **Depends on
 `make reference STEP=cms-utilization`, `STEP=nppes` and `STEP=taxonomy-labels` having
 run — a pure relational reshape over those landed Parquets, no download.
 
-**Why.** Tier 1 (`did_bill`) is strong but narrow: only providers with a Medicare
+**Why.** Tier 1 (who billed a code) is strong but narrow: only providers with a Medicare
 footprint have it, and it misses commercial-only work. Tier 2 generalises: a code
 billed by ≥ *threshold* of a provider's specialty is plausible for them without a
 direct utilization row.
@@ -25,9 +25,8 @@ prevalence = (distinct NPIs of that classification billing the code)
 ```
 
 Specialties with < 20 Medicare providers are dropped; every code with prevalence
-≥ 0.005 is stored and serving thresholds at query time
-(`DEFAULT_TYPICAL_THRESHOLD = 0.03` in `serving/evidence.py`, tunable via
-`?typical_threshold`).
+≥ 0.005 is stored, and the build applies its own threshold (`TYPICAL_THRESHOLD` in
+`build/build.py`).
 
 ## Output
 
@@ -39,7 +38,7 @@ specialty_providers  distinct NPIs of this specialty with any Medicare claim
 prevalence           billers / specialty_providers  (0..1)
 ```
 
-Read by `serving/evidence.py:typical_codes()` / `code_tiers()`.
+Read by the build into the `evidence` table (`tier = 'typical'`).
 
 ## Caveats
 

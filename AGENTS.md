@@ -69,7 +69,7 @@ parallel C++ reader handles, not a hand-rolled streaming parse.
    truncate; a test run must never touch `public.*` or `data/`.
 5. **Plan-specific file wins on rate conflict** *(half in code)* — a single-plan
    file's rate overrides a shared-network file's for the same practice and code:
-   the build tags `source_kind`, `/rates/providers` applies the override at read
+   the build tags `source_kind`, `/imaging/providers` applies the override at read
    time. "The lower rate wins between two shared files" is not in code.
    [etl/mrf-model.md](etl/mrf-model.md#conflict-resolution-strategy).
 6. **Give regular status updates — the most-missed rule here.** On any multi-step
@@ -160,15 +160,15 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Queue selection, ordering, recovering stuck rows | [etl/queue.md](etl/queue.md) |
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
-| Provider↔procedure evidence (CMS utilization `did_bill`; specialty profiles; menu tiers) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
-| Medicare Physician Fee Schedule benchmark (`medicare_allowed` / `vs_medicare` on a quote) | [reference/mpfs.md](reference/mpfs.md) |
+| Provider↔procedure evidence (CMS utilization; specialty profiles) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
+| Medicare Physician Fee Schedule benchmark (`code_dim.medicare_allowed`) | [reference/mpfs.md](reference/mpfs.md) |
 | Medicare hospital-outpatient (OPPS) rate — the labelled facility estimate on the imaging screen | [reference/opps.md](reference/opps.md) |
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
 | CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |
 | The build step — raw + reference → serving tables, `scope` / `is_sentinel` / benchmark / rule 5 | [build/build.md](build/build.md) |
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
-| API routes, the four consumer jobs, query-layer notes | [serving/serving.md](serving/serving.md) |
+| API routes, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |
 | Container images, ports, parallel stacks, sending a tester the Tailscale link | [deploy/README.md](deploy/README.md) |
 | The three test suites, isolation, fixtures, CI jobs | [docs/testing.md](docs/testing.md) |

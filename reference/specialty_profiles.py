@@ -4,7 +4,7 @@ Build data/reference/specialty_procedure_profiles.parquet — for each provider
 specialty, the procedures that a meaningful share of that specialty actually
 performs, learned from CMS Medicare utilization.
 
-This is Tier 2 of the provider↔procedure story (issue #14). Tier 1 (`did_bill`)
+This is Tier 2 of the provider↔procedure story (issue #14). Tier 1
 answers "did *this NPI* bill this code" — strong, but only ~43% of the providers
 we can price have any Medicare footprint, and it misses commercial-only work.
 Tier 2 generalises: if the code is billed by, say, ≥3% of the provider's

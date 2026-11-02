@@ -112,7 +112,7 @@ def imaging_providers(
         if not here:
             raise HTTPException(400, f"unknown zip: {zip_code}")
 
-    where, params = rate_filters(billing_code, "CPT", network_name, None, None, drop_sentinel=True)
+    where, params = rate_filters(billing_code, "CPT", network_name, drop_sentinel=True)
     dist = (f"CASE WHEN pd.lat IS NULL THEN NULL ELSE "
             f"{haversine_sql('pd.lat', 'pd.lon', repr(float(here[0])), repr(float(here[1])))} END"
             if here else "NULL")

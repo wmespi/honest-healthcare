@@ -55,14 +55,11 @@ given (the test fixture uses this layout).
   wide layout, where it is the real hospital name; a proper name needs a later
   `ccn` → Hospital General Information join.
 
-## How serving uses it (`serving/labels.py`)
+## How it reaches serving
 
-When the tables exist, `provider_card()` (embedded in `/rates/quote` and
-`/providers/{npi}/procedures`) gains `group_name`, `years_in_practice` (NULL when
-`grad_year` is missing or implausible) and `hospital_affiliations`
-(`[{ccn, facility_name}, …]`), and `/providers/search` annotates rows with
-`group_name`. All degrade to `None` / `[]` until this step runs. `/rates/providers`
-still groups on `tin_value`, not `org_pac_id`.
+The build joins these into `provider_dim` (`group_name`, `grad_year`) and
+`provider_affiliations` (`ccn`, `facility_name`). `/imaging/providers` groups on
+`tin_value`, not `org_pac_id`.
 
 ## Caveats (also in [../docs/known-gaps.md](../docs/known-gaps.md))
 
