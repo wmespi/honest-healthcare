@@ -98,6 +98,9 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Imaging
 
+- **`/imaging/providers` measures distance from a practice's nearest doctor, not its own
+  address**, while `city` is the practice's registered city, so the two can disagree. Most
+  billing IDs have no coordinates yet.
 - **Imaging prices exclude the facility fee.** Anthem's professional file carries the
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
   hospital bills its own fee in a file we do not carry, so a hospital-based practice

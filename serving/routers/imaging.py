@@ -93,9 +93,10 @@ def imaging_providers(
     carries `min` / `typical` (the median) / `max`. `basis` is `global`
     (one all-in rate), `split` (technical + professional, summed), or
     `professional_only` / `technical_only` (a part of the price; ranked after
-    every complete one). `zip` adds `distance_mi` and `city` of the nearest
-    imaging provider; `radius_mi` drops practices farther away or without
-    coordinates. Only price lines that apply in an office (place of service 11)
+    every complete one). `city` is the billing practice's own registered city,
+    empty when its billing ID has no NPPES record. `zip` adds `distance_mi` to
+    the nearest imaging provider; `radius_mi` drops practices farther away or
+    without coordinates. Only price lines that apply in an office (place of service 11)
     count."""
     if billing_code not in SERVICE_LINE_BILLING_CODES["imaging"]:
         raise HTTPException(400, f"not an imaging menu code: {billing_code!r}")
@@ -124,7 +125,7 @@ def imaging_providers(
             SELECT gm.tin_value, gm.npi, gm.npi IN (SELECT npi FROM bn) AS billed,
                    COALESCE(pg.modifier, '') AS comp,
                    pg.negotiated_rate AS rate,
-                   pd.city, pd.entity_type, pd.name, pd.org_name, {dist} AS dist
+                   pd.entity_type, pd.name, pd.org_name, {dist} AS dist
             FROM {RATE_GROUPS_SRC} pg
             JOIN {GROUP_MEMBERS_SRC} gm
               ON gm.file_id = pg.file_id AND gm.provider_group_id = pg.provider_group_id
@@ -141,13 +142,11 @@ def imaging_providers(
         ),
         loc AS (
             SELECT tin_value, COUNT(DISTINCT npi) AS n_providers, BOOL_OR(billed) AS any_billed, MIN(dist) AS dist,
-                   ARG_MIN(city, dist) FILTER (WHERE dist IS NOT NULL) AS near_city,
-                   MODE(city) AS city,
-                   ANY_VALUE(org_name) FILTER (WHERE org_name IS NOT NULL AND org_name <> '') AS member_org,
-                   LIST(DISTINCT name) FILTER (WHERE entity_type = 'individual' AND name <> '') AS indiv
+                   MIN(org_name) FILTER (WHERE org_name <> '') AS member_org,
+                   LIST(DISTINCT name ORDER BY name) FILTER (WHERE entity_type = 'individual' AND name <> '') AS indiv
             FROM j GROUP BY tin_value
         )
-        SELECT l.tin_value, l.n_providers, l.dist, COALESCE(l.near_city, l.city), l.member_org,
+        SELECT l.tin_value, l.n_providers, l.dist, tn.city, l.member_org,
                l.indiv[1:3], tn.org_name,
                MAX(c.lo)  FILTER (WHERE c.comp = '')   , MAX(c.med) FILTER (WHERE c.comp = ''),
                MAX(c.hi)  FILTER (WHERE c.comp = '')   ,
@@ -159,7 +158,7 @@ def imaging_providers(
         JOIN comp c USING (tin_value)
         LEFT JOIN {PROVIDER_DIM_SRC} tn ON tn.npi = TRY_CAST(l.tin_value AS BIGINT)
         WHERE l.any_billed OR CONTAINS(',' || COALESCE(tn.service_lines, '') || ',', ',imaging,')
-        GROUP BY l.tin_value, l.n_providers, l.dist, COALESCE(l.near_city, l.city), l.member_org, l.indiv, tn.org_name
+        GROUP BY l.tin_value, l.n_providers, l.dist, tn.city, l.member_org, l.indiv, tn.org_name
     """, [billing_code] + params).fetchall()
 
     results = []

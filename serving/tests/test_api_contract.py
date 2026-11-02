@@ -97,6 +97,22 @@ def test_imaging_providers_ignores_facility_only_price_lines(api):
     assert row["global"]["max"] == 240.0 and row["global"]["min"] == 240.0
 
 
+def test_imaging_providers_city_is_the_practices_own(api):
+    # The practice's one imaging doctor works in Marietta, but the practice is
+    # registered in Atlanta. The row names the practice, so it shows the practice's city.
+    for params in ({}, {"zip": "30309"}):
+        r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE, **params})
+        row = {p["practice_id"]: p for p in r.json()["results"]}["1000000010"]
+        assert row["city"] == "Atlanta"
+
+
+def test_imaging_providers_answers_the_same_every_time(api):
+    params = {"billing_code": "70450", "network_name": BLUE_VALUE}
+    first = api.get("/imaging/providers", params=params).json()
+    assert first["results"]
+    assert all(api.get("/imaging/providers", params=params).json() == first for _ in range(5))
+
+
 def test_imaging_providers_excludes_non_imaging_networks(api):
     r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
     assert "1000000030" not in {p["practice_id"] for p in r.json()["results"]}
