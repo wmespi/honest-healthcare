@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from '../api';
-import { BV, installDefaultMocks } from '../test-support/explorerFixtures';
+import { BV, installDefaultMocks } from '../test-support/mockApi';
 import { ImagingFinder } from './ImagingFinder';
 
 vi.mock('../api');

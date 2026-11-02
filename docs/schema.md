@@ -49,7 +49,7 @@ npi_lookup.parquet       npi | tin_value
 (`tin_type` is always `'npi'`), so it doubles as a stable practice key: one real
 practice recurs across the MRF as many file-local `provider_group_id`s but keeps
 one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
-`/rates/providers` collapses on it ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
+`/imaging/providers` collapses on it ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
 
 ## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md), read straight by the API)
 
@@ -101,7 +101,7 @@ over `shared` ([etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strate
 `rate_hist` is the browse primitive: a $25-bucketed, roster-weighted histogram —
 `n` sums each price's roster size, `n_rates` is the raw price-row count.
 `is_sentinel` is a dimension (not a filter), so the histogram can show the
-placeholder rows; `cross_network_rollup` (read by `/rates/by_network`) excludes them.
+placeholder rows; `cross_network_rollup` excludes them.
 
 `provider_dim.org_name` (raw NPPES entity name) and `.group_name` (the CMS Doctors &
 Clinicians billing-group identity) are deliberately separate columns: folding them
@@ -150,13 +150,13 @@ data/cms/ga_provider_service.parquet   (make reference STEP=cms-utilization — 
     tot_benes | tot_srvcs | tot_bene_day_srvcs
     avg_mdcr_alowd_amt | provider_type | hcpcs_drug_ind | year
     ← one row per (GA NPI × HCPCS × POS) billed to Medicare Part B; the
-      did_bill() evidence layer (serving/evidence.py).
+      source of the build's `evidence` table.
 
 data/reference/specialty_procedure_profiles.parquet  (make reference STEP=specialty-profiles — reference/specialty-profiles.md)
     specialty (NUCC classification) | hcpcs_cd
     billers | specialty_providers | prevalence
     ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
-      NUCC). Read by evidence.code_tiers().
+      NUCC). The source of `evidence`'s typical tier.
 
 data/reference/mips_ga.parquet         (make reference STEP=mips — reference/mips.md)
     npi | mips_score | mips_source | performance_year
@@ -174,8 +174,8 @@ data/reference/mpfs_ga.parquet         (make reference STEP=mpfs — reference/m
     ← CMS Physician Fee Schedule allowed $ = (workRVU·GPCIw + peRVU·GPCIpe +
       mpRVU·GPCImp) × conversionFactor, per GA locality. medicare_allowed is
       NULL for carrier-priced (status 'C') rows; bundled / non-covered statuses
-      are dropped. Read by serving/benchmark.medicare_allowed() → /rates/quote's
-      `medicare_allowed` + `vs_medicare`. Physician fee schedule only.
+      are dropped. The source of `code_dim.medicare_allowed` and
+      `rates.medicare_allowed`. Physician fee schedule only.
 data/reference/opps.parquet            (make reference STEP=opps — reference/opps.md)
     billing_code | billing_code_type | status_indicator | apc | payment_rate | year
     ← CMS OPPS Addendum B: the national Medicare hospital-outpatient payment per code;
@@ -185,8 +185,8 @@ data/reference/dac_ga.parquet          (make reference STEP=doctors-clinicians �
     org_pac_id | org_name | grad_year | med_school | gender
     ← one row per NPI, from CMS Doctors & Clinicians (Care Compare). A real
       group-practice identity (org_pac_id + name) independent of Anthem's
-      buckets, plus demographics. Read by labels.provider_card() /
-      /providers/search. GA-scoped (npi_lookup, else State='GA').
+      buckets, plus demographics. Read by the build into `provider_dim`.
+      GA-scoped (npi_lookup, else State='GA').
 
 data/reference/dac_hospital_affiliations.parquet   (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
     npi | ccn | facility_name

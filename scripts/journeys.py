@@ -4,8 +4,8 @@ User-journey assertions — the pointed "does the real flow still produce the ri
 answer" checks behind docs/journeys.md.
 
 Unlike serving/tests/test_golden.py (pinned answers), this is depth: for a handful
-of named personas, does the specific expected outcome still hold — the canary rate, the benchmark band, the honest
-group-rate tier, the has-rates badge distinction.
+of named personas, does the specific expected outcome still hold — the canary rate,
+the labelled facility estimate, a complete price.
 
 Needs the REAL corpus in the running stack (the assertions check real dollar
 figures), so this is a local tool — `make test-live` — not a CI gate.
@@ -55,28 +55,6 @@ def get(api, path, **params):
     return payload, status
 
 
-def rows_of(payload):
-    """/providers/search returns {data:[...]} or a bare list depending on caller."""
-    if isinstance(payload, dict):
-        return payload.get("data", [])
-    return payload or []
-
-
-def first_provider_with_quote(api, specialty, code):
-    """A provider in the specialty who actually returns a quote for `code` — so
-    the assertion doesn't hinge on one hard-coded NPI."""
-    search, _ = get(api, "/providers/search", specialty=specialty,
-                    network_name=NET, limit=25)
-    # a real user picks one provider; cap the "keep trying" fallback so the
-    # journey's timing stays representative
-    for r in [x for x in rows_of(search) if x.get("has_rates")][:8]:
-        q, status = get(api, "/rates/quote", billing_code=code,
-                        npi=str(r["npi"]), network_name=NET)
-        if status == 200 and q and q.get("headline"):
-            return r, q
-    return None, None
-
-
 # ── journeys ────────────────────────────────────────────────────────────────
 # each returns (ok: bool, detail: str)
 
@@ -114,18 +92,6 @@ def j2(api):
     return ok, f"{len(rows)} practices · {len(complete)} with a complete price · first basis {rows[0]['basis']}"
 
 
-def j3(api):
-    search, status = get(api, "/providers/search", q="ABBASI", network_name=NET, limit=10)
-    rows = rows_of(search)
-    if status != 200 or not rows:
-        return False, f"search q=ABBASI returned {status} / {len(rows)} rows"
-    if not all("has_rates" in r for r in rows):
-        return False, "some rows missing the has_rates field (the badge can't render)"
-    has = sum(1 for r in rows if r["has_rates"])
-    nope = len(rows) - has
-    return True, f"{len(rows)} rows · {has} in-plan / {nope} not — badge distinction intact"
-
-
 def j4(api):
     body, status = get(api, "/imaging/providers", billing_code="70551")
     return status == 400, f"no plan -> {status} (want 400: imaging needs a plan)"
@@ -134,7 +100,6 @@ def j4(api):
 JOURNEYS = [
     ("J1", "Rosa — brain MRI price (70551)", j1),
     ("J2", "Rosa — knee MRI (73721)", j2),
-    ("J3", "Rosa — is my doctor in this plan?", j3),
     ("J4", "Dana — imaging with no plan", j4),
 ]
 

@@ -1,7 +1,7 @@
 # `make reference STEP=cms-utilization` — provider ↔ procedure evidence
 
 *Read this when working on "does this provider actually perform this procedure" —
-the caveat on the cost card and the badges on the provider menu.*
+the evidence that keeps a practice in the imaging results.*
 
 **Builds** `data/cms/ga_provider_service.parquet` from CMS
 ["Medicare Physician & Other Practitioners — by Provider and Service"](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners/medicare-physician-other-practitioners-by-provider-and-service):
@@ -10,9 +10,8 @@ rendering providers only. Module `reference/cms_utilization.py`; `CMS_URL=` over
 the source, `YEAR=` the stamped service year (via `ARGS`, e.g. `ARGS="--year 2024"`).
 
 **Why.** Anthem's `provider_references` are network-administration buckets (one group
-can span thousands of NPIs and many specialties), so the rate resolver would show a
-social worker a surgical rate. `plausibility()` (`serving/labels.py`) is a hand-coded
-guess; this dataset replaces it with evidence: `did_bill(npi, code)`.
+can span thousands of NPIs and many specialties), so a price reaches clinicians who
+never do that work. This dataset is the evidence of who actually bills a code.
 
 **Python/DuckDB, not Go** ([language principle](../AGENTS.md#the-language-principle)):
 the work is a filter + projection over a quoted CSV that DuckDB's parallel reader
@@ -35,24 +34,16 @@ hcpcs_drug_ind            'Y' = Part B drug / J-code
 year                      service year
 ```
 
-F and O stay separate rows; `did_bill()` aggregates over them.
+F and O stay separate rows; the build aggregates over them.
 
-## How serving uses it (`serving/evidence.py`)
+## How it reaches serving
 
-- `did_bill(conn, npi, code)` → `None` (file not built) · `{"billed": False}` ·
-  `{"billed": True, year, tot_srvcs, tot_benes, avg_mdcr_allowed, …}`. `/rates/quote`
-  returns it as `medicare_utilization` and demotes `plausibility` from `"unlikely"`
-  when the provider demonstrably bills the code.
-- `billed_codes(conn, npi, codes)` → billed subset, badging the
-  `/providers/{npi}/procedures` menu.
-- `medicare_specialty(conn, npi)` → CMS's specialty label, folded into
-  `plausibility()`; a fallback only (null for providers with no Part B claims).
-- `typical_codes()` / `code_tiers()` → Tier 2: each `(npi, code)` is `billed` (Tier 1)
-  / `typical` (billed by ≥ threshold of the NPI's specialty —
-  [specialty-profiles.md](specialty-profiles.md)) / `group` (fan-out noise).
-  `/providers/{npi}/procedures?tier=plausible` (default) keeps billed + typical.
+The build turns this file into the `evidence` table: `tier = 'billed'` for a code the
+NPI billed, `tier = 'typical'` for one billed by enough of its specialty
+([specialty-profiles.md](specialty-profiles.md)). `/imaging/providers` keeps a practice
+when one of its imaging providers has a `billed` row for the scan.
 
-All no-op to `None`/`{}` until this step has run, so the API works without it.
+An absent file means an empty `evidence` table, so the build still runs without it.
 
 ## Caveats (also in [../docs/known-gaps.md](../docs/known-gaps.md))
 

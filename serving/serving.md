@@ -17,15 +17,11 @@ tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
 |---|---|
 | `main.py` | app + CORS + `include_router` + `GET /` (health **and** trust-bar context: `priceable_npis`, `networks`, `n_codes`, `as_of`, `built_at`/`partial_build` from the build's `manifest.json`, `reference_loaded` — which optional datasets were build inputs) |
 | `data_sources.py` | the serving-table sources (`*_SRC`), `db()` (one process-wide DuckDB database, `cursor()` per call), `network_slug()`, `rate_filters()`, `have_build()`/`missing_build()`, `manifest()`/`built_with()` |
-| `labels.py` | consumer presentation — `pos_bucket()` + `POS_LABELS`, `MODIFIER_LABELS`, `provider_card()` (one `provider_dim` row + `provider_affiliations`), `plausibility()` |
-| `evidence.py` | provider↔procedure evidence, read off the build's `evidence` table (issue #14) — `did_bill()`, `billed_codes()`, `medicare_specialty()`, `typical_codes()` / `code_tiers()`. `available()` / `profiles_available()` check `built_with(...)`. |
-| `benchmark.py` | `medicare_allowed(conn, code, type)` — the CMS Physician Fee Schedule allowed $ for a code in Georgia, off `code_dim`. `None` until MPFS was a build input. |
-| `routers/rates.py` | `/rates/distribution`, `/rates/by_network`, `/rates/providers`, `/rates/quote` |
-| `routers/providers.py` | `/providers/{npi}/procedures`, `/providers/search` (`specialty=` fuzzy label match **or** `service_line=` exact taxonomy-code allowlist, e.g. `service_line=pcp`; `zip=` + `radius_mi=` add distance — see Ranking), `/specialties`, `/providers/ga`, `/service_lines` (the curated allowlists, for the frontend to stop hand-syncing its own copy) |
-| `ranking.py` | The blended PCP ranking — `WEIGHTS` and the SQL for `distance_mi` / `rank_score`. The one place the weights live. |
-| `service_lines.py` | Curated NUCC taxonomy-code allowlists per service line (issue #83) — `SERVICE_LINES = {"pcp": [...], "imaging": [...]}`, plus the imaging scan menu (`IMAGING_MENU`). Also `build/build.py`'s source for `provider_dim.service_lines`. |
+| `benchmark.py` | `opps_payment(conn, code, type)` — Medicare's national hospital-outpatient payment for a code, off `code_dim`. `None` until OPPS was a build input. |
+| `ranking.py` | `haversine_sql()` — distance in SQL. |
+| `service_lines.py` | Curated NUCC taxonomy-code allowlists per service line — `SERVICE_LINES = {"pcp": [...], "imaging": [...]}`, plus the imaging scan menu (`IMAGING_MENU`). Also `build/build.py`'s source for `provider_dim.service_lines`. |
 | `routers/imaging.py` | `/imaging/providers?billing_code&network_name` — a labelled Medicare `facility_estimate` plus one row per billing practice for one scan on the curated `IMAGING_MENU`, priced global / technical (`TC`) / professional (`26`) with typical and min–max across the practice's contracts. A row says its `basis` (`global`, `split`, `professional_only`, `technical_only`) so a partial price is never shown as a whole one. A practice qualifies on CMS-billed evidence for that scan or an imaging-taxonomy billing ID, because Anthem fans a group's price out to every clinician on its roster. Only price lines that apply in an office (place of service `11`, or all places) count; facility fees are not in this file. **Needs `network_name`.** `zip=` + `radius_mi=` add distance. |
-| `routers/reference.py` | `/networks`, `/billing_codes`, `/procedure_categories`, `/plans`, `/plans/cost_sharing?network_name` — the sourced plan versions for a network, read from `plan_cost_sharing.json` (deductible, out-of-pocket max, diagnostic and imaging cost share, each with its Anthem SBC link). Hand-copied from the SBCs because Georgia's individual market is not in the CMS plan-attributes file. **Needs `network_name`.** |
+| `routers/reference.py` | `/networks`, `/plans`, `/service_lines` (the curated allowlists), `/plans/cost_sharing?network_name` — the sourced plan versions for a network, read from `plan_cost_sharing.json` (deductible, out-of-pocket max, diagnostic and imaging cost share, each with its Anthem SBC link). Hand-copied from the SBCs because Georgia's individual market is not in the CMS plan-attributes file. **Needs `network_name`.** |
 
 SQL lives inline in the route handlers
 ([#13](https://github.com/wmespi/honest-healthcare/issues/13) tracks a `queries/` module).
@@ -36,108 +32,51 @@ SQL lives inline in the route handlers
 that expands a price row to its provider groups. Schema:
 [../docs/schema.md](../docs/schema.md).
 
-## The four consumer jobs
+## What a price is
 
-Every rate view is scoped to **outpatient professional fee-for-service dollar
+`/imaging/providers` is scoped to **outpatient professional fee-for-service dollar
 rates** — `rates.scope = 'outpatient_prof'`, baked in at build time
 (`outpatient_scope()` in `data_sources.py` is the definition `build/build.py` pins
 against; `test_build.py` guards the two staying equal). This drops facility/
 institutional lines, inpatient-only rates, `bundle`/`capitation`, and
-`percentage`/`per diem`/`derived` types. Every dollar view also drops
-`is_sentinel` rows — placeholder rates Anthem fills for not-separately-priced
-codes.
+`percentage`/`per diem`/`derived` types. It also drops `is_sentinel` rows —
+placeholder rates Anthem fills for not-separately-priced codes.
 
-Jobs 1 and 3 **require a `network_name`** (`400 {"detail": {"code":
-"network_required"}}` otherwise) — a rate is only comparable within a plan,
-a product rule, not a scale guard.
-
-| Route | Job | Returns |
-|---|---|---|
-| `/rates/quote?billing_code&npi&network_name` | **1** — one procedure at one provider | headline rate + breakdown by component (global / `-26` / `-TC`) and place of service, + `plausibility`, `medicare_utilization`, `tier`, `medicare_allowed`/`vs_medicare`. **Needs `network_name`.** |
-| `/rates/by_network?billing_code` | **2** — same procedure across every network | one row per network off `cross_network_rollup` (a roster-weighted CDF over `rate_hist`), sorted cheapest median first |
-| `/rates/providers?billing_code&network_name` | **3** — compare across providers | one row per **billing practice** (`tin_value`), ordered by price. **Rule 5** (AGENTS.md #5, #100): within a practice, a `plan_specific` row wins over `shared` for the same code; `summary` stays over the full (uncollapsed) group-rate distribution. **Needs `network_name`.** |
-| `/providers/{npi}/procedures` | **4** — the provider "menu" | procedures this NPI has a rate for, `tier` (`billed`/`typical`/`group`) from `evidence`, falling back to the full list when the plausible tier would hide everything |
-
-Supporting: `/rates/distribution` — the histogram + summary off `rate_hist`
-(roster-weighted) for every no-code overview and a code without
-`network_name`; the live per-code path (over `rates ⨝ group_sets`) runs only
-with a `network_name` or an `npi`, and 400s on `npi`-without-`billing_code`.
-Also `/networks`, `/providers/search`, `/specialties`, `/procedure_categories`,
-`/billing_codes`, `/providers/ga`, `/plans`, `/service_lines`.
-
-## Ranking (`/providers/search`)
-
-With a `service_line` and a `zip` (plus, optionally, a plan `network_name`), rows are
-ordered on one `rank_score` (0–1, higher is better), computed in `serving/ranking.py`:
-
-```
-rank_score = Σ weight × percentile(component) / Σ weight of the applicable components
-components : cost = min_rate (lower is better), distance = distance_mi (nearer is better),
-             quality = mips_score (higher is better)
-weights    : ranking.WEIGHTS
-```
-
-- Each percentile is taken **within the candidate set** of that request, so the
-  score ranks these providers against each other, not against an absolute scale.
-- A component that does not apply drops out and the others renormalise: no plan
-  → no cost. Without a `zip` there is no blend: a plan alone ranks cheapest-first
-  (`min_rate`), unchanged from before distance existed.
-- No MIPS score scores a neutral 0.5 on quality (not penalised, not rewarded).
-  `years_in_practice` is returned for display and is **not** scored.
-- A row with no price, or without coordinates when a `zip` is given, sorts after
-  every row that has one.
-- `zip` → `distance_mi` (haversine from the ZIP centroid, [reference/zip-centroids.md](../reference/zip-centroids.md)
-  to `provider_dim.lat/lon`, [reference/geocode.md](../reference/geocode.md)). `radius_mi` needs `zip` and drops
-  providers beyond it or without coordinates. An unknown `zip` is a 400.
-- `mips_score` / `mips_year` ([reference/mips.md](../reference/mips.md)) and
-  `years_in_practice` ride on every row as separate fields; neither stands in for
-  the other.
+It **requires a `network_name`** (`400 {"detail": {"code": "network_required"}}`
+otherwise) — a rate is only comparable within a plan, a product rule, not a scale
+guard. **Rule 5** (AGENTS.md #5): within a practice and component, a `plan_specific`
+row wins over `shared`.
 
 ## Key helpers
 
-- `rate_filters(...)` (`data_sources.py`) — the shared WHERE for `RATE_GROUPS_SRC`.
-  `scope=True` (default) keeps `outpatient_prof`; `drop_sentinel=True` removes
-  placeholders (jobs 1-3; the histogram keeps them so it can still show the
-  full picture — known-gaps).
+- `rate_filters(...)` (`data_sources.py`) — the shared WHERE for `RATE_GROUPS_SRC`:
+  `outpatient_prof`, one code, one network. `drop_sentinel=True` removes placeholders.
 - `network_slug()` — must stay identical to `slugifyNetwork` in
   `etl/extraction/partition.go` (partition pruning depends on it).
-- `provider_card(conn, npi)` (`labels.py`) — one `provider_dim` row +
-  `hospital_affiliations` from `provider_affiliations`. `group_name` is the CMS
-  Doctors & Clinicians identity; `org_name` is the raw NPPES entity name — the
-  two are deliberately separate columns (a group affiliation must never shadow
-  an individual's own name in a search result).
-- `evidence.code_tiers(conn, npi, codes)` → `billed`/`typical`/`group` per code,
-  a straight read of the build's `evidence` table — no per-request CMS join.
 - `manifest()` / `built_with(input_name)` (`data_sources.py`) — what the current
   build was made from (`data/serving/manifest.json`); `GET /`'s
-  `reference_loaded` and every `available()` check in `evidence.py`/
-  `benchmark.py` read it instead of checking a raw file's existence.
+  `reference_loaded` and `benchmark.py` read it instead of checking a raw file's
+  existence.
 
 ## Query rules — get these wrong and it hangs
 
 - **Always go through `db()`** (sets `memory_limit` and the spill dir); never a bare
   `duckdb.connect()`.
-- **Never filter by `npi` without a `billing_code`** — nothing prunes the code axis,
-  so it full-scans `rates`. `/rates/distribution` returns **400** for exactly this.
-  The "everything at this provider" view is `/providers/{npi}/procedures`, which
-  resolves the NPI to its `(file_id, group_set_id)` sets *first* (small), then joins.
 - **A `network_name` filter must partition-prune**: add `pg.net = ?` with
   `network_slug(network_name)`. A filter on the `network_name` column does not prune.
 - **Expand to provider groups (`RATE_GROUPS_SRC`) only after a selective filter**
-  (`billing_code` or `npi`); over the whole store it is far too large. Browse
-  aggregates read `rate_hist` / `cross_network_rollup` instead.
+  (`billing_code`); over the whole store it is far too large. Browse aggregates read
+  `rate_hist` instead.
 - Parameterise with `?`; never f-string user input into SQL (module-constant table and
   column names are fine).
 
 ## Finishing a route
 
 Add the contract test (`test_api_contract.py`: 200 + shape, and the intended error
-codes); if the explorer's state machine changes, update `frontend/src/api.js` and
-add a vitest case; `docker compose restart serving`, `make test`, then hit the route
-against live data.
+codes); update `frontend/src/api.js` and add a vitest case if the frontend calls it;
+`docker compose restart serving`, `make test`, then hit the route against live data.
 
 ## Known limits
 
-[../docs/known-gaps.md](../docs/known-gaps.md) holds the sentinel ceiling, HCPCS
-drug-code outliers, the `n_groups`-vs-`n_providers` distinction, and
-`/rates/providers ga_hospitals_only` not filtering `summary`.
+[../docs/known-gaps.md](../docs/known-gaps.md) holds the sentinel ceiling and how
+practices are grouped.

@@ -1,16 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { estimate, estimateRange, copayBucket, planIsConfigured } from './oop';
-
-describe('copayBucket', () => {
-  it('maps RBCS categories and ER setting', () => {
-    expect(copayBucket({ rbcsCategory: 'Imaging' })).toBe('imaging');
-    expect(copayBucket({ rbcsCategory: 'E&M' })).toBe('specialist');
-    expect(copayBucket({ rbcsCategory: 'Procedure' })).toBe('surgery');
-    expect(copayBucket({ rbcsCategory: 'Anesthesia' })).toBe('surgery');
-    expect(copayBucket({ rbcsCategory: 'Test' })).toBe(null);
-    expect(copayBucket({ rbcsCategory: 'E&M', setting: 'er' })).toBe('emergency');
-  });
-});
+import { estimate } from './oop';
 
 describe('estimate — deductible + coinsurance', () => {
   const plan = { deductibleTotal: 2000, deductibleMet: 0, coinsurance: 20 };
@@ -80,22 +69,4 @@ describe('estimate — copay path', () => {
                         { rbcsCategory: 'E&M' });
     expect(r.amount).toBe(30);
   });
-});
-
-describe('estimateRange', () => {
-  it('estimates low and high', () => {
-    const r = estimateRange(200, 1000, { deductibleTotal: 0, coinsurance: 20 }, { rbcsCategory: 'Test' });
-    expect(r).toMatchObject({ low: 40, high: 200 });
-  });
-  it('null when the plan cannot produce an estimate', () => {
-    expect(estimateRange(200, 1000, {}, {})).toBe(null);
-  });
-});
-
-describe('planIsConfigured', () => {
-  it('true with coinsurance', () => expect(planIsConfigured({ coinsurance: 20 })).toBe(true));
-  it('true with a copay', () => expect(planIsConfigured({ copays: { specialist: 40 } })).toBe(true));
-  it('false when empty', () => expect(planIsConfigured({})).toBe(false));
-  it('false with an out-of-range coinsurance and no copays', () =>
-    expect(planIsConfigured({ coinsurance: 150 })).toBe(false));
 });

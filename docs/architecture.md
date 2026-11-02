@@ -49,7 +49,7 @@ flowchart LR
   end
   subgraph serve [serve]
     SRV --> API[FastAPI, one persistent DuckDB connection]
-    API --> WEB[React: find-care, provider, procedure routes]
+    API --> WEB[React: imaging finder]
   end
 ```
 

@@ -36,16 +36,10 @@ providers/facilities, blending **price on their plan**, **quality / volume**, an
 - Anchored on one network (theirs).
 - Needs: geocoding, CMS quality (hospital + clinician), inpatient volume.
 - **Closest to shippable** — rates exist; the rest is cheap public data.
-- Ends in a "Request this appointment" action (see *explorer → navigator*).
-- **Shipped:** the plan-first front door. The explorer is gated on plan
-  selection (persisted to `localStorage`; a link bypasses it to browse all
-  networks). Flow: plan → **specialty** (`/specialties`, listed alphabetically
-  with provider counts shown, not ranked by them) → a ranked provider list
-  (`/providers/search?specialty=`, rated providers first) → provider menu →
-  procedure. `/rates/providers` + `/rates/quote` require the plan
-  (`network_required`). Procedure search stays as the secondary path.
-- **Next:** blend quality / volume / distance into the provider ranking — needs
-  geocode + CMS quality (build sequence steps 1–2), and a `/find-care` route.
+- Ends in a "Request this appointment" action (see *information tool → navigator*).
+- **Shipped:** the imaging finder at `/find-care/imaging`, gated on plan selection
+  (persisted to `localStorage`).
+- **Next:** the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135).
 
 ### Flow B — Pick a plan  *(open enrollment, once a year)*
 
@@ -73,7 +67,7 @@ and query layer. Ship A first.
 
 ---
 
-## Explorer → navigator
+## Information tool → navigator
 
 The current app is an information tool. The direction is a **care navigator**:
 the Flow A ranked list ends in *"Request this appointment."*

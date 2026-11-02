@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Build `data/reference/zip_centroids.parquet` — ZIP (ZCTA) -> internal-point
-lat/lon from the Census Gazetteer, so `/providers/search?zip=` can measure
+lat/lon from the Census Gazetteer, so `/imaging/providers?zip=` can measure
 distance. Public, free, keyless. See reference/zip-centroids.md.
 
   zip | lat | lon

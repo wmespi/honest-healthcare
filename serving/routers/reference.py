@@ -1,21 +1,19 @@
 """Reference / browse endpoints.
 
   /networks              distinct network_name values (+ price-row count)
-  /billing_codes         consumer-label / synonym / code search
-  /procedure_categories  RBCS categories present in the data
   /plans                 friendly plan name -> network_name (curated, GH #33)
   /plans/cost_sharing    sourced deductible / out-of-pocket max / imaging cost share per plan version
+  /service_lines         curated taxonomy and billing-code allowlists, and the imaging menu
 
-The first three read the precomputed `rate_hist` / `code_dim` — never a `rates`
-scan, which is ~645M rows store-wide (issue #10).
+`/networks` reads the precomputed `rate_hist`, never a `rates` scan.
 """
 import json
 import os
-from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from ..data_sources import CODE_DIM_SRC, RATE_HIST_SRC, db
+from ..data_sources import RATE_HIST_SRC, db
+from ..service_lines import SERVICE_LINES, SERVICE_LINE_BILLING_CODES, SERVICE_LINE_MENUS
 
 router = APIRouter()
 
@@ -37,76 +35,6 @@ def get_networks(q: str = Query(default=""), limit: int = Query(default=100, le=
         LIMIT {limit}
     """, params).fetchall()
     return [{"network_name": r[0], "n_rates": int(r[1])} for r in rows]
-
-
-@router.get("/billing_codes")
-def search_billing_codes(
-    q: str = Query(default=""),
-    billing_code_type: Optional[str] = None,
-    limit: int = Query(default=20, le=100),
-):
-    """Search billing codes by consumer label / synonym / code. Empty q returns
-    top codes by provider volume (roster-weighted, off `rate_hist`)."""
-    conn = db()
-    q = q.strip()
-    where, params = ["1=1"], []
-    if q:
-        where.append("(cd.billing_code ILIKE ? OR cd.search_text ILIKE ?)")
-        params += [f"%{q}%", f"%{q}%"]
-    if billing_code_type:
-        where.append("cd.billing_code_type = ?")
-        params.append(billing_code_type)
-    rows = conn.execute(f"""
-        WITH vol AS (
-            SELECT billing_code, billing_code_type, SUM(n) AS provider_groups
-            FROM {RATE_HIST_SRC}
-            GROUP BY 1, 2
-        )
-        SELECT cd.billing_code, cd.billing_code_type, cd.label,
-               cd.category, cd.rbcs_subcategory, cd.rbcs_family,
-               COALESCE(v.provider_groups, 0) AS provider_groups
-        FROM {CODE_DIM_SRC} cd
-        LEFT JOIN vol v
-          ON cd.billing_code = v.billing_code AND cd.billing_code_type = v.billing_code_type
-        WHERE {" AND ".join(where)}
-        ORDER BY provider_groups DESC, cd.rbcs_is_major DESC, cd.label
-        LIMIT {limit}
-    """, params).fetchall()
-    return [
-        {"billing_code": r[0], "billing_code_type": r[1], "name": r[2], "label": r[2],
-         "rbcs_category": r[3], "rbcs_subcategory": r[4], "rbcs_family": r[5],
-         "provider_groups": int(r[6])}
-        for r in rows
-    ]
-
-
-@router.get("/procedure_categories")
-def procedure_categories():
-    """RBCS categories/subcategories present in the data, with how many billing
-    codes and provider groups each covers — powers the browse-by-category UI."""
-    conn = db()
-    rows = conn.execute(f"""
-        WITH vol AS (
-            SELECT billing_code, billing_code_type, SUM(n) AS provider_groups
-            FROM {RATE_HIST_SRC}
-            GROUP BY 1, 2
-        )
-        SELECT
-            COALESCE(cd.category, 'Other')                       AS category,
-            COALESCE(cd.rbcs_subcategory, cd.category, 'Other')   AS subcategory,
-            COUNT(DISTINCT cd.billing_code)                       AS n_codes,
-            COALESCE(SUM(v.provider_groups), 0)                   AS provider_groups
-        FROM {CODE_DIM_SRC} cd
-        JOIN vol v
-          ON cd.billing_code = v.billing_code AND cd.billing_code_type = v.billing_code_type
-        GROUP BY 1, 2
-        HAVING COUNT(DISTINCT cd.billing_code) > 0
-        ORDER BY category, provider_groups DESC
-    """).fetchall()
-    return [
-        {"category": r[0], "subcategory": r[1], "n_codes": r[2], "provider_groups": int(r[3])}
-        for r in rows
-    ]
 
 
 _PLAN_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plan_networks.json")
@@ -165,3 +93,17 @@ def get_plan_cost_sharing(network_name: str = Query(...)):
     except (OSError, ValueError):
         return []
     return [v for v in data.get("variants", []) if v.get("network_name") == network_name]
+
+
+@router.get("/service_lines")
+def get_service_lines():
+    """The curated service-line taxonomy and billing-code allowlists
+    (`serving/service_lines.py`), so the frontend reads them instead of keeping
+    its own copy."""
+    return {
+        name: {"taxonomy_codes": codes,
+               "billing_codes": SERVICE_LINE_BILLING_CODES.get(name, []),
+               "menu": [{"code": c, "label": l, "group": g}
+                        for c, l, g in SERVICE_LINE_MENUS.get(name, [])]}
+        for name, codes in SERVICE_LINES.items()
+    }

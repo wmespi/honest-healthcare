@@ -7,9 +7,8 @@ import { NetworkDropdown } from './NetworkDropdown';
 // plan before anything else. Reuses the curated picker; a link drops the gate
 // for the "just show me the data" case (the trust bar already warns that
 // "All Networks" mixes GA Blue Value with national mirror rows). `heading`/
-// `body`/`browseLabel` let a locked service-line route (#87) contextualize the
-// ask ("which plan, so we can price *these* providers") instead of the
-// generic copy — defaults preserve the original wording on /explore.
+// `body`/`browseLabel` let a screen contextualize the ask ("which plan, so we
+// can price *these* providers") instead of the generic copy.
 export function PlanGate({ selectedPlan, onSelect, onBrowseAll, heading, body, browseLabel }) {
   return (
     <motion.div

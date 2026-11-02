@@ -12,8 +12,7 @@ Why this exists (issue #61): Anthem's MRF prices ~70 network-administration
 per-provider rate. A Medicare allowed amount for every code gives (a) a sanity
 check on group rates — "$180 vs Medicare's $60 = plausible" vs the $4.4M
 drug-code garbage (#51) — and (b) a fallback price when the MRF is group-rate
-noise. `serving/benchmark.medicare_allowed()` reads this file; `/rates/quote`
-returns it as `medicare_allowed` + a `vs_medicare` ratio.
+noise. The build reads this file into `code_dim.medicare_allowed`.
 
 The allowed amount per (code × modifier × POS × locality):
 

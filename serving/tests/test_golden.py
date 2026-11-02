@@ -48,13 +48,10 @@ def _require_live_target_corpus(client):
         pytest.skip(f"{NET!r} not loaded at {API_URL} — golden values need the real corpus")
 
     # The target network alone isn't enough — the pins below also depend on
-    # NPPES/NUCC (names, specialties), CMS utilization + MPFS (the "billed"
-    # tier and its Medicare benchmark), and rate_hist (the sentinel-price
-    # ceiling behind /rates/providers' summary). GET /'s reference_loaded is
-    # authoritative (file-exists flags, main.py) — read that directly rather
-    # than inferring from an endpoint's shape, which would make a genuine
-    # regression in evidence.py/benchmark.py skip instead of fail (the same
-    # "billed"/medicare_allowed signals the pins themselves assert on).
+    # NPPES/NUCC (names, specialties), CMS utilization (the "billed" tier) and
+    # OPPS (the facility estimate). GET /'s reference_loaded is authoritative
+    # (main.py) — read that directly rather than inferring from an endpoint's
+    # shape, which would make a genuine regression skip instead of fail.
     missing = [k for k, loaded in root.get("reference_loaded", {}).items() if not loaded]
     if missing:
         pytest.skip(f"reference data not loaded at {API_URL}: {', '.join(missing)}")

@@ -1,7 +1,6 @@
 # `make reference STEP=code-labels` — consumer procedure labels
 
-*Read this when working on the "what is this procedure" layer that powers
-`/billing_codes` search and browse-by-category.*
+*Read this when working on the "what is this procedure" layer behind `code_dim`.*
 
 Builds `data/reference/code_labels.parquet` from **public data only**. Runs in
 Python over DuckDB ([language principle](../AGENTS.md#the-language-principle)): it
@@ -31,5 +30,5 @@ write come from `reference/_common.py`, shared with `taxonomy_labels`.
 billing_code_type | billing_code | short_name
 rbcs_category | rbcs_subcategory | rbcs_family | rbcs_is_major
 label        (rbcs_family, else title-cased short_name)
-search_text  (lowercased: label + short_name + category words) ← /billing_codes queries this
+search_text  (lowercased: label + short_name + category words)
 ```

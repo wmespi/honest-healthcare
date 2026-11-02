@@ -1,7 +1,6 @@
 # `make reference STEP=zip-centroids` — ZIP → lat/lon for distance
 
-*Read this when working on `/providers/search?zip=`, the distance column, or the
-location input on `/find-care`.*
+*Read this when working on `/imaging/providers?zip=` or the distance column.*
 
 Builds `data/reference/zip_centroids.parquet` — `zip | lat | lon` — from the
 Census Gazetteer ZCTA file (internal point of each ZIP Code Tabulation Area).

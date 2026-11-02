@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { getImagingProviders, getPlanCostSharing, getServiceLines } from '../api';
 import { fmt } from '../lib/format';
 import { shortNetwork } from '../lib/networkLabels';
@@ -142,11 +141,8 @@ export function ImagingFinder() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 w-full font-sans selection:bg-indigo-500/30 overflow-x-hidden">
-      <ExplorerHeader lockedServiceLine="imaging" />
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
-        <Link to="/" className="inline-block mb-6 text-xs text-slate-500 hover:text-slate-300 transition-colors">
-          ← All tasks
-        </Link>
+      <ExplorerHeader />
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-10 pb-10 sm:pb-16">
         <TrustBar selectedNetwork={network} />
 
         {!network ? (

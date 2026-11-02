@@ -89,7 +89,7 @@ def _build(data_dir: str) -> None:
     # ...04 radiologist, 1000000005 hospital org NPI.
     # provider_group_id → (network, npi). Groups 10 & 20 bill under the same org
     # NPI (tin_value 1000000010) — a two-doctor practice split across two
-    # provider-reference buckets; /rates/providers must fold them into one row.
+    # provider-reference buckets, which must fold into one practice.
     prov = [
         (10, BLUE_VALUE, 1000000001, 1000000010), (10, BLUE_VALUE, 1000000002, 1000000010),
         (20, BLUE_VALUE, 1000000003, 1000000010), (20, BLUE_VALUE, 1000000004, 1000000010),
@@ -189,8 +189,7 @@ def _build(data_dir: str) -> None:
         (1000000004, "individual", "", "Diaz", "Frank", "2085R0202X", "Radiology", 0, 0,
          "1 Baptist Way", "", "Marietta", "GA", "30060"),
         # psychiatrist + neurologist share the NUCC classification "Psychiatry &
-        # Neurology" — a /providers/search?specialty=Psychiatry must not return
-        # the neurologist (the classification/grouping over-match bug).
+        # Neurology", so matching on classification alone would over-match.
         (1000000006, "individual", "", "Evans", "Grace", "2084P0800X", "Psychiatry", 0, 0,
          "2 Mind Way", "", "Atlanta", "GA", "30307"),
         (1000000007, "individual", "", "Foster", "Henry", "2084N0400X", "Neurology", 0, 0,
