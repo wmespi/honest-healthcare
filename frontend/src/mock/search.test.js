@@ -6,6 +6,7 @@ const VIRGINIA_HIGHLAND = resolveLocation('30306');
 const EAST_ATLANTA = resolveLocation('30316');
 const DULUTH = resolveLocation('30096');
 const CANTON = resolveLocation('30114');
+const ROSWELL = resolveLocation('30075');
 
 describe('resolveLocation', () => {
   it('places a ZIP, an address with a ZIP, and a place name', () => {
@@ -53,12 +54,12 @@ describe('findCare', () => {
     const { results } = search();
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((r) => r.distanceMi <= 10)).toBe(true);
-    expect(results.every((r) => ['Imaging center', 'Hospital outpatient'].includes(r.kindLabel))).toBe(true);
+    expect(results.every((r) => ['Imaging center', 'Radiology group', 'Hospital outpatient'].includes(r.kindLabel))).toBe(true);
     expect(search({ radiusMi: 25 }).results.length).toBeGreaterThan(results.length);
   });
 
   it('sorts by price by default and by distance on request', () => {
-    const byPrice = search().results.map((r) => r.maxRate);
+    const byPrice = search().results.map((r) => r.maxRate).filter((rate) => rate !== null);
     expect(byPrice).toEqual([...byPrice].sort((a, b) => a - b));
     const byDistance = search({ sort: 'distance' }).results.map((r) => r.distanceMi);
     expect(byDistance).toEqual([...byDistance].sort((a, b) => a - b));
@@ -83,14 +84,14 @@ describe('findCare', () => {
     for (const service of SERVICES) {
       for (const plan of PLANS) {
         const { results } = findCare({ serviceId: service.id, planId: plan.id, origin: VIRGINIA_HIGHLAND, radiusMi: 50 });
-        for (const location of results) {
+        for (const location of results.filter((r) => r.maxRate !== null)) {
           expect(location.parts.reduce((sum, part) => sum + part.amount, 0)).toBe(location.maxRate);
         }
       }
     }
   });
 
-  it('adds a facility fee to a hospital scan, but not to an imaging center scan', () => {
+  it('names a hospital facility fee as a bill, but not at an imaging center', () => {
     const { results } = search();
     const labels = (kind) => results.find((r) => r.kindLabel === kind).parts.map((p) => p.label);
     expect(labels('Hospital outpatient')).toContain('Hospital facility fee');
@@ -98,7 +99,7 @@ describe('findCare', () => {
   });
 
   it('orders each place\'s rates, and gives most places a single rate', () => {
-    const { results } = search({ radiusMi: 50 });
+    const results = search({ radiusMi: 50 }).results.filter((r) => r.maxRate !== null);
     for (const r of results) {
       expect(r.minRate).toBeLessThanOrEqual(r.medianRate);
       expect(r.medianRate).toBeLessThanOrEqual(r.maxRate);
@@ -120,6 +121,60 @@ describe('findCare', () => {
     expect(results).toEqual([]);
     expect(closestOutside.distanceMi).toBeGreaterThan(5);
     expect(closestOutside.distanceMi).toBeLessThanOrEqual(widerRadiusMi);
+  });
+});
+
+describe('a place missing a bill', () => {
+  const search = (overrides) => findCare({
+    serviceId: 'mri-lower-back', planId: 'blue-value', origin: VIRGINIA_HIGHLAND, radiusMi: 10, ...overrides,
+  });
+  const byKind = (results, kind) => results.filter((r) => r.kindLabel === kind);
+
+  it('claims no most you could pay, and names the bill with no price', () => {
+    const { results } = search();
+    const [hospital] = byKind(results, 'Hospital outpatient');
+    const [group] = byKind(results, 'Radiology group');
+    for (const place of [hospital, group]) {
+      expect(place.maxRate).toBeNull();
+      expect(place.parts.find((p) => p.label === 'Radiologist’s reading').amount).toBeGreaterThan(0);
+    }
+    expect(hospital.parts.find((p) => p.amount === null).label).toBe('Hospital facility fee');
+    expect(group.parts.find((p) => p.amount === null).label).toBe('The scan');
+  });
+
+  it('gives Medicare\'s hospital rate only as a guide for a hospital, outside any amount', () => {
+    const { results } = search();
+    const [hospital] = byKind(results, 'Hospital outpatient');
+    const known = hospital.parts.reduce((sum, part) => sum + (part.amount ?? 0), 0);
+    expect(hospital.facilityEstimate).toBeGreaterThan(known);
+    expect(byKind(results, 'Radiology group')[0].facilityEstimate).toBeNull();
+    expect(byKind(results, 'Imaging center')[0].facilityEstimate).toBeNull();
+  });
+
+  it('comes after every full price by price, but keeps its place by distance', () => {
+    const byPrice = search().results.map((r) => r.maxRate === null);
+    expect(byPrice).toEqual([...byPrice].sort());
+    expect(byPrice).toContain(true);
+    expect(search({ sort: 'distance' }).results[0].maxRate).toBeNull();
+  });
+
+  it('is never the cheapest, and stays out of the median', () => {
+    const { results, cheapest, nearbyMedian, pricedCount } = search();
+    const priced = results.filter((r) => r.maxRate !== null);
+    expect(cheapest.maxRate).not.toBeNull();
+    expect(pricedCount).toBe(priced.length);
+    expect(pricedCount).toBeLessThan(results.length);
+    expect(priced.map((r) => r.maxRate)).toContain(nearbyMedian);
+    expect(results.filter((r) => r.maxRate === null).every((r) => !r.isCheapest && r.maxVsMedian === null)).toBe(true);
+  });
+
+  it('points out to the closest full price when nothing nearby has one', () => {
+    const { results, cheapest, nearbyMedian, pricedCount, widerRadiusMi } = search({ origin: ROSWELL, radiusMi: 5 });
+    expect(results.map((r) => r.name)).toEqual(['Holcomb Bridge Hospital']);
+    expect(cheapest).toBeNull();
+    expect(nearbyMedian).toBeNull();
+    expect(pricedCount).toBe(0);
+    expect(widerRadiusMi).toBe(10);
   });
 });
 

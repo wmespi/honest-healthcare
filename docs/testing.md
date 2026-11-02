@@ -11,8 +11,7 @@ Three suites, each a `make` target (`make help` is the target list):
 | `make test-live` | golden answers (`serving/tests/test_golden.py`) + the named persona journeys ([journeys.md](journeys.md)) against the live API and real corpus | serving up, **real corpus** |
 
 `LOCAL=1` runs `check` / `test` on host toolchains with **no Docker** (go, `.venv`,
-node via `scripts/dev-setup.sh`; the e2e fixtures are skipped) — the worktree gate
-([worktrees](../AGENTS.md#parallel--worktree-development)). Run `make test LOCAL=1` before every commit. `test-live` is
+node via `scripts/dev-setup.sh`; the e2e fixtures are skipped). Run `make test LOCAL=1` before every commit. `test-live` is
 never part of the gate: it needs the real corpus and skips cleanly (not fails) when
 the target network isn't loaded or the API isn't reachable.
 

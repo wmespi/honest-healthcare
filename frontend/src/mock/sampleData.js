@@ -12,27 +12,44 @@ export const PLANS = [
 
 export const KIND_LABELS = {
   imaging: 'Imaging center',
+  radiology: 'Radiology group',
   hospital: 'Hospital outpatient',
   ortho: 'Orthopedic practice',
   clinic: 'Medical practice',
 };
 
 export const SERVICES = [
-  { id: 'mri-lower-back', name: 'MRI of the lower back', basePrice: 900, kinds: ['imaging', 'hospital'], keywords: 'lumbar spine scan' },
-  { id: 'mri-knee', name: 'MRI of the knee', basePrice: 850, kinds: ['imaging', 'hospital', 'ortho'], keywords: 'joint scan' },
-  { id: 'mri-brain', name: 'MRI of the brain', basePrice: 1100, kinds: ['imaging', 'hospital'], keywords: 'head scan' },
-  { id: 'ct-abdomen', name: 'CT of the abdomen and pelvis', basePrice: 1000, kinds: ['imaging', 'hospital'], keywords: 'cat scan stomach' },
-  { id: 'chest-xray', name: 'Chest X-ray', basePrice: 90, kinds: ['imaging', 'hospital', 'clinic'], keywords: 'xray lungs' },
-  { id: 'knee-xray', name: 'X-ray of the knee', basePrice: 110, kinds: ['imaging', 'hospital', 'ortho'], keywords: 'xray joint' },
-  { id: 'abdominal-ultrasound', name: 'Abdominal ultrasound', basePrice: 310, kinds: ['imaging', 'hospital'], keywords: 'sonogram stomach' },
-  { id: 'mammogram', name: 'Screening mammogram', basePrice: 190, kinds: ['imaging', 'hospital'], keywords: 'breast' },
+  { id: 'mri-lower-back', name: 'MRI of the lower back', basePrice: 900, kinds: ['imaging', 'radiology', 'hospital'], keywords: 'lumbar spine scan' },
+  { id: 'mri-knee', name: 'MRI of the knee', basePrice: 850, kinds: ['imaging', 'radiology', 'hospital', 'ortho'], keywords: 'joint scan' },
+  { id: 'mri-brain', name: 'MRI of the brain', basePrice: 1100, kinds: ['imaging', 'radiology', 'hospital'], keywords: 'head scan' },
+  { id: 'ct-abdomen', name: 'CT of the abdomen and pelvis', basePrice: 1000, kinds: ['imaging', 'radiology', 'hospital'], keywords: 'cat scan stomach' },
+  { id: 'chest-xray', name: 'Chest X-ray', basePrice: 90, kinds: ['imaging', 'radiology', 'hospital', 'clinic'], keywords: 'xray lungs' },
+  { id: 'knee-xray', name: 'X-ray of the knee', basePrice: 110, kinds: ['imaging', 'radiology', 'hospital', 'ortho'], keywords: 'xray joint' },
+  { id: 'abdominal-ultrasound', name: 'Abdominal ultrasound', basePrice: 310, kinds: ['imaging', 'radiology', 'hospital'], keywords: 'sonogram stomach' },
+  { id: 'mammogram', name: 'Screening mammogram', basePrice: 190, kinds: ['imaging', 'radiology', 'hospital'], keywords: 'breast' },
 ];
 
-// The separate charges behind a scan. A hospital adds its own facility fee.
+// The separate charges behind a full price.
 export const SCAN_PARTS = [
   { label: 'The scan', share: 0.82 },
   { label: 'Radiologist’s reading', share: 0.18 },
 ];
+
+// The bill a plan's file can't price at each kind of place, and what someone can do about
+// it. A place with one of these has no "most you'd pay", only what's known so far.
+export const MISSING_BILLS = {
+  hospital: {
+    label: 'Hospital facility fee',
+    rowNote: 'Missing the hospital’s fee',
+    explain: 'Hospitals bill their own fee for the scan, and your plan’s file doesn’t list it here. Ask the hospital what it would charge before you book.',
+  },
+  radiology: {
+    label: 'The scan',
+    rowNote: 'Missing the cost of the scan',
+    explain: 'Medicare records show this group’s doctors reading scans done at hospitals, so the place that does your scan bills for it separately. Ask where the scan would happen and what that place charges.',
+  },
+};
+
 const CONTRAST = 'Contrast dye, which makes it a different and pricier scan';
 const OUTSIDE_NETWORK = 'Someone outside your network taking part, such as whoever reads the scan. Federal law limits most of these bills.';
 const NOT_COVERED = 'Your plan not covering it, for example if a required approval was missed';
@@ -82,14 +99,16 @@ export const SERVICE_DETAILS = {
 
 const HOURS_BY_KIND = {
   imaging: 'Mon to Sat, 7am to 7pm',
+  radiology: 'Mon to Fri, 8am to 5pm',
   hospital: 'Mon to Fri, 6am to 8pm',
   ortho: 'Mon to Fri, 8am to 5pm',
   clinic: 'Mon to Fri, 8am to 5pm',
 };
 
-const DOCTOR_COUNT_BY_KIND = { imaging: 3, hospital: 7, ortho: 3, clinic: 2 };
+const DOCTOR_COUNT_BY_KIND = { imaging: 3, radiology: 3, hospital: 7, ortho: 3, clinic: 2 };
 const SPECIALTIES_BY_KIND = {
   imaging: ['Diagnostic radiology'],
+  radiology: ['Diagnostic radiology', 'Neuroradiology'],
   hospital: ['Diagnostic radiology', 'Neuroradiology', 'Musculoskeletal radiology'],
   ortho: ['Orthopedic surgery', 'Sports medicine'],
   clinic: ['Family medicine', 'Internal medicine'],
@@ -112,7 +131,7 @@ function makeDoctors(kind) {
   });
 }
 
-// priceLevel scales a scan's basePrice, so hospitals sit well above imaging centers.
+// priceLevel scales a scan's basePrice, so a hospital's reading costs more than an imaging center's.
 // spread is how far a place's lowest rate sits below its highest; most places have one rate.
 // stars stands in for Medicare's hospital rating, and billers for who bills at this address.
 const row = (id, name, kind, neighborhood, street, city, zip, lat, lon, phone, priceLevel, { spread = 0, stars = null, billers = [name] } = {}) => ({
@@ -136,10 +155,13 @@ export const LOCATIONS = [
   row('img-oldmilton', 'Old Milton Imaging', 'imaging', 'Alpharetta', '3400 Old Milton Pkwy', 'Alpharetta', '30005', 34.071, -84.281, '(770) 555-0111', 0.55, { spread: 0.3, billers: ['Old Milton Imaging', 'North Fulton Radiology Group'] }),
   row('img-sugarloaf', 'Sugarloaf Scan Center', 'imaging', 'Duluth', '2100 Satellite Blvd', 'Duluth', '30097', 33.99, -84.133, '(770) 555-0112', 0.46),
 
-  row('hos-ponce', 'Ponce Street Medical Center', 'hospital', 'Midtown', '550 Ponce de Leon Ave NE', 'Atlanta', '30308', 33.7725, -84.369, '(404) 555-0113', 1.55, { stars: 4, spread: 0.3, billers: ['Ponce Street Medical Center', 'Midtown Radiology Partners', 'Atlanta Diagnostic Physicians'] }),
-  row('hos-buckhead', 'Buckhead General Hospital', 'hospital', 'Buckhead', '3100 Peachtree Rd NE', 'Atlanta', '30305', 33.844, -84.378, '(404) 555-0114', 1.85, { stars: 5, spread: 0.4, billers: ['Buckhead General Hospital', 'Peachtree Radiology Associates'] }),
+  row('rad-peachtree', 'Peachtree Radiology Associates', 'radiology', 'Buckhead', '3200 Peachtree Rd NE', 'Atlanta', '30305', 33.848, -84.369, '(404) 555-0143', 0.5),
+  row('rad-midtown', 'Midtown Radiology Partners', 'radiology', 'Midtown', '1100 Juniper St NE', 'Atlanta', '30309', 33.785, -84.383, '(404) 555-0144', 0.52),
+
+  row('hos-ponce', 'Ponce Street Medical Center', 'hospital', 'Midtown', '550 Ponce de Leon Ave NE', 'Atlanta', '30308', 33.7725, -84.369, '(404) 555-0113', 1.55, { stars: 4, billers: ['Ponce Street Medical Center', 'Midtown Radiology Partners', 'Atlanta Diagnostic Physicians'] }),
+  row('hos-buckhead', 'Buckhead General Hospital', 'hospital', 'Buckhead', '3100 Peachtree Rd NE', 'Atlanta', '30305', 33.844, -84.378, '(404) 555-0114', 1.85, { stars: 5, billers: ['Buckhead General Hospital', 'Peachtree Radiology Associates'] }),
   row('hos-clairmont', 'Clairmont Memorial Hospital', 'hospital', 'Druid Hills', '1550 Clairmont Rd', 'Decatur', '30033', 33.8, -84.315, '(404) 555-0115', 1.4, { stars: 3 }),
-  row('hos-cobb', 'Cobb Valley Hospital', 'hospital', 'Marietta', '800 Church St NE', 'Marietta', '30060', 33.9625, -84.546, '(770) 555-0116', 1.3, { stars: 4, spread: 0.2 }),
+  row('hos-cobb', 'Cobb Valley Hospital', 'hospital', 'Marietta', '800 Church St NE', 'Marietta', '30060', 33.9625, -84.546, '(770) 555-0116', 1.3, { stars: 4 }),
   row('hos-flatshoals', 'Flat Shoals Medical Center', 'hospital', 'East Atlanta', '1290 Flat Shoals Ave SE', 'Atlanta', '30316', 33.7395, -84.342, '(404) 555-0117', 1.25, { stars: 3 }),
   row('hos-holcomb', 'Holcomb Bridge Hospital', 'hospital', 'Roswell', '1100 Holcomb Bridge Rd', 'Roswell', '30076', 34.004, -84.33, '(770) 555-0118', 1.6, { stars: 4 }),
   row('hos-ridgeline', 'Ridgeline Regional Hospital', 'hospital', 'Tucker', '4400 Lawrenceville Hwy', 'Tucker', '30084', 33.856, -84.218, '(770) 555-0119', 1.2, { stars: 2 }),
@@ -176,6 +198,7 @@ export const ZIP_AREAS = [
   { zip: '30316', name: 'East Atlanta', lat: 33.732, lon: -84.335 },
   { zip: '30084', name: 'Tucker', lat: 33.853, lon: -84.215 },
   { zip: '30114', name: 'Canton', lat: 34.237, lon: -84.491 },
+  { zip: '30215', name: 'Fayetteville', lat: 33.449, lon: -84.455 },
 ];
 
 export const SAMPLE_ADDRESSES = [

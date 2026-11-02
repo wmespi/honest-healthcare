@@ -49,22 +49,51 @@ function PriceComparison({ difference }) {
   return <span className="text-slate-500">{money(difference)} above median</span>;
 }
 
+function IncompletePrice({ parts }) {
+  const known = parts.reduce((sum, part) => sum + (part.amount ?? 0), 0);
+  return (
+    <>
+      <div className="text-[13px] font-semibold leading-6 text-slate-500 sm:text-sm">Incomplete</div>
+      <div className="mt-0.5 hidden text-[13px] tabular-nums text-slate-500 sm:block">{money(known)} known so far</div>
+    </>
+  );
+}
+
+const billedBy = (billers) => new Intl.ListFormat('en').format(billers);
+
 function Breakdown({ parts, total }) {
   return (
     <div>
-      <h3 className="text-[13px] font-semibold text-slate-900">What makes up {money(total)}</h3>
+      <h3 className="text-[13px] font-semibold text-slate-900">
+        {total === null ? 'What we know so far' : `What makes up ${money(total)}`}
+      </h3>
       <dl className="mt-1.5 text-sm leading-6 text-slate-600">
         {parts.map((part) => (
           <div key={part.label} className="flex justify-between gap-4">
             <dt>{part.label}</dt>
-            <dd className="tabular-nums">{money(part.amount)}</dd>
+            {part.amount === null
+              ? <dd className="font-medium text-amber-800">Not on file</dd>
+              : <dd className="tabular-nums">{money(part.amount)}</dd>}
           </div>
         ))}
         <div className="mt-1 flex justify-between gap-4 border-t border-slate-300 pt-1 font-semibold text-slate-900">
           <dt>Most you&rsquo;d pay</dt>
-          <dd className="tabular-nums">{money(total)}</dd>
+          <dd className="tabular-nums">{total === null ? 'Not known' : money(total)}</dd>
         </div>
       </dl>
+    </div>
+  );
+}
+
+// Medicare's hospital rate is only a guide here, so it never joins the amounts above.
+function MissingBillNote({ location }) {
+  return (
+    <div className="space-y-1.5 text-pretty text-[13px] leading-5 text-slate-600">
+      <p>{location.missing.explain}</p>
+      {location.facilityEstimate !== null && (
+        <p>As a rough guide, Medicare pays hospitals about {money(location.facilityEstimate)} for this scan. That isn&rsquo;t your plan&rsquo;s rate, so it isn&rsquo;t counted here.</p>
+      )}
+      {location.billers.length > 1 && <p>{billedBy(location.billers)} bill here.</p>}
     </div>
   );
 }
@@ -85,7 +114,7 @@ function RatesHere({ location }) {
       </dl>
       <p className="mt-1.5 text-pretty text-[13px] leading-5 text-slate-600">
         Your plan lists more than one rate here without saying which applies, so ask which you&rsquo;d get.
-        {location.billers.length > 1 && <> {new Intl.ListFormat('en').format(location.billers)} bill here.</>}
+        {location.billers.length > 1 && <> {billedBy(location.billers)} bill here.</>}
       </p>
     </div>
   );
@@ -169,15 +198,22 @@ function LocationRow({ location, selected, highlighted, layoutKey, onSelect, onH
           {location.matchedDoctor && (
             <div className="mt-0.5 text-[13px] font-medium text-emerald-800">{location.matchedDoctor} works here</div>
           )}
+          {location.missing && (
+            <div className="mt-0.5 text-[13px] font-medium text-amber-800">{location.missing.rowNote}</div>
+          )}
         </td>
         <td className="whitespace-nowrap px-2 py-3.5 text-right align-top text-[15px] tabular-nums text-slate-700 sm:px-4">
           {miles(location.distanceMi)}
         </td>
         <td className="whitespace-nowrap py-3.5 pl-2 pr-4 text-right align-top sm:pr-6">
-          <div className="text-[17px] font-semibold leading-6 tabular-nums text-slate-900">{money(location.maxRate)}</div>
-          <div className="mt-0.5 hidden text-[13px] tabular-nums sm:block">
-            <PriceComparison difference={location.maxVsMedian} />
-          </div>
+          {location.maxRate === null ? <IncompletePrice parts={location.parts} /> : (
+            <>
+              <div className="text-[17px] font-semibold leading-6 tabular-nums text-slate-900">{money(location.maxRate)}</div>
+              <div className="mt-0.5 hidden text-[13px] tabular-nums sm:block">
+                <PriceComparison difference={location.maxVsMedian} />
+              </div>
+            </>
+          )}
         </td>
       </motion.tr>
       <AnimatePresence initial={false}>
@@ -195,6 +231,7 @@ function LocationRow({ location, selected, highlighted, layoutKey, onSelect, onH
                   <div className="grid gap-4 sm:grid-cols-2 sm:gap-8">
                     <div className="space-y-4">
                       <Breakdown parts={location.parts} total={location.maxRate} />
+                      {location.missing && <MissingBillNote location={location} />}
                       {location.minRate !== location.maxRate && <RatesHere location={location} />}
                     </div>
                     <div className="flex flex-col gap-3">
@@ -241,7 +278,7 @@ export function ResultsTable({ results, sort, layoutKey, selectedId, highlightId
       <colgroup>
         <col />
         <col className="w-[88px] sm:w-28" />
-        <col className="w-[92px] sm:w-44" />
+        <col className="w-[100px] sm:w-44" />
       </colgroup>
       <thead className="sticky top-0 z-10 bg-white text-[13px] text-slate-500 shadow-[inset_0_-1px_0_var(--color-slate-200)]">
         <tr>

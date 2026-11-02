@@ -14,13 +14,13 @@ This file is the charter — read it first, then follow the [doc map](#where-to-
 to the detail for whatever you're touching. Keep it thin; detail lives next to the
 code.
 
-**Current focus** *(update as the active work changes)*: designing the experience first
-with a frontend-only mock at `/mock/find-care` (find the cheapest care nearby), per the
-[plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460).
-Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold, and the
-data model waits for the mock. Product direction is in
-[docs/direction.md](docs/direction.md). Don't restructure `etl/`, `serving/`, or
-`frontend/` without a reason (rule 7).
+**Current focus** *(update as the active work changes)*: moving one owner-reviewed step at
+a time through the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135),
+which also holds the target data model, from the frontend-only mock at `/mock/find-care`
+(find the cheapest care nearby) to the real screen.
+Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold. Product
+direction is in [docs/direction.md](docs/direction.md). Don't restructure `etl/`, `serving/`,
+or `frontend/` without a reason (rule 7).
 
 ---
 
@@ -113,11 +113,11 @@ make refresh                # the monthly job: discover → reference → parse 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
 make check LOCAL=1          #   same gate on host toolchains, NO Docker
 make test                   # every hermetic suite: check + serving pytest + vitest (+ ETL e2e)
-make test LOCAL=1           #   host toolchains, no Docker — the worktree gate; works in any checkout but fails with
+make test LOCAL=1           #   host toolchains, no Docker; works in any checkout but fails with
                              #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until scripts/dev-setup.sh has been run
 make test-live              # golden answers + user journeys against the live API + real corpus (docs/journeys.md)
 
-make worktree TOPIC=x       # new sibling worktree + branch off main, set up (GH #59)
+make worktree TOPIC=x       # only for parallel work: new sibling worktree + branch off main, set up (GH #59)
 make worktree-rm TOPIC=x    # remove it once its PR merges
 make footprint / make clean # disk report / reclaim regenerable artifacts
 make psql / make migrate    # DB shell / apply db/migrations/*.sql
@@ -127,27 +127,25 @@ make fixture ID=5043        # truncated *.json.gz fixture from a file id
 make sh S=serving           # shell into a container
 ```
 
-**Parallel / worktree development** (GH #59). The canonical checkout runs the one
-always-up stack on `main`. Feature work happens in sibling worktrees
-(`../hh-<topic>`, branch `espinoza/<type>/<topic>`, one per session) made by
-`make worktree TOPIC=x [TYPE=feat]`, which runs `scripts/dev-setup.sh` (`.venv`,
-`npm ci`, a gitignored `.env` with its own ports and `HH_DATA_ROOT`). Host toolchains
-are pinned by `.mise.toml` (`brew install mise` once, add its shell hook); run
-`scripts/dev-setup.sh` once in the canonical checkout. Test with `make test LOCAL=1`
-(no Docker), merge to `main` serially (trunk, no `develop`), then `make worktree-rm
-TOPIC=x` — a lingering worktree is hundreds of MB.
+**Branches and worktrees** (GH #59).
+Work on one branch at a time in the main checkout: `git switch -c espinoza/<type>/<topic>` from an up-to-date `main`, then merge to `main` serially (trunk, no `develop`).
+Host toolchains are pinned by `.mise.toml` (`brew install mise` once, add its shell hook).
+Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 
-- A worktree runs its own stack (`make start`) only for a live check; it **reads** the
-  shared Parquet store and must never write `data/` — use `TEST=1`, or
-  `SERVING_DIR=/app/data-local/serving` to rebuild serving tables locally.
+- The Docker stack mounts this checkout's code, so a running stack serves whichever branch is checked out.
+- A branch writes `data/` only when that is its purpose.
+  Otherwise use `TEST=1`, or `SERVING_DIR=/app/data-local/serving` to rebuild serving tables locally.
+- Use a worktree only when two things must run at once, such as a second session or a stack that has to stay on `main`.
+  `make worktree TOPIC=x [TYPE=feat]` creates `../hh-<topic>` and runs `scripts/dev-setup.sh` (`.venv`, `npm ci`, a gitignored `.env` with its own ports and `HH_DATA_ROOT`).
+  Each session gets its own worktree, which **reads** the shared Parquet store, must never write it, and runs its own stack (`make start`) only for a live check.
+  Remove it with `make worktree-rm TOPIC=x` once its PR merges, because a lingering worktree is hundreds of MB.
+  After a manual `rm -rf`, run `git worktree prune`.
 - Any ad-hoc `duckdb.connect()` must `SET temp_directory` (or go through `db()` in
   `serving/data_sources.py`), or a spilling query fills the repo's `.tmp/`.
   `make footprint` reports disk use; `make clean` reclaims regenerable artifacts
   (`DOCKER=1` also prunes Docker).
-- One branch per worktree; after a manual `rm -rf` run `git worktree prune`; parallel
-  branches adding the same `db/migrations/NNN_*.sql` number conflict — renumber the
-  later one. Gitignored files (`.env`, `.venv/`, `data/`) are normal files — read them
-  by path; repo-wide search skips them.
+- Parallel branches adding the same `db/migrations/NNN_*.sql` number conflict, so renumber the later one.
+- Gitignored files (`.env`, `.venv/`, `data/`) are normal files, so read them by path; repo-wide search skips them.
 
 ---
 

@@ -81,9 +81,44 @@ function ResultFilter({ text, onChange }) {
   );
 }
 
+function PreventiveNote({ children }) {
+  return <p className="mt-3 text-pretty rounded-xl bg-emerald-50 px-3.5 py-2.5 text-sm leading-5 text-emerald-900">{children}</p>;
+}
+
+function WidenButton({ radiusMi, onWiden }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onWiden(radiusMi)}
+      className="mt-4 h-10 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-emerald-800"
+    >
+      Show within {radiusMi} miles
+    </button>
+  );
+}
+
+// Places nearby, but none we can give a ceiling for, so the answer says that instead of naming one.
+function NoFullPrice({ search, radiusMi, preventive, onWiden }) {
+  const { medicareRate, results, widerRadiusMi } = search;
+  return (
+    <div className="px-4 pb-4 pt-5 sm:px-6">
+      <p className="text-[13px] font-medium text-amber-800">No full price within {radiusMi} miles</p>
+      <h1 className="mt-1 text-balance text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px] sm:leading-9">
+        We can&rsquo;t say the most you&rsquo;d pay nearby
+      </h1>
+      <p className="mt-1.5 text-[15px] text-slate-600">
+        {results.length === 1 ? 'The one place nearby is missing part of its bill.' : `All ${results.length} places nearby are missing part of their bill.`}
+        {' '}Medicare pays about {money(medicareRate)}.
+      </p>
+      {preventive && <PreventiveNote>{preventive}</PreventiveNote>}
+      {widerRadiusMi && <WidenButton radiusMi={widerRadiusMi} onWiden={onWiden} />}
+    </div>
+  );
+}
+
 // The straight answer, before any table: the lowest ceiling nearby, and what it's for.
 function Answer({ search, radiusMi, plan, preventive }) {
-  const { cheapest, nearbyMedian, medicareRate, results } = search;
+  const { cheapest, nearbyMedian, medicareRate, pricedCount } = search;
   return (
     <div className="px-4 pb-4 pt-5 sm:px-6">
       <p className="text-[13px] font-medium text-emerald-700">Cheapest within {radiusMi} miles</p>
@@ -92,15 +127,13 @@ function Answer({ search, radiusMi, plan, preventive }) {
       </h1>
       <p className="mt-1.5 text-[15px] text-slate-600">
         {miles(cheapest.distanceMi)} away.
-        {results.length > 1 && <> The median nearby is {money(nearbyMedian)}.</>}
+        {pricedCount > 1 && <> The median nearby is {money(nearbyMedian)}.</>}
         {' '}Medicare pays about {money(medicareRate)}.
       </p>
       <p className="mt-1 hidden text-pretty text-sm text-slate-500 sm:block">
         <RateExplainer plan={plan} />
       </p>
-      {preventive && (
-        <p className="mt-3 text-pretty rounded-xl bg-emerald-50 px-3.5 py-2.5 text-sm leading-5 text-emerald-900">{preventive}</p>
-      )}
+      {preventive && <PreventiveNote>{preventive}</PreventiveNote>}
     </div>
   );
 }
@@ -110,17 +143,10 @@ function NothingNearby({ closest, radiusMi, widerRadiusMi, onWiden }) {
     <div className="px-4 py-10 sm:px-6">
       <h1 className="text-xl font-bold tracking-tight text-slate-900">Nothing within {radiusMi} miles</h1>
       <p className="mt-1 text-[15px] text-slate-600">
-        The closest is {closest.name}, {miles(closest.distanceMi)} away, where the most you&rsquo;d pay is {money(closest.maxRate)}.
+        The closest is {closest.name}, {miles(closest.distanceMi)} away,
+        {closest.maxRate === null ? ' but its full price isn’t on file.' : <> where the most you&rsquo;d pay is {money(closest.maxRate)}.</>}
       </p>
-      {widerRadiusMi && (
-        <button
-          type="button"
-          onClick={() => onWiden(widerRadiusMi)}
-          className="mt-4 h-10 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-emerald-800"
-        >
-          Show within {widerRadiusMi} miles
-        </button>
-      )}
+      {widerRadiusMi && <WidenButton radiusMi={widerRadiusMi} onWiden={onWiden} />}
     </div>
   );
 }
@@ -188,9 +214,11 @@ export default function FindCareMock() {
         <div className={clsx('relative flex min-h-0 flex-1 flex-col lg:grid', hasSearch ? 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]' : 'lg:grid-cols-1')}>
           {hasSearch && (
             <main className="order-2 min-h-0 lg:order-1 lg:overflow-y-auto">
-              {search.cheapest ? (
+              {search.results.length > 0 ? (
                 <>
-                  <Answer search={search} radiusMi={radiusMi} plan={plan} preventive={SERVICE_DETAILS[serviceId].preventive} />
+                  {search.cheapest
+                    ? <Answer search={search} radiusMi={radiusMi} plan={plan} preventive={SERVICE_DETAILS[serviceId].preventive} />
+                    : <NoFullPrice search={search} radiusMi={radiusMi} preventive={SERVICE_DETAILS[serviceId].preventive} onWiden={(r) => update({ r })} />}
                   <AboutService serviceName={service.name} details={SERVICE_DETAILS[serviceId]} plan={plan} />
                   <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 sm:px-6">
                     <span className="text-[13px] text-slate-500">
@@ -218,8 +246,11 @@ export default function FindCareMock() {
                     </p>
                   )}
                   <div className="space-y-1 px-4 py-4 text-[13px] leading-5 text-slate-500 sm:px-6">
-                    <p className="sm:hidden"><RateExplainer plan={plan} /></p>
-                    <p>Median is the middle of the prices listed here, so it changes with your search.</p>
+                    {search.cheapest && <p className="sm:hidden"><RateExplainer plan={plan} /></p>}
+                    {search.cheapest && <p>Median is the middle of the prices listed here, so it changes with your search.</p>}
+                    {search.pricedCount < search.results.length && (
+                      <p>A place missing part of its bill has no &ldquo;most you&rsquo;d pay&rdquo;, so it isn&rsquo;t in the median and comes last when sorted by price.</p>
+                    )}
                     <p>Medicare is what Medicare pays for the same scan. It doesn&rsquo;t change with your search or your plan.</p>
                   </div>
                 </>
