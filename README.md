@@ -117,25 +117,23 @@ developer, see [deploy/README.md](deploy/README.md#sharing-the-app-with-a-tester
 
 ---
 
-## Developing in parallel (worktrees)
+## Developing on a branch
 
-The quickstart above needs no host runtimes. To run **more than one branch at
-once** — a feature per session, without the Docker stack / ports / data store
-colliding — add one tool:
+The quickstart above needs no host runtimes.
+To run the tests without Docker, add one tool:
 
 ```bash
 brew install mise          # pins python/node/go per-repo; your system installs are untouched
 # add the shell hook once:  https://mise.jdx.dev/getting-started.html
-scripts/dev-setup.sh       # .venv + npm ci; run once in the canonical checkout
+scripts/dev-setup.sh       # .venv + npm ci; run once
 
-make worktree TOPIC=my-thing        # → ../hh-my-thing on a new branch, fully set up
-cd ../hh-my-thing
-make test LOCAL=1                   # gofmt · vet · build · go test · pytest · vitest — no Docker
+git switch -c espinoza/feat/my-thing
+make test LOCAL=1          # gofmt · vet · build · go test · pytest · vitest, no Docker
 ```
 
-The canonical checkout runs the one always-up stack; feature worktrees test on
-host toolchains and run `make start` (own ports, from `.env`) only for a live
-check. Rules and footprint: [AGENTS.md](AGENTS.md#parallel--worktree-development).
+Work on one branch at a time in this checkout.
+To run **more than one branch at once**, `make worktree TOPIC=my-thing` creates `../hh-my-thing` with its own ports and data settings.
+Rules and footprint: [AGENTS.md](AGENTS.md#development-commands).
 
 ---
 

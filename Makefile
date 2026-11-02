@@ -15,7 +15,7 @@
 #   make reference STEP=mpfs    # run one reference builder (ARGS="--year 2025" passes through)
 #   make reference FORCE=1      # rebuild every reference output even if it exists
 #   make check LOCAL=1          # the same gate on host toolchains, no Docker
-#   make test  LOCAL=1          # ... incl. pytest + vitest; the worktree gate
+#   make test  LOCAL=1          # ... incl. pytest + vitest
 #   make db-reset WHAT=failed   # reset transiently-failed rows → pending
 #   make sh S=serving           # shell into a container
 
