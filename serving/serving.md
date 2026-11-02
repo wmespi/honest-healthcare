@@ -44,8 +44,7 @@ placeholder rates Anthem fills for not-separately-priced codes.
 
 It **requires a `network_name`** (`400 {"detail": {"code": "network_required"}}`
 otherwise) — a rate is only comparable within a plan, a product rule, not a scale
-guard. **Rule 5** (AGENTS.md #5): within a practice and component, a `plan_specific`
-row wins over `shared`.
+guard.
 
 ## Key helpers
 
@@ -67,6 +66,8 @@ row wins over `shared`.
 - **Expand to provider groups (`RATE_GROUPS_SRC`) only after a selective filter**
   (`billing_code`); over the whole store it is far too large. Browse aggregates read
   `rate_hist` instead.
+- Name the columns in `GROUP BY`, never positions. When an alias shares a column's name,
+  group by the full expression, because the column wins.
 - Parameterise with `?`; never f-string user input into SQL (module-constant table and
   column names are fine).
 

@@ -24,7 +24,7 @@ SERVING_DIR = os.getenv("SERVING_DIR") or f"{DATA_DIR}/serving"
 # ── the serving tables ─────────────────────────────────────────────────────
 #
 # rates/net=<slug>/part.parquet  one row per negotiated price (the parser's
-#     grain) + scope / is_sentinel / source_kind / medicare_allowed. Hive-
+#     grain) + scope / is_sentinel / medicare_allowed. Hive-
 #     partitioned by network: a `net = ?` filter prunes to one directory, and
 #     that plus `billing_code = ?` is what makes every plan-scoped query cheap.
 # group_sets        (file_id, group_set_id, provider_group_id)  a price's roster

@@ -151,7 +151,7 @@ def main() -> None:
 
     top = con.execute(f"""
         SELECT COALESCE(provider_type, '(none)') t, count(*) n
-        FROM read_parquet('{out_path}') GROUP BY 1 ORDER BY n DESC LIMIT 10
+        FROM read_parquet('{out_path}') GROUP BY t ORDER BY n DESC LIMIT 10
     """).fetchall()
     for t, n in top:
         print(f"    {n:>7,}  {t}")

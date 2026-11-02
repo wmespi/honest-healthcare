@@ -15,7 +15,7 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 | Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue; keeps the plan→file link (`index_file_plans`) |
 | Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → raw Parquet; a provider probe aborts a download before `in_network` when no wanted provider is in it |
 | Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization, MPFS, DAC, geocode, MIPS, ZIP centroids) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
-| Build | Python + DuckDB | `build/` | Raw + reference Parquet → the serving tables; every product decision (scope, sentinel, benchmark, service lines, rule 5) lives here — [build/build.md](../build/build.md) |
+| Build | Python + DuckDB | `build/` | Raw + reference Parquet → the serving tables; every product decision (scope, sentinel, benchmark, service lines) lives here — [build/build.md](../build/build.md) |
 | Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | `frontend/` | Rate explorer — `localhost:5173` |
 | Storage | Parquet + ZSTD | `data/` | `data/anthem/`, `data/nppes/`, `data/reference/`, `data/cms/`, `data/serving/` — [docs/schema.md](schema.md) |
@@ -76,7 +76,6 @@ erDiagram
     float vs_medicare
     bool is_sentinel
     string scope
-    string source_kind
   }
   GROUP_SETS {
     int file_id PK
@@ -125,8 +124,7 @@ erDiagram
 
 `rates` is the parser's **price grain** — no group fan-out — Hive-partitioned by
 `net=`, so every plan-scoped query prunes to one directory; `group_set_id` links to
-`group_sets` for the join a query needs at read time. `source_kind` is `plan_specific`
-or `shared` and drives AGENTS.md rule 5. The ERD names the grain, not every column
+`group_sets` for the join a query needs at read time. The ERD names the grain, not every column
 (full column lists: [schema.md](schema.md)), and that grain is not unique (POS
 variants, multi-roster rates).
 

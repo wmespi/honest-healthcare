@@ -317,7 +317,7 @@ def main() -> None:
 
     src_rows = con.execute("SELECT count(*) FROM rvu").fetchone()[0]
     by_status = con.execute(
-        "SELECT status, count(*) FROM rvu GROUP BY 1 ORDER BY 2 DESC"
+        "SELECT status, count(*) FROM rvu GROUP BY status ORDER BY count(*) DESC"
     ).fetchall()
     print(f"  {src_rows:,} RVU rows  ·  status: "
           + " ".join(f"{s or '?'}={n}" for s, n in by_status))

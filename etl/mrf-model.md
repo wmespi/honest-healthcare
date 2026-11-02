@@ -25,9 +25,9 @@ PLAN   plan_name "BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM"
   │ in_network_files[]  — a plan links to MANY rate files
   ├───────────────────────────────┐
   ▼                               ▼
-PLAN-SPECIFIC FILE            SHARED NETWORK FILE
-anthem/GA_JBNKMED0001.gz      many other files, each linked
-                              from many plans
+THE PLAN'S CONTRACT FILE      OTHER LINKED FILES
+anthem/GA_JBNKMED0001.gz      out-of-state BlueCard copies,
+                              each linked from many plans
   │  (both share the same internal schema)
   ▼
 RATE FILE (in-network JSON)
@@ -69,10 +69,10 @@ layers its contracts:
 - **Plan-level rates** live in a plan-specific file — an extra discount or custom
   tier negotiated on top of the network rate for that one plan.
 
-So `(billing_code + provider_group + plan)` can legitimately appear in a
-plan-specific file *and* one or more shared files, with different rates. The CMS
-spec defines the file format but **no deduplication or precedence rule** — conflict
-resolution is left entirely to the consumer.
+So `(billing_code + provider_group + plan)` can legitimately appear in several files,
+with different rates. The CMS spec defines the file format but **no deduplication or
+precedence rule**, so that's left to the consumer: see
+[one plan, one contract](#one-plan-one-contract).
 
 ---
 
@@ -103,22 +103,19 @@ joins a price only through the buckets that hold it. The file is rebuilt and rep
 on every release, and its bucket layout changes with it; a build never assumes ids
 carry over between releases. Re-run `make refresh` to move to the current release.
 
-The imaging codes in the Anthem Georgia file are priced on office professional lines
-only; hospital and ASC imaging is billed on institutional claims that this file does
-not hold ([facility fees](../docs/known-gaps.md#imaging)).
+The imaging codes in `GA_JBNKMED0001` are priced on office professional lines only;
+hospital and ASC imaging is billed on institutional claims that this file does not hold ([facility fees](../docs/known-gaps.md#imaging)).
 
 ---
 
-## Conflict resolution strategy
+## One plan, one contract
 
-*Target design, not yet enforced in code (Critical Rule 5). `build/build.py` tags
-`source_kind`; the choice itself is applied at read time — [../build/build.md](../build/build.md).*
+A plan a person can pick is priced by one file, and nothing combines or overrides
+prices across files ([AGENTS.md rule 5](../AGENTS.md)). The same billing ID can carry
+different prices in two files, and nothing in the files says which one applies to a
+given member, so a rule that picks between them would be a guess.
 
-| Scenario | Resolution |
-|---|---|
-| Same code + provider group in a plan-specific AND a shared file | **Plan-specific wins** — the most directly negotiated rate |
-| Code in a shared file but not the plan-specific file | **Include it** — members reach it through the shared network |
-| Same code + provider group in two shared files | **Lower rate wins** — both are network-level |
-
-Of the files linked to the target plan, exactly one carries its network label
-(`etl/targets.yaml` `network_patterns`); the rest are shared files for other plans.
+Blue Value shows why the network label isn't enough. `GA_JBNKMED0001` and
+`GA_JBKEMED0001` both carry `GA Blue Value HIX Individual Network`, but they serve
+different plan IDs at different prices. The rest of the files linked to the plan are
+out-of-state BlueCard copies that don't carry its label.

@@ -309,7 +309,7 @@ def main() -> None:
     print(f"  {n:,} clinicians · {groups:,} distinct groups · {gy:,} with a grad year")
     top = con.execute(f"""
         SELECT COALESCE(primary_specialty, '(none)') s, count(*) n
-        FROM read_parquet('{ga_out}') GROUP BY 1 ORDER BY n DESC LIMIT 10
+        FROM read_parquet('{ga_out}') GROUP BY s ORDER BY n DESC LIMIT 10
     """).fetchall()
     for s, cnt in top:
         print(f"    {cnt:>7,}  {s}")
@@ -351,7 +351,7 @@ def main() -> None:
     print(f"  {rows:,} affiliations · {npis:,} clinicians · {ccns:,} distinct CCNs")
     kinds = con.execute(f"""
         SELECT COALESCE(facility_name, '(none)') k, count(*) n
-        FROM read_parquet('{affil_out}') GROUP BY 1 ORDER BY n DESC LIMIT 10
+        FROM read_parquet('{affil_out}') GROUP BY k ORDER BY n DESC LIMIT 10
     """).fetchall()
     for k, cnt in kinds:
         print(f"    {cnt:>7,}  {k}")

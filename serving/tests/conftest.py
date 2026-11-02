@@ -361,13 +361,9 @@ def _build(data_dir: str) -> None:
 
     # the serving tables — run the real build against the raw parquet just
     # written, exactly as `make build` would (no --networks: builds every
-    # partition, both BLUE_VALUE and OPEN_ACCESS). plan_counts={} (not None)
-    # skips the DATABASE_URL probe entirely and tags every row `shared` — this
-    # fixture doesn't exercise rule 5's plan_specific branch (that's
-    # test_build.py's job); every FILE_ID here is 1.
+    # partition, both BLUE_VALUE and OPEN_ACCESS).
     from build.build import build as _build_serving
-    _build_serving(data_dir, f"{data_dir}/serving", networks=None, test=False,
-                   plan_counts={})
+    _build_serving(data_dir, f"{data_dir}/serving", networks=None, test=False)
 
 
 @pytest.fixture(scope="session")

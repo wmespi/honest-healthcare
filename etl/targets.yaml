@@ -42,11 +42,12 @@ targets:
     # "GA Blue Value HIX Individual Network".
     plan_name_patterns:
       - "*blue value*"
-    # The index links this plan to ~245 files; one of them actually carries its
-    # network. The rest are national BlueCard-mirror shards — they do list
-    # Georgia NPIs, so provider overlap alone waves them through, and they were
-    # ~40 GB of download that ended in a rollback. This pattern is what stops
-    # them at the front of the stream.
+    # The index links this plan to about 260 files. Two carry its network label:
+    # GA_JBNKMED0001, the contract we price, and GA_JBKEMED0001, another contract
+    # this list can't keep out yet (AGENTS.md rule 5). The rest are national
+    # BlueCard-mirror shards — they do list Georgia NPIs, so provider overlap alone
+    # waves them through, and they were ~40 GB of download that ended in a rollback.
+    # This pattern is what stops them at the front of the stream.
     network_patterns:
       - "GA Blue Value HIX*"
 

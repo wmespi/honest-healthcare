@@ -67,11 +67,11 @@ parallel C++ reader handles, not a hand-rolled streaming parse.
    exceed 10 GB.
 4. **Test mode is isolated** — `test.*` tables and `data-test/` are safe to
    truncate; a test run must never touch `public.*` or `data/`.
-5. **Plan-specific file wins on rate conflict** *(half in code)* — a single-plan
-   file's rate overrides a shared-network file's for the same practice and code:
-   the build tags `source_kind`, `/imaging/providers` applies the override at read
-   time. "The lower rate wins between two shared files" is not in code.
-   [etl/mrf-model.md](etl/mrf-model.md#conflict-resolution-strategy).
+5. **One plan, one contract** — a plan a person can pick is priced by one file, so
+   nothing combines or overrides prices across files. `GA_JBKEMED0001` carries Blue
+   Value's network label but is another contract, and `etl/targets.yaml` can't tell
+   them apart yet: **don't run `make parse` or `make refresh`** until it selects by
+   plan ID. [etl/mrf-model.md](etl/mrf-model.md#one-plan-one-contract).
 6. **Give regular status updates — the most-missed rule here.** On any multi-step
    task, post a short progress note *as each step lands* — what's done, what's
    next, anything that changed — not just a summary at the end. If you've run
@@ -166,7 +166,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
 | CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |
-| The build step — raw + reference → serving tables, `scope` / `is_sentinel` / benchmark / rule 5 | [build/build.md](build/build.md) |
+| The build step — raw + reference → serving tables, `scope` / `is_sentinel` / benchmark | [build/build.md](build/build.md) |
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
 | API routes, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet + what Postgres holds) | [docs/schema.md](docs/schema.md) |

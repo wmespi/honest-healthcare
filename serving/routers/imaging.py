@@ -96,8 +96,7 @@ def imaging_providers(
     every complete one). `zip` adds `distance_mi` and `city` of the nearest
     imaging provider; `radius_mi` drops practices farther away or without
     coordinates. Only price lines that apply in an office (place of service 11)
-    count. Plan-specific rates win over shared ones within a practice and
-    component (AGENTS.md rule 5)."""
+    count."""
     if billing_code not in SERVICE_LINE_BILLING_CODES["imaging"]:
         raise HTTPException(400, f"not an imaging menu code: {billing_code!r}")
     if not network_name:
@@ -124,7 +123,7 @@ def imaging_providers(
         j AS (
             SELECT gm.tin_value, gm.npi, gm.npi IN (SELECT npi FROM bn) AS billed,
                    COALESCE(pg.modifier, '') AS comp,
-                   pg.negotiated_rate AS rate, pg.source_kind,
+                   pg.negotiated_rate AS rate,
                    pd.city, pd.entity_type, pd.name, pd.org_name, {dist} AS dist
             FROM {RATE_GROUPS_SRC} pg
             JOIN {GROUP_MEMBERS_SRC} gm
@@ -135,14 +134,10 @@ def imaging_providers(
               AND {OFFICE_POS}
               AND CONTAINS(',' || COALESCE(pd.service_lines, '') || ',', ',imaging,')
         ),
-        ruled AS (
-            SELECT *, BOOL_OR(source_kind = 'plan_specific') OVER (PARTITION BY tin_value, comp) AS any_plan
-            FROM j
-        ),
         comp AS (
             SELECT tin_value, comp, MIN(rate) AS lo, MEDIAN(rate) AS med, MAX(rate) AS hi
-            FROM ruled WHERE NOT any_plan OR source_kind = 'plan_specific'
-            GROUP BY 1, 2
+            FROM j
+            GROUP BY tin_value, comp
         ),
         loc AS (
             SELECT tin_value, COUNT(DISTINCT npi) AS n_providers, BOOL_OR(billed) AS any_billed, MIN(dist) AS dist,
@@ -150,7 +145,7 @@ def imaging_providers(
                    MODE(city) AS city,
                    ANY_VALUE(org_name) FILTER (WHERE org_name IS NOT NULL AND org_name <> '') AS member_org,
                    LIST(DISTINCT name) FILTER (WHERE entity_type = 'individual' AND name <> '') AS indiv
-            FROM j GROUP BY 1
+            FROM j GROUP BY tin_value
         )
         SELECT l.tin_value, l.n_providers, l.dist, COALESCE(l.near_city, l.city), l.member_org,
                l.indiv[1:3], tn.org_name,

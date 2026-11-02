@@ -166,9 +166,9 @@ def main() -> None:
             FROM (
               SELECT billing_code_type, billing_code, name, count(*) AS cnt
               FROM read_parquet('{codes_glob}', union_by_name=true)
-              GROUP BY 1, 2, 3
+              GROUP BY billing_code_type, billing_code, name
             )
-            GROUP BY 1, 2
+            GROUP BY billing_code_type, billing_code
             """
         )
     except duckdb.IOException:
@@ -238,7 +238,7 @@ def main() -> None:
     fam = con.execute(
         """
         SELECT COALESCE(rbcs_family, '(unmapped)') f, count(*) n
-        FROM labelled GROUP BY 1 ORDER BY n DESC LIMIT 12
+        FROM labelled GROUP BY f ORDER BY n DESC LIMIT 12
         """
     ).fetchall()
     for f, n in fam:

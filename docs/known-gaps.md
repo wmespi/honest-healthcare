@@ -84,6 +84,10 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Operational
 
+- **A second Blue Value contract isn't kept out yet.** `GA_JBKEMED0001` carries the same
+  network label as `GA_JBNKMED0001` but serves a different plan ID, at different prices.
+  `etl/targets.yaml` selects by plan name and label, so `make parse` or `make refresh`
+  would write it into the same partition. Don't run either until it selects by plan ID.
 - **`make reference STEP=nppes` is not atomic** — `ga_providers.parquet` is briefly
   empty during a re-extract and queries touching it 500. Run it when the API is idle.
 - **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` prefix, not a
@@ -91,13 +95,6 @@ Where the product is headed: [direction.md](direction.md) and epic
   ([../etl/discover.md](../etl/discover.md)).
 - **Large GA files** (multi-GB) are tractable thanks to the price/roster split; still
   parse individually and watch `du -sh data`.
-
-## Deferred by design
-
-- **Rule 5 is half in code, at read time.** The build keeps every row and tags it
-  `source_kind`; `/imaging/providers` makes a `plan_specific` row win over `shared`
-  per practice and component (`serving/routers/imaging.py`). "The lower shared rate
-  wins" is not implemented.
 
 ## Imaging
 
