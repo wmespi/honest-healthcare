@@ -223,6 +223,60 @@ describe('find care mock', () => {
     expect(screen.getByText(/usually \$0 in network/)).toBeInTheDocument();
   });
 
+  it('shows what is known at a hospital, and no most you\'d pay', async () => {
+    const user = userEvent.setup();
+    open(MRI);
+    const row = screen.getByRole('button', { name: 'Ponce Street Medical Center' }).closest('tr');
+    expect(within(row).getByText('Incomplete')).toBeInTheDocument();
+    expect(within(row).getByText('Missing the hospital’s fee')).toBeInTheDocument();
+    expect(within(row).getByText(/^\$\d+ known so far$/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Ponce Street Medical Center' }));
+    expect(screen.getByText('What we know so far')).toBeInTheDocument();
+    expect(screen.getByText('Not on file')).toBeInTheDocument();
+    expect(screen.getByText('Not known')).toBeInTheDocument();
+    expect(screen.getByText(/Medicare pays hospitals about \$\d+/)).toBeInTheDocument();
+    expect(screen.getByText(/Midtown Radiology Partners, and Atlanta Diagnostic Physicians bill here/)).toBeInTheDocument();
+    expect(screen.queryByText('Rates on file here')).not.toBeInTheDocument();
+  });
+
+  it('says why a radiology group with no office billing has no full price', async () => {
+    const user = userEvent.setup();
+    open(MRI);
+    const row = screen.getByRole('button', { name: 'Midtown Radiology Partners' }).closest('tr');
+    expect(within(row).getByText('Missing the cost of the scan')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Midtown Radiology Partners' }));
+    expect(screen.getByText(/reading scans done at hospitals/)).toBeInTheDocument();
+    expect(screen.queryByText(/Medicare pays hospitals/)).not.toBeInTheDocument();
+  });
+
+  it('never names a place with no full price as the answer, and lists it last by price', () => {
+    open(MRI);
+    expect(headline()).not.toMatch(/Medical Center|Hospital|Radiology Partners/);
+    const names = rowNames();
+    expect(names[names.length - 1]).toMatch(/Medical Center|Hospital|Radiology/);
+    expect(screen.getByText(/comes last when sorted by price/)).toBeInTheDocument();
+  });
+
+  it('says so when nothing nearby has a full price, and offers the closest that does', async () => {
+    const user = userEvent.setup();
+    open('?service=mri-lower-back&loc=30075&plan=blue-value&r=5');
+    expect(headline()).toBe('We can’t say the most you’d pay nearby');
+    expect(screen.getByText('No full price within 5 miles')).toBeInTheDocument();
+    expect(rowNames()).toEqual(['Holcomb Bridge Hospital']);
+    expect(screen.queryByText(/Median is the middle/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show within 10 miles' }));
+    expect(headline()).toMatch(/^\$\d+ is the most you’d pay at /);
+  });
+
+  it('makes no price claim when the closest place outside the radius has no full price', () => {
+    open('?service=mri-lower-back&loc=30215&plan=blue-value&r=5');
+    expect(screen.getByText('Nothing within 5 miles')).toBeInTheDocument();
+    expect(screen.getByText(/Jonesboro Road Medical Center.*but its full price isn’t on file/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show within 25 miles' })).toBeInTheDocument();
+  });
+
   it('offers a wider search when nothing is nearby', async () => {
     const user = userEvent.setup();
     open('?service=mri-lower-back&loc=30114&plan=blue-value&r=5');

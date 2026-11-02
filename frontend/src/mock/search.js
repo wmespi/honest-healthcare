@@ -1,10 +1,12 @@
-import { KIND_LABELS, LOCATIONS, PLANS, SAMPLE_ADDRESSES, SCAN_PARTS, SERVICES, ZIP_AREAS } from './sampleData';
+import { KIND_LABELS, LOCATIONS, MISSING_BILLS, PLANS, SAMPLE_ADDRESSES, SCAN_PARTS, SERVICES, ZIP_AREAS } from './sampleData';
 
 export const RADIUS_OPTIONS = [5, 10, 25, 50];
 
 const ENOUGH_CHOICES = 5;
 const HOSPITAL_FEE_SHARE = 0.45;
 const MEDICARE_SHARE_OF_BASE = 0.4;
+const MEDICARE_FACILITY_SHARE_OF_BASE = 0.5;
+const [, READING] = SCAN_PARTS;
 const EARTH_RADIUS_MI = 3958.8;
 const toRadians = (degrees) => (degrees * Math.PI) / 180;
 
@@ -80,42 +82,57 @@ function median(sorted) {
   return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
-// The separate charges behind a price. They always add up to the price exactly.
-function priceParts(kind, price) {
-  const parts = kind === 'hospital'
-    ? [
-      { label: 'Hospital facility fee', share: HOSPITAL_FEE_SHARE },
-      ...SCAN_PARTS.map((p) => ({ ...p, share: p.share * (1 - HOSPITAL_FEE_SHARE) })),
-    ]
-    : SCAN_PARTS;
+// The separate charges behind a full price. They always add up to it exactly.
+function priceParts(price) {
   let remaining = price;
-  return parts.map((part, index) => {
-    const amount = index === parts.length - 1 ? remaining : Math.round(price * part.share);
+  return SCAN_PARTS.map((part, index) => {
+    const amount = index === SCAN_PARTS.length - 1 ? remaining : Math.round(price * part.share);
     remaining -= amount;
     return { label: part.label, amount };
   });
 }
 
+// A place's rates for one scan. With a bill missing there is no ceiling to claim, only the
+// reading, which is the part known, and the bill named as missing.
+function ratesAt(place, scaled) {
+  const missing = MISSING_BILLS[place.kind] ?? null;
+  if (missing) {
+    const readingShare = READING.share * (place.kind === 'hospital' ? 1 - HOSPITAL_FEE_SHARE : 1);
+    return {
+      missing,
+      minRate: null,
+      medianRate: null,
+      maxRate: null,
+      parts: [{ label: READING.label, amount: Math.round(scaled * readingShare) }, { label: missing.label, amount: null }],
+    };
+  }
+  const maxRate = Math.max(1, Math.round(scaled));
+  const minRate = Math.round(maxRate * (1 - place.spread));
+  return { missing, minRate, medianRate: Math.round((minRate + maxRate) / 2), maxRate, parts: priceParts(maxRate) };
+}
+
+// A place with no full price has no ceiling to compare, so it sorts after every place that does.
+const ceiling = (p) => p.maxRate ?? Infinity;
 const SORTS = {
-  price: (a, b) => a.maxRate - b.maxRate || a.distanceMi - b.distanceMi,
-  distance: (a, b) => a.distanceMi - b.distanceMi || a.maxRate - b.maxRate,
+  price: (a, b) => ceiling(a) - ceiling(b) || a.distanceMi - b.distanceMi,
+  distance: (a, b) => a.distanceMi - b.distanceMi || ceiling(a) - ceiling(b),
 };
 
 // The response this mock wants from a future API: one row per place for one scan and
 // plan, with the lowest, median and highest rate on file there. The most someone could
-// pay is the highest, since the file doesn't say which rate applies to them.
+// pay is the highest, since the file doesn't say which rate applies to them. A place missing
+// a bill has no highest rate, and doesn't count toward the cheapest or the median.
 export function findCare({ serviceId, planId, origin, radiusMi, sort = 'price' }) {
   const service = SERVICES.find((s) => s.id === serviceId);
   const plan = PLANS.find((p) => p.id === planId);
   const medicareRate = Math.round(service.basePrice * MEDICARE_SHARE_OF_BASE);
+  const medicareFacilityRate = Math.round(service.basePrice * MEDICARE_FACILITY_SHARE_OF_BASE);
 
   const offering = LOCATIONS
     .filter((p) => service.kinds.includes(p.kind))
     .map((p) => {
       // Keyed by name, so every office of one practice shares a price.
       const scaled = service.basePrice * p.priceLevel * plan.priceFactor * wobble(p.name + service.id + plan.id);
-      const maxRate = Math.max(1, Math.round(scaled));
-      const minRate = Math.round(maxRate * (1 - p.spread));
       return {
         id: p.id,
         name: p.name,
@@ -129,10 +146,8 @@ export function findCare({ serviceId, planId, origin, radiusMi, sort = 'price' }
         stars: p.stars,
         billers: p.billers,
         doctors: p.doctors,
-        minRate,
-        medianRate: Math.round((minRate + maxRate) / 2),
-        maxRate,
-        parts: priceParts(p.kind, maxRate),
+        ...ratesAt(p, scaled),
+        facilityEstimate: p.kind === 'hospital' ? medicareFacilityRate : null,
         distanceMi: roundedMiles(origin, p),
       };
     });
@@ -141,22 +156,27 @@ export function findCare({ serviceId, planId, origin, radiusMi, sort = 'price' }
   if (nearby.length === 0) {
     const closest = [...offering].sort(SORTS.distance)[0];
     const widerRadiusMi = RADIUS_OPTIONS.find((r) => closest.distanceMi <= r) ?? null;
-    return { results: [], cheapest: null, nearbyMedian: null, medicareRate, closestOutside: closest, widerRadiusMi };
+    return { results: [], cheapest: null, nearbyMedian: null, pricedCount: 0, medicareRate, closestOutside: closest, widerRadiusMi };
   }
 
-  const nearbyMedian = median(nearby.map((p) => p.maxRate).sort((a, b) => a - b));
-  const cheapest = [...nearby].sort(SORTS.price)[0];
+  const priced = nearby.filter((p) => p.maxRate !== null);
+  const nearbyMedian = priced.length > 0 ? median(priced.map((p) => p.maxRate).sort((a, b) => a - b)) : null;
+  const cheapest = [...priced].sort(SORTS.price)[0] ?? null;
   const closest = [...nearby].sort(SORTS.distance)[0];
   const results = nearby
     .map((p) => ({
       ...p,
-      maxVsMedian: p.maxRate - nearbyMedian,
-      isCheapest: p.id === cheapest.id,
+      maxVsMedian: p.maxRate === null ? null : p.maxRate - nearbyMedian,
+      isCheapest: p.id === cheapest?.id,
       isClosest: p.id === closest.id,
     }))
     .sort(SORTS[sort]);
 
-  return { results, cheapest, nearbyMedian, medicareRate, closestOutside: null, widerRadiusMi: null };
+  // With no full price nearby, the useful next step is out to the closest one.
+  const closestPriced = cheapest ? null : offering.filter((p) => p.maxRate !== null).sort(SORTS.distance)[0];
+  const widerRadiusMi = closestPriced ? RADIUS_OPTIONS.find((r) => closestPriced.distanceMi <= r) ?? null : null;
+
+  return { results, cheapest, nearbyMedian, pricedCount: priced.length, medicareRate, closestOutside: null, widerRadiusMi };
 }
 
 // Narrows the list to a place or doctor by name. A doctor match moves to the top of that

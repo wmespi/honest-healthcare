@@ -22,12 +22,13 @@ function radiusRing({ lat, lon }, miles) {
   });
 }
 
-function pinClass({ cheapest, active }) {
+function pinClass({ cheapest, incomplete, active }) {
   return clsx(
     'block cursor-pointer whitespace-nowrap rounded-full px-2.5 py-1 text-[13px] font-semibold leading-4 tabular-nums shadow-md ring-1 transition-colors duration-100',
     active && 'bg-slate-900 text-white ring-slate-900',
     !active && cheapest && 'bg-emerald-700 text-white ring-emerald-800',
-    !active && !cheapest && 'bg-white text-slate-900 ring-slate-300',
+    !active && incomplete && 'bg-slate-100 text-slate-500 ring-slate-300',
+    !active && !cheapest && !incomplete && 'bg-white text-slate-900 ring-slate-300',
   );
 }
 
@@ -98,17 +99,19 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
     return () => marker.remove();
   }, [map, origin, radiusMi]);
 
-  // One price pin per place. Cheaper pins sit on top where they overlap.
+  // One price pin per place. Cheaper pins sit on top where they overlap, and a place with no
+  // full price sits under them all with no amount to read as one.
   useEffect(() => {
     if (!map) return undefined;
     const pins = pinsRef.current;
-    const byPrice = [...results].sort((a, b) => b.maxRate - a.maxRate);
+    const byPrice = [...results].sort((a, b) => (b.maxRate ?? Infinity) - (a.maxRate ?? Infinity));
     byPrice.forEach((location, index) => {
       const root = document.createElement('div');
       const pin = document.createElement('button');
       pin.type = 'button';
-      pin.textContent = money(location.maxRate);
-      pin.setAttribute('aria-label', `${location.name}, ${money(location.maxRate)}`);
+      const incomplete = location.maxRate === null;
+      pin.textContent = incomplete ? '?' : money(location.maxRate);
+      pin.setAttribute('aria-label', `${location.name}, ${incomplete ? 'price incomplete' : money(location.maxRate)}`);
       pin.addEventListener('mouseenter', () => handlersRef.current.onHover(location.id));
       pin.addEventListener('mouseleave', () => handlersRef.current.onHover(null));
       pin.addEventListener('click', (event) => {
@@ -117,7 +120,7 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
       });
       root.appendChild(pin);
       const marker = new maplibregl.Marker({ element: root }).setLngLat([location.lon, location.lat]).addTo(map);
-      pins.set(location.id, { marker, root, pin, cheapest: location.isCheapest, baseZ: index + 1 });
+      pins.set(location.id, { marker, root, pin, cheapest: location.isCheapest, incomplete, baseZ: index + 1 });
     });
     return () => {
       pins.forEach(({ marker }) => marker.remove());
@@ -126,9 +129,9 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
   }, [map, results]);
 
   useEffect(() => {
-    pinsRef.current.forEach(({ root, pin, cheapest, baseZ }, id) => {
+    pinsRef.current.forEach(({ root, pin, cheapest, incomplete, baseZ }, id) => {
       const active = id === highlightId || id === selectedId;
-      pin.className = pinClass({ cheapest, active });
+      pin.className = pinClass({ cheapest, incomplete, active });
       root.style.zIndex = active ? 1000 : baseZ;
     });
   }, [map, results, highlightId, selectedId]);

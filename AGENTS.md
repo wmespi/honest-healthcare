@@ -14,13 +14,13 @@ This file is the charter — read it first, then follow the [doc map](#where-to-
 to the detail for whatever you're touching. Keep it thin; detail lives next to the
 code.
 
-**Current focus** *(update as the active work changes)*: designing the experience first
-with a frontend-only mock at `/mock/find-care` (find the cheapest care nearby), per the
-[plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460).
-Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold, and the
-data model waits for the mock. Product direction is in
-[docs/direction.md](docs/direction.md). Don't restructure `etl/`, `serving/`, or
-`frontend/` without a reason (rule 7).
+**Current focus** *(update as the active work changes)*: moving one owner-reviewed step at
+a time through the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135),
+which also holds the target data model, from the frontend-only mock at `/mock/find-care`
+(find the cheapest care nearby) to the real screen.
+Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold. Product
+direction is in [docs/direction.md](docs/direction.md). Don't restructure `etl/`, `serving/`,
+or `frontend/` without a reason (rule 7).
 
 ---
 
