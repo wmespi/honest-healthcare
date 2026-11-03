@@ -606,9 +606,9 @@ type pendingFile struct {
 }
 
 // pendingFiles resolves the queue for this run: either the explicit -file-ids,
-// or the pending rows the master index links to a target plan. targets == nil
+// or the pending rows the master index links to a target plan ID. planIDs == nil
 // means no target restriction (every pending row).
-func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, targets *TargetSet) ([]pendingFile, error) {
+func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, planIDs []string) ([]pendingFile, error) {
 	const cols = `SELECT f.id, f.location, COALESCE(array_to_string(f.market_types, ' | '), '') FROM index_files f`
 	var query string
 	var args []any
@@ -620,12 +620,12 @@ func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, targets *Ta
 	} else {
 		where := `f.status = 'pending'`
 		nextArg := 1
-		if expr, targetArgs, n := targets.PlanMatchSQL("p", nextArg); expr != "" {
+		if planIDs != nil {
 			// EXISTS, not a join: a file serving 40k employer plans must still
 			// appear once, and the semi-join stops at the first matching plan.
-			where += ` AND EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND (` + expr + `))`
-			args = append(args, targetArgs...)
-			nextArg = n
+			where += ` AND EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND ` + planMatchSQL("p", nextArg) + `)`
+			args = append(args, planIDs)
+			nextArg++
 		}
 		query = cols + ` WHERE ` + where + ` ORDER BY f.file_size_bytes ASC NULLS LAST, f.id`
 		if opts.Limit > 0 {
@@ -669,7 +669,17 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 		log.Printf("🎯 target plans from %s: %s", targets.Path, strings.Join(targets.Names(), ", "))
 	}
 
-	files, err := pendingFiles(ctx, conn, opts, targets)
+	// The target plans are every plan on the targets' exchange networks. A
+	// -file-ids run doesn't select, so it doesn't need Georgia's plan file.
+	var planIDs []string
+	if targets != nil && len(opts.FileIDs) == 0 {
+		if planIDs, err = targets.PlanIDs(core.ExchangePlansPath); err != nil {
+			return err
+		}
+		log.Printf("🎯 %d plan(s) on the target exchange networks", len(planIDs))
+	}
+
+	files, err := pendingFiles(ctx, conn, opts, planIDs)
 	if err != nil {
 		return fmt.Errorf("query pending files: %w", err)
 	}
@@ -745,7 +755,7 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	if !opts.DryRun {
 		writeNPILookup(seenNPIs)
 	}
-	return guardAgainstSilentSkip(ctx, conn, opts, targets, outcomes)
+	return guardAgainstSilentSkip(ctx, conn, opts, targets, planIDs, outcomes)
 }
 
 // guardAgainstSilentSkip turns the probe's quietest failure mode — every file
@@ -760,7 +770,7 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 // mode). If no file for any target plan has *ever* completed, the run fails; if
 // some have, serving still has data, so it is a warning — but a renamed network
 // still means today's rates are stale, so it is a loud one.
-func guardAgainstSilentSkip(ctx context.Context, conn *pgx.Conn, opts Options, targets *TargetSet, outcomes map[parseOutcome]int) error {
+func guardAgainstSilentSkip(ctx context.Context, conn *pgx.Conn, opts Options, targets *TargetSet, planIDs []string, outcomes map[parseOutcome]int) error {
 	if opts.DryRun || len(opts.FileIDs) > 0 || conn == nil || targets == nil || targets.NetworkMatcher() == nil {
 		return nil
 	}
@@ -770,11 +780,11 @@ func guardAgainstSilentSkip(ctx context.Context, conn *pgx.Conn, opts Options, t
 	}
 
 	completedEver := -1
-	if expr, args, _ := targets.PlanMatchSQL("p", 1); expr != "" {
+	if planIDs != nil {
 		q := `SELECT count(*) FROM index_files f
 		      WHERE f.status = 'completed'
-		        AND EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND (` + expr + `))`
-		if err := conn.QueryRow(ctx, q, args...).Scan(&completedEver); err != nil {
+		        AND EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND ` + planMatchSQL("p", 1) + `)`
+		if err := conn.QueryRow(ctx, q, planIDs).Scan(&completedEver); err != nil {
 			log.Printf("⚠️ silent-skip guard: could not count completed target files: %v", err)
 			completedEver = -1
 		}

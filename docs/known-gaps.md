@@ -7,12 +7,12 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Attribution
 
-- **Plan → file is derived; plan → network isn't used yet.** `index_file_plans` links every
-  published plan to its files, so "which files serve plan X" is a query and
-  `etl parse` selects on it. Georgia's exchange plan file gives each plan's real name and
-  network by HIOS `plan_id` ([reference/exchange-plans.md](../reference/exchange-plans.md)),
-  but nothing reads it yet: `serving/plan_networks.json` is still a hand-curated bridge
-  served by `/plans`, and `etl/targets.yaml` still selects by plan name.
+- **The screen doesn't use real plan names yet.** `index_file_plans` links every
+  published plan to its files, and `etl parse` selects the files that price the plans on
+  the target exchange networks, read from Georgia's exchange plan file
+  ([reference/exchange-plans.md](../reference/exchange-plans.md)). Nothing on the serving
+  side reads that file yet: `serving/plan_networks.json` is still a hand-curated bridge
+  served by `/plans`.
 - **`network_name` is not uniform across files.** The target plan's clean source uses
   `"GA Blue Value HIX Individual Network"`; other `anthem/GA_*` files use
   config-style labels (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`) and are
@@ -83,10 +83,6 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Operational
 
-- **A second Blue Value contract isn't kept out yet.** `GA_JBKEMED0001` carries the same
-  network label as `GA_JBNKMED0001` but serves a different plan ID, at different prices.
-  `etl/targets.yaml` selects by plan name and label, so `make parse` or `make refresh`
-  would write it into the same partition. Don't run either until it selects by plan ID.
 - **`make reference STEP=nppes` is not atomic** — `ga_providers.parquet` is briefly
   empty during a re-extract and queries touching it 500. Run it when the API is idle.
 - **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` prefix, not a

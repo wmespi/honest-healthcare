@@ -21,6 +21,7 @@ var (
 	NPILookupPath      = "../data/anthem/npi_lookup.parquet"
 	GAProvidersPath    = "../data/nppes/ga_providers.parquet"
 	NPPESOutputPath    = "../data/nppes/ga_providers.parquet"
+	ExchangePlansPath  = "../data/reference/exchange_plans_ga.parquet"
 )
 
 func init() {
@@ -45,6 +46,7 @@ func ApplyTestMode() {
 	NPILookupPath = "../data-test/anthem/npi_lookup.parquet"
 	NPPESOutputPath = "../data-test/nppes/ga_providers.parquet"
 	GAProvidersPath = "../data-test/nppes/ga_providers.parquet"
+	ExchangePlansPath = "../data-test/reference/exchange_plans_ga.parquet"
 }
 
 // DefaultIndexURL is the current month's Anthem master-index URL.
