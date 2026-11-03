@@ -31,7 +31,7 @@ query time after pruning on `net` + `billing_code`). By default only the
 networks named in etl/targets.yaml are built; `--networks all` builds every
 partition. Reads the shared corpus read-only; writes only SERVING_DIR.
 
-`main` writes the find-care tables (build/find_care.py) first, then these,
+`main` writes the find-care tables (build/tables/) first, then these,
 and the manifest counts both.
 """
 import argparse
@@ -45,8 +45,9 @@ import time
 
 import duckdb
 
-from build import find_care
-from build.find_care import TARGETS_PATH, connect, read_targets
+from build import tables
+from build.tables import connect
+from build.tables.inputs import TARGETS_PATH, read_targets
 from reference._common import serving_dir as _serving_dir, store_dir
 # The curated service-line taxonomy lists. Still under serving/ this step —
 # the prod serving image ships only serving/, so serving can't import from
@@ -620,7 +621,7 @@ def main():
     # The find-care tables go first, so a failed check stops the build before
     # anything is written. They follow etl/targets.yaml whatever --networks says.
     print("  find-care tables (#135):")
-    find_care_rows = find_care.build(data_dir, serving_dir)
+    find_care_rows = tables.build(data_dir, serving_dir)
     print()
     build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns, codes=codes,
           find_care_rows=find_care_rows)
