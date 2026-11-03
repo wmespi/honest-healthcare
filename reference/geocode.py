@@ -28,17 +28,22 @@ Addresses are deduped before geocoding (many PCPs share a practice address —
 2026-09-04) and the result rejoined onto every NPI at that address, so a
 shared practice doesn't cost Census multiple lookups for one location.
 
+Every address sent, and what Census answered for it (no match included), is
+kept in data/reference/geocode_addresses.parquet. A run sends only addresses
+that file doesn't hold, so a run with nothing new makes no calls, and the file
+is saved after each batch, so a run that fails part-way resumes. `--fresh`
+sends every address again.
+
 Usage:
-  python3 -m reference.geocode [--data-dir data] [--test]
+  python3 -m reference.geocode [--data-dir data] [--test] [--fresh]
                                 [--batch-size N] [--benchmark NAME] [--limit N]
 """
 import argparse
 import csv
+import datetime
 import glob
-import hashlib
 import io
 import os
-import shutil
 import sys
 import time
 import urllib.error
@@ -106,47 +111,43 @@ def _multipart_body(fields: dict, file_field: str, file_name: str, file_bytes: b
 
 
 def _parse_census_response(text: str) -> dict:
-    """Census's batch-match CSV -> {id: (lat, lon)} for every row it could
-    match; unmatched rows are simply absent, not zeroed. Row shape:
+    """Census's batch-match CSV -> {id: (match_type, matched_address, lat, lon)}
+    for every row it answered. A row it couldn't match (`No_Match`, `Tie`) maps
+    to (None, None, None, None), so the address isn't sent again. Row shape:
     id, input_address, match_status, match_type, matched_address, "lon,lat",
     tiger_line_id, side."""
     out = {}
     for row in csv.reader(io.StringIO(text)):
-        if len(row) < 6:
-            continue
-        rid, _input, status, _mtype, _matched, latlon = row[:6]
-        if status != "Match" or not latlon:
+        if len(row) < 3:
             continue
         try:
-            lon, lat = (float(x) for x in latlon.split(","))
-            out[int(rid)] = (lat, lon)
+            rid = int(row[0])
         except ValueError:
             continue
+        out[rid] = (None, None, None, None)
+        if row[2] != "Match" or len(row) < 6 or not row[5]:
+            continue
+        try:
+            lon, lat = (float(x) for x in row[5].split(","))
+        except ValueError:
+            continue
+        out[rid] = (row[3] or None, row[4] or None, lat, lon)
     return out
 
 
 def _geocode_batch(rows: list, benchmark: str, timeout: int = 240, retries: int = 5,
-                   census_response_file: str = None, cache_dir: str = None) -> dict:
+                   census_response_file: str = None) -> dict:
     """rows: [(id, street, city, state, zip), ...], id our own sequential int
     (Census echoes whatever id we send back on each output row). Returns
-    {id: (lat, lon)}. `census_response_file` skips the network call entirely
-    (hermetic testing) — its contents are parsed as if Census had returned
-    them. `cache_dir` keeps each finished batch, so a re-run after a Census
-    outage resumes instead of starting over."""
+    _parse_census_response's map. `census_response_file` skips the network
+    call entirely (hermetic testing): its contents are parsed as if Census
+    had returned them."""
     if census_response_file:
         with open(census_response_file, encoding="utf-8") as f:
             return _parse_census_response(f.read())
 
     buf = io.StringIO()
     csv.writer(buf).writerows(rows)
-    cached = None
-    if cache_dir:
-        name = hashlib.sha256(f"{benchmark}\n{buf.getvalue()}".encode("utf-8")).hexdigest()
-        cached = os.path.join(cache_dir, f"{name}.csv")
-        if os.path.exists(cached):
-            print("    resumed from cache")
-            with open(cached, encoding="utf-8") as f:
-                return _parse_census_response(f.read())
     body, content_type = _multipart_body(
         {"benchmark": benchmark}, "addressFile", "batch.csv", buf.getvalue().encode("utf-8")
     )
@@ -166,20 +167,24 @@ def _geocode_batch(rows: list, benchmark: str, timeout: int = 240, retries: int 
                 time.sleep(5 * attempt)
     if text is None:
         raise SystemExit(f"Census batch geocoder failed after {retries} attempts: {last_err} "
-                         f"(finished batches are cached; re-run to resume)")
-    if cached:
-        os.makedirs(cache_dir, exist_ok=True)
-        tmp = f"{cached}.tmp.{os.getpid()}"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, cached)
+                         f"(finished batches are saved; re-run to resume)")
     return _parse_census_response(text)
+
+
+# What Census answered for one address we sent. The first five columns are the
+# address exactly as NPPES has it (address_line2 '' when empty), which is the key.
+SEEN_COLUMNS = """address_line1 VARCHAR, address_line2 VARCHAR, city VARCHAR, state VARCHAR,
+    postal_code VARCHAR, match_type VARCHAR, matched_address VARCHAR, latitude DOUBLE,
+    longitude DOUBLE, benchmark VARCHAR, geocoded_on DATE"""
+ADDRESS_KEY = "address_line1, address_line2, city, state, postal_code"
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
+    ap.add_argument("--fresh", action="store_true",
+                     help="send every address again, ignoring what Census answered before")
     ap.add_argument("--batch-size", type=int, default=MAX_BATCH)
     ap.add_argument("--benchmark", default=BENCHMARK)
     ap.add_argument("--limit", type=int, default=None,
@@ -194,6 +199,7 @@ def main() -> None:
     rd = ref_dir(args.data_dir, args.test)
     ga_path = f"{nd}/ga_providers.parquet"
     out_path = f"{rd}/pcp_geocode.parquet"
+    seen_path = f"{rd}/geocode_addresses.parquet"
 
     if not os.path.exists(ga_path):
         raise SystemExit(f"{ga_path} not found -- run `make reference STEP=nppes` first")
@@ -211,68 +217,86 @@ def main() -> None:
         con.execute("CREATE TEMP TABLE billing_npis (npi BIGINT)")
     candidate = f"(taxonomy_code IN ({placeholders}) OR npi IN (SELECT npi FROM billing_npis))"
 
+    con.execute(f"CREATE TEMP TABLE seen ({SEEN_COLUMNS})")
+    if os.path.exists(seen_path) and not args.fresh:
+        con.execute(f"INSERT INTO seen SELECT {ADDRESS_KEY}, match_type, matched_address, latitude, "
+                    f"longitude, benchmark, geocoded_on FROM read_parquet('{seen_path}')")
+
     # Distinct addresses first — a shared practice address shouldn't cost
-    # Census (or us) a lookup per NPI. row_number() gives each distinct
-    # address a stable id for the batch CSV / rejoin.
+    # Census (or us) a lookup per NPI.
     con.execute(f"""
-        CREATE TEMP TABLE addr AS
-        SELECT ROW_NUMBER() OVER (ORDER BY address_line1, address_line2, city, state, postal_code) AS addr_id,
-               address_line1, address_line2, city, state, postal_code
-        FROM (
-            SELECT DISTINCT address_line1, address_line2, city, state, postal_code
-            FROM read_parquet('{ga_path}')
-            WHERE {candidate}
-              AND address_line1 IS NOT NULL AND address_line1 <> ''
-              AND postal_code IS NOT NULL AND postal_code <> ''
-        )
+        CREATE TEMP TABLE candidates AS
+        SELECT DISTINCT address_line1, COALESCE(address_line2, '') AS address_line2,
+               city, state, postal_code
+        FROM read_parquet('{ga_path}')
+        WHERE {candidate}
+          AND address_line1 IS NOT NULL AND address_line1 <> ''
+          AND postal_code IS NOT NULL AND postal_code <> ''
+    """)
+    # Only addresses Census hasn't answered for. row_number() gives each one an
+    # id for the batch CSV, which Census echoes back.
+    con.execute(f"""
+        CREATE TEMP TABLE unseen AS
+        SELECT ROW_NUMBER() OVER (ORDER BY {ADDRESS_KEY}) AS addr_id, *
+        FROM (SELECT * FROM candidates EXCEPT SELECT {ADDRESS_KEY} FROM seen)
+        ORDER BY addr_id
         {f'LIMIT {args.limit}' if args.limit else ''}
     """)
-    n_npi, n_addr = con.execute(f"""
-        SELECT count(*), (SELECT count(*) FROM addr)
+    n_npi, n_addr, n_new = con.execute(f"""
+        SELECT count(*), (SELECT count(*) FROM candidates), (SELECT count(*) FROM unseen)
         FROM read_parquet('{ga_path}')
         WHERE {candidate}
           AND address_line1 IS NOT NULL AND address_line1 <> ''
           AND postal_code IS NOT NULL AND postal_code <> ''
     """).fetchone()
-    print(f"→ {n_npi:,} GA NPIs (PCP, imaging or billing ID) -> {n_addr:,} distinct addresses to geocode")
+    print(f"→ {n_npi:,} GA NPIs (PCP, imaging or billing ID) -> {n_addr:,} distinct addresses, "
+          f"{n_new:,} not sent to Census before")
     if n_addr == 0:
         raise SystemExit("no candidate addresses -- has `make reference STEP=nppes` run?")
 
-    addr_rows = con.execute("""
-        SELECT addr_id, address_line1, address_line2, city, state, postal_code
-        FROM addr ORDER BY addr_id
-    """).fetchall()
-
-    batch_rows = []
-    for addr_id, a1, a2, city, state, zip5 in addr_rows:
-        street = " ".join(x for x in (a1, a2) if x).strip()
-        batch_rows.append((addr_id, street, city, state, zip5))
+    batch_rows = [(addr_id, " ".join(x for x in (a1, a2) if x).strip(), city, state, zip5)
+                  for addr_id, a1, a2, city, state, zip5 in con.execute(
+                      "SELECT addr_id, address_line1, address_line2, city, state, postal_code FROM unseen").fetchall()]
 
     if args.census_response_file and len(batch_rows) > args.batch_size:
         raise SystemExit("--census-response-file only supplies one canned batch — "
                           "narrow the candidate list with --limit to fit under --batch-size")
 
-    # Under .cache, so `make clean CACHE=1` reclaims a run abandoned part-way.
-    cache_dir = f"{rd}/.cache/geocode"
-    matches: dict = {}
+    today = datetime.date.today()
     n_batches = (len(batch_rows) + args.batch_size - 1) // args.batch_size
     for b in range(n_batches):
         chunk = batch_rows[b * args.batch_size:(b + 1) * args.batch_size]
         print(f"  batch {b + 1}/{n_batches} ({len(chunk):,} addresses)...")
-        got = _geocode_batch(chunk, args.benchmark,
-                             census_response_file=args.census_response_file,
-                             cache_dir=cache_dir)
-        print(f"    {len(got):,}/{len(chunk):,} matched")
-        matches.update(got)
+        got = _geocode_batch(chunk, args.benchmark, census_response_file=args.census_response_file)
+        print(f"    {sum(1 for r in got.values() if r[2] is not None):,}/{len(chunk):,} matched")
+        if not got:
+            raise SystemExit("Census answered no address in the batch -- check connectivity / API status")
+        con.execute("CREATE OR REPLACE TEMP TABLE answered (addr_id BIGINT, match_type VARCHAR, "
+                    "matched_address VARCHAR, latitude DOUBLE, longitude DOUBLE)")
+        con.executemany("INSERT INTO answered VALUES (?, ?, ?, ?, ?)",
+                        [(aid, *result) for aid, result in got.items()])
+        con.execute(f"""
+            INSERT INTO seen
+            SELECT {ADDRESS_KEY}, a.match_type, a.matched_address, a.latitude, a.longitude, ?, ?
+            FROM unseen u JOIN answered a USING (addr_id)
+        """, [args.benchmark, today])
+        # Saved after each batch, so a failure part-way loses at most one batch.
+        write_parquet_atomic(con, f"SELECT * FROM seen ORDER BY {ADDRESS_KEY}", seen_path)
 
-    if not matches:
+    if n_batches == 0:
+        if args.fresh or not os.path.exists(seen_path):
+            write_parquet_atomic(con, f"SELECT * FROM seen ORDER BY {ADDRESS_KEY}", seen_path)
+        print("  nothing new to send to Census")
+
+    con.execute(f"""
+        CREATE TEMP TABLE geocoded AS
+        SELECT c.*, s.latitude, s.longitude
+        FROM candidates c JOIN seen s USING ({ADDRESS_KEY})
+        WHERE s.latitude IS NOT NULL
+    """)
+    if con.execute("SELECT count(*) FROM geocoded").fetchone()[0] == 0:
         raise SystemExit("Census geocoder matched nothing -- check connectivity / API status")
 
-    con.execute("CREATE TEMP TABLE geocoded (addr_id BIGINT, latitude DOUBLE, longitude DOUBLE)")
-    con.executemany(
-        "INSERT INTO geocoded VALUES (?, ?, ?)",
-        [(aid, lat, lon) for aid, (lat, lon) in matches.items()],
-    )
 
     out_of_ga = con.execute(f"""
         SELECT count(*) FROM geocoded
@@ -286,25 +310,21 @@ def main() -> None:
     select_sql = f"""
         SELECT g.npi, ge.latitude, ge.longitude
         FROM read_parquet('{ga_path}') g
-        JOIN addr a
-          ON a.address_line1 = g.address_line1
-          AND a.address_line2 IS NOT DISTINCT FROM g.address_line2
-          AND a.city = g.city AND a.state = g.state AND a.postal_code = g.postal_code
-        JOIN geocoded ge ON ge.addr_id = a.addr_id
+        JOIN geocoded ge
+          ON ge.address_line1 = g.address_line1
+          AND ge.address_line2 = COALESCE(g.address_line2, '')
+          AND ge.city = g.city AND ge.state = g.state AND ge.postal_code = g.postal_code
         WHERE {candidate}
           AND ge.latitude BETWEEN {GA_LAT_RANGE[0]} AND {GA_LAT_RANGE[1]}
           AND ge.longitude BETWEEN {GA_LON_RANGE[0]} AND {GA_LON_RANGE[1]}
     """
     write_parquet_atomic(con, select_sql, out_path)
-    # Finished, so the next run re-geocodes from a clean slate.
-    shutil.rmtree(cache_dir, ignore_errors=True)
 
     n_out = con.execute(f"SELECT count(*) FROM read_parquet('{out_path}')").fetchone()[0]
-    addr_rate = 100 * len(matches) / len(batch_rows)
-    npi_rate = 100 * n_out / n_npi
+    n_matched = con.execute("SELECT count(*) FROM geocoded").fetchone()[0]
     print(f"→ wrote {out_path}")
-    print(f"  {n_out:,}/{n_npi:,} NPIs geocoded ({npi_rate:.1f}%) — "
-          f"{len(matches):,}/{len(batch_rows):,} addresses matched ({addr_rate:.1f}%)")
+    print(f"  {n_out:,}/{n_npi:,} NPIs geocoded ({100 * n_out / n_npi:.1f}%), "
+          f"{n_matched:,}/{n_addr:,} addresses matched ({100 * n_matched / n_addr:.1f}%)")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ eventually, the provider map (`docs/direction.md` build sequence).*
 **Builds** `data/reference/pcp_geocode.parquet` from the free, keyless
 [US Census Bulk Geocoding API](https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html):
 one row per GA PCP- or imaging-eligible NPI, or billing ID, with `latitude` / `longitude`. Module
-`reference/geocode.py`; module flags `--test`, `--limit N`, `--batch-size N`,
+`reference/geocode.py`; module flags `--test`, `--fresh`, `--limit N`, `--batch-size N`,
 `--benchmark NAME`, `--census-response-file FILE` (test-only; pass via `ARGS`).
 
 **Why Census, not Google Maps.** Google has no free tier and its Places content can't
@@ -24,6 +24,15 @@ The output keeps the name `pcp_geocode.parquet`.
 **Address dedup.** Many PCPs share an address, so the builder geocodes *distinct
 addresses* and rejoins the coordinate onto every NPI there.
 
+**Only new addresses.** `data/reference/geocode_addresses.parquet` keeps every address
+sent to Census, exactly as NPPES has it, with what Census answered: `match_type`,
+`matched_address` (its standardized form), `latitude`, `longitude`, `benchmark` and
+`geocoded_on`, all empty but the date for a `No_Match`. A run sends only the addresses
+that file doesn't hold, so a run with nothing new makes no calls, and `make reference`
+runs this step every time. The file is saved after each batch, so a run that fails
+part-way resumes from the next batch. `ARGS="--fresh"` sends every address again, for
+when Census's own address data has moved on; deleting the file does the same.
+
 ## What "geocoded" means
 
 - Only rows Census returns as `match_status = "Match"` land in the output. A
@@ -38,14 +47,13 @@ addresses* and rejoins the coordinate onto every NPI there.
 
 ## Re-run when
 
-- The NPPES pull refreshes and addresses change. The builder always re-geocodes every
-  candidate address (idempotent, not incremental). If Census fails part-way, re-run it:
-  finished batches are cached until the run succeeds.
-- Either taxonomy list changes — update the mirrored copy here too.
-- `make parse` adds billing IDs. `make reference` skips this step once its output exists, so
-  run `make reference STEP=geocode` after a parse.
+It runs with every `make reference`, and `make refresh` runs it again after the parse so
+new billing IDs get coordinates the same month. A changed NPPES address is a new address,
+so it's sent; an unchanged one isn't. If Census fails part-way, re-run it.
+When either taxonomy list changes, update the mirrored copy here too.
 
 Tested by `serving/tests/test_geocode.py`, hermetic: a tiny NPPES fixture covers
 shared-address dedup, a `No_Match`, a billing ID outside the taxonomy lists that must be
 geocoded, and a non-PCP NPI that must never reach the candidate list; `--census-response-file` points at
-`reference/testdata/geocode_census_response_sample.csv` instead of the network.
+`reference/testdata/geocode_census_response_sample.csv` instead of the network. It also checks
+that a re-run with nothing new makes no call, and that a new address is the only one sent.

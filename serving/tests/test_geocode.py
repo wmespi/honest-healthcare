@@ -20,9 +20,12 @@ CENSUS_RESPONSE = os.path.join(REPO, "reference/testdata/geocode_census_response
 NPPES_FIXTURE = os.path.join(REPO, "data-test/nppes/ga_providers.parquet")
 PROVIDERS_FIXTURE = os.path.join(REPO, "data-test/anthem/providers/geocode_fixture.parquet")
 OUT = os.path.join(REPO, "data-test/reference/pcp_geocode.parquet")
+SEEN = os.path.join(REPO, "data-test/reference/geocode_addresses.parquet")
+COLUMNS = ("npi, entity_type, org_name, last_name, first_name, taxonomy_code, taxonomy_group, "
+           "address_line1, address_line2, city, state, postal_code")
 
 
-def _write_nppes_fixture():
+def _write_nppes_fixture(nppes=NPPES_FIXTURE, providers=PROVIDERS_FIXTURE, extra=()):
     """Six NPPES rows exercising every path the builder needs to get right:
       2000000001 / 2000000002 — both PCP-eligible, share one address (Macon) —
         the dedup + rejoin (both must land on the same, single-geocoded coord).
@@ -37,7 +40,7 @@ def _write_nppes_fixture():
       2000000006 — NOT PCP-eligible, but a billing ID in an MRF — a candidate
         anyway, because a practice's distance comes from its own address.
     """
-    os.makedirs(os.path.dirname(NPPES_FIXTURE), exist_ok=True)
+    os.makedirs(os.path.dirname(nppes), exist_ok=True)
     con = duckdb.connect()
     rows = [
         (2000000001, "individual", "", "Alpha", "Anna", "207R00000X", "Internal Medicine",
@@ -52,27 +55,28 @@ def _write_nppes_fixture():
          "400 Wrong State Blvd", "", "Somewhere", "GA", "39999"),
         (2000000006, "organization", "Macon Multi-Specialty", "", "", "193200000X", "Multi-Specialty",
          "100 Main St", "", "Macon", "GA", "31201"),
+        *extra,
     ]
     body = ", ".join(
         "(" + ", ".join(f"'{c}'" if isinstance(c, str) else str(c) for c in r) + ")"
         for r in rows
     )
     con.execute(f"""
-        COPY (SELECT * FROM (VALUES {body}) AS t(
-            npi, entity_type, org_name, last_name, first_name, taxonomy_code, taxonomy_group,
-            address_line1, address_line2, city, state, postal_code
-        )) TO '{NPPES_FIXTURE}' (FORMAT parquet)
+        COPY (SELECT * FROM (VALUES {body}) AS t({COLUMNS})) TO '{nppes}' (FORMAT parquet)
     """)
     # A TIN that isn't an NPI has no NPPES record, and mustn't break the lookup.
-    os.makedirs(os.path.dirname(PROVIDERS_FIXTURE), exist_ok=True)
+    os.makedirs(os.path.dirname(providers), exist_ok=True)
     con.execute(f"""
         COPY (SELECT * FROM (VALUES ('2000000006'), ('58-1234567')) AS t(tin_value))
-        TO '{PROVIDERS_FIXTURE}' (FORMAT parquet)
+        TO '{providers}' (FORMAT parquet)
     """)
 
 
 @pytest.fixture(scope="module")
 def built():
+    for p in (OUT, SEEN):
+        if os.path.exists(p):
+            os.remove(p)
     _write_nppes_fixture()
     r = subprocess.run(
         [sys.executable, "-m", "reference.geocode",
@@ -81,7 +85,7 @@ def built():
     )
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
     yield duckdb.connect()
-    for p in (OUT, NPPES_FIXTURE, PROVIDERS_FIXTURE):
+    for p in (OUT, SEEN, NPPES_FIXTURE, PROVIDERS_FIXTURE):
         try:
             os.remove(p)
         except FileNotFoundError:
@@ -133,30 +137,54 @@ def test_matched_but_outside_georgia_is_dropped(built):
     assert rows == []
 
 
-def test_a_finished_batch_is_cached_so_a_rerun_resumes(tmp_path, monkeypatch):
-    from reference import geocode
+def test_every_address_sent_is_kept_with_censuss_answer(built):
+    rows = built.execute(f"""SELECT address_line1, match_type, matched_address, latitude
+                             FROM read_parquet('{SEEN}') ORDER BY 1""").fetchall()
+    assert rows == [
+        ("100 Main St", "Exact", "100 MAIN ST, MACON, GA, 31201", 32.8407),
+        ("200 Oak Ave", None, None, None),  # No_Match, kept so it isn't sent again
+        ("400 Wrong State Blvd", "Exact", "400 WRONG STATE BLVD, SOMEWHERE, GA, 39999", 38.9612),
+    ]
 
-    class Response:
-        def __enter__(self):
-            return self
 
-        def __exit__(self, *exc):
-            return False
+def test_only_addresses_census_hasnt_answered_are_sent(tmp_path):
+    data = tmp_path / "data"
+    nppes = str(data / "nppes/ga_providers.parquet")
+    providers = str(data / "anthem/providers/fixture.parquet")
+    out = data / "reference/pcp_geocode.parquet"
+    seen = data / "reference/geocode_addresses.parquet"
 
-        def read(self):
-            return b'"1","x","Match","Exact","X","-83.5,32.5","1","L"'
+    def run(response, *extra):
+        r = subprocess.run([sys.executable, "-m", "reference.geocode", "--data-dir", str(data),
+                            "--census-response-file", str(response), *extra],
+                           cwd=REPO, capture_output=True, text=True)
+        assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
+        rows = duckdb.connect().execute(f"SELECT * FROM read_parquet('{out}') ORDER BY npi").fetchall()
+        n_seen = duckdb.connect().execute(f"SELECT count(*) FROM read_parquet('{seen}')").fetchone()[0]
+        return r.stdout, rows, n_seen
 
-    rows = [(1, "100 Main St", "Macon", "GA", "31201")]
-    calls = []
-    monkeypatch.setattr(geocode.urllib.request, "urlopen", lambda *a, **k: calls.append(1) or Response())
-    assert geocode._geocode_batch(rows, "B", cache_dir=str(tmp_path)) == {1: (32.5, -83.5)}
+    _write_nppes_fixture(nppes, providers)
+    _, first, n_first = run(CENSUS_RESPONSE)
+    assert n_first == 3
 
-    def outage(*a, **k):
-        raise AssertionError("a cached batch must not call Census")
+    # Nothing new, so no call: a response file that doesn't exist would fail if read.
+    stdout, again, n_again = run(tmp_path / "absent.csv")
+    assert "nothing new to send to Census" in stdout
+    assert (again, n_again) == (first, n_first)
 
-    monkeypatch.setattr(geocode.urllib.request, "urlopen", outage)
-    assert geocode._geocode_batch(rows, "B", cache_dir=str(tmp_path)) == {1: (32.5, -83.5)}
-    assert calls == [1]
+    _, fresh, n_fresh = run(CENSUS_RESPONSE, "--fresh")
+    assert (fresh, n_fresh) == (first, n_first)
+
+    # One new address, which is all Census is sent (as id 1).
+    _write_nppes_fixture(nppes, providers, extra=[
+        (2000000007, "individual", "", "Zeta", "Zoe", "207Q00000X", "Family Medicine",
+         "500 Pine Rd", "", "Rome", "GA", "30161")])
+    new = tmp_path / "new.csv"
+    new.write_text('"1","500 Pine Rd, Rome, GA, 30161","Match","Exact","500 PINE RD, ROME, GA, 30161",'
+                   '"-85.1647,34.2570","1","L"\n')
+    stdout, added, n_added = run(new)
+    assert "1 not sent to Census before" in stdout
+    assert n_added == 4 and added == first + [(2000000007, 34.257, -85.1647)]
 
 
 def test_geocode_candidates_mirror_the_service_lines():
