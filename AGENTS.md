@@ -98,7 +98,7 @@ make up / make down / make logs
 
 make discover               # Phase 1 — sync the master index into index_files + index_file_plans, then backfill sizes
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
-make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids (skips what exists)
+make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
 make parse                  # Phase 2 — stream pending files serving a target plan → Parquet (needs the NPPES reference first)
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
@@ -162,6 +162,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
 | Provider↔procedure evidence (CMS utilization; specialty profiles) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
 | Medicare Physician Fee Schedule benchmark (`code_dim.medicare_allowed`) | [reference/mpfs.md](reference/mpfs.md) |
+| Georgia's individual-market plans: real names, metal level, referral rule, network and premiums by HIOS plan ID | [reference/exchange-plans.md](reference/exchange-plans.md) |
 | Medicare hospital-outpatient (OPPS) rate — the labelled facility estimate on the imaging screen | [reference/opps.md](reference/opps.md) |
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
 | CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |

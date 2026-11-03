@@ -1,0 +1,12 @@
+"BusinessYear","StateCode","IssuerId","SourceName","ImportDate","NetworkName","NetworkId","NetworkURL","MarketCoverage","DentalOnlyPlan"
+"2026","GA","45334","SERFF","2025-12-05 15:32:35","Blue Value Individual Network HMO and Rx Choice Tiered Network","GAN001","https://www.anthem.com/find-care/?alphaprefix=EGU","Individual","No",
+"2026","GA","49046","SERFF","2025-12-05 15:32:35","Dental Prime","GAN007","https://www.anthem.com/health-insurance/provider-directory/searchcriteria/?planstate=GA&plantype=DENTAL&planname=Dental+Prime","Individual","Yes",
+"2026","GA","49046","SERFF","2025-12-05 15:32:35","Pathway and Rx Choice Tiered Network","GAN001","https://www.anthem.com/find-care/?alphaprefix=JRA","Individual","No",
+"2026","GA","49046","SERFF","2025-12-05 15:32:35","Pathway Guided Access and Rx Choice Tiered Network","GAN003","https://www.anthem.com/find-care/?alphaprefix=FEG","Individual","No",
+"2026","GA","49046","SERFF","2025-12-05 15:32:35","Pathway PCP Copay Choice and Rx Choice Tiered Network","GAN008","https://www.anthem.com/find-care/?alphaprefix=EVG","Individual","No",
+"2026","GA","89942","SERFF","2025-12-05 15:32:35","Kaiser Permanente HMO - Individual","GAN003","https://healthy.kaiserpermanente.org/georgia/doctors-locations#/simple-form","Individual","No",
+"2026","GA","89942","SERFF","2025-12-05 15:32:35","Kaiser Permanente Signature HMO - Individual","GAN002","https://healthy.kaiserpermanente.org/georgia/doctors-locations#/simple-form","Individual","No",
+"2026","GA","13535","SERFF","2025-12-05 15:32:35","Smile Now Georgia PPO","GAN011","https://www.solsticecare.com/provider-search.aspx","Individual","Yes",
+"2026","GA","49046","SERFF","2025-12-05 15:32:35","Pathway and Pharmacy Base Network","GAN002","","Individual","Yes",
+"2026","GA","49046","SERFF","2025-12-05 15:32:35","Blue Open Access POS, Dental Prime, and Pharmacy Advantage Network","GAN005","","Individual","Yes",
+"2026","GA","49046","SERFF","2025-12-05 15:32:35","Blue Connection, Dental Prime, and Advantage Pharmacy Network","GAN006","","Individual","Yes",

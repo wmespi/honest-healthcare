@@ -1,0 +1,9 @@
+"BusinessYear","StateCode","IssuerId","SourceName","ImportDate","RateEffectiveDate","RateExpirationDate","PlanId","RatingAreaId","Tobaco","Age","IndividualRate","IndividualTobaccoRate","Couple","PrimarySubscriberAndOneDependent","PrimarySubscriberAndTwoDependents","PrimarySubscriberAndThreeOrMoreDependents","CoupleAndOneDependent","CoupleAndTwoDependents","CoupleAndThreeOrMoreDependents"
+"2026","GA","45334","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","45334GA0020002","Rating Area 1","Tobacco User/Non-Tobacco User","0-14","404.44","404.44",,,,,,,
+"2026","GA","45334","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","45334GA0020002","Rating Area 1","Tobacco User/Non-Tobacco User","15","440.39","440.39",,,,,,,
+"2026","GA","45334","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","45334GA0020002","Rating Area 1","Tobacco User/Non-Tobacco User","40","675.65","743.22",,,,,,,
+"2026","GA","45334","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","45334GA0020002","Rating Area 1","Tobacco User/Non-Tobacco User","63","1560.66","1716.74",,,,,,,
+"2026","GA","45334","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","45334GA0020002","Rating Area 1","Tobacco User/Non-Tobacco User","64 and over","1586.04","1744.65",,,,,,,
+"2026","GA","45334","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","45334GA0020002","Rating Area 11","Tobacco User/Non-Tobacco User","40","604.89","665.38",,,,,,,
+"2026","GA","89942","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","89942GA0050030","Rating Area 3","Tobacco User/Non-Tobacco User","40","682.49","818.99",,,,,,,
+"2026","GA","13535","SERFF","2025-09-26 21:26:30","2026-01-01","2026-12-31","13535GA0140001","Rating Area 1","No Preference","0-14","29.55",,,,,,,,

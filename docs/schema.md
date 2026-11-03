@@ -14,13 +14,10 @@ neither side needs a server process.
 ---
 ## Parquet — `data/anthem/` (a build input — `make build` reads this, the API doesn't)
 
-```
-prices/net=<slug>/{id}.parquet
-    file_id | group_set_id | network_name
-    billing_code_type | billing_code | negotiation_arrangement
-    negotiated_type | negotiated_rate | expiration_date
-    service_code | billing_class | modifier | setting
-```
+| File | Columns |
+|---|---|
+| `prices/net=<slug>/{id}.parquet` | `file_id`, `group_set_id`, `network_name`, `billing_code_type`, `billing_code`, `negotiation_arrangement`, `negotiated_type`, `negotiated_rate`, `expiration_date`, `service_code`, `billing_class`, `modifier`, `setting` |
+
 One row per **(network × negotiated price)** — NOT fanned out per provider group.
 Hive-partitioned by `network_name` (slug = `slugifyNetwork` in `etl/extraction/partition.go` == `network_slug()` in `serving/data_sources.py`); a network-filtered query adds `net = ?` and DuckDB
 prunes to the one directory. Join to `group_sets` on `(file_id, group_set_id)` to
@@ -31,19 +28,20 @@ expand a price to its provider groups.
   / physician work, `"TC"` = technical / equipment + facility, `""` = global (most rows). `(billing_code, modifier, service_code, setting)` is what pins a rate
   for a patient.
 
-```
-group_sets/{id}.parquet     file_id | group_set_id | provider_group_id
-```
+| File | Columns |
+|---|---|
+| `group_sets/{id}.parquet` | `file_id`, `group_set_id`, `provider_group_id` |
+
 Deduplicated provider-group rosters. `group_set_id` = FNV-64a of a block's sorted
 `provider_reference` ids (`hashGroupSet` in `etl/extraction/stream.go`); written once per distinct
 roster per file. `prices ⨝ group_sets` reproduces every original
 `(code, rate, provider_group)` tuple exactly.
 
-```
-providers/{id}.parquet   file_id | provider_group_id | network_name | npi | tin_type | tin_value
-codes/{id}.parquet       billing_code_type | billing_code | name | description
-npi_lookup.parquet       npi | tin_value
-```
+| File | Columns |
+|---|---|
+| `providers/{id}.parquet` | `file_id`, `provider_group_id`, `network_name`, `npi`, `tin_type`, `tin_value` |
+| `codes/{id}.parquet` | `billing_code_type`, `billing_code`, `name`, `description` |
+| `npi_lookup.parquet` | `npi`, `tin_value` |
 
 `tin_value` is the billing entity's tax id — in Anthem's files it's an **NPI**
 (`tin_type` is always `'npi'`), usually an organization's and sometimes a doctor's
@@ -58,35 +56,20 @@ one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 table here is a `503` from `GET /`, never a fallback to raw `anthem/` / `nppes/` /
 `reference/` / `cms/`.
 
-```
-rates/net=<slug>/part.parquet
-    network_name | net | file_id | group_set_id
-    billing_code_type | billing_code | modifier | setting | service_code
-    negotiated_type | negotiation_arrangement | expiration_date | negotiated_rate
-    scope | is_sentinel | medicare_allowed | vs_medicare
-group_sets.parquet             file_id | group_set_id | provider_group_id
-group_members.parquet          file_id | provider_group_id | npi | tin_value
-group_networks.parquet         file_id | provider_group_id | net | network_name
-provider_dim.parquet           npi | name | specialty | nucc_classification
-    | nucc_grouping | cms_provider_type | org_name | group_name | org_pac_id
-    | grad_year | lat | lon | mips_score | mips_source | mips_year
-    | service_lines | is_hospital | is_clinic
-    | entity_type | last_name | first_name | taxonomy_code | taxonomy_group
-    | address_line1 | address_line2 | city | postal_code
-provider_affiliations.parquet  npi | ccn | facility_name
-zip_centroids.parquet          zip | lat | lon
-code_dim.parquet               billing_code | billing_code_type | label
-    | category | rbcs_subcategory | rbcs_family | rbcs_is_major | search_text
-    | shoppable | medicare_allowed | opps_payment
-evidence.parquet               npi | billing_code | tier ('billed' | 'typical')
-    | prevalence | year | tot_srvcs | tot_benes | tot_bene_days
-    | avg_mdcr_allowed | is_drug
-rate_hist.parquet              payer | net | network_name | billing_code_type
-    | billing_code | setting | scope | modifier | is_sentinel | bucket | n | n_rates
-cross_network_rollup.parquet   billing_code | billing_code_type | net
-    | network_name | n_groups | min_rate | p10 | median | p90 | max_rate
-manifest.json                  built_at | networks | scope | partial | target_patterns | codes | inputs | rows
-```
+| Table | Columns |
+|---|---|
+| `rates/net=<slug>/part.parquet` | `network_name`, `net`, `file_id`, `group_set_id`, `billing_code_type`, `billing_code`, `modifier`, `setting`, `service_code`, `negotiated_type`, `negotiation_arrangement`, `expiration_date`, `negotiated_rate`, `scope`, `is_sentinel`, `medicare_allowed`, `vs_medicare` |
+| `group_sets.parquet` | `file_id`, `group_set_id`, `provider_group_id` |
+| `group_members.parquet` | `file_id`, `provider_group_id`, `npi`, `tin_value` |
+| `group_networks.parquet` | `file_id`, `provider_group_id`, `net`, `network_name` |
+| `provider_dim.parquet` | `npi`, `name`, `specialty`, `nucc_classification`, `nucc_grouping`, `cms_provider_type`, `org_name`, `group_name`, `org_pac_id`, `grad_year`, `lat`, `lon`, `mips_score`, `mips_source`, `mips_year`, `service_lines`, `is_hospital`, `is_clinic`, `entity_type`, `last_name`, `first_name`, `taxonomy_code`, `taxonomy_group`, `address_line1`, `address_line2`, `city`, `postal_code` |
+| `provider_affiliations.parquet` | `npi`, `ccn`, `facility_name` |
+| `zip_centroids.parquet` | `zip`, `lat`, `lon` |
+| `code_dim.parquet` | `billing_code`, `billing_code_type`, `label`, `category`, `rbcs_subcategory`, `rbcs_family`, `rbcs_is_major`, `search_text`, `shoppable`, `medicare_allowed`, `opps_payment` |
+| `evidence.parquet` | `npi`, `billing_code`, `tier` (`billed` or `typical`), `prevalence`, `year`, `tot_srvcs`, `tot_benes`, `tot_bene_days`, `avg_mdcr_allowed`, `is_drug` |
+| `rate_hist.parquet` | `payer`, `net`, `network_name`, `billing_code_type`, `billing_code`, `setting`, `scope`, `modifier`, `is_sentinel`, `bucket`, `n`, `n_rates` |
+| `cross_network_rollup.parquet` | `billing_code`, `billing_code_type`, `net`, `network_name`, `n_groups`, `min_rate`, `p10`, `median`, `p90`, `max_rate` |
+| `manifest.json` | `built_at`, `networks`, `scope`, `partial`, `target_patterns`, `codes`, `inputs`, `rows` |
 
 `rates` is the parser's **price grain** — one row per negotiated price, no group
 fan-out (`group_set_id` links to `group_sets` for the join a query needs at read
@@ -129,72 +112,24 @@ for the target plan.** A provider group in two networks lands in both partitions
 
 ## Parquet — `data/nppes/`, `data/reference/`, `data/cms/`
 
-```
-data/nppes/ga_providers.parquet
-    npi | entity_type | org_name | last_name | first_name
-    taxonomy_code | taxonomy_group | is_hospital | is_clinic
-    address_line1 | address_line2 | city | state | postal_code
-    ← join taxonomy_code to nucc_taxonomy.parquet for the real specialty label
+Paths are under `data/`, and each file is built by `make reference` with the `STEP` shown.
 
-data/reference/code_labels.parquet     (make reference STEP=code-labels — reference/code-labels.md)
-    billing_code_type | billing_code | short_name
-    rbcs_category | rbcs_subcategory | rbcs_family | rbcs_is_major | label | search_text
-
-data/reference/nucc_taxonomy.parquet   (make reference STEP=taxonomy-labels — reference/taxonomy-labels.md)
-    taxonomy_code | grouping | classification | specialization
-    display_name | specialty | is_individual
-
-data/cms/ga_provider_service.parquet   (make reference STEP=cms-utilization — reference/cms-utilization.md)
-    npi | hcpcs_cd | place_of_service ('F'/'O')
-    tot_benes | tot_srvcs | tot_bene_day_srvcs
-    avg_mdcr_alowd_amt | provider_type | hcpcs_drug_ind | year
-    ← one row per (GA NPI × HCPCS × POS) billed to Medicare Part B; the
-      source of the build's `evidence` table.
-
-data/reference/specialty_procedure_profiles.parquet  (make reference STEP=specialty-profiles — reference/specialty-profiles.md)
-    specialty (NUCC classification) | hcpcs_cd
-    billers | specialty_providers | prevalence
-    ← Tier 2: codes billed by >= prevalence of a specialty (from CMS ∩ NPPES ∩
-      NUCC). The source of `evidence`'s typical tier.
-
-data/reference/mips_ga.parquet         (make reference STEP=mips — reference/mips.md)
-    npi | mips_score | mips_source | performance_year
-    ← CMS MIPS overall score per GA clinician, newest performance year. Left-joined
-      into provider_dim; NULL for clinicians CMS publishes no score for.
-
-data/reference/zip_centroids.parquet   (make reference STEP=zip-centroids — reference/zip-centroids.md)
-    zip | lat | lon
-    ← Census Gazetteer ZCTA internal points; copied to serving/ for ?zip= distance.
-
-data/reference/mpfs_ga.parquet         (make reference STEP=mpfs — reference/mpfs.md)
-    billing_code | billing_code_type ('CPT' 5-digit, else 'HCPCS')
-    modifier ('' | '26' | 'TC' | …) | pos ('nonfacility' | 'facility')
-    locality ('01' Atlanta | '99' rest of GA) | medicare_allowed | status
-    ← CMS Physician Fee Schedule allowed $ = (workRVU·GPCIw + peRVU·GPCIpe +
-      mpRVU·GPCImp) × conversionFactor, per GA locality. medicare_allowed is
-      NULL for carrier-priced (status 'C') rows; bundled / non-covered statuses
-      are dropped. The source of `code_dim.medicare_allowed` and
-      `rates.medicare_allowed`. Physician fee schedule only.
-data/reference/opps.parquet            (make reference STEP=opps — reference/opps.md)
-    billing_code | billing_code_type | status_indicator | apc | payment_rate | year
-    ← CMS OPPS Addendum B: the national Medicare hospital-outpatient payment per code;
-      codes with no dollar rate are dropped. Read by the build → code_dim.opps_payment.
-data/reference/dac_ga.parquet          (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
-    npi | last_name | first_name | credential | primary_specialty
-    org_pac_id | org_name | grad_year | med_school | gender
-    ← one row per NPI, from CMS Doctors & Clinicians (Care Compare). A real
-      group-practice identity (org_pac_id + name) independent of Anthem's
-      buckets, plus demographics. Read by the build into `provider_dim`.
-      GA-scoped (npi_lookup, else State='GA').
-
-data/reference/dac_hospital_affiliations.parquet   (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
-    npi | ccn | facility_name
-    ← many rows per NPI; the CCN↔NPI bridge for the Hospital Care Compare
-      quality layer (roadmap step 2). ccn =
-      facility_affiliations_certification_number; facility_name is the
-      facility_type label unless the source carried hosp_afl_lbn_* names.
-      Scoped to the NPIs in dac_ga.parquet.
-```
+| File | What it holds |
+|---|---|
+| `nppes/ga_providers.parquet`<br>[`STEP=nppes`](../etl/nppes.md) | Georgia's NPPES providers. Join `taxonomy_code` to `nucc_taxonomy.parquet` for the real specialty label.<br>**Columns:** `npi`, `entity_type`, `org_name`, `last_name`, `first_name`, `taxonomy_code`, `taxonomy_group`, `is_hospital`, `is_clinic`, `address_line1`, `address_line2`, `city`, `state`, `postal_code` |
+| `reference/code_labels.parquet`<br>[`STEP=code-labels`](../reference/code-labels.md) | A label and RBCS category for each billing code.<br>**Columns:** `billing_code_type`, `billing_code`, `short_name`, `rbcs_category`, `rbcs_subcategory`, `rbcs_family`, `rbcs_is_major`, `label`, `search_text` |
+| `reference/nucc_taxonomy.parquet`<br>[`STEP=taxonomy-labels`](../reference/taxonomy-labels.md) | The NUCC label for each taxonomy code.<br>**Columns:** `taxonomy_code`, `grouping`, `classification`, `specialization`, `display_name`, `specialty`, `is_individual` |
+| `cms/ga_provider_service.parquet`<br>[`STEP=cms-utilization`](../reference/cms-utilization.md) | One row per Georgia NPI, HCPCS code and place of service billed to Medicare Part B. The source of the build's `evidence` table.<br>**Columns:** `npi`, `hcpcs_cd`, `place_of_service` (`F` or `O`), `tot_benes`, `tot_srvcs`, `tot_bene_day_srvcs`, `avg_mdcr_alowd_amt`, `provider_type`, `hcpcs_drug_ind`, `year` |
+| `reference/specialty_procedure_profiles.parquet`<br>[`STEP=specialty-profiles`](../reference/specialty-profiles.md) | Tier 2: codes billed by at least `prevalence` of a specialty, from CMS, NPPES and NUCC. The source of `evidence`'s typical tier.<br>**Columns:** `specialty` (NUCC classification), `hcpcs_cd`, `billers`, `specialty_providers`, `prevalence` |
+| `reference/mips_ga.parquet`<br>[`STEP=mips`](../reference/mips.md) | CMS MIPS overall score per Georgia clinician, newest performance year. Left-joined into `provider_dim`, and null for clinicians CMS publishes no score for.<br>**Columns:** `npi`, `mips_score`, `mips_source`, `performance_year` |
+| `reference/zip_centroids.parquet`<br>[`STEP=zip-centroids`](../reference/zip-centroids.md) | Census Gazetteer ZCTA internal points, copied to `serving/` for `?zip=` distance.<br>**Columns:** `zip`, `lat`, `lon` |
+| `reference/mpfs_ga.parquet`<br>[`STEP=mpfs`](../reference/mpfs.md) | The CMS Physician Fee Schedule allowed amount, (work RVU × work GPCI + PE RVU × PE GPCI + MP RVU × MP GPCI) × conversion factor, per Georgia locality. `medicare_allowed` is null for carrier-priced rows (status `C`), and bundled or non-covered statuses are dropped. The source of `code_dim.medicare_allowed` and `rates.medicare_allowed`. Physician fee schedule only.<br>**Columns:** `billing_code`, `billing_code_type` (`CPT` for 5 digits, else `HCPCS`), `modifier` (empty, `26`, `TC` and others), `pos` (`nonfacility` or `facility`), `locality` (`01` Atlanta or `99` the rest of Georgia), `medicare_allowed`, `status` |
+| `reference/opps.parquet`<br>[`STEP=opps`](../reference/opps.md) | CMS OPPS Addendum B: the national Medicare hospital-outpatient payment per code. Codes with no dollar rate are dropped. Read by the build into `code_dim.opps_payment`.<br>**Columns:** `billing_code`, `billing_code_type`, `status_indicator`, `apc`, `payment_rate`, `year` |
+| `reference/dac_ga.parquet`<br>[`STEP=doctors-clinicians`](../reference/doctors-clinicians.md) | One row per NPI, from CMS Doctors & Clinicians (Care Compare): a real group-practice identity (`org_pac_id` and name) independent of Anthem's buckets, plus demographics. Read by the build into `provider_dim`. Georgia only (`npi_lookup`, else `State='GA'`).<br>**Columns:** `npi`, `last_name`, `first_name`, `credential`, `primary_specialty`, `org_pac_id`, `org_name`, `grad_year`, `med_school`, `gender` |
+| `reference/dac_hospital_affiliations.parquet`<br>[`STEP=doctors-clinicians`](../reference/doctors-clinicians.md) | Many rows per NPI: the CCN to NPI bridge for the Hospital Care Compare quality layer (roadmap step 2). `ccn` is `facility_affiliations_certification_number`, and `facility_name` is the `facility_type` label unless the source carried `hosp_afl_lbn_*` names. Scoped to the NPIs in `dac_ga.parquet`.<br>**Columns:** `npi`, `ccn`, `facility_name` |
+| `reference/exchange_plans_ga.parquet`<br>[`STEP=exchange-plans`](../reference/exchange-plans.md) | One row per medical plan on Georgia's exchange, keyed on its HIOS plan ID. `network_id` is the issuer and Georgia's network ID (`45334-GAN001`).<br>**Columns:** `plan_id`, `plan_year`, `issuer_id`, `carrier`, `name`, `metal_level`, `plan_type`, `needs_referral`, `network_id` |
+| `reference/exchange_networks_ga.parquet`<br>[`STEP=exchange-plans`](../reference/exchange-plans.md) | One row per provider network the plans above use.<br>**Columns:** `network_id`, `issuer_id`, `name` |
+| `reference/exchange_premiums_ga.parquet`<br>[`STEP=exchange-plans`](../reference/exchange-plans.md) | The monthly premium for one person, for ages 0 to 64, where 64 means 64 and over.<br>**Columns:** `plan_id`, `rating_area`, `age`, `premium`, `tobacco_premium` |
 
 ---
 
