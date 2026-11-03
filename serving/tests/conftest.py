@@ -76,8 +76,10 @@ def _build(data_dir: str) -> None:
     # ── group_sets: gs 100 -> pg{10,20}; gs 200 -> pg{30}; gs 300 -> pg{10,20,30,40};
     # gs 400 -> pg{60} — Ng's own group, priced separately from Baker's so a
     # cost-sort test (#87 follow-up) has two PCP providers with different rates.
+    # gs 500 -> pg{70,80,90,95}: radiologists billing under their own NPIs, priced for 70450 only.
     gs_rows = []
-    for gs, pgs in ((100, (10, 20)), (200, (30,)), (300, (10, 20, 30, 40)), (400, (60,))):
+    for gs, pgs in ((100, (10, 20)), (200, (30,)), (300, (10, 20, 30, 40)), (400, (60,)),
+                    (500, (70, 80, 90, 95))):
         for pg in pgs:
             gs_rows.append((FILE_ID, gs, pg))
     _write(con, f"{a}/group_sets/1.parquet",
@@ -98,6 +100,13 @@ def _build(data_dir: str) -> None:
         # Ng (NP, PCP-eligible) — her own group/group_set, priced separately
         # from Baker's so the two PCP providers can carry different rates.
         (60, BLUE_VALUE, 1000000011, 1000000060),
+        # Diaz also bills under his own NPI, and under an NPI with no Georgia
+        # NPPES record, as an out-of-state reading group would. Ito, in Diaz's
+        # CMS group, and Okafor, in none, bill under their own NPIs.
+        (70, BLUE_VALUE, 1000000004, 1000000004),
+        (80, BLUE_VALUE, 1000000004, 1999999999),
+        (90, BLUE_VALUE, 1000000012, 1000000012),
+        (95, BLUE_VALUE, 1000000013, 1000000013),
     ]
     _write(con, f"{a}/providers/1.parquet",
            "file_id, provider_group_id, network_name, npi, tin_type, tin_value",
@@ -142,6 +151,7 @@ def _build(data_dir: str) -> None:
     # a facility-only line for the same practice and scan — never part of an office quote
     price(100, BLUE_VALUE, "70450", 800.00, svc="22")
     price(300, OPEN_ACCESS, "70450", 265.00)
+    price(500, BLUE_VALUE, "70450", 300.00)
     # 45378 — ASC + hospital outpatient
     price(300, BLUE_VALUE, "45378", 410.00, svc="24", setting="outpatient")
     price(300, OPEN_ACCESS, "45378", 505.00, svc="22", setting="outpatient")
@@ -188,6 +198,10 @@ def _build(data_dir: str) -> None:
          "12 Clairmont Ave", "Ste 200", "Decatur", "GA", "30030"),
         (1000000004, "individual", "", "Diaz", "Frank", "2085R0202X", "Radiology", 0, 0,
          "1 Baptist Way", "", "Marietta", "GA", "30060"),
+        (1000000012, "individual", "", "Ito", "Kenji", "2085R0202X", "Radiology", 0, 0,
+         "4 Bay Ave", "", "Savannah", "GA", "31401"),
+        (1000000013, "individual", "", "Okafor", "Ada", "2085R0202X", "Radiology", 0, 0,
+         "5 Lake Dr", "", "Athens", "GA", "30601"),
         # psychiatrist + neurologist share the NUCC classification "Psychiatry &
         # Neurology", so matching on classification alone would over-match.
         (1000000006, "individual", "", "Evans", "Grace", "2084P0800X", "Psychiatry", 0, 0,
@@ -322,6 +336,9 @@ def _build(data_dir: str) -> None:
         (1000000004, "Diaz", "Frank", "M.D.", "Diagnostic Radiology",
          "G0000003", "Marietta Imaging Partners", 2008,
          "Duke University School of Medicine", "M"),
+        (1000000012, "Ito", "Kenji", "M.D.", "Diagnostic Radiology",
+         "G0000003", "Marietta Imaging Partners", 2015,
+         "Emory University School of Medicine", "M"),
         (1000000006, "Evans", "Grace", "M.D.", "Psychiatry",
          None, None, 2001, "Yale School of Medicine", "F"),
     ]

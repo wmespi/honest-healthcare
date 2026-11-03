@@ -17,7 +17,7 @@ function savedNetwork() {
 }
 
 function practiceLabel(r) {
-  return r.practice_name || (r.ga_indiv_names || []).join(', ') || `Practice ${r.practice_id}`;
+  return r.practice_name || `Practice ${r.practice_id}`;
 }
 
 function groupMenu(menu) {
