@@ -53,24 +53,12 @@ class Service(BaseModel):
 
 
 class Part(BaseModel):
-    """One bill at a place, with the lowest, median and highest rate the plan
-    lists for it there. All three are empty when the place has no usable price
-    for that bill: a hospital's own fee, or the scan at a group whose doctors
-    read scans done elsewhere."""
+    """One bill at a place, with the highest rate the plan lists for it there,
+    since the file doesn't say which applies. Empty when the place has no usable
+    price for that bill: a hospital's own fee, or the scan at a group whose
+    doctors read scans done elsewhere."""
     part: PartName
-    min: Optional[float]
-    median: Optional[float]
     max: Optional[float]
-
-    @model_validator(mode="after")
-    def _priced_or_not(self):
-        rates = (self.min, self.median, self.max)
-        if any(r is None for r in rates):
-            if any(r is not None for r in rates):
-                raise ValueError(f"{self.part}: min, median and max are all set or all empty")
-        elif not self.min <= self.median <= self.max:
-            raise ValueError(f"{self.part}: min <= median <= max")
-        return self
 
 
 class Doctor(BaseModel):
@@ -84,8 +72,8 @@ class Doctor(BaseModel):
 class Place(BaseModel):
     """A practice or hospital at one address that does the service on the plan.
 
-    Its totals are its parts added up, and all three are empty when any part
-    has no price, because then nobody can say the most you'd pay.
+    The most you'd pay is its parts added up, and it's empty when any part has
+    no price, because then nobody can say what the whole bill could be.
     """
     place_id: str = Field(description="The CCN for a hospital, the billing NPI for a practice.")
     name: str
@@ -98,6 +86,9 @@ class Place(BaseModel):
     stars: Optional[int] = Field(ge=1, le=5, description="Medicare's hospital star rating. Hospitals only.")
     distance_mi: float = Field(ge=0)
     parts: list[Part] = Field(min_length=1)
+    several_rates: bool = Field(
+        description="The plan lists more than one rate for a bill here without saying which applies, "
+                    "so someone should ask which they'd get.")
     billers: list[str] = Field(min_length=1, description="Who bills for the service here.")
     doctors: list[Doctor]
 
@@ -107,25 +98,12 @@ class Place(BaseModel):
             raise ValueError("only a hospital has stars")
         return self
 
-    def _total(self, field):
-        if any(p.max is None for p in self.parts):
-            return None
-        return round(sum(getattr(p, field) for p in self.parts), 2)
-
-    @computed_field(description="Every part's lowest rate, added up.")
-    @property
-    def min_rate(self) -> Optional[float]:
-        return self._total("min")
-
-    @computed_field(description="Every part's median rate, added up.")
-    @property
-    def median_rate(self) -> Optional[float]:
-        return self._total("median")
-
     @computed_field(description="The most you'd pay: every part's highest rate, added up.")
     @property
     def max_rate(self) -> Optional[float]:
-        return self._total("max")
+        if any(p.max is None for p in self.parts):
+            return None
+        return round(sum(p.max for p in self.parts), 2)
 
 
 class Origin(BaseModel):

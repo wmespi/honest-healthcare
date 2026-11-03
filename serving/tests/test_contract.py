@@ -11,25 +11,26 @@ from pydantic import ValidationError
 from serving.contract import FindCare, FindCareQuery, Place, Plan, Service
 
 
-def part(name, lo=None, med=None, hi=None):
-    return {"part": name, "min": lo, "median": med, "max": hi}
+def part(name, hi=None):
+    return {"part": name, "max": hi}
 
 
-def place(place_id="1000000010", kind="imaging_center", parts=None, stars=None, distance_mi=2.4):
+def place(place_id="1000000010", kind="imaging_center", parts=None, stars=None, distance_mi=2.4, several_rates=False):
     return {
         "place_id": place_id, "name": "Dogwood Imaging", "kind": kind,
         "address": "215 E Ponce de Leon Ave, Decatur, GA 30030", "city": "Decatur",
         "lat": 33.7752, "lon": -84.2935, "phone": None, "stars": stars, "distance_mi": distance_mi,
-        "parts": parts if parts is not None else [part("scan", 300, 320, 340), part("reading", 60, 62.5, 70)],
+        "parts": parts if parts is not None else [part("scan", 340), part("reading", 70)],
+        "several_rates": several_rates,
         "billers": ["Dogwood Imaging"],
         "doctors": [{"npi": 1000000004, "name": "Frank Diaz", "specialty": "Diagnostic Radiology", "score": 91.0}],
     }
 
 
-COMPLETE = place()
-ALL_IN = place("1000000030", parts=[part("all_in", 390, 390, 390)], distance_mi=7.0)
-HOSPITAL = place("110010", "hospital", [part("reading", 80, 80, 80), part("facility")], stars=4, distance_mi=0.8)
-READS_ONLY = place("1000000020", "practice", [part("scan"), part("reading", 55, 55, 55)], distance_mi=5.1)
+COMPLETE = place(several_rates=True)
+ALL_IN = place("1000000030", parts=[part("all_in", 390)], distance_mi=7.0)
+HOSPITAL = place("110010", "hospital", [part("reading", 80), part("facility")], stars=4, distance_mi=0.8)
+READS_ONLY = place("1000000020", "practice", [part("scan"), part("reading", 55)], distance_mi=5.1)
 
 
 def search(results, **extra):
@@ -40,12 +41,10 @@ def search(results, **extra):
     }
 
 
-def test_a_places_totals_are_its_parts_added_up():
-    row = Place.model_validate(COMPLETE).model_dump()
-    assert (row["min_rate"], row["median_rate"], row["max_rate"]) == (360, 382.5, 410)
+def test_the_most_youd_pay_is_the_parts_added_up():
+    assert Place.model_validate(COMPLETE).model_dump()["max_rate"] == 410
     for missing in (HOSPITAL, READS_ONLY):
-        row = Place.model_validate(missing).model_dump()
-        assert (row["min_rate"], row["median_rate"], row["max_rate"]) == (None, None, None)
+        assert Place.model_validate(missing).model_dump()["max_rate"] is None
 
 
 def test_results_sort_and_summarize_themselves():
@@ -68,8 +67,6 @@ def test_searches_with_no_full_price_or_no_results_fit():
 
 
 @pytest.mark.parametrize("row, why", [
-    (place(parts=[part("scan", 300, None, 340)]), "a part is priced or not, never half"),
-    (place(parts=[part("all_in", 300, 200, 340)]), "min <= median <= max"),
     (place(stars=4), "only a hospital has stars"),
     (place(parts=[]), "every place has a bill"),
     ({**COMPLETE, "billers": []}, "someone bills there"),
@@ -112,7 +109,7 @@ def test_fastapi_publishes_the_contract():
     params = {p["name"] for p in schema["paths"]["/find-care"]["get"]["parameters"]}
     assert params == {"service_id", "plan_id", "zip", "radius_mi", "sort"}
     place_out = next(v for k, v in schema["components"]["schemas"].items() if k.startswith("Place"))
-    assert {"min_rate", "median_rate", "max_rate"} <= set(place_out["properties"])
+    assert {"max_rate", "several_rates"} <= set(place_out["properties"])
     assert client.get("/plans").status_code == 200 and client.get("/services").status_code == 200
     body = client.get("/find-care", params={"service_id": "mri-brain", "plan_id": "blue-value", "zip": "30322"}).json()
     assert body["sort"] == "price" and body["cheapest_place_id"] == "1000000010"

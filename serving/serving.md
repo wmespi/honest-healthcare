@@ -16,7 +16,7 @@ tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
 | File | Holds |
 |---|---|
 | `main.py` | app + CORS + `include_router` + `GET /` (health **and** trust-bar context: `priceable_npis`, `networks`, `n_codes`, `as_of`, `built_at`/`partial_build` from the build's `manifest.json`, `reference_loaded` — which optional datasets were build inputs) |
-| `contract.py` | The typed contract for the real find-care screen ([#135](https://github.com/wmespi/honest-healthcare/issues/135)): the Pydantic models for `GET /plans`, `GET /services` and `GET /find-care`, which FastAPI publishes at `/docs`. A place's totals and a search's cheapest, closest, median and order are computed in the models, so a response can't contradict itself. No route serves it yet. |
+| `contract.py` | The typed contract for the real find-care screen ([#135](https://github.com/wmespi/honest-healthcare/issues/135)): the Pydantic models for `GET /plans`, `GET /services` and `GET /find-care`, which FastAPI publishes at `/docs`. A place's most you'd pay and a search's cheapest, closest, median and order are computed in the models, so a response can't contradict itself. No route serves it yet. |
 | `data_sources.py` | the serving-table sources (`*_SRC`), `db()` (one process-wide DuckDB database, `cursor()` per call), `network_slug()`, `rate_filters()`, `have_build()`/`missing_build()`, `manifest()`/`built_with()` |
 | `benchmark.py` | `opps_payment(conn, code, type)` — Medicare's national hospital-outpatient payment for a code, off `code_dim`. `None` until OPPS was a build input. |
 | `ranking.py` | `haversine_sql()` — distance in SQL. |
