@@ -107,14 +107,20 @@ def test_a_missing_reference_file_names_the_step_that_makes_it(corpus):
         _build(corpus)
 
 
-def test_check_key_stops_on_a_repeated_or_empty_key():
+def test_two_targets_naming_one_network_stop_the_build(corpus):
+    with open(f"{corpus}/targets.yaml", "a") as f:
+        f.write('  - name: Blue Value again\n    exchange_networks: ["45334-GAN001"]\n'
+                '    network_patterns: ["GA Blue Value HIX*"]\n')
+    with pytest.raises(SystemExit, match=r"network_files: the key \(network_id, network_name\) repeats"):
+        _build(corpus)
+
+
+def test_an_empty_key_stops_the_build():
+    # No table can produce one yet, so the check is called directly.
     con = duckdb.connect()
-    con.execute("CREATE TABLE t AS SELECT * FROM (VALUES ('a', 1), ('a', 1), ('b', 2)) v(k, n)")
-    with pytest.raises(SystemExit, match=r"t: the key \(k, n\) repeats"):
-        find_care.check_key(con, "t", ["k", "n"])
-    con.execute("CREATE TABLE u AS SELECT * FROM (VALUES ('a'), (NULL)) v(k)")
-    with pytest.raises(SystemExit, match="u: 1 rows with an empty key"):
-        find_care.check_key(con, "u", ["k"])
+    con.execute("CREATE TABLE t AS SELECT * FROM (VALUES ('a'), (NULL)) v(k)")
+    with pytest.raises(SystemExit, match="t: 1 rows with an empty key"):
+        find_care._check_key(con, "t", ["k"])
 
 
 def test_the_targets_file_names_networks_georgia_lists():
