@@ -619,7 +619,7 @@ def main():
 
     # The find-care tables follow etl/targets.yaml whatever --networks says.
     print("\n  find-care tables (#135):")
-    rows = find_care.build(data_dir, serving_dir, args.test)
+    rows = find_care.build(data_dir, serving_dir)
     with open(f"{serving_dir}/manifest.json") as f:
         manifest = json.load(f)
     manifest["rows"].update(rows)

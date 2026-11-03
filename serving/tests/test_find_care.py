@@ -111,16 +111,22 @@ def test_two_targets_naming_one_network_stop_the_build(corpus):
     with open(f"{corpus}/targets.yaml", "a") as f:
         f.write('  - name: Blue Value again\n    exchange_networks: ["45334-GAN001"]\n'
                 '    network_patterns: ["GA Blue Value HIX*"]\n')
-    with pytest.raises(SystemExit, match=r"network_files: the key \(network_id, network_name\) repeats"):
+    with pytest.raises(SystemExit, match=r"targets: the key \(network_id\) repeats"):
         _build(corpus)
 
 
-def test_an_empty_key_stops_the_build():
-    # No table can produce one yet, so the check is called directly.
-    con = duckdb.connect()
-    con.execute("CREATE TABLE t AS SELECT * FROM (VALUES ('a'), (NULL)) v(k)")
-    with pytest.raises(SystemExit, match="t: 1 rows with an empty key"):
-        find_care._check_key(con, "t", ["k"])
+def test_a_blank_network_in_the_targets_file_stops_the_build(corpus):
+    with open(f"{corpus}/targets.yaml", "a") as f:
+        f.write('  - name: Blank\n    exchange_networks:\n      -\n'
+                '    network_patterns: ["GA Blue Value HIX*"]\n')
+    with pytest.raises(SystemExit, match=r"targets: 1 rows with an empty key \(network_id\)"):
+        _build(corpus)
+
+
+def test_a_table_whose_columns_drift_from_its_definition_stops_the_build(corpus, monkeypatch):
+    monkeypatch.setattr(find_care._Networks, "columns", {"network_id": "VARCHAR", "label": "VARCHAR"})
+    with pytest.raises(SystemExit, match="networks: columns .* but the table says"):
+        _build(corpus)
 
 
 def test_the_targets_file_names_networks_georgia_lists():
