@@ -233,6 +233,19 @@ def main() -> None:
           AND address_line1 IS NOT NULL AND address_line1 <> ''
           AND postal_code IS NOT NULL AND postal_code <> ''
     """)
+    # Hospitals' own addresses too (`make reference STEP=hospitals`), so a hospital
+    # gets coordinates and Census's standardized address to compare a biller's with.
+    # They land only in geocode_addresses.parquet, which is keyed by address.
+    hospitals = f"{rd}/hospitals_ga.parquet"
+    n_hosp = 0
+    if os.path.exists(hospitals):
+        n_hosp = con.execute(f"SELECT count(*) FROM read_parquet('{hospitals}')").fetchone()[0]
+        con.execute(f"""
+            INSERT INTO candidates
+            SELECT DISTINCT address, '', city, state, postal_code FROM read_parquet('{hospitals}')
+            WHERE address IS NOT NULL AND address <> '' AND postal_code IS NOT NULL AND postal_code <> ''
+            EXCEPT SELECT * FROM candidates
+        """)
     # Only addresses Census hasn't answered for. row_number() gives each one an
     # id for the batch CSV, which Census echoes back.
     con.execute(f"""
@@ -249,8 +262,8 @@ def main() -> None:
           AND address_line1 IS NOT NULL AND address_line1 <> ''
           AND postal_code IS NOT NULL AND postal_code <> ''
     """).fetchone()
-    print(f"→ {n_npi:,} GA NPIs (PCP, imaging or billing ID) -> {n_addr:,} distinct addresses, "
-          f"{n_new:,} not sent to Census before")
+    print(f"→ {n_npi:,} GA NPIs (PCP, imaging or billing ID) and {n_hosp:,} hospitals -> "
+          f"{n_addr:,} distinct addresses, {n_new:,} not sent to Census before")
     if n_addr == 0:
         raise SystemExit("no candidate addresses -- has `make reference STEP=nppes` run?")
 

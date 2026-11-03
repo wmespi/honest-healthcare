@@ -21,6 +21,8 @@ NPPES_FIXTURE = os.path.join(REPO, "data-test/nppes/ga_providers.parquet")
 PROVIDERS_FIXTURE = os.path.join(REPO, "data-test/anthem/providers/geocode_fixture.parquet")
 OUT = os.path.join(REPO, "data-test/reference/pcp_geocode.parquet")
 SEEN = os.path.join(REPO, "data-test/reference/geocode_addresses.parquet")
+# Another builder's test output; the geocoder would send its addresses too.
+HOSPITALS = os.path.join(REPO, "data-test/reference/hospitals_ga.parquet")
 COLUMNS = ("npi, entity_type, org_name, last_name, first_name, taxonomy_code, taxonomy_group, "
            "address_line1, address_line2, city, state, postal_code")
 
@@ -74,7 +76,7 @@ def _write_nppes_fixture(nppes=NPPES_FIXTURE, providers=PROVIDERS_FIXTURE, extra
 
 @pytest.fixture(scope="module")
 def built():
-    for p in (OUT, SEEN):
+    for p in (OUT, SEEN, HOSPITALS):
         if os.path.exists(p):
             os.remove(p)
     _write_nppes_fixture()
@@ -185,6 +187,21 @@ def test_only_addresses_census_hasnt_answered_are_sent(tmp_path):
     stdout, added, n_added = run(new)
     assert "1 not sent to Census before" in stdout
     assert n_added == 4 and added == first + [(2000000007, 34.257, -85.1647)]
+
+    # A hospital's own address is sent too, and leaves the NPI coordinates alone.
+    duckdb.connect().execute(f"""
+        COPY (SELECT '110001' AS ccn, '1200 MEMORIAL DRIVE' AS address, 'DALTON' AS city,
+                     'GA' AS state, '30720' AS postal_code)
+        TO '{data}/reference/hospitals_ga.parquet' (FORMAT parquet)""")
+    hospital = tmp_path / "hospital.csv"
+    hospital.write_text('"1","1200 MEMORIAL DRIVE, DALTON, GA, 30720","Match","Non_Exact",'
+                        '"1200 MEMORIAL DR, DALTON, GA, 30720","-84.9786,34.7690","1","L"\n')
+    stdout, after, n_after = run(hospital)
+    assert "1 hospitals" in stdout and "1 not sent to Census before" in stdout
+    assert n_after == 5 and after == added
+    assert duckdb.connect().execute(
+        f"SELECT matched_address FROM read_parquet('{seen}') WHERE address_line1 = '1200 MEMORIAL DRIVE'"
+    ).fetchone() == ("1200 MEMORIAL DR, DALTON, GA, 30720",)
 
 
 def test_geocode_candidates_mirror_the_service_lines():
