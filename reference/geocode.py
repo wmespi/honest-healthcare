@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Build data/reference/pcp_geocode.parquet — lat/long for every GA PCP- or
-imaging-eligible NPPES provider address, via the free US Census Bulk Geocoding API.
+imaging-eligible NPPES provider address, and every billing ID in the parsed rate
+files, via the free US Census Bulk Geocoding API. A result row is a practice, so
+its distance comes from the practice's own address.
 
   https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html
 
@@ -32,8 +34,11 @@ Usage:
 """
 import argparse
 import csv
+import glob
+import hashlib
 import io
 import os
+import shutil
 import sys
 import time
 import urllib.error
@@ -42,7 +47,7 @@ import uuid
 
 import duckdb
 
-from ._common import nppes_dir, ref_dir, write_parquet_atomic
+from ._common import nppes_dir, ref_dir, store_dir, write_parquet_atomic
 
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
 BENCHMARK = "Public_AR_Current"
@@ -120,19 +125,28 @@ def _parse_census_response(text: str) -> dict:
     return out
 
 
-def _geocode_batch(rows: list, benchmark: str, timeout: int = 240, retries: int = 3,
-                   census_response_file: str = None) -> dict:
+def _geocode_batch(rows: list, benchmark: str, timeout: int = 240, retries: int = 5,
+                   census_response_file: str = None, cache_dir: str = None) -> dict:
     """rows: [(id, street, city, state, zip), ...], id our own sequential int
     (Census echoes whatever id we send back on each output row). Returns
     {id: (lat, lon)}. `census_response_file` skips the network call entirely
     (hermetic testing) — its contents are parsed as if Census had returned
-    them."""
+    them. `cache_dir` keeps each finished batch, so a re-run after a Census
+    outage resumes instead of starting over."""
     if census_response_file:
         with open(census_response_file, encoding="utf-8") as f:
             return _parse_census_response(f.read())
 
     buf = io.StringIO()
     csv.writer(buf).writerows(rows)
+    cached = None
+    if cache_dir:
+        name = hashlib.sha256(f"{benchmark}\n{buf.getvalue()}".encode("utf-8")).hexdigest()
+        cached = os.path.join(cache_dir, f"{name}.csv")
+        if os.path.exists(cached):
+            print("    resumed from cache")
+            with open(cached, encoding="utf-8") as f:
+                return _parse_census_response(f.read())
     body, content_type = _multipart_body(
         {"benchmark": benchmark}, "addressFile", "batch.csv", buf.getvalue().encode("utf-8")
     )
@@ -151,7 +165,14 @@ def _geocode_batch(rows: list, benchmark: str, timeout: int = 240, retries: int 
             if attempt < retries:
                 time.sleep(5 * attempt)
     if text is None:
-        raise SystemExit(f"Census batch geocoder failed after {retries} attempts: {last_err}")
+        raise SystemExit(f"Census batch geocoder failed after {retries} attempts: {last_err} "
+                         f"(finished batches are cached; re-run to resume)")
+    if cached:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = f"{cached}.tmp.{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, cached)
     return _parse_census_response(text)
 
 
@@ -180,6 +201,16 @@ def main() -> None:
     con = duckdb.connect()
     placeholders = ", ".join(f"'{c}'" for c in GEOCODE_TAXONOMY_CODES)
 
+    # Billing IDs an MRF names. A TIN that isn't an NPI has no NPPES address to find.
+    providers = f"{store_dir(args.data_dir, args.test, 'anthem')}/providers/*.parquet"
+    if glob.glob(providers):
+        con.execute(f"""CREATE TEMP TABLE billing_npis AS
+            SELECT DISTINCT TRY_CAST(tin_value AS BIGINT) AS npi
+            FROM read_parquet('{providers}', union_by_name=true)""")
+    else:
+        con.execute("CREATE TEMP TABLE billing_npis (npi BIGINT)")
+    candidate = f"(taxonomy_code IN ({placeholders}) OR npi IN (SELECT npi FROM billing_npis))"
+
     # Distinct addresses first — a shared practice address shouldn't cost
     # Census (or us) a lookup per NPI. row_number() gives each distinct
     # address a stable id for the batch CSV / rejoin.
@@ -190,7 +221,7 @@ def main() -> None:
         FROM (
             SELECT DISTINCT address_line1, address_line2, city, state, postal_code
             FROM read_parquet('{ga_path}')
-            WHERE taxonomy_code IN ({placeholders})
+            WHERE {candidate}
               AND address_line1 IS NOT NULL AND address_line1 <> ''
               AND postal_code IS NOT NULL AND postal_code <> ''
         )
@@ -199,11 +230,11 @@ def main() -> None:
     n_npi, n_addr = con.execute(f"""
         SELECT count(*), (SELECT count(*) FROM addr)
         FROM read_parquet('{ga_path}')
-        WHERE taxonomy_code IN ({placeholders})
+        WHERE {candidate}
           AND address_line1 IS NOT NULL AND address_line1 <> ''
           AND postal_code IS NOT NULL AND postal_code <> ''
     """).fetchone()
-    print(f"→ {n_npi:,} GA PCP- and imaging-eligible NPIs -> {n_addr:,} distinct addresses to geocode")
+    print(f"→ {n_npi:,} GA NPIs (PCP, imaging or billing ID) -> {n_addr:,} distinct addresses to geocode")
     if n_addr == 0:
         raise SystemExit("no candidate addresses -- has `make reference STEP=nppes` run?")
 
@@ -221,13 +252,16 @@ def main() -> None:
         raise SystemExit("--census-response-file only supplies one canned batch — "
                           "narrow the candidate list with --limit to fit under --batch-size")
 
+    # Under .cache, so `make clean CACHE=1` reclaims a run abandoned part-way.
+    cache_dir = f"{rd}/.cache/geocode"
     matches: dict = {}
     n_batches = (len(batch_rows) + args.batch_size - 1) // args.batch_size
     for b in range(n_batches):
         chunk = batch_rows[b * args.batch_size:(b + 1) * args.batch_size]
         print(f"  batch {b + 1}/{n_batches} ({len(chunk):,} addresses)...")
         got = _geocode_batch(chunk, args.benchmark,
-                             census_response_file=args.census_response_file)
+                             census_response_file=args.census_response_file,
+                             cache_dir=cache_dir)
         print(f"    {len(got):,}/{len(chunk):,} matched")
         matches.update(got)
 
@@ -257,11 +291,13 @@ def main() -> None:
           AND a.address_line2 IS NOT DISTINCT FROM g.address_line2
           AND a.city = g.city AND a.state = g.state AND a.postal_code = g.postal_code
         JOIN geocoded ge ON ge.addr_id = a.addr_id
-        WHERE g.taxonomy_code IN ({placeholders})
+        WHERE {candidate}
           AND ge.latitude BETWEEN {GA_LAT_RANGE[0]} AND {GA_LAT_RANGE[1]}
           AND ge.longitude BETWEEN {GA_LON_RANGE[0]} AND {GA_LON_RANGE[1]}
     """
     write_parquet_atomic(con, select_sql, out_path)
+    # Finished, so the next run re-geocodes from a clean slate.
+    shutil.rmtree(cache_dir, ignore_errors=True)
 
     n_out = con.execute(f"SELECT count(*) FROM read_parquet('{out_path}')").fetchone()[0]
     addr_rate = 100 * len(matches) / len(batch_rows)

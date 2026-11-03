@@ -1,11 +1,11 @@
-# `make reference STEP=geocode` — lat/long for GA PCP and imaging providers
+# `make reference STEP=geocode` — lat/long for GA providers and practices
 
 *Read this when working on "how close is this provider" — distance ranking and,
 eventually, the provider map (`docs/direction.md` build sequence).*
 
 **Builds** `data/reference/pcp_geocode.parquet` from the free, keyless
 [US Census Bulk Geocoding API](https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html):
-one row per GA PCP- or imaging-eligible NPI with `latitude` / `longitude`. Module
+one row per GA PCP- or imaging-eligible NPI, or billing ID, with `latitude` / `longitude`. Module
 `reference/geocode.py`; module flags `--test`, `--limit N`, `--batch-size N`,
 `--benchmark NAME`, `--census-response-file FILE` (test-only; pass via `ARGS`).
 
@@ -16,7 +16,9 @@ is free and gives coordinates we own and can cache indefinitely.
 **Why service-line-scoped.** The batch endpoint takes at most 10,000 addresses per request;
 geocoding all of GA NPPES isn't worth the run time or risk. The candidate set is
 `PCP_TAXONOMY_CODES` plus `IMAGING_TAXONOMY_CODES`, mirrors of the constants of the same
-name in `serving/service_lines.py`; `serving/tests/test_geocode.py` fails if they drift.
+name in `serving/service_lines.py` (`serving/tests/test_geocode.py` fails if they drift),
+plus every billing ID (`tin_value`) under `anthem/providers` with an NPPES record, because
+`/imaging/providers` measures distance from the practice's own address.
 The output keeps the name `pcp_geocode.parquet`.
 
 **Address dedup.** Many PCPs share an address, so the builder geocodes *distinct
@@ -37,10 +39,13 @@ addresses* and rejoins the coordinate onto every NPI there.
 ## Re-run when
 
 - The NPPES pull refreshes and addresses change. The builder always re-geocodes every
-  candidate address (idempotent, not incremental).
+  candidate address (idempotent, not incremental). If Census fails part-way, re-run it:
+  finished batches are cached until the run succeeds.
 - Either taxonomy list changes — update the mirrored copy here too.
+- `make parse` adds billing IDs. `make reference` skips this step once its output exists, so
+  run `make reference STEP=geocode` after a parse.
 
 Tested by `serving/tests/test_geocode.py`, hermetic: a tiny NPPES fixture covers
-shared-address dedup, a `No_Match`, and a non-PCP NPI that must never reach the
-candidate list; `--census-response-file` points at
+shared-address dedup, a `No_Match`, a billing ID outside the taxonomy lists that must be
+geocoded, and a non-PCP NPI that must never reach the candidate list; `--census-response-file` points at
 `reference/testdata/geocode_census_response_sample.csv` instead of the network.

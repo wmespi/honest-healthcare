@@ -18,11 +18,12 @@ import pytest
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CENSUS_RESPONSE = os.path.join(REPO, "reference/testdata/geocode_census_response_sample.csv")
 NPPES_FIXTURE = os.path.join(REPO, "data-test/nppes/ga_providers.parquet")
+PROVIDERS_FIXTURE = os.path.join(REPO, "data-test/anthem/providers/geocode_fixture.parquet")
 OUT = os.path.join(REPO, "data-test/reference/pcp_geocode.parquet")
 
 
 def _write_nppes_fixture():
-    """Five NPPES rows exercising every path the builder needs to get right:
+    """Six NPPES rows exercising every path the builder needs to get right:
       2000000001 / 2000000002 — both PCP-eligible, share one address (Macon) —
         the dedup + rejoin (both must land on the same, single-geocoded coord).
       2000000003 — PCP-eligible, a *different* address (Athens) that the
@@ -33,6 +34,8 @@ def _write_nppes_fixture():
       2000000005 — PCP-eligible, at an address the canned Census response
         marks Match but geocodes to Maryland — must be absent from the
         output despite the Match status (the GA bounding-box filter).
+      2000000006 — NOT PCP-eligible, but a billing ID in an MRF — a candidate
+        anyway, because a practice's distance comes from its own address.
     """
     os.makedirs(os.path.dirname(NPPES_FIXTURE), exist_ok=True)
     con = duckdb.connect()
@@ -47,6 +50,8 @@ def _write_nppes_fixture():
          "300 Heart Way", "", "Savannah", "GA", "31401"),
         (2000000005, "individual", "", "Epsilon", "Eve", "207Q00000X", "Family Medicine",
          "400 Wrong State Blvd", "", "Somewhere", "GA", "39999"),
+        (2000000006, "organization", "Macon Multi-Specialty", "", "", "193200000X", "Multi-Specialty",
+         "100 Main St", "", "Macon", "GA", "31201"),
     ]
     body = ", ".join(
         "(" + ", ".join(f"'{c}'" if isinstance(c, str) else str(c) for c in r) + ")"
@@ -57,6 +62,12 @@ def _write_nppes_fixture():
             npi, entity_type, org_name, last_name, first_name, taxonomy_code, taxonomy_group,
             address_line1, address_line2, city, state, postal_code
         )) TO '{NPPES_FIXTURE}' (FORMAT parquet)
+    """)
+    # A TIN that isn't an NPI has no NPPES record, and mustn't break the lookup.
+    os.makedirs(os.path.dirname(PROVIDERS_FIXTURE), exist_ok=True)
+    con.execute(f"""
+        COPY (SELECT * FROM (VALUES ('2000000006'), ('58-1234567')) AS t(tin_value))
+        TO '{PROVIDERS_FIXTURE}' (FORMAT parquet)
     """)
 
 
@@ -70,7 +81,7 @@ def built():
     )
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
     yield duckdb.connect()
-    for p in (OUT, NPPES_FIXTURE):
+    for p in (OUT, NPPES_FIXTURE, PROVIDERS_FIXTURE):
         try:
             os.remove(p)
         except FileNotFoundError:
@@ -89,7 +100,7 @@ def test_matched_addresses_geocoded(built):
             built.execute(f"SELECT npi, latitude, longitude FROM read_parquet('{OUT}')").fetchall()}
     # 2000000003 (No_Match), 2000000004 (not PCP), 2000000005 (matched but
     # outside Georgia) all absent
-    assert set(rows) == {2000000001, 2000000002}
+    assert set(rows) == {2000000001, 2000000002, 2000000006}
 
 
 def test_shared_address_dedups_to_one_geocode_call_same_coords(built):
@@ -98,6 +109,11 @@ def test_shared_address_dedups_to_one_geocode_call_same_coords(built):
     rows = {r[0]: (r[1], r[2]) for r in
             built.execute(f"SELECT npi, latitude, longitude FROM read_parquet('{OUT}')").fetchall()}
     assert rows[2000000001] == rows[2000000002] == (32.8407, -83.6324)
+
+
+def test_billing_id_is_a_candidate_whatever_its_taxonomy(built):
+    rows = built.execute(f"SELECT latitude, longitude FROM read_parquet('{OUT}') WHERE npi = 2000000006").fetchall()
+    assert rows == [(32.8407, -83.6324)]
 
 
 def test_non_pcp_taxonomy_never_a_candidate(built):
@@ -115,6 +131,32 @@ def test_matched_but_outside_georgia_is_dropped(built):
     # match-status check, is what has to catch it.
     rows = built.execute(f"SELECT npi FROM read_parquet('{OUT}') WHERE npi = 2000000005").fetchall()
     assert rows == []
+
+
+def test_a_finished_batch_is_cached_so_a_rerun_resumes(tmp_path, monkeypatch):
+    from reference import geocode
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b'"1","x","Match","Exact","X","-83.5,32.5","1","L"'
+
+    rows = [(1, "100 Main St", "Macon", "GA", "31201")]
+    calls = []
+    monkeypatch.setattr(geocode.urllib.request, "urlopen", lambda *a, **k: calls.append(1) or Response())
+    assert geocode._geocode_batch(rows, "B", cache_dir=str(tmp_path)) == {1: (32.5, -83.5)}
+
+    def outage(*a, **k):
+        raise AssertionError("a cached batch must not call Census")
+
+    monkeypatch.setattr(geocode.urllib.request, "urlopen", outage)
+    assert geocode._geocode_batch(rows, "B", cache_dir=str(tmp_path)) == {1: (32.5, -83.5)}
+    assert calls == [1]
 
 
 def test_geocode_candidates_mirror_the_service_lines():

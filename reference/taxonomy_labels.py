@@ -81,7 +81,7 @@ def main() -> None:
     print(f"→ wrote {out_path} — {n:,} taxonomy codes")
     sample = con.execute(
         f"""SELECT specialty, count(*) n FROM read_parquet('{out_path}')
-            GROUP BY 1 ORDER BY n DESC LIMIT 10"""
+            GROUP BY specialty ORDER BY n DESC LIMIT 10"""
     ).fetchall()
     for s, c in sample:
         print(f"    {c:>4}  {s}")

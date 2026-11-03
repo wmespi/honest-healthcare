@@ -72,7 +72,7 @@ def main() -> None:
         FROM read_parquet('{cms}') u
         JOIN read_parquet('{nppes}') n ON n.npi = u.npi
         LEFT JOIN read_parquet('{nucc}') x ON x.taxonomy_code = n.taxonomy_code
-        GROUP BY 1, 2, 3
+        GROUP BY COALESCE(x.classification, 'Unknown'), u.npi, u.hcpcs_cd
     """)
 
     write_parquet_atomic(
@@ -80,12 +80,12 @@ def main() -> None:
         f"""
         WITH spec_n AS (
             SELECT specialty, count(DISTINCT npi) AS specialty_providers
-            FROM billed GROUP BY 1
+            FROM billed GROUP BY specialty
             HAVING count(DISTINCT npi) >= {MIN_SPECIALTY_PROVIDERS}
         ),
         code_n AS (
             SELECT specialty, hcpcs_cd, count(DISTINCT npi) AS billers
-            FROM billed GROUP BY 1, 2
+            FROM billed GROUP BY specialty, hcpcs_cd
         )
         SELECT c.specialty, c.hcpcs_cd, c.billers, n.specialty_providers,
                round(c.billers::DOUBLE / n.specialty_providers, 4) AS prevalence
@@ -106,7 +106,7 @@ def main() -> None:
         print(f"    prevalence ≥ {t:>4}: {n:,} rules")
     big = con.execute(f"""
         SELECT specialty, count(*) n FROM read_parquet('{out_path}')
-        WHERE prevalence >= 0.03 GROUP BY 1 ORDER BY n DESC LIMIT 10
+        WHERE prevalence >= 0.03 GROUP BY specialty ORDER BY n DESC LIMIT 10
     """).fetchall()
     for s, n in big:
         print(f"    {n:>4}  {s}")

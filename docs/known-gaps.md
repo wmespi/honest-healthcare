@@ -84,6 +84,10 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Operational
 
+- **A second Blue Value contract isn't kept out yet.** `GA_JBKEMED0001` carries the same
+  network label as `GA_JBNKMED0001` but serves a different plan ID, at different prices.
+  `etl/targets.yaml` selects by plan name and label, so `make parse` or `make refresh`
+  would write it into the same partition. Don't run either until it selects by plan ID.
 - **`make reference STEP=nppes` is not atomic** — `ga_providers.parquet` is briefly
   empty during a re-extract and queries touching it 500. Run it when the API is idle.
 - **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` prefix, not a
@@ -92,15 +96,12 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **Large GA files** (multi-GB) are tractable thanks to the price/roster split; still
   parse individually and watch `du -sh data`.
 
-## Deferred by design
-
-- **Rule 5 is half in code, at read time.** The build keeps every row and tags it
-  `source_kind`; `/imaging/providers` makes a `plan_specific` row win over `shared`
-  per practice and component (`serving/routers/imaging.py`). "The lower shared rate
-  wins" is not implemented.
-
 ## Imaging
 
+- **Some distances are approximate.** Census can't place about one address in eight, many of
+  them rural. `/imaging/providers` measures those from the center of the practice's ZIP code.
+  A billing ID with no NPPES record has no address, so it has no distance and drops out of a
+  radius search.
 - **Imaging prices exclude the facility fee.** Anthem's professional file carries the
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
   hospital bills its own fee in a file we do not carry, so a hospital-based practice

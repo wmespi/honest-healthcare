@@ -97,6 +97,45 @@ def test_imaging_providers_ignores_facility_only_price_lines(api):
     assert row["global"]["max"] == 240.0 and row["global"]["min"] == 240.0
 
 
+def test_imaging_providers_city_is_the_practices_own(api):
+    # The practice's one imaging doctor works in Marietta, but the practice is
+    # registered in Atlanta. The row names the practice, so it shows the practice's city.
+    for params in ({}, {"zip": "30309"}):
+        r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE, **params})
+        row = {p["practice_id"]: p for p in r.json()["results"]}["1000000010"]
+        assert row["city"] == "Atlanta"
+
+
+def test_imaging_providers_distance_is_from_the_practices_own_address(api):
+    # The practice's own address is about 3 miles from this ZIP. Its one imaging
+    # doctor has no coordinates, so a distance can only have come from the practice.
+    params = {"billing_code": "70450", "network_name": BLUE_VALUE, "zip": "30309"}
+    row = {p["practice_id"]: p for p in api.get("/imaging/providers", params=params).json()["results"]}["1000000010"]
+    assert 2.5 < row["distance_mi"] < 3.5
+    assert any(p["practice_id"] == "1000000010" for p in api.get(
+        "/imaging/providers", params={**params, "radius_mi": 5}).json()["results"])
+    assert not any(p["practice_id"] == "1000000010" for p in api.get(
+        "/imaging/providers", params={**params, "radius_mi": 1}).json()["results"])
+
+
+def test_imaging_providers_distance_falls_back_to_the_practices_zip(api, monkeypatch):
+    # Census couldn't place this practice, so the center of its own ZIP stands in,
+    # about 7 miles away, rather than dropping it from a nearby search.
+    from serving.routers import imaging
+    monkeypatch.setattr(imaging, "PROVIDER_DIM_SRC",
+                        f"(SELECT * REPLACE (NULL::DOUBLE AS lat, NULL::DOUBLE AS lon) FROM {imaging.PROVIDER_DIM_SRC})")
+    params = {"billing_code": "70450", "network_name": BLUE_VALUE, "zip": "30309"}
+    row = {p["practice_id"]: p for p in api.get("/imaging/providers", params=params).json()["results"]}["1000000010"]
+    assert 6.5 < row["distance_mi"] < 7.5
+
+
+def test_imaging_providers_answers_the_same_every_time(api):
+    params = {"billing_code": "70450", "network_name": BLUE_VALUE}
+    first = api.get("/imaging/providers", params=params).json()
+    assert first["results"]
+    assert all(api.get("/imaging/providers", params=params).json() == first for _ in range(5))
+
+
 def test_imaging_providers_excludes_non_imaging_networks(api):
     r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
     assert "1000000030" not in {p["practice_id"] for p in r.json()["results"]}

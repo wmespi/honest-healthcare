@@ -62,7 +62,7 @@ rates/net=<slug>/part.parquet
     network_name | net | file_id | group_set_id
     billing_code_type | billing_code | modifier | setting | service_code
     negotiated_type | negotiation_arrangement | expiration_date | negotiated_rate
-    scope | is_sentinel | source_kind | medicare_allowed | vs_medicare
+    scope | is_sentinel | medicare_allowed | vs_medicare
 group_sets.parquet             file_id | group_set_id | provider_group_id
 group_members.parquet          file_id | provider_group_id | npi | tin_value
 group_networks.parquet         file_id | provider_group_id | net | network_name
@@ -91,12 +91,10 @@ manifest.json                  built_at | networks | scope | partial | target_pa
 fan-out (`group_set_id` links to `group_sets` for the join a query needs at read
 time, after pruning on `net` + `billing_code`). Fanning out to one row per
 `(price × provider group)` would be orders of magnitude larger. `scope` (`outpatient_scope` in
-`serving/data_sources.py`), `is_sentinel` (a ceiling over the built networks), `source_kind`
-(`plan_specific` | `shared`, from `index_file_plans`), and the MPFS benchmark are
-added at build time. **Rule 5** (AGENTS.md): the build keeps every row and tags
-`source_kind`; it does **not** collapse across files (`provider_group_id` is
-file-local) — that's resolved at read time, per practice, preferring `plan_specific`
-over `shared` ([etl/mrf-model.md](../etl/mrf-model.md#conflict-resolution-strategy)).
+`serving/data_sources.py`), `is_sentinel` (a ceiling over the built networks) and the MPFS benchmark are added
+at build time. The build keeps every row and doesn't combine prices across files
+(`provider_group_id` is file-local;
+[etl/mrf-model.md](../etl/mrf-model.md#one-plan-one-contract)).
 
 `rate_hist` is the browse primitive: a $25-bucketed, roster-weighted histogram —
 `n` sums each price's roster size, `n_rates` is the raw price-row count.

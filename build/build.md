@@ -9,7 +9,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 
 | Table | Grain | Notes |
 |---|---|---|
-| `rates/net=<slug>/part.parquet` | one row per price (the parser's grain) | `scope`, `is_sentinel`, `source_kind`, `medicare_allowed`, `vs_medicare` added. Hive-partitioned by `net`. No group fan-out — expansion to provider groups happens at query time after pruning on `net` + `billing_code`. Holds only the built networks (below). |
+| `rates/net=<slug>/part.parquet` | one row per price (the parser's grain) | `scope`, `is_sentinel`, `medicare_allowed`, `vs_medicare` added. Hive-partitioned by `net`. No group fan-out — expansion to provider groups happens at query time after pruning on `net` + `billing_code`. Holds only the built networks (below). |
 | `group_sets.parquet` | `(file_id, group_set_id, provider_group_id)` | a price's roster, from `anthem/group_sets`, kept only for the sets a price in `rates` points at. |
 | `group_members.parquet` | `(file_id, provider_group_id, npi, tin_value)` | deduped from `anthem/providers`. |
 | `group_networks.parquet` | `(file_id, provider_group_id, net, network_name)` | which networks a file-local group is attributed to — `group_members ⨝ group_networks` answers "does this NPI have a rate in network X" without touching `rates`. |
@@ -20,7 +20,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 | `rate_hist.parquet` | `(net, code, setting, scope, modifier, is_sentinel, bucket)` | a $25 roster-weighted histogram — `n` sums each price's `group_set` size, `n_rates` is the raw price-row count. `is_sentinel` is a dimension (not a filter) so the histogram can still show the placeholder rows; the rollup below excludes them. |
 | `cross_network_rollup.parquet` | `(code, network)` | `n_groups`, `min`/`p10`/`median`/`p90`/`max` off the `rate_hist` CDF (global modifier, outpatient-prof, non-sentinel). No route reads it today. |
 | `zip_centroids.parquet` | one row per ZIP | A copy of `reference/zip_centroids.parquet` so the API reads only `serving/`. |
-| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; null for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/opps/dac/geocode/mips/zip_centroids/plan_link — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
+| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; null for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/opps/dac/geocode/mips/zip_centroids — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
 
 ## The product rules
 
@@ -36,14 +36,8 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
   same code can flag differently in a `targets` build and an `all` build.
 - **`medicare_allowed` / `vs_medicare`** — GA median MPFS allowed $ for the
   code + modifier, non-facility; `vs_medicare` = `rate / allowed`.
-- **Rule 5** (AGENTS.md #5, `etl/mrf-model.md#conflict-resolution-strategy`) —
-  the build **keeps every row** and tags each `source_kind` (`plan_specific`
-  when the file serves one GA-individual plan, else `shared`, from
-  `index_file_plans`). It does **not** collapse across files —
-  `provider_group_id` is file-local. The read layer resolves MRF redundancy at
-  read time, per practice: a `plan_specific` row wins over `shared` for the
-  same code. `source_kind` is `shared` for every row until `make discover` has
-  populated `index_file_plans`.
+- **One plan, one contract** ([rule 5](../AGENTS.md)) — the build keeps every row and
+  doesn't combine or rank prices across files. `provider_group_id` is file-local.
 
 ## Scope
 
@@ -71,7 +65,7 @@ python -m build.build --data-dir <path> --serving-dir <path> [--networks <slugs>
 
 **Memory.** One partition at a time; the join pipelines straight into the COPY
 (no aggregate, no full materialisation), so memory is bounded by the join
-build sides (`group_sets`, `code_ceiling`, `mpfs`, `file_plan_count`), not the
+build sides (`group_sets`, `code_ceiling`, `mpfs`), not the
 fan-out. Reads the shared corpus read-only; writes only `SERVING_DIR` (a
 worktree points it at `./data-local/serving`). Tunables:
 `DUCKDB_MEMORY_LIMIT`, `DUCKDB_THREADS`, `DUCKDB_TMP`.

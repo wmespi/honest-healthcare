@@ -29,9 +29,7 @@ reads (#100):
 `rates` is the parser's price grain — no group fan-out (expansion happens at
 query time after pruning on `net` + `billing_code`). By default only the
 networks named in etl/targets.yaml are built; `--networks all` builds every
-partition. Rule 5 keeps every row and tags `source_kind`; the read layer
-resolves MRF redundancy per practice (#100). Reads the shared corpus read-only;
-writes only SERVING_DIR.
+partition. Reads the shared corpus read-only; writes only SERVING_DIR.
 """
 import argparse
 import datetime
@@ -102,46 +100,6 @@ def _service_line_expr(col):
     return f"NULLIF(concat_ws(',', {', '.join(arms)}), '')"
 
 
-def _load_plan_counts(con, test, override=None):
-    """Populate a temp table `file_plan_count(file_id, plan_count)` — the count
-    of GA-individual plans the master index links each file to (Step 1's
-    `index_file_plans`). It tags each `rates` row `source_kind` (plan_specific
-    when plan_count = 1, else shared); absent until `make discover` has re-run
-    post-#108, and then every row is `shared`. Read over the DuckDB postgres
-    extension so the build keeps no pg driver of its own; `override` (a
-    {file_id: count} dict) skips the DB entirely, for tests. Returns True when
-    counts loaded."""
-    if override is not None:
-        con.execute("CREATE TEMP TABLE file_plan_count (file_id BIGINT, plan_count BIGINT)")
-        if override:
-            con.executemany("INSERT INTO file_plan_count VALUES (?, ?)", list(override.items()))
-        return bool(override)
-
-    url = os.getenv("TEST_DATABASE_URL" if test else "DATABASE_URL")
-    if not url:
-        print("  plan link: no DATABASE_URL — every rate tagged source_kind=shared")
-        return False
-    tbl = "pg.test.index_file_plans" if test else "pg.index_file_plans"
-    try:
-        con.execute("INSTALL postgres; LOAD postgres")
-        con.execute(f"ATTACH '{url}' AS pg (TYPE postgres, READ_ONLY)")
-        con.execute(f"""
-            CREATE TEMP TABLE file_plan_count AS
-            SELECT file_id, COUNT(DISTINCT plan_id) AS plan_count
-            FROM {tbl} GROUP BY file_id
-        """)
-        n = con.execute("SELECT COUNT(*) FROM file_plan_count").fetchone()[0]
-        con.execute("DETACH pg")
-    except duckdb.Error as e:
-        print(f"  plan link: unreadable ({str(e).splitlines()[0]}) — source_kind=shared")
-        return False
-    if not n:
-        print("  plan link: index_file_plans is empty — source_kind=shared")
-        return False
-    print(f"  plan link: {n:,} files carry a plan count")
-    return True
-
-
 TARGETS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             "etl", "targets.yaml")
 
@@ -173,7 +131,7 @@ def target_partitions(prices_dir, patterns):
     return hits
 
 
-def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
+def build(data_dir, serving_dir, networks=None, test=False,
           scope="all", patterns=None, codes=None):
     anthem = store_dir(data_dir, test, "anthem")
     nppes = store_dir(data_dir, test, "nppes")
@@ -225,11 +183,6 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
     os.makedirs(serving_dir, exist_ok=True)
 
     con = _connect(spill)
-    have_plan_link = _load_plan_counts(con, test, plan_counts)
-    src_kind = ("CASE WHEN fpc.plan_count = 1 THEN 'plan_specific' ELSE 'shared' END"
-                if have_plan_link else "'shared'")
-    plan_join = ("LEFT JOIN file_plan_count fpc ON fpc.file_id = pr.file_id"
-                 if have_plan_link else "")
 
     t0 = time.time()
 
@@ -243,7 +196,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
         FROM {parts_scan}
         WHERE {OUTPATIENT_PROF} AND negotiated_rate > 0
           {code_ev.replace("hcpcs_cd", "billing_code")}
-        GROUP BY 1, 2
+        GROUP BY billing_code_type, billing_code
     """)
 
     # ── MPFS nonfacility allowed $ per (code, modifier), GA median across localities
@@ -254,7 +207,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                    round(median(medicare_allowed), 2) AS medicare_allowed
             FROM read_parquet('{ref_p["mpfs"]}')
             WHERE pos = 'nonfacility' AND medicare_allowed IS NOT NULL
-            GROUP BY 1, 2, 3
+            GROUP BY billing_code, billing_code_type, COALESCE(modifier, '')
         """)
     else:
         con.execute("CREATE TEMP TABLE mpfs (billing_code VARCHAR, "
@@ -262,9 +215,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
 
     # ── rates — parser price grain + enrichment, one partition at a time. No
     #    group_sets join: expansion to provider groups happens at query time
-    #    after pruning on `net` + `billing_code`. Rule 5 (AGENTS.md #5): every
-    #    row kept, tagged `source_kind`; the read layer resolves redundancy per
-    #    practice (#100). `modifier` was added to `prices` after some files were
+    #    after pruning on `net` + `billing_code`. `modifier` was added to `prices` after some files were
     #    parsed — union_by_name fills the per-file gap.
     def rate_cols(mod):
         return (
@@ -275,7 +226,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
             f"CASE WHEN {_scope('pr')} AND ({_office('pr')} OR oc.billing_code IS NULL) "
             f"THEN 'outpatient_prof' ELSE 'other' END AS scope, "
             f"pr.negotiated_rate <= COALESCE(cc.ceiling, 1.0) AS is_sentinel, "
-            f"{src_kind} AS source_kind, mp.medicare_allowed, "
+            f"mp.medicare_allowed, "
             f"CASE WHEN mp.medicare_allowed > 0 "
             f"THEN round(pr.negotiated_rate / mp.medicare_allowed, 2) END AS vs_medicare")
 
@@ -301,7 +252,6 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                 FROM {pq} pr
                 LEFT JOIN code_ceiling cc
                   ON cc.billing_code_type = pr.billing_code_type AND cc.billing_code = pr.billing_code
-                {plan_join}
                 LEFT JOIN office_codes oc
                   ON oc.billing_code_type = pr.billing_code_type AND oc.billing_code = pr.billing_code
                 LEFT JOIN mpfs mp
@@ -442,7 +392,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
         COPY (
             WITH used AS (SELECT DISTINCT billing_code_type, billing_code FROM {rates_glob}),
                  nm AS (SELECT billing_code_type, billing_code, any_value(name) AS name
-                        FROM read_parquet('{anthem}/codes/*.parquet') GROUP BY 1, 2),
+                        FROM read_parquet('{anthem}/codes/*.parquet') GROUP BY billing_code_type, billing_code),
                  mg AS (SELECT billing_code, billing_code_type, medicare_allowed
                         FROM mpfs WHERE modifier = '')
             SELECT u.billing_code, u.billing_code_type,
@@ -487,7 +437,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                    bool_or(hcpcs_drug_ind = 'Y') AS is_drug
             FROM read_parquet('{cms_util}')
             WHERE npi IN (SELECT npi FROM {gm}) {code_ev}
-            GROUP BY 1, 2
+            GROUP BY npi, hcpcs_cd
         """)
     if os.path.exists(cms_util) and os.path.exists(ref_p["profiles"]) and os.path.exists(ref_p["nucc"]):
         ev_parts.append(f"""
@@ -506,7 +456,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
               AND NOT EXISTS (
                 SELECT 1 FROM read_parquet('{cms_util}') b
                 WHERE b.npi = s.npi AND b.hcpcs_cd = sp.hcpcs_cd)
-            GROUP BY 1, 2
+            GROUP BY s.npi, sp.hcpcs_cd
         """)
     if ev_parts:
         con.execute(f"COPY (SELECT {ev_cols} FROM ({' UNION ALL '.join(ev_parts)})) "
@@ -530,7 +480,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
         COPY (
             WITH roster AS (
                 SELECT file_id, group_set_id, COUNT(*)::BIGINT AS n_groups
-                FROM read_parquet('{serving_dir}/group_sets.parquet') GROUP BY 1, 2
+                FROM read_parquet('{serving_dir}/group_sets.parquet') GROUP BY file_id, group_set_id
             )
             SELECT 'anthem' AS payer, rt.net, rt.network_name,
                    rt.billing_code_type, rt.billing_code, rt.setting, rt.scope, rt.modifier,
@@ -587,7 +537,7 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
                    round(MIN(bucket) FILTER (WHERE c >= 0.5 * tot) + {mid}, 2) AS median,
                    round(MIN(bucket) FILTER (WHERE c >= 0.9 * tot) + {mid}, 2) AS p90,
                    round(MAX(bucket) + {HIST_WIDTH}, 2) AS max_rate
-            FROM cum GROUP BY 1, 2, 3, 4
+            FROM cum GROUP BY billing_code, billing_code_type, net, network_name
         ) TO '{serving_dir}/cross_network_rollup.parquet' (FORMAT parquet, COMPRESSION zstd)
     """)
 
@@ -627,7 +577,6 @@ def build(data_dir, serving_dir, networks=None, test=False, plan_counts=None,
             "geocode": os.path.exists(ref_p["geocode"]),
             "mips": os.path.exists(ref_p["mips"]),
             "zip_centroids": os.path.exists(ref_p["zips"]),
-            "plan_link": have_plan_link,
         },
         "rows": counts,
         "hist_width": HIST_WIDTH, "hist_cap": HIST_CAP,

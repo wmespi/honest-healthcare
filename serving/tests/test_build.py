@@ -1,10 +1,8 @@
 """Hermetic test for the build step (build/build.py).
 
 No network, no DB — writes a handful of synthetic raw-Parquet files to a tmp
-dir, runs build() against them with an injected plan-count map, and asserts the
-product rules: `scope`, `is_sentinel`, `source_kind` (plan_specific when the
-file serves one plan, else shared), that `rates` is the parser's price grain
-(no fan-out), and that `rate_hist.n` is roster-weighted. Picked up by
+dir, runs build() against them, and asserts the product rules: `scope`,
+`is_sentinel`, that `rates` is the parser's price grain (no fan-out), and that `rate_hist.n` is roster-weighted. Picked up by
 `make test LOCAL=1`.
 """
 import json
@@ -25,8 +23,7 @@ NET2 = "Test, Net"
 
 
 def _raw(root, collision=False):
-    """Two files for one network. File 10 serves 1 plan (-> plan_specific),
-    file 20 serves 400 (-> shared). Both carry a $100 line for group 1 / code
+    """Two files for one network. Both carry a $100 line for group 1 / code
     99213; file 20 also carries a $60 line for it and a sub-$1 sentinel line for
     88888. A second code 99215 gets many mid-priced rows so 99213's $100 stays
     above its own 5%-of-median sentinel ceiling.
@@ -87,19 +84,18 @@ def _raw(root, collision=False):
 
 @pytest.fixture()
 def out(tmp_path, monkeypatch):
-    for v in ("SERVING_DIR",
-              "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+    for v in ("SERVING_DIR", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)
     _raw(root)
     serving = f"{root}/serving"
-    build(root, serving, networks=[SLUG], test=False, plan_counts={10: 1, 20: 400}, scope="custom")
+    build(root, serving, networks=[SLUG], test=False, scope="custom")
     return duckdb.connect(), serving
 
 
 def _rates(con, serving):
     return con.execute(
-        "SELECT file_id, billing_code, negotiated_rate, scope, is_sentinel, source_kind "
+        "SELECT file_id, billing_code, negotiated_rate, scope, is_sentinel "
         f"FROM read_parquet('{serving}/rates/**/*.parquet') ORDER BY billing_code, file_id, negotiated_rate"
     ).fetchall()
 
@@ -107,32 +103,6 @@ def _rates(con, serving):
 def test_scope_matches_serving():
     # the one guard against OUTPATIENT_PROF drifting from serving/data_sources.py
     assert OUTPATIENT_PROF == outpatient_scope("")
-
-
-def test_source_kind_from_plan_count(out):
-    con, serving = out
-    kinds = dict(con.execute(
-        f"SELECT DISTINCT file_id, source_kind FROM read_parquet('{serving}/rates/**/*.parquet')"
-    ).fetchall())
-    assert kinds == {10: "plan_specific", 20: "shared"}
-
-
-def test_empty_plan_counts_tags_everything_shared(tmp_path, monkeypatch):
-    # plan_counts={} (not None) must skip the DATABASE_URL probe and tag every
-    # row 'shared' without raising — executemany on an empty list is a DuckDB
-    # error (regression: the api conftest fixture hit this).
-    for v in ("SERVING_DIR",
-              "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
-        monkeypatch.delenv(v, raising=False)
-    root = str(tmp_path)
-    _raw(root)
-    serving = f"{root}/serving"
-    build(root, serving, networks=[SLUG], test=False, plan_counts={})
-    con = duckdb.connect()
-    kinds = {r[0] for r in con.execute(
-        f"SELECT DISTINCT source_kind FROM read_parquet('{serving}/rates/**/*.parquet')"
-    ).fetchall()}
-    assert kinds == {"shared"}
 
 
 def test_rates_is_price_grain(out):
@@ -154,7 +124,7 @@ def test_scope_and_sentinel(out):
 
 
 def test_scope_keeps_office_lines_and_falls_back_for_facility_only_codes(tmp_path, monkeypatch):
-    for v in ("SERVING_DIR", "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+    for v in ("SERVING_DIR", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)
     _raw(root)
@@ -176,7 +146,7 @@ def test_scope_keeps_office_lines_and_falls_back_for_facility_only_codes(tmp_pat
                 "t(file_id, provider_group_id, network_name, npi, tin_type, tin_value)) "
                 f"TO '{root}/anthem/providers/40.parquet' (FORMAT parquet)")
     serving = f"{root}/serving"
-    build(root, serving, networks=[SLUG], test=False, plan_counts={}, scope="custom")
+    build(root, serving, networks=[SLUG], test=False, scope="custom")
     got = {(r[0], r[1]): r[2] for r in con.execute(
         "SELECT billing_code, negotiated_rate, scope "
         f"FROM read_parquet('{serving}/rates/**/*.parquet') WHERE file_id = 40").fetchall()}
@@ -187,7 +157,7 @@ def test_scope_keeps_office_lines_and_falls_back_for_facility_only_codes(tmp_pat
 
 
 def test_codes_scopes_rates_to_the_listed_billing_codes(tmp_path, monkeypatch):
-    for v in ("SERVING_DIR", "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+    for v in ("SERVING_DIR", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)
     _raw(root)
@@ -204,7 +174,7 @@ def test_codes_scopes_rates_to_the_listed_billing_codes(tmp_path, monkeypatch):
                 "t(file_id, provider_group_id, network_name, npi, tin_type, tin_value)) "
                 f"TO '{root}/anthem/providers/41.parquet' (FORMAT parquet)")
     serving = f"{root}/serving"
-    build(root, serving, networks=[SLUG], test=False, plan_counts={}, scope="custom", codes=["70551"])
+    build(root, serving, networks=[SLUG], test=False, scope="custom", codes=["70551"])
     kept = {r[0] for r in con.execute(
         f"SELECT billing_code FROM read_parquet('{serving}/rates/**/*.parquet') WHERE file_id = 41").fetchall()}
     assert kept == {"70551"}
@@ -255,7 +225,7 @@ def test_rate_hist_carries_is_sentinel(out):
     con, serving = out
     rows = dict(con.execute(
         "SELECT billing_code, bool_or(is_sentinel) FROM "
-        f"read_parquet('{serving}/rate_hist.parquet') GROUP BY 1").fetchall())
+        f"read_parquet('{serving}/rate_hist.parquet') GROUP BY billing_code").fetchall())
     assert rows["88888"] is True and rows["99213"] is False
 
 
@@ -280,13 +250,12 @@ def test_network_name_collision_kept_distinct(tmp_path, monkeypatch):
     # caught by #96's by_network golden test dropping a network from its
     # count). rate_hist / cross_network_rollup must key on (net, network_name),
     # not net alone, or one network's rates silently absorb the other's.
-    for v in ("SERVING_DIR",
-              "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+    for v in ("SERVING_DIR", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)
     _raw(root, collision=True)
     serving = f"{root}/serving"
-    build(root, serving, networks=[SLUG], test=False, plan_counts={})
+    build(root, serving, networks=[SLUG], test=False)
     con = duckdb.connect()
 
     hist_nets = {r[0] for r in con.execute(
@@ -331,7 +300,7 @@ def _add_net(root, slug, name, fid, rate, n=1):
 
 @pytest.fixture()
 def two_nets(tmp_path, monkeypatch):
-    for v in ("SERVING_DIR", "DATABASE_URL", "TEST_DATABASE_URL", "DUCKDB_TMP"):
+    for v in ("SERVING_DIR", "DUCKDB_TMP"):
         monkeypatch.delenv(v, raising=False)
     root = str(tmp_path)
     _raw(root)
@@ -354,10 +323,10 @@ def test_target_patterns_read_from_yaml(tmp_path):
 
 def test_scoped_build_holds_only_the_named_networks(two_nets):
     serving = f"{two_nets}/serving"
-    build(two_nets, serving, networks=[SLUG, "other-net"], plan_counts={}, scope="all")
+    build(two_nets, serving, networks=[SLUG, "other-net"], scope="all")
     assert sorted(os.listdir(f"{serving}/rates")) == ["net=other-net", f"net={SLUG}"]
     # narrowing the same serving dir drops the partition that is no longer built
-    build(two_nets, serving, networks=[SLUG], plan_counts={}, scope="targets", patterns=["test net*"])
+    build(two_nets, serving, networks=[SLUG], scope="targets", patterns=["test net*"])
     assert os.listdir(f"{serving}/rates") == [f"net={SLUG}"]
     with open(f"{serving}/manifest.json") as f:
         m = json.load(f)
@@ -372,8 +341,8 @@ def test_sentinel_ceiling_covers_only_the_built_networks(two_nets):
             f"SELECT COUNT(*) FROM read_parquet('{serving}/rates/**/*.parquet') "
             f"WHERE billing_code = '99213' AND net = '{SLUG}' AND is_sentinel").fetchone()[0]
     solo = f"{two_nets}/solo"
-    build(two_nets, solo, networks=[SLUG], plan_counts={}, scope="custom")
+    build(two_nets, solo, networks=[SLUG], scope="custom")
     both = f"{two_nets}/both"
-    build(two_nets, both, networks=[SLUG, "other-net"], plan_counts={}, scope="all")
+    build(two_nets, both, networks=[SLUG, "other-net"], scope="all")
     assert n_sentinel_99213(solo) == 0
     assert n_sentinel_99213(both) > 0

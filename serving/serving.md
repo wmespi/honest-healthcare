@@ -20,7 +20,7 @@ tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
 | `benchmark.py` | `opps_payment(conn, code, type)` — Medicare's national hospital-outpatient payment for a code, off `code_dim`. `None` until OPPS was a build input. |
 | `ranking.py` | `haversine_sql()` — distance in SQL. |
 | `service_lines.py` | Curated NUCC taxonomy-code allowlists per service line — `SERVICE_LINES = {"pcp": [...], "imaging": [...]}`, plus the imaging scan menu (`IMAGING_MENU`). Also `build/build.py`'s source for `provider_dim.service_lines`. |
-| `routers/imaging.py` | `/imaging/providers?billing_code&network_name` — a labelled Medicare `facility_estimate` plus one row per billing practice for one scan on the curated `IMAGING_MENU`, priced global / technical (`TC`) / professional (`26`) with typical and min–max across the practice's contracts. A row says its `basis` (`global`, `split`, `professional_only`, `technical_only`) so a partial price is never shown as a whole one. A practice qualifies on CMS-billed evidence for that scan or an imaging-taxonomy billing ID, because Anthem fans a group's price out to every clinician on its roster. Only price lines that apply in an office (place of service `11`, or all places) count; facility fees are not in this file. **Needs `network_name`.** `zip=` + `radius_mi=` add distance. |
+| `routers/imaging.py` | `/imaging/providers?billing_code&network_name` — a labelled Medicare `facility_estimate` plus one row per billing practice for one scan on the curated `IMAGING_MENU`, priced global / technical (`TC`) / professional (`26`) with typical and min–max across the practice's contracts. A row says its `basis` (`global`, `split`, `professional_only`, `technical_only`) so a partial price is never shown as a whole one. A practice qualifies on CMS-billed evidence for that scan or an imaging-taxonomy billing ID, because Anthem fans a group's price out to every clinician on its roster. Only price lines that apply in an office (place of service `11`, or all places) count; facility fees are not in this file. **Needs `network_name`.** `city` is the practice's registered city, and `zip=` + `radius_mi=` add distance from its own address, or its ZIP's center when the geocoder couldn't place it. |
 | `routers/reference.py` | `/networks`, `/plans`, `/service_lines` (the curated allowlists), `/plans/cost_sharing?network_name` — the sourced plan versions for a network, read from `plan_cost_sharing.json` (deductible, out-of-pocket max, diagnostic and imaging cost share, each with its Anthem SBC link). Hand-copied from the SBCs because Georgia's individual market is not in the CMS plan-attributes file. **Needs `network_name`.** |
 
 SQL lives inline in the route handlers
@@ -44,8 +44,7 @@ placeholder rates Anthem fills for not-separately-priced codes.
 
 It **requires a `network_name`** (`400 {"detail": {"code": "network_required"}}`
 otherwise) — a rate is only comparable within a plan, a product rule, not a scale
-guard. **Rule 5** (AGENTS.md #5): within a practice and component, a `plan_specific`
-row wins over `shared`.
+guard.
 
 ## Key helpers
 
@@ -67,6 +66,8 @@ row wins over `shared`.
 - **Expand to provider groups (`RATE_GROUPS_SRC`) only after a selective filter**
   (`billing_code`); over the whole store it is far too large. Browse aggregates read
   `rate_hist` instead.
+- Name the columns in `GROUP BY`, never positions. When an alias shares a column's name,
+  group by the full expression, because the column wins.
 - Parameterise with `?`; never f-string user input into SQL (module-constant table and
   column names are fine).
 
