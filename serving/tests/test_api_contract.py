@@ -12,8 +12,9 @@ def test_health_and_trust_bar(api):
     assert body["status"] == "ok"
     assert body["total_prices"] > 0
     assert body["total_group_set_edges"] > 0
-    # NPIs 1-5 plus Ng (1000000011, added for the #87 cost-sort test)
-    assert body["priceable_npis"] == 6
+    # NPIs 1-5, Ng (1000000011, added for the #87 cost-sort test), and the two
+    # radiologists billing under their own NPIs (1000000012-13)
+    assert body["priceable_npis"] == 8
     assert set(body["networks"]) == {BLUE_VALUE, "GA Blue Open Access POS Network"}
     # the original 5 plus 99204 + 12002 + 99202 (added for the #87 cost-sort
     # / plausible-tier fixture)
@@ -31,14 +32,15 @@ def test_health_and_trust_bar(api):
 
 def test_networks_endpoint(api):
     # served from the browse summary (make build-summary); n_rates is the exact
-    # price-row count per network — 18 Blue Value (the original 13, incl. the 3
+    # price-row count per network — 19 Blue Value (the original 13, incl. the 3
     # out-of-scope noise rows: rate_summary counts "what exists", not the
     # scoped view; plus 4 for the #87 cost-sort / plausible-tier fixture —
     # Baker's 99204 and 99202 rates, Ng's 99204 rate, and Ng's unrelated $10
-    # 12002 row, and the facility-only 70450 line) + 5 Open Access.
+    # 12002 row, the facility-only 70450 line, and the own-NPI radiologists'
+    # 70450 rate) + 5 Open Access.
     body = api.get("/networks").json()
     counts = {r["network_name"]: r["n_rates"] for r in body}
-    assert counts == {BLUE_VALUE: 18, "GA Blue Open Access POS Network": 5}
+    assert counts == {BLUE_VALUE: 19, "GA Blue Open Access POS Network": 5}
     # sorted by volume desc
     assert [r["n_rates"] for r in body] == sorted((r["n_rates"] for r in body), reverse=True)
 
@@ -109,10 +111,15 @@ def test_imaging_providers_city_is_the_practices_own(api):
 def test_imaging_providers_names_a_doctor_billing_under_their_own_npi(api):
     # The billing ID is Diaz's own NPI, so the place is named after him, not his roster.
     r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
-    row = {p["practice_id"]: p for p in r.json()["results"]}["1000000004"]
-    assert row["practice_name"] == "Frank Diaz"
-    assert row["city"] == "Marietta"
-    assert "ga_indiv_names" not in row
+    rows = {p["practice_id"]: p for p in r.json()["results"]}
+    assert rows["1000000004"]["practice_name"] == "Frank Diaz"
+    assert rows["1000000004"]["city"] == "Marietta"
+    assert "ga_indiv_names" not in rows["1000000004"]
+    # A second doctor with the same name is a different practice, not a duplicate.
+    assert rows["1000000012"]["practice_name"] == "Frank Diaz"
+    assert rows["1000000012"]["city"] == "Savannah"
+    # A missing first name leaves the last name, not a blank or a leading space.
+    assert rows["1000000013"]["practice_name"] == "Okafor"
 
 
 def test_imaging_providers_drops_a_biller_with_no_georgia_record(api):

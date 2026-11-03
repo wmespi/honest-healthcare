@@ -19,7 +19,7 @@ visits but doesn't read one from the URL
 
 | ID | Journey | Clickpath | Expected |
 |---|---|---|---|
-| J1 | Rosa: what does a brain MRI cost near me? | plan gate → Brain MRI → ZIP 30322 | Practices ranked by price and distance; a practice with one contract shows one price, not a range; the hospital fee shows as a labelled estimate |
+| J1 | Rosa: what does a brain MRI cost near me? | plan gate → Brain MRI → ZIP 30322 | Practices ranked by price and distance, each with its own name, a city and a distance; a practice with one contract shows one price, not a range; the hospital fee shows as a labelled estimate |
 | J2 | Rosa: a knee MRI | scan picker → results | Complete (technical + professional) prices first, part-prices after |
 
 ## Browse — no plan

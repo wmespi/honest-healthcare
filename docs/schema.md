@@ -45,8 +45,9 @@ codes/{id}.parquet       billing_code_type | billing_code | name | description
 npi_lookup.parquet       npi | tin_value
 ```
 
-`tin_value` is the billing entity's tax id — in Anthem's files it's an **org NPI**
-(`tin_type` is always `'npi'`), so it doubles as a stable practice key: one real
+`tin_value` is the billing entity's tax id — in Anthem's files it's an **NPI**
+(`tin_type` is always `'npi'`), usually an organization's and sometimes a doctor's
+own, so it doubles as a stable practice key: one real
 practice recurs across the MRF as many file-local `provider_group_id`s but keeps
 one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 `/imaging/providers` collapses on it ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
