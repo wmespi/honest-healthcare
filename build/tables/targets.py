@@ -1,0 +1,46 @@
+"""Build-only: one row per network a target in etl/targets.yaml names, with the
+insurer network labels its rates carry."""
+from build.tables.inputs import EXCHANGE_NETWORKS, read_targets
+from build.tables.table import Table
+
+
+class Targets(Table):
+    """`patterns` are as written, and `likes` are the same patterns as SQL LIKE
+    patterns. Every network must be one that Georgia's exchange lists."""
+    name = "targets"
+    key = ["network_id"]
+    columns = {"target": "VARCHAR", "network_id": "VARCHAR",
+               "patterns": "VARCHAR[]", "likes": "VARCHAR[]"}
+    written = False
+
+    def __init__(self, path):
+        self.path = path
+
+    def fill(self, con, data_dir):
+        """Made from etl/targets.yaml, not a SELECT; its values go in as parameters."""
+        rows = [(name, net, patterns, [_like(p) for p in patterns])
+                for name, nets, patterns in read_targets(self.path) for net in nets]
+        if not rows:
+            raise SystemExit(f"{self.path} names no exchange networks")
+        con.execute(f"CREATE TEMP TABLE {self.name} ("
+                    + ", ".join(f"{c} {t}" for c, t in self.columns.items()) + ")")
+        con.executemany(f"INSERT INTO {self.name} VALUES (?, ?, ?, ?)", rows)
+
+    def check(self, con, data_dir):
+        unknown = con.execute(f"""
+            SELECT t.target, t.network_id FROM targets t
+            WHERE NOT EXISTS (SELECT 1 FROM {EXCHANGE_NETWORKS.read(data_dir)} g
+                              WHERE g.network_id = t.network_id)
+            ORDER BY t.network_id
+        """).fetchone()
+        if unknown:
+            raise SystemExit(f"{unknown[0]}: {unknown[1]} isn't a network in Georgia's exchange files")
+
+
+def _like(pattern):
+    """A target label pattern as a lower-case SQL LIKE pattern with `!` as its
+    escape: `*` becomes `%`, and LIKE's own `%` and `_` match only themselves."""
+    if pattern is None:
+        return None
+    escaped = pattern.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return escaped.replace("*", "%")
