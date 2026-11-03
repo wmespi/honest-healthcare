@@ -3,8 +3,11 @@ package extraction
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	parquet "github.com/parquet-go/parquet-go"
 )
 
 func writeTargets(t *testing.T, body string) string {
@@ -27,21 +30,12 @@ func TestLoadTargets_ShippedFile(t *testing.T) {
 	if len(ts.Targets) == 0 {
 		t.Fatal("shipped targets.yaml lists no targets")
 	}
-	expr, args, next := ts.PlanMatchSQL("p", 1)
-	if expr == "" {
-		t.Fatal("shipped targets.yaml produced an empty match expression")
+	var networks []string
+	for _, tg := range ts.Targets {
+		networks = append(networks, tg.ExchangeNetworks...)
 	}
-	if next != 1+len(args) {
-		t.Errorf("nextArg = %d, want %d", next, 1+len(args))
-	}
-	var blueValue bool
-	for _, a := range args {
-		if s, ok := a.(string); ok && strings.EqualFold(s, "%blue value%") {
-			blueValue = true
-		}
-	}
-	if !blueValue {
-		t.Errorf("shipped targets.yaml no longer matches Blue Value — args = %v", args)
+	if !slices.Contains(networks, "45334-GAN001") {
+		t.Errorf("shipped targets.yaml no longer names Blue Value's exchange network 45334-GAN001: %v", networks)
 	}
 
 	// The probe's network signal is only as good as the shipped patterns: drop
@@ -63,10 +57,10 @@ func TestNetworkMatcher(t *testing.T) {
 	path := writeTargets(t, `
 targets:
   - name: Blue Value
-    plan_name_patterns: ["*blue value*"]
+    exchange_networks: ["45334-GAN001"]
     network_patterns: ["GA Blue Value HIX*", "  ", "GA Blue Value HIX*"]
   - name: Other
-    plan_name_patterns: ["*other*"]
+    exchange_networks: ["49046-GAN008"]
     network_patterns: ["EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"]
 `)
 	ts, err := LoadTargets(path)
@@ -103,7 +97,7 @@ targets:
 // A target list with no network_patterns must leave the probe's network signal
 // off rather than matching nothing — that would abort every file.
 func TestNetworkMatcher_AbsentIsNoSignal(t *testing.T) {
-	path := writeTargets(t, "targets:\n  - name: Blue Value\n    plan_name_patterns: [\"*blue value*\"]\n")
+	path := writeTargets(t, "targets:\n  - name: Blue Value\n    exchange_networks: [\"45334-GAN001\"]\n")
 	ts, err := LoadTargets(path)
 	if err != nil {
 		t.Fatalf("LoadTargets: %v", err)
@@ -149,17 +143,13 @@ func TestLoadTargets_EmptyPathIsNoFilter(t *testing.T) {
 	if ts != nil {
 		t.Fatalf("want nil TargetSet for an empty path, got %+v", ts)
 	}
-	// A nil set must degrade to "no restriction", not to "match nothing".
-	if expr, args, next := ts.PlanMatchSQL("p", 1); expr != "" || args != nil || next != 1 {
-		t.Errorf("nil TargetSet produced %q / %v / %d", expr, args, next)
-	}
 }
 
 func TestLoadTargets_Rejects(t *testing.T) {
 	cases := map[string]string{
 		"no targets key":   "# nothing here\n",
 		"empty list":       "targets: []\n",
-		"unnamed target":   "targets:\n  - plan_name_patterns: [\"*x*\"]\n",
+		"unnamed target":   "targets:\n  - exchange_networks: [\"45334-GAN001\"]\n",
 		"matches nothing":  "targets:\n  - name: Ghost\n",
 		"not valid yaml":   "targets: [\n",
 		"missing the file": "",
@@ -177,56 +167,67 @@ func TestLoadTargets_Rejects(t *testing.T) {
 	}
 }
 
-func TestPlanMatchSQL(t *testing.T) {
-	path := writeTargets(t, `
+// writePlans writes a small exchange_plans_ga.parquet, with a column selection
+// doesn't read, the way the reference builder writes it.
+func writePlans(t *testing.T) string {
+	t.Helper()
+	type row struct {
+		PlanID    string `parquet:"plan_id"`
+		Name      string `parquet:"name"`
+		NetworkID string `parquet:"network_id"`
+	}
+	path := filepath.Join(t.TempDir(), "exchange_plans_ga.parquet")
+	rows := []row{
+		{"45334GA0020008", "Anthem Bronze Blue Value HMO 5000", "45334-GAN001"},
+		{"45334GA0020002", "Anthem Silver Blue Value HMO 4000", "45334-GAN001"},
+		{"49046GA0700053", "Anthem Silver Pathway PCP Copay Choice", "49046-GAN008"},
+		{"89942GA0050030", "KP GA Silver HMO", "89942-GAN003"},
+	}
+	if err := parquet.WriteFile(path, rows); err != nil {
+		t.Fatalf("write plans: %v", err)
+	}
+	return path
+}
+
+// A target's plans are every plan on its exchange networks, from Georgia's plan
+// file, so a plan that isn't sold any more can't pull a file in.
+func TestPlanIDs(t *testing.T) {
+	plans := writePlans(t)
+	ts, err := LoadTargets(writeTargets(t, `
 targets:
   - name: Blue Value
-    plan_name_patterns: ["*blue value*", "EXACT PLAN"]
-  - name: Georgia issuer
-    plan_id_prefixes: ["45334GA"]
-`)
-	ts, err := LoadTargets(path)
+    exchange_networks: ["45334-GAN001"]
+  - name: Pathway PCP Copay Choice
+    exchange_networks: ["49046-GAN008"]
+`))
 	if err != nil {
 		t.Fatalf("LoadTargets: %v", err)
 	}
-
-	// Placeholders continue from startArg so the caller can keep numbering
-	// (the queue query appends its own LIMIT parameter after these).
-	expr, args, next := ts.PlanMatchSQL("p", 3)
-	wantExpr := "p.plan_name ILIKE $3 OR p.plan_name ILIKE $4 OR p.plan_id LIKE $5"
-	if expr != wantExpr {
-		t.Errorf("expr\n got %q\nwant %q", expr, wantExpr)
+	got, err := ts.PlanIDs(plans)
+	if err != nil {
+		t.Fatalf("PlanIDs: %v", err)
 	}
-	if next != 6 {
-		t.Errorf("nextArg = %d, want 6", next)
+	want := []string{"45334GA0020002", "45334GA0020008", "49046GA0700053"}
+	if !slices.Equal(got, want) {
+		t.Errorf("PlanIDs = %v, want %v", got, want)
 	}
-	want := []any{"%blue value%", "EXACT PLAN", "45334GA%"}
-	if len(args) != len(want) {
-		t.Fatalf("args = %v, want %v", args, want)
-	}
-	for i := range want {
-		if args[i] != want[i] {
-			t.Errorf("args[%d] = %v, want %v", i, args[i], want[i])
-		}
+	if sql := planMatchSQL("p", 3); sql != "p.plan_id = ANY($3)" {
+		t.Errorf("planMatchSQL = %q", sql)
 	}
 }
 
-// A plan name is index-supplied text and targets.yaml is hand-edited, so LIKE
-// metacharacters in either must match themselves rather than acting as
-// wildcards. Only `*` is a wildcard.
-func TestGlobToLike_EscapesMetacharacters(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"*blue value*", "%blue value%"},
-		{"EXACT PLAN", "EXACT PLAN"},
-		{"100% PLAN", `100\% PLAN`},
-		{"UNDER_SCORE", `UNDER\_SCORE`},
-		{`back\slash`, `back\\slash`},
-		{`*a_b%c*`, `%a\_b\%c%`},
+func TestPlanIDs_Rejects(t *testing.T) {
+	plans := writePlans(t)
+	stale, err := LoadTargets(writeTargets(t, "targets:\n  - name: Gone\n    exchange_networks: [\"45334-GAN009\"]\n"))
+	if err != nil {
+		t.Fatalf("LoadTargets: %v", err)
 	}
-	for _, c := range cases {
-		if got := globToLike(c.in); got != c.want {
-			t.Errorf("globToLike(%q) = %q, want %q", c.in, got, c.want)
-		}
+	if _, err := stale.PlanIDs(plans); err == nil || !strings.Contains(err.Error(), "45334-GAN009") {
+		t.Errorf("a network with no plans gave %v, want an error naming it", err)
+	}
+	if _, err := stale.PlanIDs(filepath.Join(t.TempDir(), "absent.parquet")); err == nil ||
+		!strings.Contains(err.Error(), "make reference STEP=exchange-plans") {
+		t.Errorf("a missing plan file gave %v, want an error saying how to build it", err)
 	}
 }
 

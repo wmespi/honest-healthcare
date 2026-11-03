@@ -2,12 +2,11 @@ package extraction
 
 // Target-plan selection: which pending files does `etl parse` pull, and why.
 //
-// Files used to be chosen by what their URL looked like (the `anthem/GA_` name
-// check and the gaPriorityExpr scoring that replaced it). Both were guesses at
-// the question that actually matters — "does this file serve the plan we are
-// pricing?" — which the master index answers directly. `etl discover` now keeps
-// that answer in index_file_plans, and the target list here says which plans to
-// care about.
+// The master index says which plan IDs a file prices (`etl discover` keeps that
+// in index_file_plans), and Georgia's exchange plan file says which plan IDs are
+// on each provider network (`make reference STEP=exchange-plans`). A target names
+// exchange networks, so a file is parsed when it prices a plan someone can buy on
+// one of them.
 
 import (
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	parquet "github.com/parquet-go/parquet-go"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,15 +23,12 @@ import (
 // resolveTargetsPath makes it work from the etl module dir too.
 const DefaultTargetsPath = "etl/targets.yaml"
 
-// Target is one plan (or family of plans) worth parsing files for.
+// Target is one family of plans worth parsing files for.
 type Target struct {
 	Name string `yaml:"name"`
-	// PlanNamePatterns match index_file_plans.plan_name case-insensitively; `*`
-	// is a wildcard. A pattern with no `*` is an exact match.
-	PlanNamePatterns []string `yaml:"plan_name_patterns"`
-	// PlanIDPrefixes are literal HIOS plan_id prefixes (positional: [0:5] issuer,
-	// [5:7] state).
-	PlanIDPrefixes []string `yaml:"plan_id_prefixes"`
+	// ExchangeNetworks are network IDs from Georgia's exchange plan file, issuer
+	// and network (`45334-GAN001`). Every plan on them is a target plan.
+	ExchangeNetworks []string `yaml:"exchange_networks"`
 	// NetworkPatterns are the `provider_references[].network_name` labels this
 	// plan's rates are expected to carry, `*`-wildcarded and matched
 	// case-insensitively. They are not a row filter — every network in a file
@@ -92,8 +89,8 @@ func LoadTargets(path string) (*TargetSet, error) {
 		if strings.TrimSpace(t.Name) == "" {
 			return nil, fmt.Errorf("%s: target %d has no name", resolved, i+1)
 		}
-		if len(t.PlanNamePatterns) == 0 && len(t.PlanIDPrefixes) == 0 {
-			return nil, fmt.Errorf("%s: target %q has neither plan_name_patterns nor plan_id_prefixes — it would match nothing", resolved, t.Name)
+		if len(t.ExchangeNetworks) == 0 {
+			return nil, fmt.Errorf("%s: target %q lists no exchange_networks, so it would match nothing", resolved, t.Name)
 		}
 	}
 	return &ts, nil
@@ -191,48 +188,40 @@ func globMatch(pattern, s string) bool {
 	return strings.HasSuffix(s, last)
 }
 
-// likeEscape neutralises the LIKE metacharacters in a literal so a plan name
-// containing '%' or '_' is matched as itself. The backslash escape has to be
-// doubled first or it would escape the escapes this adds.
-func likeEscape(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, "%", `\%`)
-	s = strings.ReplaceAll(s, "_", `\_`)
-	return s
+// exchangePlan is the two columns of exchange_plans_ga.parquet selection needs.
+type exchangePlan struct {
+	PlanID    string `parquet:"plan_id"`
+	NetworkID string `parquet:"network_id"`
 }
 
-// globToLike turns a target's `*`-wildcard pattern into a SQL LIKE pattern.
-func globToLike(pattern string) string {
-	return strings.ReplaceAll(likeEscape(pattern), "*", "%")
-}
-
-// PlanMatchSQL builds the boolean expression that decides whether one
-// index_file_plans row (aliased alias) belongs to a target, together with the
-// arguments it needs. startArg is the 1-based number of the first placeholder;
-// the returned nextArg is the number the caller's next placeholder should use.
-//
-// Patterns are parameters, never interpolated — a plan name is index-supplied
-// text and targets.yaml is user-editable, so neither goes into the statement.
-func (ts *TargetSet) PlanMatchSQL(alias string, startArg int) (expr string, args []any, nextArg int) {
-	if ts == nil || len(ts.Targets) == 0 {
-		return "", nil, startArg
+// PlanIDs reads Georgia's exchange plan file and returns every plan ID on the
+// targets' networks, sorted. A missing file, or a target network with no plans
+// in it, is an error: selecting on an empty list would quietly parse nothing.
+func (ts *TargetSet) PlanIDs(plansPath string) ([]string, error) {
+	rows, err := parquet.ReadFile[exchangePlan](plansPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s (run `make reference STEP=exchange-plans`): %w", plansPath, err)
 	}
-	arg := startArg
-	var terms []string
+	byNetwork := map[string][]string{}
+	for _, r := range rows {
+		byNetwork[r.NetworkID] = append(byNetwork[r.NetworkID], r.PlanID)
+	}
+	var ids []string
 	for _, t := range ts.Targets {
-		for _, p := range t.PlanNamePatterns {
-			terms = append(terms, fmt.Sprintf(`%s.plan_name ILIKE $%d`, alias, arg))
-			args = append(args, globToLike(p))
-			arg++
-		}
-		for _, p := range t.PlanIDPrefixes {
-			terms = append(terms, fmt.Sprintf(`%s.plan_id LIKE $%d`, alias, arg))
-			args = append(args, likeEscape(p)+"%")
-			arg++
+		for _, n := range t.ExchangeNetworks {
+			plans, ok := byNetwork[strings.TrimSpace(n)]
+			if !ok {
+				return nil, fmt.Errorf("%s: target %q names exchange network %q, which has no plans in %s", ts.Path, t.Name, n, plansPath)
+			}
+			ids = append(ids, plans...)
 		}
 	}
-	if len(terms) == 0 {
-		return "", nil, startArg
-	}
-	return strings.Join(terms, " OR "), args, arg
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// planMatchSQL is the condition that an index_file_plans row (aliased alias)
+// prices one of planIDs, bound as one array parameter numbered arg.
+func planMatchSQL(alias string, arg int) string {
+	return fmt.Sprintf(`%s.plan_id = ANY($%d)`, alias, arg)
 }

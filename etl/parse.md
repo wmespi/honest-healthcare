@@ -6,7 +6,7 @@ writers, network attribution, the GA NPI filter, or the provider probe.*
 For each `index_files` row that is `pending` **and serves a target plan**, streams
 the gzipped MRF once and writes Parquet. `make parse` → `etl parse` (package
 `etl/extraction`: parser `stream.go`, probe `probe.go`, writers `extraction.go` +
-`partition.go`). Needs the NPPES reference first (`make reference`).
+`partition.go`). Needs the NPPES and exchange-plans references first (`make reference`).
 
 | Variable | Effect |
 |---|---|
@@ -25,22 +25,28 @@ prunes to one directory.
 
 ## Target selection
 
-A file is parsed because the master index says it serves a plan we price.
-[`targets.yaml`](targets.yaml) lists the plans; `discover` wrote the link into
-`index_file_plans`; the queue query is an `EXISTS` semi-join over it
-(`PlanMatchSQL` in `targets.go`, patterns bound as parameters):
+A file is parsed because the master index says it prices a plan we price.
+[`targets.yaml`](targets.yaml) names Georgia exchange networks; `PlanIDs` in `targets.go`
+reads `data/reference/exchange_plans_ga.parquet`
+([reference/exchange-plans.md](../reference/exchange-plans.md)) for every plan ID on them,
+and stops if the file is missing or a network has no plans. `discover` wrote the plan to
+file link into `index_file_plans`, and the queue query is an `EXISTS` semi-join over it,
+with the plan IDs bound as one array parameter:
 
 ```sql
 SELECT f.id, f.location FROM index_files f
 WHERE f.status = 'pending'
   AND EXISTS (SELECT 1 FROM index_file_plans p
-              WHERE p.file_id = f.id AND (p.plan_name ILIKE $1 OR p.plan_id LIKE $2))
+              WHERE p.file_id = f.id AND p.plan_id = ANY($1))
 ORDER BY f.file_size_bytes ASC NULLS LAST, f.id;
 ```
 
-Adding a plan to `targets.yaml` is the whole of "parse this plan's files".
-`-file-ids` and `-targets ""` bypass selection. Ordering: smallest first
-([queue.md](queue.md)).
+Selecting by plan ID, not name, is what keeps a file that prices only a plan no longer
+sold out of the store, even when it carries a target network's label
+([mrf-model.md](mrf-model.md#one-plan-one-contract)). Adding a network to
+`targets.yaml` is the whole of "parse these plans' files". `-file-ids` and `-targets ""`
+bypass selection, and a `-file-ids` run doesn't read the plan file. Ordering: smallest
+first ([queue.md](queue.md)).
 
 ## Per-file steps
 

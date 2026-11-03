@@ -1,61 +1,50 @@
-# Target plans — the plans this project is trying to price.
+# Target plans: the plans this project is trying to price.
 #
 # `etl parse` selects a pending file because the master index says that file
-# serves one of these plans (the index_file_plans link `etl discover` writes),
-# not because of what its filename looks like. Add a plan here and the next
+# prices one of these plans (the index_file_plans link `etl discover` writes),
+# not because of what its filename looks like. Add a target here and the next
 # `make parse` picks up its files; nothing else has to change.
 #
-# A file matches a target when ANY of that target's patterns matches ANY of the
-# plans the index links to the file:
+#   exchange_networks  Network IDs from Georgia's exchange plan file, issuer and
+#                      network ("45334-GAN001"; reference/exchange-plans.md).
+#                      Every plan on them is a target plan, so a file is parsed
+#                      when it prices a plan someone can buy on one of them.
+#                      `make reference STEP=exchange-plans` has to have run.
 #
-#   plan_name_patterns  Case-insensitive match against the index's free-text
-#                       `plan_name`. `*` is a wildcard, so "*blue value*" is a
-#                       substring match; a pattern with no `*` is an exact
-#                       (case-insensitive) match.
-#   plan_id_prefixes    Literal prefix of the HIOS `plan_id`. HIOS ids are
-#                       positional — [0:5] is the issuer, [5:7] the 2-letter
-#                       state — so "45334GA" reads as "this issuer's Georgia
-#                       plans".
+# A second list says what the plan's rates should *look like* once a selected
+# file is opened:
 #
-# Both lists are optional, but a target with neither matches nothing.
-#
-# A third, separate list says what the plan's rates should *look like* once a
-# selected file is opened:
-#
-#   network_patterns    The `provider_references[].network_name` labels this
-#                       plan's rates carry, `*`-wildcarded, case-insensitive.
-#                       This is the parse probe's network signal (etl/parse.md
-#                       "The provider probe"), not a row filter: a file the index
-#                       links to the plan but whose provider_references carry
-#                       none of these labels is abandoned before `in_network` is
-#                       read, and marked `skipped`. Every network in a file that
-#                       passes is written; the build step selects.
-#                       Omit it and that file is streamed in full.
+#   network_patterns   The `provider_references[].network_name` labels this
+#                      plan's rates carry, `*`-wildcarded, case-insensitive.
+#                      This is the parse probe's network signal (etl/parse.md
+#                      "The provider probe"), not a row filter: a file the index
+#                      links to the plan but whose provider_references carry
+#                      none of these labels is abandoned before `in_network` is
+#                      read, and marked `skipped`. Every network in a file that
+#                      passes is written; the build step selects.
+#                      Omit it and that file is streamed in full.
 #
 # See etl/discover.md (how the plan→file link is captured) and etl/parse.md (how
 # it is selected on, and what the probe does with network_patterns).
 
 targets:
-  - name: BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM
-    # The primary use case (AGENTS.md) — an individual HMO on Anthem's Blue
-    # Value network in Georgia. Its rates carry the structured network_name
-    # "GA Blue Value HIX Individual Network".
-    plan_name_patterns:
-      - "*blue value*"
-    # The index links this plan to about 260 files. Two carry its network label:
-    # GA_JBNKMED0001, the contract we price, and GA_JBKEMED0001, another contract
-    # this list can't keep out yet (AGENTS.md rule 5). The rest are national
-    # BlueCard-mirror shards — they do list Georgia NPIs, so provider overlap alone
-    # waves them through, and they were ~40 GB of download that ended in a rollback.
-    # This pattern is what stops them at the front of the stream.
+  - name: Anthem Blue Value
+    # The primary use case (AGENTS.md): Anthem's individual HMOs on the Blue
+    # Value network in Georgia, 8 plans in 2026. Their rates carry the network
+    # label "GA Blue Value HIX Individual Network". The index also links them to
+    # about 250 national BlueCard-mirror shards, which list Georgia NPIs too, so
+    # provider overlap alone waves them through; they were ~40 GB of download
+    # that ended in a rollback. The label is what stops them at the front of the
+    # stream.
+    exchange_networks:
+      - "45334-GAN001"
     network_patterns:
       - "GA Blue Value HIX*"
 
-  - name: PATHWAY PCP COPAY CHOICE - INDIV - ANTHEM
-    # A second Georgia individual plan, so the plan picker has a real choice.
-    # Same index shape as Blue Value: the index links it to every BlueCard-mirror
-    # shard, and the network label is what finds the file that carries it.
-    plan_name_patterns:
-      - "pathway pcp copay choice - indiv*"
+  - name: Anthem Pathway PCP Copay Choice
+    # A second Georgia individual network, so the plan picker has a real choice.
+    # Same index shape as Blue Value: the label is what finds the file.
+    exchange_networks:
+      - "49046-GAN008"
     network_patterns:
       - "Pathway PCP Copay Choice*"

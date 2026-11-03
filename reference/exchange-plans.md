@@ -18,6 +18,10 @@ Anthem's index names a plan only with an internal label ("GAINDNTWK OA RQ"), and
 its own exchange, so its plans aren't in CMS's federal files. This is the only source of a
 plan's real name, such as Anthem Silver Blue Value HMO 4000.
 
+`etl parse` reads `exchange_plans_ga.parquet` to turn the exchange networks in
+[`etl/targets.yaml`](../etl/targets.yaml) into plan IDs and parse the files that price
+them ([etl/parse.md](../etl/parse.md#target-selection)). Nothing else reads these files yet.
+
 ## What is kept
 
 - **Medical plans only.** Dental-only plans are dropped.
