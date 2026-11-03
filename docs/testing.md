@@ -43,6 +43,8 @@ when `public` changes and never copies foreign keys; the newest
   FastAPI `TestClient` to the result. `test_api_contract.py` covers every route this
   way, with no live server and the same build path `make build` runs. Schemas track
   [schema.md](schema.md).
+- `serving/tests/test_contract.py` (**no fixture**) checks the find-care contract's own rules
+  (`serving/contract.py`) on sample rows, and that FastAPI publishes it.
 - `serving/tests/test_golden.py` — **no fixture**: real answers (a quote, a rollup, a
   provider ranking, counts) pinned against the live API (`API_URL`, default
   `http://localhost:8000`).
