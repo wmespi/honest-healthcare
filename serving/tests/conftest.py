@@ -339,12 +339,13 @@ def _build(data_dir: str) -> None:
     # PCP geocodes (make reference STEP=geocode), MIPS (STEP=mips) and ZIP centroids
     # (STEP=zip-centroids). Baker sits ~1 mi from 30309; Ng ~14 mi away, no MIPS.
     _write(con, f"{data_dir}/reference/pcp_geocode.parquet", "npi, latitude, longitude",
-           [(1000000002, 33.7900, -84.3900), (1000000011, 33.9500, -84.5500)])
+           [(1000000002, 33.7900, -84.3900), (1000000011, 33.9500, -84.5500),
+            (1000000010, 33.7550, -84.3900)])
     _write(con, f"{data_dir}/reference/mips_ga.parquet",
            "npi, mips_score, mips_source, performance_year",
            [(1000000002, 90.0, "'individual'", 2024)])
     _write(con, f"{data_dir}/reference/zip_centroids.parquet", "zip, lat, lon",
-           [("'30309'", 33.7990, -84.3880)])
+           [("'30309'", 33.7990, -84.3880), ("'30303'", 33.7000, -84.3900)])
 
     # the CCN↔NPI bridge — many rows per NPI
     affil = [
