@@ -89,11 +89,12 @@ reference: ## Phase 3 — build every reference dataset (NPPES, labels, CMS, MPF
 build: ## Phase 4 — raw + reference parquet -> data/serving/ tables, for the networks in etl/targets.yaml. NET=all for every network, NET=<slug,slug> for a subset. ALL_CODES=1 prices every code, not just the priced service lines. TEST=1
 	docker compose exec -T -w /app -e DUCKDB_TMP= serving python3 -m build.build --data-dir /app/data $(if $(NET),--networks "$(NET)",) $(if $(filter 1,$(TEST)),--test,) $(if $(filter 1,$(ALL_CODES)),--all-codes,)
 
-refresh: ## The monthly job — discover → reference (what's missing; NPPES gates parse) → parse → code-labels (needs parsed codes) → build
+refresh: ## The monthly job: discover → reference (what's missing; NPPES gates parse) → parse → code-labels (needs parsed codes) → geocode (new billing IDs) → build
 	$(MAKE) discover
 	$(MAKE) reference
 	$(MAKE) parse
 	$(MAKE) reference STEP=code-labels
+	$(MAKE) reference STEP=geocode
 	$(MAKE) build
 
 ## ── Quality gates ────────────────────────────────────────────────────────────

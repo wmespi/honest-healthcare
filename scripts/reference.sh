@@ -8,6 +8,7 @@
 #   make reference FORCE=1
 #
 # code-labels reads the parsed codes under data/anthem/codes, so it always re-runs.
+# geocode always runs too: it sends Census only the addresses it hasn't before.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -25,7 +26,7 @@ STEPS=(
   "specialty-profiles|/app/data/reference/specialty_procedure_profiles.parquet|reference.specialty_profiles"
   "mpfs|/app/data/reference/mpfs_ga.parquet|reference.mpfs"
   "opps|/app/data/reference/opps.parquet|reference.opps"
-  "geocode|/app/data/reference/pcp_geocode.parquet|reference.geocode"
+  "geocode||reference.geocode"
   "mips|/app/data/reference/mips_ga.parquet|reference.mips"
   "zip-centroids|/app/data/reference/zip_centroids.parquet|reference.zip_centroids"
   "exchange-plans|/app/data/reference/exchange_plans_ga.parquet|reference.exchange_plans"
