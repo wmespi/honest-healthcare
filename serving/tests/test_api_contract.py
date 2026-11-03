@@ -106,6 +106,23 @@ def test_imaging_providers_city_is_the_practices_own(api):
         assert row["city"] == "Atlanta"
 
 
+def test_imaging_providers_names_a_doctor_billing_under_their_own_npi(api):
+    # The billing ID is Diaz's own NPI, so the place is named after him, not his roster.
+    r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
+    row = {p["practice_id"]: p for p in r.json()["results"]}["1000000004"]
+    assert row["practice_name"] == "Frank Diaz"
+    assert row["city"] == "Marietta"
+    assert "ga_indiv_names" not in row
+
+
+def test_imaging_providers_drops_a_biller_with_no_georgia_record(api):
+    # With no Georgia NPPES record there is no name or address: not a place to go.
+    for params in ({}, {"zip": "30309"}):
+        r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE, **params})
+        ids = {p["practice_id"] for p in r.json()["results"]}
+        assert "1000000010" in ids and "1999999999" not in ids
+
+
 def test_imaging_providers_distance_is_from_the_practices_own_address(api):
     # The practice's own address is about 3 miles from this ZIP. Its one imaging
     # doctor has no coordinates, so a distance can only have come from the practice.

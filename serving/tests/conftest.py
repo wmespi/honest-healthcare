@@ -73,11 +73,11 @@ def _build(data_dir: str) -> None:
                ("'CPT'", "'90837'", "'Psychotherapy, 60 min'", "'Psytx w pt 60 minutes'"),
            ])
 
-    # ── group_sets: gs 100 -> pg{10,20}; gs 200 -> pg{30}; gs 300 -> pg{10,20,30,40};
+    # ── group_sets: gs 100 -> pg{10,20,70,80}; gs 200 -> pg{30}; gs 300 -> pg{10,20,30,40};
     # gs 400 -> pg{60} — Ng's own group, priced separately from Baker's so a
     # cost-sort test (#87 follow-up) has two PCP providers with different rates.
     gs_rows = []
-    for gs, pgs in ((100, (10, 20)), (200, (30,)), (300, (10, 20, 30, 40)), (400, (60,))):
+    for gs, pgs in ((100, (10, 20, 70, 80)), (200, (30,)), (300, (10, 20, 30, 40)), (400, (60,))):
         for pg in pgs:
             gs_rows.append((FILE_ID, gs, pg))
     _write(con, f"{a}/group_sets/1.parquet",
@@ -98,6 +98,10 @@ def _build(data_dir: str) -> None:
         # Ng (NP, PCP-eligible) — her own group/group_set, priced separately
         # from Baker's so the two PCP providers can carry different rates.
         (60, BLUE_VALUE, 1000000011, 1000000060),
+        # Diaz also bills under his own NPI, and under an NPI with no Georgia
+        # NPPES record, as an out-of-state reading group would.
+        (70, BLUE_VALUE, 1000000004, 1000000004),
+        (80, BLUE_VALUE, 1000000004, 1999999999),
     ]
     _write(con, f"{a}/providers/1.parquet",
            "file_id, provider_group_id, network_name, npi, tin_type, tin_value",

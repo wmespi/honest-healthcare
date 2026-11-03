@@ -93,12 +93,14 @@ def imaging_providers(
     carries `min` / `typical` (the median) / `max`. `basis` is `global`
     (one all-in rate), `split` (technical + professional, summed), or
     `professional_only` / `technical_only` (a part of the price; ranked after
-    every complete one). `city` is the billing practice's own registered city,
-    empty when its billing ID has no NPPES record. `zip` adds `distance_mi` to the
-    practice's own address, or to the center of its ZIP code when the geocoder
-    couldn't place that address; `radius_mi` drops practices farther away or with
-    no address at all. Only price lines that apply in an office (place of service 11)
-    count."""
+    every complete one). A practice is its billing ID's own Georgia NPPES record,
+    which gives its name (the organization, or the doctor billing under their own
+    NPI) and its city. A billing ID with no Georgia record, such as an out-of-state
+    reading group, is not a place a patient can go, so it has no row. `zip` adds
+    `distance_mi` to the practice's own address, or to the center of its ZIP code
+    when the geocoder couldn't place that address; `radius_mi` drops practices
+    farther away or that can't be placed. Only price lines that apply in an office
+    (place of service 11) count."""
     if billing_code not in SERVICE_LINE_BILLING_CODES["imaging"]:
         raise HTTPException(400, f"not an imaging menu code: {billing_code!r}")
     if not network_name:
@@ -126,8 +128,7 @@ def imaging_providers(
         j AS (
             SELECT gm.tin_value, gm.npi, gm.npi IN (SELECT npi FROM bn) AS billed,
                    COALESCE(pg.modifier, '') AS comp,
-                   pg.negotiated_rate AS rate,
-                   pd.entity_type, pd.name, pd.org_name
+                   pg.negotiated_rate AS rate
             FROM {RATE_GROUPS_SRC} pg
             JOIN {GROUP_MEMBERS_SRC} gm
               ON gm.file_id = pg.file_id AND gm.provider_group_id = pg.provider_group_id
@@ -143,13 +144,12 @@ def imaging_providers(
             GROUP BY tin_value, comp
         ),
         loc AS (
-            SELECT tin_value, COUNT(DISTINCT npi) AS n_providers, BOOL_OR(billed) AS any_billed,
-                   MIN(org_name) FILTER (WHERE org_name <> '') AS member_org,
-                   LIST(DISTINCT name ORDER BY name) FILTER (WHERE entity_type = 'individual' AND name <> '') AS indiv
+            SELECT tin_value, COUNT(DISTINCT npi) AS n_providers, BOOL_OR(billed) AS any_billed
             FROM j GROUP BY tin_value
         )
-        SELECT l.tin_value, l.n_providers, {dist} AS dist, tn.city, l.member_org,
-               l.indiv[1:3], tn.org_name,
+        SELECT l.tin_value, l.n_providers, {dist} AS dist, tn.city,
+               CASE WHEN tn.entity_type = 'individual' THEN tn.first_name || ' ' || tn.last_name
+                    ELSE tn.org_name END AS name,
                MAX(c.lo)  FILTER (WHERE c.comp = '')   , MAX(c.med) FILTER (WHERE c.comp = ''),
                MAX(c.hi)  FILTER (WHERE c.comp = '')   ,
                MAX(c.lo)  FILTER (WHERE c.comp = 'TC') , MAX(c.med) FILTER (WHERE c.comp = 'TC'),
@@ -158,22 +158,22 @@ def imaging_providers(
                MAX(c.hi)  FILTER (WHERE c.comp = '26')
         FROM loc l
         JOIN comp c USING (tin_value)
-        LEFT JOIN {PROVIDER_DIM_SRC} tn ON tn.npi = TRY_CAST(l.tin_value AS BIGINT)
+        JOIN {PROVIDER_DIM_SRC} tn ON tn.npi = TRY_CAST(l.tin_value AS BIGINT)
         LEFT JOIN {ZIP_CENTROIDS_SRC} zc ON zc.zip = LEFT(tn.postal_code, 5)
         WHERE l.any_billed OR CONTAINS(',' || COALESCE(tn.service_lines, '') || ',', ',imaging,')
-        GROUP BY l.tin_value, l.n_providers, tn.lat, tn.lon, zc.lat, zc.lon, tn.city, l.member_org, l.indiv, tn.org_name
+        GROUP BY l.tin_value, l.n_providers, tn.lat, tn.lon, zc.lat, zc.lon, tn.city,
+                 tn.entity_type, tn.first_name, tn.last_name, tn.org_name
     """, [billing_code] + params).fetchall()
 
     results = []
-    for (tin, n, dist_mi, city, member_org, indiv, tin_org, gl, gm, gh, tl, tm, th, pl, pm, ph) in rows:
+    for (tin, n, dist_mi, city, name, gl, gm, gh, tl, tm, th, pl, pm, ph) in rows:
         if radius_mi is not None and (dist_mi is None or dist_mi > radius_mi):
             continue
         glob, tech, pro = _stats(gl, gm, gh), _stats(tl, tm, th), _stats(pl, pm, ph)
         basis, typical = _price(glob, tech, pro)
         results.append({
             "practice_id": tin,
-            "practice_name": tin_org or member_org,
-            "ga_indiv_names": indiv or [],
+            "practice_name": name or None,
             "city": city,
             "distance_mi": round(dist_mi, 1) if dist_mi is not None else None,
             "n_providers": n,

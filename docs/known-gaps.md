@@ -100,8 +100,11 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 - **Some distances are approximate.** Census can't place about one address in eight, many of
   them rural. `/imaging/providers` measures those from the center of the practice's ZIP code.
-  A billing ID with no NPPES record has no address, so it has no distance and drops out of a
-  radius search.
+- **Out-of-state reading groups aren't listed.** A billing ID with no Georgia NPPES record,
+  such as a teleradiology group, isn't a place a patient can go, so `/imaging/providers`
+  has no row for it. Its reading fee can still be part of what a Georgia facility's scan
+  costs, which the `places` and `prices` tables on
+  [#135](https://github.com/wmespi/honest-healthcare/issues/135) have to settle.
 - **Imaging prices exclude the facility fee.** Anthem's professional file carries the
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
   hospital bills its own fee in a file we do not carry, so a hospital-based practice

@@ -16,14 +16,8 @@ function savedNetwork() {
   try { return localStorage.getItem(NETWORK_KEY) || ''; } catch { return ''; }
 }
 
-// NPPES writes a doctor as "LAST, FIRST", so two of them joined with commas read as four names.
-function doctorName(n) {
-  const i = n.indexOf(', ');
-  return i < 0 ? n : `${n.slice(i + 2)} ${n.slice(0, i)}`;
-}
-
 function practiceLabel(r) {
-  return r.practice_name || (r.ga_indiv_names || []).map(doctorName).join(', ') || `Practice ${r.practice_id}`;
+  return r.practice_name || `Practice ${r.practice_id}`;
 }
 
 function groupMenu(menu) {
