@@ -22,6 +22,21 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 | `zip_centroids.parquet` | one row per ZIP | A copy of `reference/zip_centroids.parquet` so the API reads only `serving/`. |
 | `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; null for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/opps/dac/geocode/mips/zip_centroids — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
 
+## The find-care tables
+
+`build/find_care.py` writes the tables the find-care screen will read ([#135](https://github.com/wmespi/honest-healthcare/issues/135)), beside the ones above until those are removed.
+Each table is one function that checks its key and what it points at, and a failed check stops the build before the table is written.
+Two builds from the same inputs write the same bytes, which `serving/tests/test_find_care.py` checks.
+They always cover the targets in [`etl/targets.yaml`](../etl/targets.yaml), whatever `NET` says, and their row counts join the manifest's `rows`.
+
+| Table | Grain | Notes |
+|---|---|---|
+| `networks.parquet` | one row per network a target names | `network_id`, such as `45334-GAN001`, and Georgia's exchange `name` for it. |
+
+Which insurer file prices a network is build config.
+A target's `network_patterns` name the labels its rates carry, and exactly one parsed file may carry them, or the build stops ([one plan, one contract](../etl/mrf-model.md#one-plan-one-contract)).
+A target network with no parsed file, or one that Georgia's exchange files don't list, also stops it.
+
 ## The product rules
 
 - **`scope`** — `outpatient_prof` mirrors `serving/data_sources.outpatient_scope`

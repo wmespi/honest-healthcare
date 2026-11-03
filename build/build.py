@@ -30,6 +30,8 @@ reads (#100):
 query time after pruning on `net` + `billing_code`). By default only the
 networks named in etl/targets.yaml are built; `--networks all` builds every
 partition. Reads the shared corpus read-only; writes only SERVING_DIR.
+
+`main` then writes the find-care tables beside these (build/find_care.py).
 """
 import argparse
 import datetime
@@ -42,6 +44,8 @@ import time
 
 import duckdb
 
+from build import find_care
+from build.find_care import TARGETS_PATH, connect
 from reference._common import serving_dir as _serving_dir, store_dir
 # The curated service-line taxonomy lists. Still under serving/ this step —
 # the prod serving image ships only serving/, so serving can't import from
@@ -80,17 +84,6 @@ def _office(a=""):
             f"OR CONTAINS('|' || {a}service_code || '|', '|11|'))")
 
 
-def _connect(spill):
-    con = duckdb.connect()
-    con.execute("SET preserve_insertion_order = false")
-    con.execute(f"SET memory_limit = '{os.getenv('DUCKDB_MEMORY_LIMIT', '4GB')}'")
-    con.execute(f"SET threads = {os.getenv('DUCKDB_THREADS', '4')}")
-    os.makedirs(spill, exist_ok=True)
-    con.execute(f"SET temp_directory = '{spill}'")
-    con.execute(f"SET max_temp_directory_size = '{os.getenv('DUCKDB_TMP_MAX', '120GiB')}'")
-    return con
-
-
 def _service_line_expr(col):
     """concat_ws skips the NULL arms, so this is '' or 'pcp,...'; NULLIF -> NULL."""
     arms = []
@@ -98,10 +91,6 @@ def _service_line_expr(col):
         lst = ", ".join(f"'{c}'" for c in codes)
         arms.append(f"CASE WHEN {col} IN ({lst}) THEN '{name}' END")
     return f"NULLIF(concat_ws(',', {', '.join(arms)}), '')"
-
-
-TARGETS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "etl", "targets.yaml")
 
 
 def target_patterns(path=TARGETS_PATH):
@@ -182,7 +171,7 @@ def build(data_dir, serving_dir, networks=None, test=False,
         shutil.rmtree(spill, ignore_errors=True)
     os.makedirs(serving_dir, exist_ok=True)
 
-    con = _connect(spill)
+    con = connect(spill)
 
     t0 = time.time()
 
@@ -630,6 +619,15 @@ def main():
         print(f"  scope: targets -> {len(networks)} network(s): {', '.join(networks)}")
     codes = None if args.all_codes or args.test else PRICED_BILLING_CODES
     build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns, codes=codes)
+
+    # The find-care tables follow etl/targets.yaml whatever --networks says.
+    print("\n  find-care tables (#135):")
+    rows = find_care.build(data_dir, serving_dir, args.test)
+    with open(f"{serving_dir}/manifest.json") as f:
+        manifest = json.load(f)
+    manifest["rows"].update(rows)
+    with open(f"{serving_dir}/manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
 
 
 if __name__ == "__main__":

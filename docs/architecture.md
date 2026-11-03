@@ -46,6 +46,9 @@ flowchart LR
     GA --> B
     REF[(reference: RBCS, NUCC, MPFS, CMS util, DAC, geocode, MIPS, ZIPs)] --> B
     B --> SRV[(serving: rates by network price-grain, group_sets, group_members, group_networks, provider_dim, provider_affiliations, code_dim, evidence, rate_hist, cross_network_rollup)]
+    RAW --> FC[find_care.py]
+    XNET[(reference: exchange networks)] --> FC
+    FC --> FCT[("find-care tables, beside the old ones: networks")]
   end
   subgraph serve [serve]
     SRV --> API[FastAPI, one persistent DuckDB connection]

@@ -122,3 +122,6 @@ an older plan that isn't on Georgia's exchange. The rest of the files linked to 
 plan are out-of-state BlueCard copies that don't carry its label. So `etl parse`
 selects files by the plan IDs on the target exchange networks
 ([parse.md](parse.md#target-selection)), never by plan name or label.
+The build then prices each network with the rates under its target's label, and
+stops if more than one parsed file carries that label
+([build.md](../build/build.md#the-find-care-tables)).
