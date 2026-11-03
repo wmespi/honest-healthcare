@@ -1,4 +1,4 @@
-"""The build-only network_files table (build/tables/network_files.py): which
+"""The build-only network_files table (build/inputs/network_files.py): which
 parsed file prices each target network."""
 import pytest
 

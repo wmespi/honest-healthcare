@@ -1,7 +1,15 @@
 """Build-only: one row per network a target in etl/targets.yaml names, with the
 insurer network labels its rates carry."""
-from build.tables.inputs import EXCHANGE_NETWORKS, read_targets
-from build.tables.table import Table
+import os
+
+import yaml
+
+from build.inputs.datasets import EXCHANGE_NETWORKS
+from build.table import Table
+
+TARGETS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "etl", "targets.yaml")
 
 
 class Targets(Table):
@@ -11,7 +19,6 @@ class Targets(Table):
     key = ["network_id"]
     columns = {"target": "VARCHAR", "network_id": "VARCHAR",
                "patterns": "VARCHAR[]", "likes": "VARCHAR[]"}
-    written = False
 
     def __init__(self, path):
         self.path = path
@@ -35,6 +42,14 @@ class Targets(Table):
         """).fetchone()
         if unknown:
             raise SystemExit(f"{unknown[0]}: {unknown[1]} isn't a network in Georgia's exchange files")
+
+
+def read_targets(path=TARGETS_PATH):
+    """[(name, exchange_networks, network_patterns)] for each target in etl/targets.yaml."""
+    with open(path) as f:
+        targets = (yaml.safe_load(f) or {}).get("targets") or []
+    return [(t.get("name"), t.get("exchange_networks") or [], t.get("network_patterns") or [])
+            for t in targets]
 
 
 def _like(pattern):

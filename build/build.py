@@ -47,7 +47,7 @@ import duckdb
 
 from build import tables
 from build.tables import connect
-from build.tables.inputs import TARGETS_PATH, read_targets
+from build.inputs.targets import TARGETS_PATH, read_targets
 from reference._common import serving_dir as _serving_dir, store_dir
 # The curated service-line taxonomy lists. Still under serving/ this step —
 # the prod serving image ships only serving/, so serving can't import from

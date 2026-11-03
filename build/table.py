@@ -1,13 +1,15 @@
-"""What every table gets. A table states its name, key and columns and the SQL
-that makes its rows, and `Table.make` makes it, then stops the build unless
+"""What every table gets, whether a serving table in build/tables/ or a
+build-only input in build/inputs/. A table states its name, key and columns and
+the SQL that makes its rows, and `Table.make` makes it, then stops the build
+unless
 
 1. its columns are `columns`, in order;
 2. its key is never empty;
 3. its key never repeats;
 4. its own `check`, if it has one, passes.
 
-`Table.write` then saves it in key order, so the same rows always make the same
-bytes.
+`Table.write` saves a serving table in key order, so the same rows always make
+the same bytes.
 """
 from reference._common import write_parquet_atomic
 
@@ -15,12 +17,10 @@ from reference._common import write_parquet_atomic
 class Table:
     """A table the build makes. A subclass sets `name`, `key` and `columns`
     (name -> DuckDB type, in order) and writes `select`, plus `check` for any
-    rule beyond its key. A build-only table sets `written = False`: the tables
-    after it read it, but it isn't saved."""
+    rule beyond its key."""
     name: str
     key: list
     columns: dict
-    written = True
 
     def select(self, data_dir):
         """The SELECT that makes this table's rows."""

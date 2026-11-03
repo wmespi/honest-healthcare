@@ -11,7 +11,8 @@ __pycache__/
 build/*
 !build/*.py
 !build/*.md
-# ...but `build/` is also our build step's source, tables included.
+# ...but `build/` is also our build step's source, its folders included.
+!build/inputs/
 !build/tables/
 develop-eggs/
 dist/

@@ -1,7 +1,7 @@
 """networks.parquet: one row per network a target prices, with Georgia's
 exchange name for it."""
-from build.tables.inputs import EXCHANGE_NETWORKS
-from build.tables.table import Table
+from build.inputs.datasets import EXCHANGE_NETWORKS
+from build.table import Table
 
 
 class Networks(Table):

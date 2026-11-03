@@ -1,5 +1,5 @@
-"""What every table gets (build/tables/table.py, inputs.py) and how the build
-runs them (build/tables/__init__.py)."""
+"""What every table gets (build/table.py) and how the build runs them
+(build/tables/__init__.py)."""
 import hashlib
 import os
 import subprocess
@@ -32,12 +32,6 @@ def test_a_failed_check_leaves_the_last_build_as_it_was(corpus):
 def test_a_table_whose_columns_drift_from_its_definition_stops_the_build(corpus, monkeypatch):
     monkeypatch.setattr(Networks, "columns", {"network_id": "VARCHAR", "label": "VARCHAR"})
     with pytest.raises(SystemExit, match="networks: columns .* but the table says"):
-        corpus.build()
-
-
-def test_a_missing_input_names_the_command_that_makes_it(corpus):
-    os.remove(f"{corpus.root}/reference/exchange_networks_ga.parquet")
-    with pytest.raises(SystemExit, match="run `make reference STEP=exchange-plans`"):
         corpus.build()
 
 

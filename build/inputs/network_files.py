@@ -1,7 +1,7 @@
 """Build-only: for each target network, the parsed insurer file whose rates
 price it and the labels those rates carry."""
-from build.tables.inputs import INSURER_RATES
-from build.tables.table import Table
+from build.inputs.datasets import INSURER_RATES
+from build.table import Table
 
 
 class NetworkFiles(Table):
@@ -12,7 +12,6 @@ class NetworkFiles(Table):
     name = "network_files"
     key = ["network_id", "file_id", "network_name"]
     columns = {"network_id": "VARCHAR", "file_id": "BIGINT", "network_name": "VARCHAR"}
-    written = False
 
     def select(self, data_dir):
         return f"""

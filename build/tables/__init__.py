@@ -1,43 +1,42 @@
-"""The serving tables the find-care screen reads (#135), written beside the old
-ones in build/build.py until those go.
+"""The serving tables in the #135 ERD, one file each, named after the table, and
+written beside the old ones in build/build.py until those go.
 
-Each table has its own file, named after it, so `FROM network_files` in any
-table's SQL is the table in network_files.py. `table.py` holds what every table
-gets (its checks and its write), and `inputs.py` the datasets the tables read.
-Nothing here imports from serving/.
+A table's SQL reads the build-only tables in build/inputs/ by name, so
+`FROM network_files` is build/inputs/network_files.py. build/table.py holds the
+checks and the write every table gets. Nothing here imports from serving/.
 """
 import os
 import shutil
 
 import duckdb
 
-from build.tables.inputs import TARGETS_PATH
-from build.tables.network_files import NetworkFiles
+from build.inputs.network_files import NetworkFiles
+from build.inputs.targets import TARGETS_PATH, Targets
 from build.tables.networks import Networks
-from build.tables.targets import Targets
 
 
 def build(data_dir, serving_dir, targets_path=TARGETS_PATH):
-    """Write every table under `serving_dir` from the inputs under `data_dir`
-    (`data`, or `data-test` for a test build); returns {table: rows}.
+    """Write every serving table under `serving_dir` from the inputs under
+    `data_dir` (`data`, or `data-test` for a test build); returns {table: rows}.
 
-    The tables are made and checked in this order, and a table's SQL may read
-    the ones above it. None is written until all of them pass, so a failed
-    check leaves the last build's files as they were."""
-    tables = [
+    The inputs, then the tables, are made and checked in this order, and each
+    one's SQL may read the ones above it. None is written until all of them
+    pass, so a failed check leaves the last build's files as they were."""
+    inputs = [
         Targets(targets_path),
         NetworkFiles(),
+    ]
+    tables = [
         Networks(),
     ]
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)
-    for table in tables:
+    for table in inputs + tables:
         table.make(con, data_dir)
     rows = {}
     for table in tables:
-        if table.written:
-            rows[table.name] = table.write(con, serving_dir)
-            print(f"  {table.name + '.parquet':<22} {rows[table.name]:>13,}")
+        rows[table.name] = table.write(con, serving_dir)
+        print(f"  {table.name + '.parquet':<22} {rows[table.name]:>13,}")
     con.close()
     if os.getenv("DUCKDB_TMP") is None:  # only a spill dir we own
         shutil.rmtree(spill, ignore_errors=True)

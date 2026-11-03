@@ -1,7 +1,7 @@
-"""The build-only targets table (build/tables/targets.py) and etl/targets.yaml."""
+"""The build-only targets table (build/inputs/targets.py) and etl/targets.yaml."""
 import pytest
 
-from build.tables.inputs import read_targets
+from build.inputs.targets import read_targets
 
 
 def test_two_targets_naming_one_network_stop_the_build(corpus):
