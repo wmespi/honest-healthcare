@@ -101,8 +101,8 @@ def _build(data_dir: str) -> None:
         # from Baker's so the two PCP providers can carry different rates.
         (60, BLUE_VALUE, 1000000011, 1000000060),
         # Diaz also bills under his own NPI, and under an NPI with no Georgia
-        # NPPES record, as an out-of-state reading group would. A second
-        # Frank Diaz and a radiologist with no first name bill under their own.
+        # NPPES record, as an out-of-state reading group would. Ito, in Diaz's
+        # CMS group, and Okafor, in none, bill under their own NPIs.
         (70, BLUE_VALUE, 1000000004, 1000000004),
         (80, BLUE_VALUE, 1000000004, 1999999999),
         (90, BLUE_VALUE, 1000000012, 1000000012),
@@ -198,9 +198,9 @@ def _build(data_dir: str) -> None:
          "12 Clairmont Ave", "Ste 200", "Decatur", "GA", "30030"),
         (1000000004, "individual", "", "Diaz", "Frank", "2085R0202X", "Radiology", 0, 0,
          "1 Baptist Way", "", "Marietta", "GA", "30060"),
-        (1000000012, "individual", "", "Diaz", "Frank", "2085R0202X", "Radiology", 0, 0,
+        (1000000012, "individual", "", "Ito", "Kenji", "2085R0202X", "Radiology", 0, 0,
          "4 Bay Ave", "", "Savannah", "GA", "31401"),
-        (1000000013, "individual", "", "Okafor", "", "2085R0202X", "Radiology", 0, 0,
+        (1000000013, "individual", "", "Okafor", "Ada", "2085R0202X", "Radiology", 0, 0,
          "5 Lake Dr", "", "Athens", "GA", "30601"),
         # psychiatrist + neurologist share the NUCC classification "Psychiatry &
         # Neurology", so matching on classification alone would over-match.
@@ -336,6 +336,9 @@ def _build(data_dir: str) -> None:
         (1000000004, "Diaz", "Frank", "M.D.", "Diagnostic Radiology",
          "G0000003", "Marietta Imaging Partners", 2008,
          "Duke University School of Medicine", "M"),
+        (1000000012, "Ito", "Kenji", "M.D.", "Diagnostic Radiology",
+         "G0000003", "Marietta Imaging Partners", 2015,
+         "Emory University School of Medicine", "M"),
         (1000000006, "Evans", "Grace", "M.D.", "Psychiatry",
          None, None, 2001, "Yale School of Medicine", "F"),
     ]

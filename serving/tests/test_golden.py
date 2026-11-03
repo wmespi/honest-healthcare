@@ -85,7 +85,7 @@ def test_imaging_70551_practice_count(client):
     body = client.get("/imaging/providers", params={
         "billing_code": "70551", "network_name": NET, "limit": 200,
     }).json()
-    assert body["n_practices"] == 84
+    assert body["n_practices"] == 82
 
 
 def test_every_imaging_menu_code_is_priced(client):

@@ -108,18 +108,17 @@ def test_imaging_providers_city_is_the_practices_own(api):
         assert row["city"] == "Atlanta"
 
 
-def test_imaging_providers_names_a_doctor_billing_under_their_own_npi(api):
-    # The billing ID is Diaz's own NPI, so the place is named after him, not his roster.
+def test_imaging_providers_names_a_doctors_billing_id_after_their_cms_group(api):
+    # Diaz and Ito each bill under their own NPI and both bill Medicare with
+    # Marietta Imaging Partners, so they are one practice, under the group's name.
     r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
     rows = {p["practice_id"]: p for p in r.json()["results"]}
-    assert rows["1000000004"]["practice_name"] == "Frank Diaz"
+    assert rows["1000000004"]["practice_name"] == "Marietta Imaging Partners"
     assert rows["1000000004"]["city"] == "Marietta"
     assert "ga_indiv_names" not in rows["1000000004"]
-    # A second doctor with the same name is a different practice, not a duplicate.
-    assert rows["1000000012"]["practice_name"] == "Frank Diaz"
-    assert rows["1000000012"]["city"] == "Savannah"
-    # A missing first name leaves the last name, not a blank or a leading space.
-    assert rows["1000000013"]["practice_name"] == "Okafor"
+    assert "1000000012" not in rows
+    # Okafor has no CMS group, and a doctor's own name doesn't make a place.
+    assert "1000000013" not in rows
 
 
 def test_imaging_providers_drops_a_biller_with_no_georgia_record(api):

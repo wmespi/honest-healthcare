@@ -94,9 +94,12 @@ def imaging_providers(
     (one all-in rate), `split` (technical + professional, summed), or
     `professional_only` / `technical_only` (a part of the price; ranked after
     every complete one). A practice is its billing ID's own Georgia NPPES record,
-    which gives its name (the organization, or the doctor billing under their own
-    NPI) and its city. A billing ID with no Georgia record has no row, because there
-    is no location to show (docs/known-gaps.md says who that leaves out). `zip` adds
+    which gives its city and, for an organization, its name. When the billing ID
+    is a doctor's own NPI, the row takes the name of the CMS group the doctor
+    bills with, because Anthem keys some group contracts on one doctor's NPI; a
+    doctor with no group has no row. A billing ID with no Georgia record has no
+    row either, because there is no location to show (docs/known-gaps.md says
+    who those rules leave out). `zip` adds
     `distance_mi` to the practice's own address, or to the center of its ZIP code
     when the geocoder couldn't place that address; `radius_mi` drops practices
     farther away or that can't be placed. Only price lines that apply in an office
@@ -146,11 +149,14 @@ def imaging_providers(
         loc AS (
             SELECT tin_value, COUNT(DISTINCT npi) AS n_providers, BOOL_OR(billed) AS any_billed
             FROM j GROUP BY tin_value
+        ),
+        biller AS (
+            SELECT npi, city, postal_code, lat, lon, service_lines,
+                   NULLIF(CASE WHEN entity_type = 'individual' THEN group_name ELSE org_name END, '')
+                       AS practice_name
+            FROM {PROVIDER_DIM_SRC}
         )
-        SELECT l.tin_value, l.n_providers, {dist} AS dist, tn.city,
-               tn.entity_type = 'individual' AS is_person,
-               NULLIF(CASE WHEN tn.entity_type = 'individual' THEN trim(concat_ws(' ', tn.first_name, tn.last_name))
-                           ELSE tn.org_name END, '') AS name,
+        SELECT l.tin_value, l.n_providers, {dist} AS dist, tn.city, tn.practice_name,
                MAX(c.lo)  FILTER (WHERE c.comp = '')   , MAX(c.med) FILTER (WHERE c.comp = ''),
                MAX(c.hi)  FILTER (WHERE c.comp = '')   ,
                MAX(c.lo)  FILTER (WHERE c.comp = 'TC') , MAX(c.med) FILTER (WHERE c.comp = 'TC'),
@@ -159,21 +165,19 @@ def imaging_providers(
                MAX(c.hi)  FILTER (WHERE c.comp = '26')
         FROM loc l
         JOIN comp c USING (tin_value)
-        JOIN {PROVIDER_DIM_SRC} tn ON tn.npi = TRY_CAST(l.tin_value AS BIGINT)
+        JOIN biller tn ON tn.npi = TRY_CAST(l.tin_value AS BIGINT)
         LEFT JOIN {ZIP_CENTROIDS_SRC} zc ON zc.zip = LEFT(tn.postal_code, 5)
-        WHERE l.any_billed OR CONTAINS(',' || COALESCE(tn.service_lines, '') || ',', ',imaging,')
-        GROUP BY l.tin_value, l.n_providers, tn.lat, tn.lon, zc.lat, zc.lon, tn.city,
-                 tn.entity_type, tn.first_name, tn.last_name, tn.org_name
+        WHERE tn.practice_name IS NOT NULL
+          AND (l.any_billed OR CONTAINS(',' || COALESCE(tn.service_lines, '') || ',', ',imaging,'))
+        GROUP BY l.tin_value, l.n_providers, tn.lat, tn.lon, zc.lat, zc.lon, tn.city, tn.practice_name
     """, [billing_code] + params).fetchall()
 
-    results, same_as = [], {}
-    for (tin, n, dist_mi, city, is_person, name, gl, gm, gh, tl, tm, th, pl, pm, ph) in rows:
+    results = []
+    for (tin, n, dist_mi, city, name, gl, gm, gh, tl, tm, th, pl, pm, ph) in rows:
         if radius_mi is not None and (dist_mi is None or dist_mi > radius_mi):
             continue
         glob, tech, pro = _stats(gl, gm, gh), _stats(tl, tm, th), _stats(pl, pm, ph)
         basis, typical = _price(glob, tech, pro)
-        # Two doctors can share a name; only an organization's name identifies a practice.
-        same_as[tin] = _same_practice(name) if name and not is_person else tin
         results.append({
             "practice_id": tin,
             "practice_name": name,
@@ -187,10 +191,10 @@ def imaging_providers(
     complete = ("global", "split")
     results.sort(key=lambda r: (r["basis"] not in complete, r["typical_rate"], r["distance_mi"] is None,
                                 r["distance_mi"] or 0, r["practice_name"] or "", r["practice_id"]))
-    # Same-named organizations fold into the first (cheapest, then nearest) row.
+    # Same-named TINs fold into the first (cheapest, then nearest) row.
     merged, seen = [], {}
     for r in results:
-        key = same_as[r["practice_id"]]
+        key = _same_practice(r["practice_name"])
         if key in seen:
             seen[key]["n_providers"] = max(seen[key]["n_providers"], r["n_providers"])
             continue

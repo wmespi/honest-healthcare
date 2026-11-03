@@ -109,6 +109,11 @@ Where the product is headed: [direction.md](direction.md) and epic
   out the same way. A reading group's fee can still be part of what a Georgia facility's scan
   costs, which the `places` and `prices` tables on
   [#135](https://github.com/wmespi/honest-healthcare/issues/135) have to settle.
+- **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
+  group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
+  The row takes the name of the group the doctor bills Medicare with (CMS Doctors &
+  Clinicians), and a doctor with no group there has no row, even when they do run their own
+  office.
 - **Imaging prices exclude the facility fee.** Anthem's professional file carries the
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
   hospital bills its own fee in a file we do not carry, so a hospital-based practice
