@@ -87,6 +87,17 @@ describe('ImagingFinder', () => {
     expect(await screen.findByText(/4\.2 mi/)).toBeInTheDocument();
   });
 
+  it('names a practice with no organization name after its doctors, first name first', async () => {
+    const user = userEvent.setup();
+    api.getImagingProviders.mockResolvedValue({ data: { ...RESULT, n_practices: 1, results: [
+      { ...RESULT.results[0], practice_id: '3', practice_name: null, ga_indiv_names: ['BODE, ALEXANDER', 'BURCESCU, MICHAEL'] },
+    ] } });
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Head CT' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText('Which scan?'), '70450');
+    expect(await screen.findByText('ALEXANDER BODE, MICHAEL BURCESCU')).toBeInTheDocument();
+  });
+
   it('shows an error rather than stale results when the request fails', async () => {
     const user = userEvent.setup();
     api.getImagingProviders.mockRejectedValue(new Error('400'));
