@@ -80,6 +80,26 @@ def test_two_builds_write_the_same_bytes(corpus):
         assert a == b, name
 
 
+def test_labels_match_the_way_the_parse_probe_matches_them(corpus):
+    # Trimmed and case-insensitive, with `*` the only wildcard: `?` is a literal.
+    os.remove(f"{corpus}/anthem/prices/net=ga-blue-value-hix-individual-network/21057.parquet")
+    _rate(duckdb.connect(), corpus, 21057, "  ga blue value hix individual network ")
+    assert _build(corpus) == {"networks": 2}
+    (open(f"{corpus}/targets.yaml", "w")
+     .write(TARGETS.replace("Pathway PCP Copay Choice*", "Pathway?PCP Copay Choice*")))
+    with pytest.raises(SystemExit, match="nothing prices 49046-GAN008"):
+        _build(corpus)
+
+
+def test_a_failed_check_leaves_the_last_build_as_it_was(corpus):
+    _build(corpus)
+    before = open(f"{corpus}/serving/networks.parquet", "rb").read()
+    _rate(duckdb.connect(), corpus, 21000, "GA Blue Value HIX Individual Network")
+    with pytest.raises(SystemExit):
+        _build(corpus)
+    assert open(f"{corpus}/serving/networks.parquet", "rb").read() == before
+
+
 def test_a_second_file_with_the_networks_label_stops_the_build(corpus):
     # GA_JBKEMED0001 carries Blue Value's label but prices a plan no one can buy.
     _rate(duckdb.connect(), corpus, 21000, "GA Blue Value HIX Individual Network")
@@ -129,7 +149,7 @@ def test_a_table_whose_columns_drift_from_its_definition_stops_the_build(corpus,
         _build(corpus)
 
 
-def test_the_targets_file_names_networks_georgia_lists():
+def test_every_target_in_the_targets_file_names_networks_and_labels():
     """etl/targets.yaml itself: every target pairs exchange networks with labels."""
     for name, nets, patterns in find_care.read_targets():
         assert nets and patterns, name

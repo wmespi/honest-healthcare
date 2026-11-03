@@ -2,9 +2,10 @@
 
 Each table is a class that says what the table is: its name, key and columns,
 and the SELECT that makes its rows. `_Table.make` runs that SELECT and checks
-the columns and key before the file is written, so no table can skip a check.
+the columns, the key and the table's own rules, so no table can skip a check.
 `build` lists the tables in the order they're made, and a table may read the
-ones above it.
+ones above it. Every table is made and checked before any file is written, so a
+failed check leaves the last build's files as they were.
 
 The file reads top-down: `build`, what a table is, the tables, the inputs they
 read, then the shared pieces. Rows are written in key order, so two builds from
@@ -33,12 +34,13 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH):
         _NetworkFiles(),
         _Networks(),
     ]
+    for table in tables:
+        table.make(con, data_dir)
     rows = {}
     for table in tables:
-        n = table.make(con, data_dir, serving_dir)
         if table.written:
-            rows[table.name] = n
-            print(f"  {table.name + '.parquet':<22} {n:>13,}")
+            rows[table.name] = table.write(con, serving_dir)
+            print(f"  {table.name + '.parquet':<22} {rows[table.name]:>13,}")
     con.close()
     if os.getenv("DUCKDB_TMP") is None:  # only a spill dir we own
         shutil.rmtree(spill, ignore_errors=True)
@@ -61,13 +63,17 @@ class _Table:
         """The SELECT that makes this table's rows."""
         raise NotImplementedError
 
+    def fill(self, con, data_dir):
+        """Make the table in `con` from its SELECT."""
+        con.execute(f"CREATE TEMP TABLE {self.name} AS {self.select(data_dir)}")
+
     def check(self, con, data_dir):
         """Stop the build if the rows break a rule of this table's."""
 
-    def make(self, con, data_dir, out_dir):
-        """Make the table in `con` and check it, then write it in key order
-        unless it's build-only. Returns its row count."""
-        con.execute(f"CREATE TEMP TABLE {self.name} AS {self.select(data_dir)}")
+    def make(self, con, data_dir):
+        """Make the table in `con`, then stop the build unless its columns match
+        `columns`, its key is never empty or repeated, and `check` passes."""
+        self.fill(con, data_dir)
         got = {c: t for c, t, *_ in con.execute(f"DESCRIBE {self.name}").fetchall()}
         if list(got.items()) != list(self.columns.items()):
             raise SystemExit(f"{self.name}: columns {got}, but the table says {self.columns}")
@@ -81,9 +87,12 @@ class _Table:
         if dup:
             raise SystemExit(f"{self.name}: the key ({cols}) repeats, for example {dup}")
         self.check(con, data_dir)
-        if self.written:
-            write_parquet_atomic(con, f"SELECT * FROM {self.name} ORDER BY {cols}",
-                                 f"{out_dir}/{self.name}.parquet")
+
+    def write(self, con, out_dir):
+        """Write the table to `<out_dir>/<name>.parquet` in key order, so the
+        same rows always make the same bytes. Returns its row count."""
+        write_parquet_atomic(con, f"SELECT * FROM {self.name} ORDER BY {', '.join(self.key)}",
+                             f"{out_dir}/{self.name}.parquet")
         return con.execute(f"SELECT count(*) FROM {self.name}").fetchone()[0]
 
 
@@ -91,39 +100,45 @@ class _Table:
 
 class _Targets(_Table):
     """Build-only: one row per network a target in etl/targets.yaml names, with
-    the insurer network labels its rates carry. Every network must be one that
-    Georgia's exchange lists."""
+    the insurer network labels its rates carry. `patterns` are as written, and
+    `likes` are the same patterns as SQL LIKE patterns. Every network must be
+    one that Georgia's exchange lists."""
     name = "targets"
     key = ["network_id"]
-    columns = {"target": "VARCHAR", "network_id": "VARCHAR", "patterns": "VARCHAR[]"}
+    columns = {"target": "VARCHAR", "network_id": "VARCHAR",
+               "patterns": "VARCHAR[]", "likes": "VARCHAR[]"}
     written = False
 
     def __init__(self, path):
         self.path = path
 
-    def select(self, data_dir):
-        rows = [f"({_quote(name)}, {_quote(net)}, [{', '.join(_quote(p) for p in patterns)}]::VARCHAR[])"
+    def fill(self, con, data_dir):
+        """Made from etl/targets.yaml, not a SELECT; its values go in as parameters."""
+        rows = [(name, net, patterns, [_like(p) for p in patterns])
                 for name, nets, patterns in read_targets(self.path) for net in nets]
         if not rows:
             raise SystemExit(f"{self.path} names no exchange networks")
-        return (f"SELECT target::VARCHAR AS target, network_id::VARCHAR AS network_id, patterns "
-                f"FROM (VALUES {', '.join(rows)}) t(target, network_id, patterns)")
+        con.execute(f"CREATE TEMP TABLE {self.name} ("
+                    + ", ".join(f"{c} {t}" for c, t in self.columns.items()) + ")")
+        con.executemany(f"INSERT INTO {self.name} VALUES (?, ?, ?, ?)", rows)
 
     def check(self, con, data_dir):
         unknown = con.execute(f"""
-            SELECT target, network_id FROM targets
-            WHERE network_id NOT IN (SELECT network_id FROM {_EXCHANGE_NETWORKS.read(data_dir)})
-            ORDER BY network_id
-        """).fetchall()
+            SELECT t.target, t.network_id FROM targets t
+            WHERE NOT EXISTS (SELECT 1 FROM {_EXCHANGE_NETWORKS.read(data_dir)} g
+                              WHERE g.network_id = t.network_id)
+            ORDER BY t.network_id
+        """).fetchone()
         if unknown:
-            raise SystemExit(f"{unknown[0][0]}: {unknown[0][1]} isn't a network in Georgia's exchange files")
+            raise SystemExit(f"{unknown[0]}: {unknown[1]} isn't a network in Georgia's exchange files")
 
 
 class _NetworkFiles(_Table):
     """Build-only: for each target network, the parsed insurer file whose rates
-    price it and the labels those rates carry. A target's labels match the way
-    the parse probe matches them: case-insensitive, `*` wildcard. Exactly one
-    file must carry them (etl/mrf-model.md, "One plan, one contract")."""
+    price it and the labels those rates carry. Labels match a target's patterns
+    the way the parse probe matches them (etl/extraction/targets.go): trimmed,
+    case-insensitive, and `*` is the only wildcard. Exactly one file must carry
+    them (etl/mrf-model.md, "One plan, one contract")."""
     name = "network_files"
     key = ["network_id", "file_id", "network_name"]
     columns = {"network_id": "VARCHAR", "file_id": "BIGINT", "network_name": "VARCHAR"}
@@ -132,10 +147,10 @@ class _NetworkFiles(_Table):
     def select(self, data_dir):
         return f"""
             WITH labels AS (SELECT DISTINCT file_id, network_name FROM {_INSURER_RATES.read(data_dir)}),
-                 patterns AS (SELECT network_id, unnest(patterns) AS pattern FROM targets)
-            SELECT DISTINCT p.network_id, l.file_id, l.network_name
-            FROM patterns p
-            JOIN labels l ON lower(l.network_name) GLOB lower(p.pattern)
+                 likes AS (SELECT network_id, unnest(likes) AS label_like FROM targets)
+            SELECT DISTINCT k.network_id, l.file_id, l.network_name
+            FROM likes k
+            JOIN labels l ON lower(trim(l.network_name)) LIKE k.label_like ESCAPE '!'
         """
 
     def check(self, con, data_dir):
@@ -153,7 +168,9 @@ class _NetworkFiles(_Table):
                 raise SystemExit(f"{target}: no parsed insurer file carries a label matching "
                                  f"{patterns}, so nothing prices {net}; run `make parse`")
             raise SystemExit(f"{target}: files {files} all carry a label matching {patterns}, "
-                             f"but one file prices {net} (etl/mrf-model.md#one-plan-one-contract)")
+                             f"but one file prices {net} (etl/mrf-model.md#one-plan-one-contract). "
+                             f"Delete the Parquet under data/anthem/ of any that don't, "
+                             f"whether an older copy or another contract")
 
 
 class _Networks(_Table):
@@ -207,9 +224,13 @@ def read_targets(path=TARGETS_PATH):
 
 # ── Shared pieces ─────────────────────────────────────────────────────────────
 
-def _quote(value):
-    """`value` as a SQL literal: a quoted string, or NULL."""
-    return "NULL" if value is None else "'" + str(value).replace("'", "''") + "'"
+def _like(pattern):
+    """A target label pattern as a lower-case SQL LIKE pattern with `!` as its
+    escape: `*` becomes `%`, and LIKE's own `%` and `_` match only themselves."""
+    if pattern is None:
+        return None
+    escaped = pattern.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return escaped.replace("*", "%")
 
 
 def connect(spill):

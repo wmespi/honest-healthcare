@@ -221,6 +221,17 @@ def test_manifest(out):
     assert m["typical_threshold"] == 0.03
 
 
+def test_manifest_counts_the_find_care_tables(tmp_path, monkeypatch):
+    for v in ("SERVING_DIR", "DUCKDB_TMP"):
+        monkeypatch.delenv(v, raising=False)
+    root = str(tmp_path)
+    _raw(root)
+    build(root, f"{root}/serving", networks=[SLUG], scope="custom", find_care_rows={"networks": 2})
+    with open(f"{root}/serving/manifest.json") as f:
+        rows = json.load(f)["rows"]
+    assert rows["networks"] == 2 and rows["rates"] == 44
+
+
 def test_rate_hist_carries_is_sentinel(out):
     con, serving = out
     rows = dict(con.execute(

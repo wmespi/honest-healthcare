@@ -31,7 +31,8 @@ query time after pruning on `net` + `billing_code`). By default only the
 networks named in etl/targets.yaml are built; `--networks all` builds every
 partition. Reads the shared corpus read-only; writes only SERVING_DIR.
 
-`main` then writes the find-care tables beside these (build/find_care.py).
+`main` writes the find-care tables (build/find_care.py) first, then these,
+and the manifest counts both.
 """
 import argparse
 import datetime
@@ -118,7 +119,7 @@ def target_partitions(prices_dir, patterns):
 
 
 def build(data_dir, serving_dir, networks=None, test=False,
-          scope="all", patterns=None, codes=None):
+          scope="all", patterns=None, codes=None, find_care_rows=None):
     anthem = store_dir(data_dir, test, "anthem")
     nppes = store_dir(data_dir, test, "nppes")
     ref = store_dir(data_dir, test, "reference")
@@ -530,7 +531,7 @@ def build(data_dir, serving_dir, networks=None, test=False,
     def n(name):
         return con.execute(f"SELECT COUNT(*) FROM read_parquet('{serving_dir}/{name}')").fetchone()[0]
 
-    counts = {"rates": total_rows}
+    counts = {"rates": total_rows, **(find_care_rows or {})}
     print(f"\n  rates                  {total_rows:>13,}")
     for f in TABLES:
         counts[f[:-len(".parquet")]] = n(f)
@@ -615,16 +616,14 @@ def main():
                              f"{patterns} — run `make parse`, or build everything with NET=all")
         print(f"  scope: targets -> {len(networks)} network(s): {', '.join(networks)}")
     codes = None if args.all_codes or args.test else PRICED_BILLING_CODES
-    build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns, codes=codes)
 
-    # The find-care tables follow etl/targets.yaml whatever --networks says.
-    print("\n  find-care tables (#135):")
-    rows = find_care.build(data_dir, serving_dir)
-    with open(f"{serving_dir}/manifest.json") as f:
-        manifest = json.load(f)
-    manifest["rows"].update(rows)
-    with open(f"{serving_dir}/manifest.json", "w") as f:
-        json.dump(manifest, f, indent=2)
+    # The find-care tables go first, so a failed check stops the build before
+    # anything is written. They follow etl/targets.yaml whatever --networks says.
+    print("  find-care tables (#135):")
+    find_care_rows = find_care.build(data_dir, serving_dir)
+    print()
+    build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns, codes=codes,
+          find_care_rows=find_care_rows)
 
 
 if __name__ == "__main__":

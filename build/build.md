@@ -26,7 +26,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 
 `build/find_care.py` writes the tables the find-care screen will read ([#135](https://github.com/wmespi/honest-healthcare/issues/135)), beside the ones above until those are removed.
 Each table is a class that names its key and columns and selects its rows, and the build checks the columns, the key and any rule of the table's own before writing it.
-A failed check stops the build.
+`make build` makes and checks them before writing anything, old tables included, so a failed check leaves the last build's files as they were.
 Two builds from the same inputs write the same bytes, which `serving/tests/test_find_care.py` checks.
 They always cover the targets in [`etl/targets.yaml`](../etl/targets.yaml), whatever `NET` says, and their row counts join the manifest's `rows`.
 
