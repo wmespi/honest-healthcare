@@ -7,13 +7,12 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Attribution
 
-- **Plan → file is derived; plan → network is not.** `index_file_plans` links every
+- **Plan → file is derived; plan → network isn't used yet.** `index_file_plans` links every
   published plan to its files, so "which files serve plan X" is a query and
-  `etl parse` selects on it. The plan name comes from the index, the network label
-  from a rate file's `provider_references`, and the two share no key. Until derived
-  (HIOS `plan_id` + a CMS public-use file, or intersecting a target's files with the
-  networks they carry), `serving/plan_networks.json` is a hand-curated bridge served
-  by `/plans`.
+  `etl parse` selects on it. Georgia's exchange plan file gives each plan's real name and
+  network by HIOS `plan_id` ([reference/exchange-plans.md](../reference/exchange-plans.md)),
+  but nothing reads it yet: `serving/plan_networks.json` is still a hand-curated bridge
+  served by `/plans`, and `etl/targets.yaml` still selects by plan name.
 - **`network_name` is not uniform across files.** The target plan's clean source uses
   `"GA Blue Value HIX Individual Network"`; other `anthem/GA_*` files use
   config-style labels (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`) and are
@@ -129,8 +128,9 @@ Where the product is headed: [direction.md](direction.md) and epic
   imaging clinician (an orthopedic or anesthesia group, say) can appear beside the
   radiology groups.
 - **Plan cost sharing covers a few plan versions.** `serving/plan_cost_sharing.json` is
-  copied by hand from Anthem summaries of benefits, because Georgia's individual market
-  is not in the CMS plan-attributes file. Cost-sharing-reduction variants, Bronze, and
+  copied by hand from Anthem summaries of benefits. Georgia's exchange publishes every
+  plan's cost sharing in its benefits file, which nothing reads yet
+  ([reference/exchange-plans.md](../reference/exchange-plans.md)). Cost-sharing-reduction variants, Bronze, and
   Pathway Silver are not carried; a member on one of those picks "Not sure" and sees the
   price without a share. Refresh the file each plan year.
 - **Some imaging cost shares are not estimated.** A structure such as "$300 a day, then

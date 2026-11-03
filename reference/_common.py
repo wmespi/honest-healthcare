@@ -47,12 +47,14 @@ def _atomic_write_bytes(path: str, data: bytes) -> None:
     os.replace(tmp, path)
 
 
-def fetch_to_cache(cache_path, urls, local=None, *, header_check=None, timeout=120):
+def fetch_to_cache(cache_path, urls, local=None, *, header_check=None, timeout=120, headers=None):
     """Return a local path to the source file.
 
     `local` short-circuits to that path; an existing `cache_path` is reused;
     otherwise each URL in `urls` is tried until one succeeds and is cached.
     `header_check` (bytes), when given, must appear in the first 200 bytes.
+    `headers` go on each request, for a server that refuses Python's default
+    User-Agent.
     """
     if local:
         return local
@@ -64,7 +66,7 @@ def fetch_to_cache(cache_path, urls, local=None, *, header_check=None, timeout=1
     for u in urls:
         try:
             print(f"  downloading: {u}")
-            with urllib.request.urlopen(u, timeout=timeout) as r:
+            with urllib.request.urlopen(urllib.request.Request(u, headers=headers or {}), timeout=timeout) as r:
                 data = r.read()
             if header_check and header_check not in data[:200]:
                 raise ValueError("unexpected header")

@@ -28,6 +28,7 @@ STEPS=(
   "geocode|/app/data/reference/pcp_geocode.parquet|reference.geocode"
   "mips|/app/data/reference/mips_ga.parquet|reference.mips"
   "zip-centroids|/app/data/reference/zip_centroids.parquet|reference.zip_centroids"
+  "exchange-plans|/app/data/reference/exchange_plans_ga.parquet|reference.exchange_plans"
 )
 
 if [ -n "$STEP" ]; then

@@ -187,6 +187,20 @@ data/reference/dac_ga.parquet          (make reference STEP=doctors-clinicians �
       buckets, plus demographics. Read by the build into `provider_dim`.
       GA-scoped (npi_lookup, else State='GA').
 
+data/reference/exchange_plans_ga.parquet     (make reference STEP=exchange-plans: reference/exchange-plans.md)
+    plan_id | plan_year | issuer_id | carrier | name | metal_level | plan_type
+    needs_referral | network_id
+    ← one row per medical plan on Georgia's exchange, keyed on its HIOS plan ID.
+      network_id is the issuer and Georgia's network ID ('45334-GAN001').
+
+data/reference/exchange_networks_ga.parquet  (make reference STEP=exchange-plans: reference/exchange-plans.md)
+    network_id | issuer_id | name
+    ← one row per provider network the plans above use.
+
+data/reference/exchange_premiums_ga.parquet  (make reference STEP=exchange-plans: reference/exchange-plans.md)
+    plan_id | rating_area | age | premium | tobacco_premium
+    ← monthly premium for one person; ages 0 to 64, where 64 means 64 and over.
+
 data/reference/dac_hospital_affiliations.parquet   (make reference STEP=doctors-clinicians — reference/doctors-clinicians.md)
     npi | ccn | facility_name
     ← many rows per NPI; the CCN↔NPI bridge for the Hospital Care Compare
