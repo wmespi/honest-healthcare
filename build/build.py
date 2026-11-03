@@ -45,7 +45,7 @@ import time
 import duckdb
 
 from build import find_care
-from build.find_care import TARGETS_PATH, connect
+from build.find_care import TARGETS_PATH, connect, read_targets
 from reference._common import serving_dir as _serving_dir, store_dir
 # The curated service-line taxonomy lists. Still under serving/ this step —
 # the prod serving image ships only serving/, so serving can't import from
@@ -96,10 +96,7 @@ def _service_line_expr(col):
 def target_patterns(path=TARGETS_PATH):
     """Every `network_patterns` entry in etl/targets.yaml — the network labels
     the target plans' rates carry."""
-    import yaml
-    with open(path) as f:
-        targets = (yaml.safe_load(f) or {}).get("targets") or []
-    return [pat for t in targets for pat in (t.get("network_patterns") or [])]
+    return [pat for _, _, patterns in read_targets(path) for pat in patterns]
 
 
 def target_partitions(prices_dir, patterns):
