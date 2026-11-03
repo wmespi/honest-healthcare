@@ -26,6 +26,7 @@ STEPS=(
   "specialty-profiles|/app/data/reference/specialty_procedure_profiles.parquet|reference.specialty_profiles"
   "mpfs|/app/data/reference/mpfs_ga.parquet|reference.mpfs"
   "opps|/app/data/reference/opps.parquet|reference.opps"
+  "hospitals|/app/data/reference/hospitals_ga.parquet|reference.hospitals"
   "geocode||reference.geocode"
   "mips|/app/data/reference/mips_ga.parquet|reference.mips"
   "zip-centroids|/app/data/reference/zip_centroids.parquet|reference.zip_centroids"
