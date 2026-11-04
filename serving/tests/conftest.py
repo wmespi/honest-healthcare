@@ -21,6 +21,7 @@ import sys
 
 import duckdb
 import pytest
+import yaml
 
 # DATA_DIR / SERVING_DIR must be set before `serving.*` is imported
 # (data_sources.py freezes the glob paths at import time). conftest.py is
@@ -420,12 +421,17 @@ targets:
 
 
 class Corpus:
-    """Insurer rates, the index's plan -> file link, Georgia's networks and plans,
-    and a targets file in a tmp dir."""
+    """Insurer rates, the index's plan -> file link, Georgia's networks, plans and
+    premiums, ZIP centroids, Medicare's rates, a services file and a targets file
+    in a tmp dir."""
 
     def __init__(self, root):
         self.root = root
         self.targets = f"{root}/targets.yaml"
+        self.services_file = f"{root}/services.yaml"
+        self.services = []
+        self.mpfs = []
+        self.opps = []
         self.links = []
         self.plans = []
         self.premiums = []
@@ -463,6 +469,36 @@ class Corpus:
         _write(duckdb.connect(), f"{self.root}/reference/zip_centroids.parquet", "zip, lat, lon",
                [(f"'{z}'", "NULL::DOUBLE" if a is None else f"{a}::DOUBLE",
                  "NULL::DOUBLE" if o is None else f"{o}::DOUBLE") for z, a, o in self.zips])
+
+    def service(self, service_id, billing_code, **fields):
+        """Add a service to the services file, with placeholder text for any field
+        not given."""
+        self.services.append({"service_id": service_id, "billing_code": billing_code,
+                              "name": f"Service {service_id}", "keywords": "scan",
+                              "about": "A scan.", "could_change": ["Contrast dye"],
+                              "asks": ["Is this everything?"], **fields})
+        with open(self.services_file, "w") as f:
+            yaml.safe_dump({"services": self.services}, f, sort_keys=False)
+
+    def medicare(self, billing_code, office, facility=None):
+        """Medicare's office rate for `billing_code` in each of Georgia's two payment
+        areas, as `office`, plus decoys the build must skip (a facility rate and a
+        reading-only rate), and its hospital outpatient rate if `facility`."""
+        atlanta, rest = office
+        self.mpfs += [(billing_code, "", "nonfacility", "01", atlanta),
+                      (billing_code, "", "nonfacility", "99", rest),
+                      (billing_code, "", "facility", "01", atlanta / 2),
+                      (billing_code, "26", "nonfacility", "01", atlanta / 3)]
+        _write(duckdb.connect(), f"{self.root}/reference/mpfs_ga.parquet",
+               "billing_code, billing_code_type, modifier, pos, locality, medicare_allowed, status",
+               [(f"'{c}'", "'CPT'", f"'{m}'", f"'{pos}'", f"'{loc}'", f"{amt}::DOUBLE", "'A'")
+                for c, m, pos, loc, amt in self.mpfs])
+        if facility is not None:
+            self.opps.append((billing_code, facility))
+            _write(duckdb.connect(), f"{self.root}/reference/opps.parquet",
+                   "billing_code, billing_code_type, status_indicator, apc, payment_rate, year",
+                   [(f"'{c}'", "'CPT'", "'Q3'", "'5523'", f"{amt}::DOUBLE", "2026::INTEGER")
+                    for c, amt in self.opps])
 
     def _write_plans(self):
         _write(duckdb.connect(), f"{self.root}/reference/exchange_plans_ga.parquet",
@@ -503,7 +539,8 @@ class Corpus:
 
     def build(self, out="serving"):
         from build import tables
-        return tables.build(self.root, f"{self.root}/{out}", targets_path=self.targets)
+        return tables.build(self.root, f"{self.root}/{out}", targets_path=self.targets,
+                            services_path=self.services_file)
 
     def rows(self, table, out="serving"):
         return duckdb.connect().execute(
@@ -514,7 +551,7 @@ class Corpus:
 def corpus(tmp_path, monkeypatch):
     """Blue Value in file 21057, Pathway and an untargeted network in file 701, the
     index linking each file to its network's plans, Georgia's networks, plans and
-    premiums, and three ZIP centroids."""
+    premiums, three ZIP centroids, and two services with Medicare's rates."""
     monkeypatch.delenv("DUCKDB_TMP", raising=False)
     c = Corpus(str(tmp_path))
     c.rate(21057, BLUE_VALUE)
@@ -538,5 +575,10 @@ def corpus(tmp_path, monkeypatch):
     c.zip("30308", 33.770959, -84.377736)
     c.zip("30322", 33.794605, -84.325247)
     c.zip("37421", 35.030393, -85.159553)
+    c.service("mri-lower-back", "72148", name="Lower-back MRI")
+    c.service("mammogram-screening", "77067", name="Screening mammogram",
+              preventive_note="Usually $0 in network as preventive care.")
+    c.medicare("72148", office=(170.0, 190.0), facility=243.77)
+    c.medicare("77067", office=(110.0, 120.0))
     (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
     return c

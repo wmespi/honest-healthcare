@@ -11,14 +11,16 @@ import shutil
 import duckdb
 
 from build.inputs.network_files import NetworkFiles
+from build.inputs.service_list import SERVICES_PATH, ServiceList
 from build.inputs.targets import TARGETS_PATH, Targets
 from build.tables.networks import Networks
 from build.tables.plans import Plans
 from build.tables.premiums import Premiums
+from build.tables.services import Services
 from build.tables.zips import Zips
 
 
-def build(data_dir, serving_dir, targets_path=TARGETS_PATH):
+def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVICES_PATH):
     """Write every serving table under `serving_dir` from the inputs under
     `data_dir` (`data`, or `data-test` for a test build); returns {table: rows}.
 
@@ -28,12 +30,14 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH):
     inputs = [
         Targets(targets_path),
         NetworkFiles(),
+        ServiceList(services_path),
     ]
     tables = [
         Networks(),
         Plans(),
         Premiums(),
         Zips(),
+        Services(),
     ]
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)

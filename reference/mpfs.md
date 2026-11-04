@@ -14,7 +14,8 @@ honest per-provider rate. A Medicare amount per code gives a sanity check ("$180
 Medicare's $60" vs a multi-million-dollar drug code,
 [#51](https://github.com/wmespi/honest-healthcare/issues/51)) and a fallback price.
 The build puts the GA non-facility amount on `code_dim` and `rates`, `null` until this
-step has run. No route returns it today.
+step has run, and the find-care build puts the global amount on `services.medicare_rate`
+([build.md](../build/build.md#the-find-care-tables)). No route returns it today.
 
 ## Formula
 

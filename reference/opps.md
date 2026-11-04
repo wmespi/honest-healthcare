@@ -25,7 +25,8 @@ be packaged into one payment. The estimate says so rather than implying a quote.
 ## How it flows
 
 `build` joins it onto `code_dim.opps_payment` (null when the file is absent, and
-`manifest.json` `inputs.opps` says which). `serving/benchmark.opps_payment()` reads it;
+`manifest.json` `inputs.opps` says which), and the find-care build onto
+`services.medicare_facility_rate`. `serving/benchmark.opps_payment()` reads it;
 `/imaging/providers` returns `facility_estimate` (`amount`, `source`, `kind`), null when
 the code has no rate. The words shown to the user live in `frontend/src/lib/explain.js`.
 

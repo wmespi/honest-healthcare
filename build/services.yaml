@@ -1,0 +1,247 @@
+# The services someone can search for on the find-care screen, and what the
+# screen says about each (#135). `make build` writes them to services.parquet,
+# with Medicare's rates added from the reference data (build/build.md).
+#
+#   service_id       Our own slug: the kind of scan, then the body part, then a
+#                    variant ("mri-lower-back", "ct-chest-contrast").
+#   billing_code     The one CPT code the scan is billed under. A version with
+#                    contrast is its own service, because the order names it.
+#   name             What the screen calls it.
+#   keywords         Other words the service picker matches.
+#   about            What the scan is, how long it takes and how to prepare.
+#   could_change     What could make the bill differ from the price shown.
+#   asks             Questions to ask before booking.
+#   preventive_note  Optional. Shown first when the service is usually free as
+#                    preventive care.
+#
+# This is plain-language text, and it goes through clinical review in step 10
+# of #135 before anyone relies on it.
+#
+# Wording several services share, written once:
+shared:
+  - &contrast "Contrast dye, which makes it a different and pricier scan"
+  - &before_and_after "Pictures both before and after the contrast dye, which is billed as a different scan"
+  - &views "A different number of pictures than this scan covers, which is billed as a different scan"
+  - &limited "A smaller, limited scan instead of a complete one, which is billed as a different scan"
+  - &outside_network "Someone outside your network taking part, such as whoever reads the scan. Federal law limits most of these bills."
+  - &not_covered "Your plan not covering it, for example if a required approval was missed"
+  - &ask_approval "Does my plan need to approve this first?"
+  - &ask_all_in "Is this everything, or will anyone else send me a separate bill?"
+  - &ask_network "Is everyone involved in my network?"
+  - &ask_exact "Is this the exact scan my doctor ordered?"
+  - &ask_screening "Will this be billed as a screening?"
+
+services:
+  # X-ray
+  - service_id: xray-chest
+    billing_code: "71046"
+    name: Chest X-ray
+    keywords: xray cxr lungs heart
+    about: A quick, low-dose X-ray of your heart and lungs, usually from two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
+    could_change: [*views, *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: xray-shoulder
+    billing_code: "73030"
+    name: Shoulder X-ray
+    keywords: xray arm joint
+    about: A quick, low-dose X-ray of the bones in your shoulder, from at least two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
+    could_change: [*views, *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: xray-knee
+    billing_code: "73560"
+    name: Knee X-ray
+    keywords: xray leg joint
+    about: A quick, low-dose X-ray of the bones in your knee, from one or two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
+    could_change: [*views, *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: xray-ankle
+    billing_code: "73610"
+    name: Ankle X-ray
+    keywords: xray foot leg joint
+    about: A quick, low-dose X-ray of the bones in your ankle, from at least three angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
+    could_change: [*views, *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: xray-lower-back
+    billing_code: "72100"
+    name: Lower-back X-ray
+    keywords: xray lumbar spine back
+    about: A low-dose X-ray of the bones in your lower spine, from two or three angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
+    could_change: [*views, *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  # Breast and bone
+  - service_id: mammogram-screening
+    billing_code: "77067"
+    name: Screening mammogram
+    keywords: breast cancer screening
+    about: A low-dose X-ray of both breasts that screens for breast cancer. It usually takes about 20 minutes.
+    could_change: ["Being billed as diagnostic rather than screening", *outside_network]
+    asks: [*ask_all_in, *ask_network, *ask_screening]
+    preventive_note: Screening mammograms are usually $0 in network because they count as preventive care. The most you would pay matters if yours is billed as diagnostic.
+
+  - service_id: mammogram-diagnostic-both
+    billing_code: "77066"
+    name: Diagnostic mammogram, both breasts
+    keywords: breast lump follow-up
+    about: A low-dose X-ray of both breasts to look into a symptom, such as a lump, or something a screening mammogram found. It takes more pictures than a screening, so it can take 30 minutes or more.
+    could_change: ["An ultrasound added the same day, which is billed as a separate scan", *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: mammogram-diagnostic-one
+    billing_code: "77065"
+    name: Diagnostic mammogram, one breast
+    keywords: breast lump follow-up
+    about: A low-dose X-ray of one breast to look into a symptom, such as a lump, or something a screening mammogram found. It takes more pictures than a screening, so it can take 30 minutes or more.
+    could_change: ["An ultrasound added the same day, which is billed as a separate scan", *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: dexa-bone-density
+    billing_code: "77080"
+    name: Bone density scan (DEXA)
+    keywords: dxa osteoporosis bone hip spine
+    about: A low-dose X-ray that measures the density of the bones in your hips and spine, to check for osteoporosis. You lie still on a table for about 10 to 20 minutes. Tell them if you might be pregnant.
+    could_change: ["A check of the spine for fractures added to the scan, which is billed as a different scan", *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+
+  # Ultrasound
+  - service_id: ultrasound-abdomen
+    billing_code: "76700"
+    name: Abdominal ultrasound
+    keywords: sonogram belly stomach liver gallbladder kidneys
+    about: Uses sound waves to picture the organs in your abdomen, with no radiation. It usually takes about 30 minutes, and you may be asked not to eat beforehand.
+    could_change: [*limited, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ultrasound-pelvis
+    billing_code: "76856"
+    name: Pelvic ultrasound
+    keywords: sonogram uterus ovaries bladder
+    about: Uses sound waves through your lower belly to picture the organs in your pelvis, with no radiation. You may be asked to drink water beforehand so your bladder is full. It usually takes about 30 minutes.
+    could_change: [*limited, "A transvaginal ultrasound done the same visit, which is billed as a separate scan", *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ultrasound-transvaginal
+    billing_code: "76830"
+    name: Transvaginal ultrasound
+    keywords: sonogram uterus ovaries pelvic
+    about: Uses a small probe placed in the vagina to picture your uterus and ovaries up close, with no radiation. It usually takes 15 to 30 minutes, and it's often done alongside a pelvic ultrasound.
+    could_change: ["A pelvic ultrasound done the same visit, which is billed as a separate scan", *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ultrasound-thyroid
+    billing_code: "76536"
+    name: Thyroid ultrasound
+    keywords: sonogram neck thyroid nodule
+    about: Uses sound waves to picture your thyroid and the other soft tissue in your neck, with no radiation. It usually takes 15 to 30 minutes.
+    could_change: [*outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ultrasound-leg-veins
+    billing_code: "93970"
+    name: Leg vein ultrasound
+    keywords: sonogram doppler duplex blood clot dvt veins
+    about: Uses sound waves to check the veins in both legs for blood clots or problems with blood flow, with no radiation. It usually takes 30 to 60 minutes.
+    could_change: ["Scanning only one leg, which is billed as a different scan", *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  # CT
+  - service_id: ct-head
+    billing_code: "70450"
+    name: Head CT
+    keywords: cat scan brain skull
+    about: Combines X-rays from many angles into detailed pictures of your head and brain. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ct-chest
+    billing_code: "71250"
+    name: Chest CT
+    keywords: cat scan lungs
+    about: Combines X-rays from many angles into detailed pictures of your lungs and chest. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ct-chest-contrast
+    billing_code: "71260"
+    name: Chest CT with contrast
+    keywords: cat scan lungs dye iv
+    about: Combines X-rays from many angles into detailed pictures of your lungs and chest, with contrast dye given through an IV so blood vessels and some tissue show up more clearly. The scan takes a few minutes, though the visit runs longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*before_and_after, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ct-abdomen-pelvis
+    billing_code: "74176"
+    name: Abdomen and pelvis CT
+    keywords: cat scan belly stomach
+    about: Combines X-rays from many angles into detailed pictures of your abdomen and pelvis. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ct-abdomen-pelvis-contrast
+    billing_code: "74177"
+    name: Abdomen and pelvis CT with contrast
+    keywords: cat scan belly stomach dye iv
+    about: Combines X-rays from many angles into detailed pictures of your abdomen and pelvis, with contrast dye given through an IV. You may also drink contrast beforehand, so the visit can run an hour or longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*before_and_after, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: ct-lower-back
+    billing_code: "72131"
+    name: Lower-back CT
+    keywords: cat scan lumbar spine back
+    about: Combines X-rays from many angles into detailed pictures of the bones in your lower spine. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  # MRI
+  - service_id: mri-brain
+    billing_code: "70551"
+    name: Brain MRI
+    keywords: head scan
+    about: Uses magnets and radio waves to picture your brain, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: mri-brain-contrast
+    billing_code: "70553"
+    name: Brain MRI with and without contrast
+    keywords: head scan dye iv
+    about: Uses magnets and radio waves to picture your brain, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
+    could_change: [*outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: mri-lower-back
+    billing_code: "72148"
+    name: Lower-back MRI
+    keywords: lumbar spine back scan
+    about: Uses magnets and radio waves to picture your lower spine, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: mri-neck
+    billing_code: "72141"
+    name: Neck MRI
+    keywords: cervical spine scan
+    about: Uses magnets and radio waves to picture the bones, discs and nerves in your neck, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: mri-knee
+    billing_code: "73721"
+    name: Knee MRI
+    keywords: joint scan leg
+    about: Uses magnets and radio waves to picture the bones, cartilage and ligaments in your knee, with no radiation. It usually takes 30 to 45 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+  - service_id: mri-shoulder
+    billing_code: "73221"
+    name: Shoulder MRI
+    keywords: joint scan arm rotator cuff
+    about: Uses magnets and radio waves to picture the bones, muscles, tendons and ligaments in your shoulder, with no radiation. It usually takes 30 to 45 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
