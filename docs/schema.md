@@ -76,6 +76,7 @@ table here is a `503` from `GET /`, never a fallback to raw `anthem/` / `nppes/`
 | `manifest.json` | `built_at`, `networks`, `scope`, `partial`, `target_patterns`, `codes`, `inputs`, `rows` |
 | `networks.parquet` | `network_id`, `name`: a find-care table ([build.md](../build/build.md#the-find-care-tables)) |
 | `plans.parquet` | `plan_id`, `name`, `carrier`, `metal_level`, `needs_referral`, `network_id`: a find-care table ([build.md](../build/build.md#the-find-care-tables)) |
+| `premiums.parquet` | `plan_id`, `rating_area`, `age`, `premium`, `tobacco_premium`: a find-care table ([build.md](../build/build.md#the-find-care-tables)) |
 
 `rates` is the parser's **price grain** — one row per negotiated price, no group
 fan-out (`group_set_id` links to `group_sets` for the join a query needs at read
