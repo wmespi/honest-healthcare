@@ -2,7 +2,7 @@
 
 *Read this when working on the monthly metadata sync into the Postgres queue.*
 
-Rebuilds `index_files` (the parse queue) and `index_file_plans` (the plan → file link) from this month's Anthem master index.
+Rebuilds `index_files` (the parse queue) and `index_file_plans` (the plan → file link) from this month's Anthem master index, and writes the link to `data/anthem/index_file_plans.parquet` for the build.
 Safe to re-run.
 `make discover` → `etl discover` (package `etl/discovery`).
 
@@ -64,7 +64,11 @@ A run that reads the whole index makes the queue match it, in one transaction:
 - a file it no longer lists is removed, unless it's `completed`: its Parquet uses its id, so its row stays, with no plan links;
 - the plan links are replaced with this index's.
 
-A limited run (`LIMIT=n`) reads only part of the index, so it only adds and updates.
+It then writes `data/anthem/index_file_plans.parquet`, one row per `(file_id, plan_id)` the index links, in order, for the build ([build.md](../build/build.md#the-find-care-tables)), which reads no database.
+The file moves into place only once the queue commits, so the two always agree.
+Anthem's plan names and market types stay in Postgres.
+
+A limited run (`LIMIT=n`) reads only part of the index, so it only adds and updates, and leaves the Parquet as it was.
 Discover stops before downloading the index if a file is `processing`, because a parse is in it or one stopped part way ([queue.md](queue.md#recovery)).
 It locks the queue while it writes, so a parse that starts meanwhile waits for it.
 Whether a parsed file is downloaded again is parse's call ([queue.md](queue.md#when-anthem-updates-a-file)).

@@ -16,10 +16,26 @@ def test_labels_match_the_way_the_parse_probe_matches_them(corpus):
         corpus.build()
 
 
-def test_a_second_file_with_the_networks_label_stops_the_build(corpus):
-    # GA_JBKEMED0001 carries Blue Value's label but prices a plan no one can buy.
+def test_a_file_the_index_doesnt_link_to_the_networks_plans_is_left_out(corpus):
+    # GA_JBKEMED0001 carries Blue Value's label, but the index links it only to
+    # 45334GA0010112, a plan Georgia's files no longer list.
+    corpus.rate(31628, "GA Blue Value HIX Individual Network")
+    corpus.link(31628, "45334GA0010112")
+    assert corpus.build() == {"networks": 2}
+
+
+def test_a_second_linked_file_with_the_networks_label_stops_the_build(corpus):
     corpus.rate(21000, "GA Blue Value HIX Individual Network")
-    with pytest.raises(SystemExit, match=r"files \[21000, 21057\].*one file prices 45334-GAN001"):
+    corpus.link(21000, "45334GA0020008")
+    with pytest.raises(SystemExit, match=r"links files \[21000, 21057\] to plans on 45334-GAN001.*"
+                                         r"one file prices 45334-GAN001"):
+        corpus.build()
+
+
+def test_a_parsed_file_the_index_stopped_linking_stops_the_build(corpus):
+    corpus.unlink(21057)
+    with pytest.raises(SystemExit, match=r"files \[21057\] carry a label matching .* but the index "
+                                         r"doesn't link them to a plan on 45334-GAN001"):
         corpus.build()
 
 

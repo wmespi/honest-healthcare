@@ -12,7 +12,7 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 
 | Layer | Tech | Dir | Purpose |
 |---|---|---|---|
-| Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue; keeps the plan→file link (`index_file_plans`) |
+| Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue; keeps the plan→file link (`index_file_plans`), and writes it to `data/anthem/index_file_plans.parquet` for the build |
 | Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → raw Parquet; a provider probe aborts a download before `in_network` when no wanted provider is in it |
 | Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization, MPFS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
 | Build | Python + DuckDB | `build/` | Raw + reference Parquet → the serving tables; every product decision (scope, sentinel, benchmark, service lines) lives here — [build/build.md](../build/build.md) |
@@ -34,6 +34,7 @@ runs the `dev` target).
 flowchart LR
   subgraph fetch [fetch - Go, streaming, dumb, stable]
     IDX[Anthem index] -->|"plans and files, keep the link"| Q[(queue: file, plan, market, status)]
+    Q -->|"the month's link, after a full read"| LINK[(plan link parquet)]
     TGT[targets.yaml] --> Q
     Q -->|"files linked to a target plan"| PROBE{"probe: any wanted providers?"}
     PROBE -->|"no: abort early"| Q
@@ -47,7 +48,8 @@ flowchart LR
     REF[(reference: RBCS, NUCC, MPFS, CMS util, DAC, geocode, MIPS, ZIPs)] --> B
     B --> SRV[(serving: rates by network price-grain, group_sets, group_members, group_networks, provider_dim, provider_affiliations, code_dim, evidence, rate_hist, cross_network_rollup)]
     RAW --> FC["build/tables/"]
-    XNET[(reference: exchange networks)] --> FC
+    LINK --> FC
+    XNET[(reference: exchange networks and plans)] --> FC
     FC --> FCT[("find-care tables, beside the old ones: networks")]
   end
   subgraph serve [serve]

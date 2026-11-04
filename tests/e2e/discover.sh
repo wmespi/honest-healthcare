@@ -5,7 +5,8 @@
 # monthly indexes served over HTTP, and checks that the second month rebuilds the
 # queue: a file keeps its id when only its signed location changes, a file the
 # index drops is removed unless it was parsed, the plan links are this month's
-# only, a limited run removes nothing, and a file left 'processing' stops it.
+# only, in the queue and in the build's link file, a limited run changes neither,
+# and a file left 'processing' stops it.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -72,6 +73,16 @@ links() {  # every (file, plan) link, as name:plan
                      SELECT regexp_replace(f.address, '^.*/', '') || ':' || p.plan_id AS link
                      FROM test.index_file_plans p JOIN test.index_files f ON f.id = p.file_id) l;"
 }
+id_links() {  # every (file, plan ID) pair in the queue, as id:plan, in order
+  "${PSQL[@]}" -c "SELECT string_agg(file_id || ':' || plan_id, ' ' ORDER BY file_id, plan_id)
+                   FROM (SELECT DISTINCT file_id, plan_id FROM test.index_file_plans) l;"
+}
+parquet_links() {  # the pairs in the build's link file, as id:plan, in file order
+  docker compose exec -T serving python3 -c "
+import duckdb
+rows = duckdb.connect().execute(\"SELECT file_id, plan_id FROM '/app/data-test/anthem/index_file_plans.parquet'\").fetchall()
+print(' '.join(f'{f}:{p}' for f, p in rows))"
+}
 
 echo "→ discover October"
 discover 2026-10-01_index.json.gz
@@ -79,6 +90,7 @@ KEEP=$(id_of GA_KEEP.json.gz)
 SHARD=$(id_of SHARD.json.gz)
 PARSED=$(id_of GA_PARSED.json.gz)
 "${PSQL[@]}" -c "UPDATE test.index_files SET status = 'completed' WHERE id = $PARSED;"
+[ "$(parquet_links)" = "$(id_links)" ] || { echo "FAIL: the build's link file isn't October's links"; exit 1; }
 
 echo "→ discover November"
 discover 2026-11-01_index.json.gz
@@ -93,10 +105,14 @@ LINKS=$(links)
 echo "   links: $LINKS"
 WANT="GA_KEEP.json.gz:45334GA0020009 GA_NEW.json.gz:45334GA0020008 SHARD.json.gz:45334GA0020009"
 [ "$LINKS" = "$WANT" ] || { echo "FAIL: links are not November's ($WANT)"; exit 1; }
+NOVEMBER=$(parquet_links)
+echo "   link file: $NOVEMBER"
+[ "$NOVEMBER" = "$(id_links)" ] || { echo "FAIL: the build's link file isn't November's links ($(id_links))"; exit 1; }
 
 echo "→ a limited read removes nothing"
 discover 2026-10-01_index.json.gz -limit 1
 [ "$(id_of GA_NEW.json.gz)" != "none" ] || { echo "FAIL: a limited read removed GA_NEW"; exit 1; }
+[ "$(parquet_links)" = "$NOVEMBER" ] || { echo "FAIL: a limited read rewrote the build's link file"; exit 1; }
 
 echo "→ a file left processing stops discover"
 "${PSQL[@]}" -c "UPDATE test.index_files SET status = 'processing' WHERE id = $KEEP;"

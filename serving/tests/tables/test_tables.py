@@ -24,6 +24,7 @@ def test_a_failed_check_leaves_the_last_build_as_it_was(corpus):
     corpus.build()
     before = open(f"{corpus.root}/serving/networks.parquet", "rb").read()
     corpus.rate(21000, "GA Blue Value HIX Individual Network")
+    corpus.link(21000, "45334GA0020008")
     with pytest.raises(SystemExit):
         corpus.build()
     assert open(f"{corpus.root}/serving/networks.parquet", "rb").read() == before

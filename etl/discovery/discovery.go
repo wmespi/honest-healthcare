@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	parquet "github.com/parquet-go/parquet-go"
 	"github.com/wmespi/honest-healthcare/etl/core"
 )
 
@@ -588,20 +589,94 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		linked = tag.RowsAffected()
 	}
 
+	// The build reads the plan → file link from Parquet, not from the database
+	// (build/inputs/). A run that read the whole index writes it beside the final
+	// path, and it moves into place once the queue commits, so the two agree.
+	linkTmp := core.IndexFilePlansPath + ".tmp"
+	var linkRows int
+	if !truncated {
+		if linkRows, err = writePlanLinks(ctx, tx, linkTmp); err != nil {
+			log.Fatalf("❌ Write the plan → file link for the build: %v", err)
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		log.Fatalf("❌ Commit: %v", err)
 	}
 
 	if truncated {
-		log.Printf("✅ Limited read: %d file(s) updated, %d added, %d new (file, plan) link(s). Nothing was removed, because the run didn't read the whole index.",
-			updateTag.RowsAffected(), insertTag.RowsAffected(), linked)
+		log.Printf("✅ Limited read: %d file(s) updated, %d added, %d new (file, plan) link(s). Nothing was removed, and %s is left as it was, because the run didn't read the whole index.",
+			updateTag.RowsAffected(), insertTag.RowsAffected(), linked, filepath.Base(core.IndexFilePlansPath))
 		return
+	}
+	if err := os.Rename(linkTmp, core.IndexFilePlansPath); err != nil {
+		log.Fatalf("❌ The queue matches the index, but %s doesn't: %v. Run discover again.", core.IndexFilePlansPath, err)
 	}
 	log.Printf("✅ The queue matches the index: %d file(s) kept, %d added, %d removed; %d (file, plan) link(s).",
 		updateTag.RowsAffected(), insertTag.RowsAffected(), removed, linked)
 	if keptParsed > 0 {
 		log.Printf("   %d parsed file(s) the index no longer lists stay in the queue, unlinked, because their Parquet uses their id.", keptParsed)
 	}
+	log.Printf("✅ Wrote %s for the build: %d (file, plan ID) pair(s).", core.IndexFilePlansPath, linkRows)
+}
+
+// planLink is one row of index_file_plans.parquet: the index lists plan PlanID
+// against file FileID. Anthem's plan names and market types stay in Postgres.
+type planLink struct {
+	FileID int64  `parquet:"file_id"`
+	PlanID string `parquet:"plan_id"`
+}
+
+// writePlanLinks writes each (file, plan ID) pair in index_file_plans to path,
+// once and in order, so the same links always make the same bytes. It returns
+// how many it wrote.
+func writePlanLinks(ctx context.Context, tx pgx.Tx, path string) (int, error) {
+	if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+		return 0, err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	rows, err := tx.Query(ctx, `SELECT DISTINCT file_id, plan_id FROM index_file_plans ORDER BY file_id, plan_id`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	w := parquet.NewGenericWriter[planLink](f, parquet.Compression(&parquet.Zstd))
+	batch := make([]planLink, 0, 10_000)
+	n := 0
+	write := func() error {
+		if _, err := w.Write(batch); err != nil {
+			return err
+		}
+		n += len(batch)
+		batch = batch[:0]
+		return nil
+	}
+	for rows.Next() {
+		var l planLink
+		if err := rows.Scan(&l.FileID, &l.PlanID); err != nil {
+			return 0, err
+		}
+		if batch = append(batch, l); len(batch) == cap(batch) {
+			if err := write(); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if err := write(); err != nil {
+		return 0, err
+	}
+	if err := w.Close(); err != nil {
+		return 0, err
+	}
+	return n, f.Close()
 }
 
 // fileAddress is a file's location without the query a signed URL carries
