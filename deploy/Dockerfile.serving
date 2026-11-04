@@ -3,7 +3,11 @@
 #
 # The image default is a production server (no --reload, single worker).
 # docker-compose adds `--reload` and bind-mounts the source for the dev loop.
-FROM python:3.10-slim
+FROM python:3.14-slim
+
+# The container is the isolation, so pip installing as root (here, and the test
+# deps `make test` adds) is intended and needs no warning.
+ENV PIP_ROOT_USER_ACTION=ignore
 
 WORKDIR /app
 
