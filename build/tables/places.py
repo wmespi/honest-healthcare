@@ -4,9 +4,9 @@ from build.table import Table
 
 class Places(Table):
     """A hospital is keyed on its CCN and has Medicare's star rating and its phone.
-    Any other place is a biller with a price, keyed on its NPI, at its own
-    address (build/inputs/biller_places.py). Every place has a point on the map:
-    Census's, or its ZIP's center."""
+    Any other place is a practice with a price: its billers at one address under
+    one name, keyed on its lowest billing NPI (build/inputs/biller_places.py).
+    Every place has a point on the map: Census's, or its ZIP's center."""
     name = "places"
     key = ["place_id"]
     columns = {"place_id": "VARCHAR", "name": "VARCHAR", "kind": "VARCHAR", "address": "VARCHAR",

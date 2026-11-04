@@ -2,7 +2,7 @@
 import pytest
 
 
-def test_places_are_every_hospital_and_every_other_biller_with_a_price(corpus):
+def test_places_are_every_hospital_and_every_practice_with_a_price(corpus):
     assert corpus.build()["places"] == 6
     assert corpus.rows("places") == [
         ("1000000001", "MIDTOWN IMAGING PC", "practice", "550 PEACHTREE ST NE", "ATLANTA",
@@ -20,6 +20,57 @@ def test_places_are_every_hospital_and_every_other_biller_with_a_price(corpus):
          34.7698, -84.9702, "(404) 555-0100", 4),
         ("110079", "GRADY MEMORIAL HOSPITAL", "hospital", "80 JESSE HILL JR DRIVE SE", "ATLANTA",
          33.7524, -84.382, "(404) 555-0100", 3)]
+
+
+def biller(corpus, npi, name, address, city, postal_code, **fields):
+    """Price a lower-back MRI at `npi`, which Medicare shows doing it in an office."""
+    corpus.roster(21057, 1, npi - 1000000000, str(npi), npi + 1000000000)
+    corpus.billed(npi + 1000000000, "72148", "O")
+    corpus.npi(npi, name, address, city, postal_code, **fields)
+
+
+def test_billing_ids_of_one_practice_at_one_address_are_one_place(corpus):
+    # Midtown Imaging's second billing ID, spelled differently, in a suite Census
+    # didn't match and registered as an imaging center, and an orthopedic group in
+    # the same building.
+    biller(corpus, 1000000011, "MIDTOWN IMAGING, P.C.", "550 PEACHTREE STREET NORTHEAST", "ATLANTA",
+           "303082233", taxonomy="261QR0200X", address_line2="STE 200")
+    biller(corpus, 1000000012, "PEACHTREE ORTHOPEDICS LLC", "550 PEACHTREE ST NE", "ATLANTA", "303082233",
+           taxonomy="207X00000X", address_line2="STE 300")
+    corpus.geocode("550 PEACHTREE ST NE", "ATLANTA", "303082233", "550 PEACHTREE ST NE, ATLANTA, GA, 30308",
+                   33.7712, -84.3853, address_line2="STE 300")
+    corpus.build()
+    midtown = [r for r in corpus.rows("places") if r[3].startswith("550 PEACHTREE")]
+    # The practice keeps its lowest NPI's name and address, and is an imaging
+    # center because one of its billers is registered as one.
+    assert midtown == [
+        ("1000000001", "MIDTOWN IMAGING PC", "imaging_center", "550 PEACHTREE ST NE", "ATLANTA",
+         33.7712, -84.3853, None, None),
+        ("1000000012", "PEACHTREE ORTHOPEDICS LLC", "practice", "550 PEACHTREE ST NE, STE 300", "ATLANTA",
+         33.7712, -84.3853, None, None)]
+    assert corpus.inputs().execute("""
+        SELECT biller, place_id FROM biller_places WHERE biller IN ('1000000011', '1000000012')
+        ORDER BY biller""").fetchall() == [("1000000011", "1000000001"), ("1000000012", "1000000012")]
+
+
+def test_a_billing_id_on_a_hospitals_street_is_the_hospital(corpus, capsys):
+    # Census matched neither Hamilton's address, which spell the street differently.
+    biller(corpus, 1000000013, "HAMILTON MEDICAL CENTER, INC.", "1200 MEMORIAL DR", "DALTON", "307202529",
+           taxonomy="282N00000X")
+    # The hospital's address names its cross street.
+    corpus.hospital("110038", "ARCHBOLD MEMORIAL HOSPITAL", "915 GORDON AVENUE & MIMOSA DRIVE", "THOMASVILLE",
+                    "31792")
+    biller(corpus, 1000000014, "JOHN D ARCHBOLD MEMORIAL HOSPITAL INC", "915 GORDON AVE", "THOMASVILLE",
+           "317926614", taxonomy="282N00000X")
+    # A hospital's own billing ID at an address no hospital has.
+    biller(corpus, 1000000015, "PERRY HOSPITAL INC", "1120 MORNINGSIDE DR", "PERRY", "310692906",
+           taxonomy="282N00000X")
+    assert corpus.inputs().execute("""
+        SELECT biller, place_id, kind FROM biller_places WHERE biller > '1000000012' ORDER BY biller
+    """).fetchall() == [("1000000013", "110001", "hospital"), ("1000000014", "110038", "hospital"),
+                        ("1000000015", "1000000015", "practice")]
+    assert ("billing IDs NPPES registers as hospitals that match no hospital's address, so they're "
+            "practices (1): 1000000015 (PERRY HOSPITAL INC)") in capsys.readouterr().out
 
 
 def test_billing_ids_with_a_price_but_no_place_are_listed(corpus, capsys):

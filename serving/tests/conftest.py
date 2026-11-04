@@ -536,8 +536,8 @@ class Corpus:
         """Add a Georgia NPPES record. An individual's `name` is a last name."""
         org = entity_type == "organization"
         self.npis.append((npi, entity_type, name if org else None, None if org else name,
-                          None if org else "PAT", taxonomy, None, False, False, address,
-                          address_line2, city, "GA", postal_code))
+                          None if org else "PAT", taxonomy, None, taxonomy.startswith("28"),
+                          taxonomy.startswith("261Q"), address, address_line2, city, "GA", postal_code))
         self._queue(f"{self.root}/nppes/ga_providers.parquet", NPPES_SCHEMA, self.npis)
 
     def billed(self, npi, code, place_of_service):
