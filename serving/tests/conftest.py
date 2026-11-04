@@ -11,6 +11,9 @@ test_api_contract.py has something real to check.
 The other test files here (test_cms_utilization, test_specialty_profiles,
 test_mpfs, test_doctors_clinicians) run the reference/ builders against their own
 data-test/ paths (repo-root relative) and ignore this fixture.
+
+`corpus` is a smaller one of its own for the tests in inputs/ and tables/,
+which build the new serving tables (build/tables/) from it.
 """
 import os
 import subprocess
@@ -401,3 +404,68 @@ def api(api_data):
     from serving.main import app
     with TestClient(app) as c:
         yield c
+
+
+# ── the new serving tables (build/tables/) ───────────────────────────────────
+
+CORPUS_TARGETS = """
+targets:
+  - name: Blue Value
+    exchange_networks: ["45334-GAN001"]
+    network_patterns: ["GA Blue Value HIX*"]
+  - name: Pathway
+    exchange_networks: ["49046-GAN008"]
+    network_patterns: ["Pathway PCP Copay Choice*"]
+"""
+
+
+class Corpus:
+    """Insurer rates, Georgia's network list and a targets file in a tmp dir."""
+
+    def __init__(self, root):
+        self.root = root
+        self.targets = f"{root}/targets.yaml"
+
+    def rate(self, fid, label):
+        """Add one insurer rate in file `fid` under network label `label`."""
+        os.makedirs(f"{self.root}/anthem/prices/net={_slug(label)}", exist_ok=True)
+        duckdb.connect().execute(f"""
+            COPY (SELECT {fid}::BIGINT AS file_id, 1::BIGINT AS group_set_id, '{label}' AS network_name,
+                         'CPT' AS billing_code_type, '70551' AS billing_code, 250.0 AS negotiated_rate)
+            TO '{self.root}/anthem/prices/net={_slug(label)}/{fid}.parquet' (FORMAT parquet)
+        """)
+
+    def remove_rate(self, fid, label):
+        os.remove(f"{self.root}/anthem/prices/net={_slug(label)}/{fid}.parquet")
+
+    def add_target(self, text):
+        """Add a target to the targets file, as YAML list items."""
+        with open(self.targets, "a") as f:
+            f.write(text)
+
+    def build(self, out="serving"):
+        from build import tables
+        return tables.build(self.root, f"{self.root}/{out}", targets_path=self.targets)
+
+    def rows(self, table, out="serving"):
+        return duckdb.connect().execute(
+            f"SELECT * FROM read_parquet('{self.root}/{out}/{table}.parquet')").fetchall()
+
+
+@pytest.fixture()
+def corpus(tmp_path, monkeypatch):
+    """Blue Value in file 21057, Pathway and an untargeted network in file 701, and
+    Georgia's network list."""
+    monkeypatch.delenv("DUCKDB_TMP", raising=False)
+    c = Corpus(str(tmp_path))
+    c.rate(21057, BLUE_VALUE)
+    c.rate(701, "Pathway PCP Copay Choice")
+    c.rate(701, "TRADITIONAL HEALTH PLAN")
+    _write(duckdb.connect(), f"{c.root}/reference/exchange_networks_ga.parquet",
+           "network_id, issuer_id, name", [
+               ("'45334-GAN001'", "'45334'", "'Blue Value Individual Network HMO'"),
+               ("'49046-GAN008'", "'49046'", "'Pathway PCP Copay Choice'"),
+               ("'58081-GAN001'", "'58081'", "'Individual Georgia HMO'"),
+           ])
+    (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
+    return c

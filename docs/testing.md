@@ -70,7 +70,7 @@ status check**: it passes only when every job succeeded or was legitimately skip
 | `changes` | docs drift check; diffs the PR → `run` |
 | `go` | gofmt + vet + build + `go test ./...` (native `setup-go`, no stack) |
 | `web` | `npx vitest run` |
-| `integration` | `docker compose up db etl serving` + `make migrate`; contract + builder tests, `test_golden.py` (skips — no corpus), then the e2e scripts |
+| `integration` | `docker compose up db etl serving` + `make migrate`; every hermetic pytest file, as `make test` runs them, then `test_golden.py` (skips — no corpus), then the e2e scripts |
 | `images` | builds the three `prod` Dockerfile targets and smokes each |
 | `gate` | no upstream job failed or was cancelled |
 

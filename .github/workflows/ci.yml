@@ -132,14 +132,10 @@ jobs:
           exit 1
       - name: Apply migrations (idempotent — keeps test.* in sync with public)
         run: make migrate
-      - name: Serving — hermetic contract + reference-builder tests
+      - name: Python — every hermetic test, as make test runs them
         run: |
           docker compose exec -T serving pip install -q -r /app/serving/requirements-dev.txt
-          docker compose exec -T -w /app serving python -m pytest \
-            serving/tests/test_api_contract.py \
-            serving/tests/test_cms_utilization.py \
-            serving/tests/test_specialty_profiles.py \
-            serving/tests/test_mpfs.py -q
+          docker compose exec -T -w /app/serving serving python -m pytest tests/ --ignore=tests/test_golden.py -q
       - name: Golden-answer tests (#96) — real API, empty data/ here, must skip not fail
         run: |
           docker compose exec -T -w /app serving python -m pytest serving/tests/test_golden.py -v

@@ -30,6 +30,9 @@ reads (#100):
 query time after pruning on `net` + `billing_code`). By default only the
 networks named in etl/targets.yaml are built; `--networks all` builds every
 partition. Reads the shared corpus read-only; writes only SERVING_DIR.
+
+`main` writes the find-care tables (build/tables/) first, then these,
+and the manifest counts both.
 """
 import argparse
 import datetime
@@ -42,6 +45,9 @@ import time
 
 import duckdb
 
+from build import tables
+from build.tables import connect
+from build.inputs.targets import TARGETS_PATH, read_targets
 from reference._common import serving_dir as _serving_dir, store_dir
 # The curated service-line taxonomy lists. Still under serving/ this step —
 # the prod serving image ships only serving/, so serving can't import from
@@ -80,17 +86,6 @@ def _office(a=""):
             f"OR CONTAINS('|' || {a}service_code || '|', '|11|'))")
 
 
-def _connect(spill):
-    con = duckdb.connect()
-    con.execute("SET preserve_insertion_order = false")
-    con.execute(f"SET memory_limit = '{os.getenv('DUCKDB_MEMORY_LIMIT', '4GB')}'")
-    con.execute(f"SET threads = {os.getenv('DUCKDB_THREADS', '4')}")
-    os.makedirs(spill, exist_ok=True)
-    con.execute(f"SET temp_directory = '{spill}'")
-    con.execute(f"SET max_temp_directory_size = '{os.getenv('DUCKDB_TMP_MAX', '120GiB')}'")
-    return con
-
-
 def _service_line_expr(col):
     """concat_ws skips the NULL arms, so this is '' or 'pcp,...'; NULLIF -> NULL."""
     arms = []
@@ -100,17 +95,10 @@ def _service_line_expr(col):
     return f"NULLIF(concat_ws(',', {', '.join(arms)}), '')"
 
 
-TARGETS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "etl", "targets.yaml")
-
-
 def target_patterns(path=TARGETS_PATH):
     """Every `network_patterns` entry in etl/targets.yaml — the network labels
     the target plans' rates carry."""
-    import yaml
-    with open(path) as f:
-        targets = (yaml.safe_load(f) or {}).get("targets") or []
-    return [pat for t in targets for pat in (t.get("network_patterns") or [])]
+    return [pat for _, _, patterns in read_targets(path) for pat in patterns]
 
 
 def target_partitions(prices_dir, patterns):
@@ -132,7 +120,7 @@ def target_partitions(prices_dir, patterns):
 
 
 def build(data_dir, serving_dir, networks=None, test=False,
-          scope="all", patterns=None, codes=None):
+          scope="all", patterns=None, codes=None, find_care_rows=None):
     anthem = store_dir(data_dir, test, "anthem")
     nppes = store_dir(data_dir, test, "nppes")
     ref = store_dir(data_dir, test, "reference")
@@ -182,7 +170,7 @@ def build(data_dir, serving_dir, networks=None, test=False,
         shutil.rmtree(spill, ignore_errors=True)
     os.makedirs(serving_dir, exist_ok=True)
 
-    con = _connect(spill)
+    con = connect(spill)
 
     t0 = time.time()
 
@@ -544,7 +532,7 @@ def build(data_dir, serving_dir, networks=None, test=False,
     def n(name):
         return con.execute(f"SELECT COUNT(*) FROM read_parquet('{serving_dir}/{name}')").fetchone()[0]
 
-    counts = {"rates": total_rows}
+    counts = {"rates": total_rows, **(find_care_rows or {})}
     print(f"\n  rates                  {total_rows:>13,}")
     for f in TABLES:
         counts[f[:-len(".parquet")]] = n(f)
@@ -629,7 +617,14 @@ def main():
                              f"{patterns} — run `make parse`, or build everything with NET=all")
         print(f"  scope: targets -> {len(networks)} network(s): {', '.join(networks)}")
     codes = None if args.all_codes or args.test else PRICED_BILLING_CODES
-    build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns, codes=codes)
+
+    # The find-care tables go first, so a failed check stops the build before
+    # anything is written. They follow etl/targets.yaml whatever --networks says.
+    print("  find-care tables (#135):")
+    find_care_rows = tables.build(data_dir, serving_dir)
+    print()
+    build(data_dir, serving_dir, networks, args.test, scope=scope, patterns=patterns, codes=codes,
+          find_care_rows=find_care_rows)
 
 
 if __name__ == "__main__":

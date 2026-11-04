@@ -20,7 +20,25 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 | `rate_hist.parquet` | `(net, code, setting, scope, modifier, is_sentinel, bucket)` | a $25 roster-weighted histogram — `n` sums each price's `group_set` size, `n_rates` is the raw price-row count. `is_sentinel` is a dimension (not a filter) so the histogram can still show the placeholder rows; the rollup below excludes them. |
 | `cross_network_rollup.parquet` | `(code, network)` | `n_groups`, `min`/`p10`/`median`/`p90`/`max` off the `rate_hist` CDF (global modifier, outpatient-prof, non-sentinel). No route reads it today. |
 | `zip_centroids.parquet` | one row per ZIP | A copy of `reference/zip_centroids.parquet` so the API reads only `serving/`. |
-| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; null for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/opps/dac/geocode/mips/zip_centroids — were present), `rows` (per-table counts). `GET /`'s `reference_loaded` and every `evidence.py`/`benchmark.py` `available()` check read this instead of a raw file's existence. |
+| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; `"all"` for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/opps/dac/geocode/mips/zip_centroids — were present), `rows` (per-table counts, including the find-care tables). `GET /`'s `built_at`, `partial_build` and `reference_loaded`, and `benchmark.py`'s OPPS check, read this instead of a raw file's existence. |
+
+## The find-care tables
+
+[`build/tables/`](tables/__init__.py) writes the tables the find-care screen will read, the ones in the [#135](https://github.com/wmespi/honest-healthcare/issues/135) ERD, beside the ones above until those are removed.
+Each table has its own file, named after it, with a class that names its key and columns and selects its rows.
+[`build/inputs/`](inputs/__init__.py) holds what they read: each dataset with the command that makes it, and build-only tables such as which parsed file prices each network.
+[`build/table.py`](table.py) checks every table's columns and key, plus any rule of the table's own, inputs included.
+`make build` makes and checks them before writing anything, old tables included, so a failed check leaves the last build's files as they were.
+Two builds from the same inputs write the same bytes, which `serving/tests/tables/` checks.
+They always cover the targets in [`etl/targets.yaml`](../etl/targets.yaml), whatever `NET` says, and their row counts join the manifest's `rows`.
+
+| Table | Grain | Notes |
+|---|---|---|
+| `networks.parquet` | one row per network a target names | `network_id`, such as `45334-GAN001`, and Georgia's exchange `name` for it. |
+
+Which insurer file prices a network is build config.
+A target's `network_patterns` name the labels its rates carry, and exactly one parsed file may carry them, or the build stops ([one plan, one contract](../etl/mrf-model.md#one-plan-one-contract)).
+A target network with no parsed file, or one that Georgia's exchange files don't list, also stops it.
 
 ## The product rules
 

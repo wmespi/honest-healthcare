@@ -23,6 +23,8 @@ derby.log
 **/.mypy_cache/
 .venv/
 venv/
+# The tests: the dev stack and CI mount the repo, and no image needs them.
+serving/tests/
 
 # Node / frontend build output
 **/node_modules/

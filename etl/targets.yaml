@@ -23,6 +23,9 @@
 #                      read, and marked `skipped`. Every network in a file that
 #                      passes is written; the build step selects.
 #                      Omit it and that file is streamed in full.
+#                      The build prices each exchange network with the rates
+#                      under these labels, and stops unless exactly one parsed
+#                      file carries them (build/build.md).
 #
 # See etl/discover.md (how the plan→file link is captured) and etl/parse.md (how
 # it is selected on, and what the probe does with network_patterns).
