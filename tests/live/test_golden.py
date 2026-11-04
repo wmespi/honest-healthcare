@@ -22,7 +22,7 @@ gate on which build steps happen to have been run.
 """
 import os
 
-import httpx
+import httpx2
 import pytest
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
@@ -32,7 +32,7 @@ NET = "GA Blue Value HIX Individual Network"
 @pytest.fixture(scope="module")
 def client():
     # same 120s budget as the journeys harness.
-    with httpx.Client(base_url=API_URL, timeout=120) as c:
+    with httpx2.Client(base_url=API_URL, timeout=120) as c:
         yield c
 
 
@@ -41,7 +41,7 @@ def _require_live_target_corpus(client):
     try:
         r = client.get("/")
         root = r.json()
-    except (httpx.HTTPError, ValueError) as e:
+    except (httpx2.HTTPError, ValueError) as e:
         pytest.skip(f"no API reachable at {API_URL}: {e}")
         return
     if r.status_code != 200 or NET not in root.get("networks", []):

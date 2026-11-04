@@ -51,19 +51,20 @@ else
   PY="$(command -v python3 || true)"
   UV="$(command -v uv || true)"
   [ -n "$PY" ] || { echo "no python3 on PATH" >&2; exit 1; }
-  "$PY" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3,10) else 1)' \
-    || warn "python $("$PY" -V) is < 3.10 — serving targets may misbehave (container is 3.10)"
+  "$PY" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3,14) else 1)' \
+    || warn "python $("$PY" -V) is < 3.14 — serving targets may misbehave (container is 3.14)"
   command -v go   >/dev/null || warn "no go on PATH — 'make check LOCAL=1' Go steps will fail"
   command -v node >/dev/null || warn "no node on PATH — 'make test LOCAL=1' web steps will fail"
 fi
 
 # ── 2. python venv + dev deps ───────────────────────────────────────────────
 say "python venv: .venv  (serving/requirements-dev.txt)"
+# Rebuilt every run, so a Python bump in .mise.toml replaces the old interpreter.
 if [ -n "$UV" ]; then
-  "$UV" venv --python "$PY" .venv >/dev/null
+  "$UV" venv --clear --python "$PY" .venv >/dev/null
   "$UV" pip install --python .venv -q -r serving/requirements-dev.txt
 else
-  [ -d .venv ] || "$PY" -m venv .venv
+  "$PY" -m venv --clear .venv
   ./.venv/bin/pip install -q --upgrade pip
   ./.venv/bin/pip install -q -r serving/requirements-dev.txt
 fi

@@ -12,7 +12,7 @@ their sizes.
 | File | `dev` target | `prod` target |
 |---|---|---|
 | `Dockerfile.etl` | Go toolchain (tag matches `go.mod`'s `toolchain`); source mounted, `go run .` on demand | static `CGO_ENABLED=0` binary on `alpine` (`ENTRYPOINT ["etl"]`) |
-| `Dockerfile.serving` | same image — compose adds `--reload` + mount | `python:3.10-slim` + pinned wheels, `uvicorn` no reload |
+| `Dockerfile.serving` | same image — compose adds `--reload` + mount | `python:3.14-slim` + pinned wheels, `uvicorn` no reload |
 | `Dockerfile.frontend` | `node:20-slim` vite dev server | `nginx:alpine` serving the built `dist/` |
 
 ```bash
