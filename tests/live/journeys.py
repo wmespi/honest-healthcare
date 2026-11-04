@@ -3,7 +3,7 @@
 User-journey assertions — the pointed "does the real flow still produce the right
 answer" checks behind docs/journeys.md.
 
-Unlike serving/tests/test_golden.py (pinned answers), this is depth: for a handful
+Unlike test_golden.py beside it (pinned answers), this is depth: for a handful
 of named personas, does the specific expected outcome still hold — the canary rate,
 the labelled facility estimate, a complete price.
 
@@ -14,12 +14,12 @@ Also reports latency per journey — total wall time, call count, and the slowes
 single call (flagged over SLOW_CALL_MS). Latency is informational: a slow-but-
 correct answer doesn't fail the run.
 
-Usage:  python3 scripts/journeys.py [--api http://localhost:8000] [--json]
+Usage:  python3 tests/live/journeys.py [--api http://localhost:8000] [--json]
 --api defaults to $API_URL, then http://localhost:8000 -- always pass one
 explicitly (or set API_URL) when testing a worktree's own stack; otherwise
 this silently tests whatever is on the canonical checkout's port instead.
 Exits 0 (skipping every journey, not failing them) if the target network
-isn't loaded -- same "no real corpus here" case serving/tests/test_golden.py
+isn't loaded -- same "no real corpus here" case test_golden.py
 skips on. Otherwise exit 0 if every journey's assertions pass, 1
 otherwise (latency never fails it).
 """

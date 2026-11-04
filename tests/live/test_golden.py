@@ -1,6 +1,6 @@
 """Golden-answer tests — pin the product's real answers against the LIVE API.
 
-Unlike test_api_contract.py (hermetic, a synthetic fixture via TestClient),
+Unlike serving/tests/test_api_contract.py (hermetic, a synthetic fixture via TestClient),
 this hits an actually-running server (`API_URL`, default
 http://localhost:8000) and checks its answers against dollar figures and
 counts captured from the real corpus (see #96). The store prices the imaging menu only
@@ -15,9 +15,9 @@ rate_hist — all "optional" per README.md steps 6-8/#10, the app runs without
 them, just differently — GET /'s `reference_loaded` says which are on disk),
 or the API isn't reachable at all. Only `make test-live` (run
 via docker compose exec, so it shares the container's live localhost:8000)
-exercises the real assertions below; a bare `pytest serving/tests/test_golden.py`
+exercises the real assertions below; a bare `pytest tests/live`
 with nothing listening skips all of them. `make test`
-explicitly exclude this file (Makefile) — it is not hermetic and must never
+never collects this file (it reads serving/tests): it is not hermetic and must never
 gate on which build steps happen to have been run.
 """
 import os

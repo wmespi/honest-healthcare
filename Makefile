@@ -117,20 +117,20 @@ test: check ## Every hermetic suite — check + serving pytest + vitest (+ ETL e
 	@if [ "$(LOCAL)" = 1 ]; then \
 	  test -x .venv/bin/python || { echo "no .venv — run scripts/dev-setup.sh"; exit 1; }; \
 	  test -d frontend/node_modules || { echo "no frontend/node_modules — run scripts/dev-setup.sh"; exit 1; }; \
-	  .venv/bin/python -m pytest serving/tests --ignore=serving/tests/test_golden.py -q && \
+	  .venv/bin/python -m pytest serving/tests -q && \
 	  cd frontend && npx vitest run; \
 	else \
-	  bash scripts/etl_e2e_test.sh && bash scripts/nppes_test.sh && \
-	  docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/ --ignore=tests/test_golden.py -q" && \
+	  bash tests/e2e/parse.sh && bash tests/e2e/nppes.sh && \
+	  docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/ -q" && \
 	  docker compose exec -T frontend sh -c "cd /app && npx vitest run"; \
 	fi
 
 test-live: ## Golden answers + user journeys against the live API + real corpus (docs/journeys.md). API_URL= targets a host-run API instead of the stack
 	@if [ -n "$(API_URL)" ]; then \
-	  .venv/bin/python -m pytest serving/tests/test_golden.py -v && python3 scripts/journeys.py; \
+	  .venv/bin/python -m pytest tests/live -v && python3 tests/live/journeys.py; \
 	else \
-	  docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/test_golden.py -v" && \
-	  API_URL="http://$$(docker compose port serving 8000)" python3 scripts/journeys.py; \
+	  docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app && python -m pytest tests/live -v" && \
+	  API_URL="http://$$(docker compose port serving 8000)" python3 tests/live/journeys.py; \
 	fi
 
 ## ── Housekeeping ─────────────────────────────────────────────────────────────

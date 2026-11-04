@@ -3,7 +3,7 @@
 *Named "a real person does a real thing" walks through the app. A journey
 is the sanity check a PR author walks before merge (`Journeys touched:` in the PR
 body). Current pass/fail and latency come from `make test-live`
-(`scripts/journeys.py`) — this file defines the journeys, it does not report on them.*
+(`tests/live/journeys.py`) — this file defines the journeys, it does not report on them.*
 
 Each journey starts at `/find-care/imaging`, which every other address redirects to;
 prefix it with your stack's host (`localhost:5173`). The page keeps your plan between
@@ -36,6 +36,6 @@ cover drug X at what tier · J8 are my three doctors in-network on this plan.
 ## Adding a journey
 
 1. Add its row here (persona, clickpath, expected).
-2. Add a pointed assertion to `scripts/journeys.py` — the *specific* expected outcome
+2. Add a pointed assertion to `tests/live/journeys.py` — the *specific* expected outcome
    (exact rate, benchmark band, tier), not a broad basket (`test_golden.py` is breadth).
 3. Cite it in PRs that touch its path: `Journeys touched: J1, J2`.

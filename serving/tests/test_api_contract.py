@@ -2,7 +2,7 @@
 conftest.py (`api` fixture). Hermetic: no live server, no data/ mount.
 
 Checks response shape and the invariants a consumer relies on. Real-data
-assertions live in test_golden.py.
+assertions live in tests/live/test_golden.py.
 """
 BLUE_VALUE = "GA Blue Value HIX Individual Network"
 
