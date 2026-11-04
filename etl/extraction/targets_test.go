@@ -1,11 +1,15 @@
 package extraction
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	parquet "github.com/parquet-go/parquet-go"
 )
@@ -285,15 +289,26 @@ func TestPickNamed(t *testing.T) {
 		return queueRow{pendingFile: pendingFile{ID: id, Location: "https://x/" + name}, Name: name, Status: status, Linked: linked}
 	}
 
-	got, err := pickNamed("targets.yaml", bv, []queueRow{
-		row(21057, "GA_JBNKMED0001.json.gz", "completed", true),
-		row(40000, "GA_NEW.json.gz", "pending", true),
+	// Parsed and skipped files come back too, for dueForParse to check against
+	// Anthem; a failed or processing file waits for someone to look at it.
+	all := Target{Name: "Blue Value", ExchangeNetworks: []string{"45334-GAN001"},
+		Files: []string{"A.json.gz", "B.json.gz", "C.json.gz", "D.json.gz", "E.json.gz"}}
+	got, err := pickNamed("targets.yaml", all, []queueRow{
+		row(1, "A.json.gz", "completed", true),
+		row(2, "B.json.gz", "pending", true),
+		row(3, "C.json.gz", "skipped", true),
+		row(4, "D.json.gz", "failed", true),
+		row(5, "E.json.gz", "processing", true),
 	})
 	if err != nil {
 		t.Fatalf("pickNamed: %v", err)
 	}
-	if len(got) != 1 || got[0].ID != 40000 {
-		t.Errorf("pickNamed = %+v, want only the pending file 40000", got)
+	var ids []int
+	for _, r := range got {
+		ids = append(ids, r.ID)
+	}
+	if !slices.Equal(ids, []int{1, 2, 3}) {
+		t.Errorf("pickNamed picked files %v, want [1 2 3]: the completed, pending and skipped ones, in order", ids)
 	}
 
 	rejects := map[string]struct {
@@ -319,5 +334,52 @@ func TestPickNamed(t *testing.T) {
 				t.Errorf("pickNamed gave %v, want an error containing %q", err, c.want)
 			}
 		})
+	}
+}
+
+func TestChangedSince(t *testing.T) {
+	oct17 := time.Date(2026, 10, 17, 4, 0, 0, 0, time.UTC)
+	oct31 := time.Date(2026, 10, 31, 4, 0, 0, 0, time.UTC)
+	if changedSince(&oct17, oct17.In(time.FixedZone("EST", -5*3600))) {
+		t.Error("the copy we parsed counts as changed when only its time zone differs")
+	}
+	if !changedSince(&oct17, oct31) {
+		t.Error("an update after the copy we parsed doesn't count as changed")
+	}
+	if !changedSince(nil, oct17) {
+		t.Error("a parse that didn't record its copy doesn't count as changed")
+	}
+}
+
+func TestLastModified(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dated.json.gz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Last-Modified", "Sat, 31 Oct 2026 04:12:09 GMT")
+	})
+	mux.HandleFunc("/undated.json.gz", func(w http.ResponseWriter, r *http.Request) {})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	ctx := context.Background()
+
+	got, err := lastModified(ctx, srv.URL+"/dated.json.gz")
+	if want := time.Date(2026, 10, 31, 4, 12, 9, 0, time.UTC); err != nil || !got.Equal(want) {
+		t.Errorf("lastModified = %v, %v; want %v", got, err, want)
+	}
+	if _, err := lastModified(ctx, srv.URL+"/undated.json.gz"); err == nil || !strings.Contains(err.Error(), "no Last-Modified") {
+		t.Errorf("a file with no Last-Modified gave %v, want an error saying so", err)
+	}
+	if _, err := lastModified(ctx, srv.URL+"/missing.json.gz"); err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Errorf("a missing file gave %v, want HTTP 404", err)
+	}
+
+	// The download reads the same header, so parse records the copy it read.
+	body, _, updated, cancel, err := openMRF(ctx, srv.URL+"/dated.json.gz", "")
+	if err != nil {
+		t.Fatalf("openMRF: %v", err)
+	}
+	body.Close()
+	cancel()
+	if !updated.Equal(time.Date(2026, 10, 31, 4, 12, 9, 0, time.UTC)) {
+		t.Errorf("openMRF read Last-Modified %v, want 2026-10-31 04:12:09 UTC", updated)
 	}
 }

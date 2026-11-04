@@ -96,7 +96,7 @@ single-item selection are variables:
 make start                  # Docker Desktop (if needed) + all containers
 make up / make down / make logs
 
-make discover               # Phase 1 — sync the master index into index_files + index_file_plans, then backfill sizes
+make discover               # Phase 1 — rebuild the queue (index_files + index_file_plans) from this month's index, then backfill sizes
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
 make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)

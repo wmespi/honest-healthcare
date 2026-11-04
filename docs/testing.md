@@ -29,9 +29,9 @@ safe to truncate at any time; a test run never touches `public.*` or `data/`
 (Critical Rule 4). Discovery in test mode caps at 100 reporting structures, parsing
 at 1 file (`LIMIT=` overrides).
 
-The `test` schema is created from `public` via `LIKE … INCLUDING ALL`, which drifts
-when `public` changes and never copies foreign keys; the newest
-`db/migrations/*.sql` drops and recreates it — run `make migrate` after any schema change.
+The `test` schema is created from `public` via `LIKE … INCLUDING ALL`, which drifts when `public` changes and never copies foreign keys or sequences.
+`db/migrations/999_test_schema.sql`, which `make migrate` runs last, drops and recreates it with its own foreign keys and id sequences, so a test run never uses up a `public` id.
+Run `make migrate` after any schema change.
 
 ## Fixtures (committed)
 
@@ -57,10 +57,12 @@ when `public` changes and never copies foreign keys; the newest
 
 ## E2E tests (with teardown)
 
+`tests/e2e/discover.sh` runs discover in the `test` schema on two months of a small index and checks the [monthly rebuild](../etl/discover.md#the-monthly-rebuild): ids kept, dropped files removed unless parsed, links replaced, nothing removed by a limited read, and a stop on a `processing` file.
 `tests/e2e/parse.sh` parses `synthetic.json.gz` in the `test` schema and asserts row counts, `network_name` and a `coverage_log` row.
-It then checks that parse tries only the file a targets file names, never another file the index links to the same plan.
-It truncates `test.*` and removes what it wrote under `data-test/`.
+It then checks that parse downloads only the file a targets file names, never another file the index links to the same plan, and downloads it again only once its `Last-Modified` changes.
 `tests/e2e/nppes.sh` does the same for the NPPES extractor.
+Each truncates `test.*` and removes what it wrote under `data-test/`; `discover.sh` and `parse.sh` also check that `public`'s id sequence didn't move.
+`tests/e2e/lib.sh` holds their helpers, including the file server that stands in for Anthem: a Python server in the `serving` container, which the `etl` container reaches at `http://serving:<port>/`.
 `parse.sh` needs `data-test/nppes/ga_providers.parquet` absent, because a stale copy makes the GA NPI filter drop every synthetic row.
 Every test tears down after itself, so `rm -rf data-test/*` is only needed after a killed run.
 

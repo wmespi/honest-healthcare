@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	parquet "github.com/parquet-go/parquet-go"
 	"gopkg.in/yaml.v3"
@@ -261,14 +262,17 @@ type queueRow struct {
 	pendingFile
 	Name   string
 	Status string
-	Linked bool // the index links it to a plan on the target's networks
+	Linked bool       // the index links it to a plan on the target's networks
+	Parsed *time.Time // Anthem's Last-Modified for the copy we last parsed, if known
 }
 
-// pickNamed checks the queue rows found for a target's files and returns the
-// pending ones, in the order given. It stops unless every file the target names
-// is in the queue exactly once and the index links it to one of the target's
-// plans, so a mistyped name or a file that prices another plan can't slip by.
-func pickNamed(path string, t Target, rows []queueRow) ([]pendingFile, error) {
+// pickNamed checks the queue rows found for a target's files and returns, in the
+// order given, the ones parse may download: pending ones, and parsed or skipped
+// ones, which are downloaded again only if Anthem has updated them since
+// (dueForParse). It stops unless every file the target names is in the queue
+// exactly once and the index links it to one of the target's plans, so a
+// mistyped name or a file that prices another plan can't slip by.
+func pickNamed(path string, t Target, rows []queueRow) ([]queueRow, error) {
 	ids := map[string][]int{}
 	for _, r := range rows {
 		ids[r.Name] = append(ids[r.Name], r.ID)
@@ -282,19 +286,27 @@ func pickNamed(path string, t Target, rows []queueRow) ([]pendingFile, error) {
 			return nil, fmt.Errorf("%s: target %q names %s, which matches queue rows %v; it has to match one", path, t.Name, name, ids[name])
 		}
 	}
-	var pending []pendingFile
+	var picked []queueRow
 	for _, r := range rows {
 		if !r.Linked {
 			return nil, fmt.Errorf("%s: target %q names %s (file %d), but the index doesn't link it to a plan on %s, so it doesn't price the target's plans",
 				path, t.Name, r.Name, r.ID, strings.Join(t.ExchangeNetworks, ", "))
 		}
-		if r.Status == "pending" {
-			pending = append(pending, r.pendingFile)
-		} else {
+		switch r.Status {
+		case "pending", "completed", "skipped":
+			picked = append(picked, r)
+		default:
 			log.Printf("🎯 %s (file %d) is %s, so it isn't downloaded", r.Name, r.ID, r.Status)
 		}
 	}
-	return pending, nil
+	return picked, nil
+}
+
+// changedSince says whether Anthem's copy of a file, last updated at anthem,
+// differs from the copy we parsed. A parse that didn't record its copy counts
+// as a different one.
+func changedSince(parsed *time.Time, anthem time.Time) bool {
+	return parsed == nil || !parsed.Equal(anthem)
 }
 
 // planMatchSQL is the condition that an index_file_plans row (aliased alias)

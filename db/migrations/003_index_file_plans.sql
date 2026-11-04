@@ -49,28 +49,4 @@ CREATE INDEX IF NOT EXISTS idx_index_file_plans_plan_id
 DROP INDEX IF EXISTS public.idx_index_files_plan;
 ALTER TABLE public.index_files DROP COLUMN IF EXISTS plan_names;
 
--- ── test schema: rebuild from public ───────────────────────────────────────
--- `CREATE TABLE test.x (LIKE public.x INCLUDING ALL)` is a one-time copy, so the
--- test mirror drifts every time a public column or table is added. test.* is
--- disposable by charter (Critical Rule 4) — drop and recreate so isolation stays
--- trustworthy. Never do this to public.
-DROP SCHEMA IF EXISTS test CASCADE;
-CREATE SCHEMA test;
-
-CREATE TABLE test.billing_codes    (LIKE public.billing_codes    INCLUDING ALL);
-CREATE TABLE test.index_files      (LIKE public.index_files      INCLUDING ALL);
-CREATE TABLE test.coverage_log     (LIKE public.coverage_log     INCLUDING ALL);
-CREATE TABLE test.index_file_plans (LIKE public.index_file_plans INCLUDING ALL);
-
--- LIKE copies the CHECK/UNIQUE/index definitions but never the foreign keys, so
--- the test mirror's file_id → index_files link has to be re-declared. Without it
--- a `TRUNCATE test.index_files CASCADE` would leave orphaned plan rows behind.
-ALTER TABLE test.index_file_plans
-    ADD CONSTRAINT index_file_plans_file_id_fkey
-    FOREIGN KEY (file_id) REFERENCES test.index_files(id) ON DELETE CASCADE;
-
--- discover.go drops/recreates these by exact (schema-unqualified) name in test
--- mode; INCLUDING ALL copies public's indexes only under auto-generated names.
-CREATE INDEX IF NOT EXISTS idx_index_files_plan_states ON test.index_files USING GIN(plan_states);
-CREATE INDEX IF NOT EXISTS idx_index_files_market      ON test.index_files USING GIN(market_types);
-CREATE INDEX IF NOT EXISTS idx_index_files_hios        ON test.index_files USING GIN(hios_issuer_ids);
+-- The test schema is rebuilt from public by 999_test_schema.sql, which runs last.

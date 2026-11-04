@@ -141,6 +141,7 @@ jobs:
           docker compose exec -T -w /app serving python -m pytest tests/live -v
       - name: ETL e2e + NPPES fixtures
         run: |
+          bash tests/e2e/discover.sh
           bash tests/e2e/parse.sh
           bash tests/e2e/nppes.sh
       - name: Stack logs on failure

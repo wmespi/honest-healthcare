@@ -175,6 +175,14 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		log.Println("🚀 Starting Anthem Bronze Layer: Index Discovery (Go)...")
 	}
 
+	// Fail before the multi-GB download, not after it: the rebuild below won't
+	// run over a file a parse is in the middle of.
+	if !schemaOnly && conn != nil {
+		if err := stopIfProcessing(ctx, conn); err != nil {
+			log.Fatalf("❌ %v", err)
+		}
+	}
+
 	cachePath := ensureIndexCached(noCache)
 
 	f, err := os.Open(cachePath)
@@ -192,12 +200,13 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 
 	decoder := json.NewDecoder(gz)
 
-	// urlToCand accumulates metadata per unique file URL. Only per-file *sets*
-	// live here — the (file, plan) pairs themselves are streamed straight out to
-	// a staging table by planStager below, because the cross-product (400k+
-	// unique plans × 10k files) does not fit in memory (Critical Rule 3).
-	// fileKey is a run-local sequential id for the URL; it is what the pair rows
-	// carry, so a staged pair costs 8 bytes instead of a ~500-byte signed URL.
+	// addrToCand accumulates metadata per file, keyed by its address (the location
+	// without its signed query). Only per-file *sets* live here — the (file, plan)
+	// pairs themselves are streamed straight out to a staging table by planStager
+	// below, because the cross-product (400k+ unique plans × 10k files) does not
+	// fit in memory (Critical Rule 3). fileKey is a run-local sequential id for
+	// the file; it is what the pair rows carry, so a staged pair costs 8 bytes
+	// instead of a ~500-byte signed URL.
 	type candidate struct {
 		fileKey       int64
 		marketTypes   map[string]struct{} // set: auto-deduplicates "individual"/"group"
@@ -206,9 +215,13 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		description   string
 		networkEntity string
 		location      string
+		address       string
 	}
-	urlToCand := make(map[string]*candidate)
+	addrToCand := make(map[string]*candidate)
 	rsCount := 0
+	// truncated is set when LIMIT stops the read with reporting structures left,
+	// so the run saw only part of the index.
+	truncated := false
 
 	// (file, plan) pairs go to a TEMP staging table as the index streams; the
 	// join back to index_files.id and the deduplication both happen set-based in
@@ -249,18 +262,20 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 				networkEntity = f.Description[:idx]
 			}
 
-			c, exists := urlToCand[f.Location]
+			addr := fileAddress(f.Location)
+			c, exists := addrToCand[addr]
 			if !exists {
 				c = &candidate{
-					fileKey:       int64(len(urlToCand)),
+					fileKey:       int64(len(addrToCand)),
 					marketTypes:   make(map[string]struct{}),
 					hiosIssuerIDs: make(map[string]struct{}),
 					planStates:    make(map[string]struct{}),
 					description:   f.Description,
 					networkEntity: networkEntity,
 					location:      f.Location,
+					address:       addr,
 				}
-				urlToCand[f.Location] = c
+				addrToCand[addr] = c
 			}
 
 			for _, plan := range rs.ReportingPlans {
@@ -338,18 +353,19 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 				}
 
 				if count%1000 == 0 {
-					log.Printf("  Scanned %d reporting structures... %d unique URLs. %s", count, len(urlToCand), pr.GetProgressString())
+					log.Printf("  Scanned %d reporting structures... %d unique files. %s", count, len(addrToCand), pr.GetProgressString())
 				}
 				if limit > 0 && count >= limit {
 					log.Printf("🛑 Limit of %d reached.", limit)
 					for decoder.More() {
+						truncated = true
 						core.SkipJSONValue(decoder)
 					}
 					break
 				}
 			}
 			decoder.Token() // ']'
-			log.Printf("  ✅ Done with 'reporting_structure'. %d unique URLs from %d reporting structures. %s", len(urlToCand), rsCount, pr.GetProgressString())
+			log.Printf("  ✅ Done with 'reporting_structure'. %d unique files from %d reporting structures. %s", len(addrToCand), rsCount, pr.GetProgressString())
 
 		} else {
 			log.Printf("  🔍 Root key '%s' — capturing for schema. %s", key, pr.GetProgressString())
@@ -383,18 +399,18 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 	}
 
 	if schemaOnly {
-		log.Printf("✅ Schema-only mode — wrote %s, skipping DB upsert. %d unique URLs seen.", schemaPath, len(urlToCand))
+		log.Printf("✅ Schema-only mode — wrote %s, skipping DB upsert. %d unique files seen.", schemaPath, len(addrToCand))
 		return
 	}
 
 	// Build candidate list from the deduplicated map.
-	candidates := make([]*candidate, 0, len(urlToCand))
-	for _, c := range urlToCand {
+	candidates := make([]*candidate, 0, len(addrToCand))
+	for _, c := range addrToCand {
 		candidates = append(candidates, c)
 	}
-	log.Printf("📥 Upserting %d unique URLs into index_files via COPY...", len(candidates))
+	log.Printf("📥 Staging %d unique files via COPY...", len(candidates))
 
-	// COPY into a temp staging table, then a single INSERT...SELECT...ON CONFLICT.
+	// COPY into a temp staging table; the queue is changed from it set-based below.
 	// file_key is the run-local id the staged (file, plan) pairs reference — it is
 	// how _plan_stage resolves to an index_files.id without carrying the URL.
 	if _, err := conn.Exec(ctx, `
@@ -407,7 +423,8 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 			reporting_entity_name TEXT,
 			reporting_entity_type TEXT,
 			description           TEXT,
-			location              TEXT NOT NULL
+			location              TEXT NOT NULL,
+			address               TEXT NOT NULL
 		)
 	`); err != nil {
 		log.Fatalf("❌ Failed to create staging table: %v", err)
@@ -439,28 +456,51 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		if c.networkEntity != "" {
 			networkEntity = c.networkEntity
 		}
-		copyRows[i] = []any{c.fileKey, marketTypes, hiosIDs, planStates, networkEntity, entityName, entityType, c.description, c.location}
+		copyRows[i] = []any{c.fileKey, marketTypes, hiosIDs, planStates, networkEntity, entityName, entityType, c.description, c.location, c.address}
 	}
 
-	cols := []string{"file_key", "market_types", "hios_issuer_ids", "plan_states", "network_entity", "reporting_entity_name", "reporting_entity_type", "description", "location"}
+	cols := []string{"file_key", "market_types", "hios_issuer_ids", "plan_states", "network_entity", "reporting_entity_name", "reporting_entity_type", "description", "location", "address"}
 	n, err := conn.CopyFrom(ctx, pgx.Identifier{"_idx_stage"}, cols, pgx.CopyFromRows(copyRows))
 	if err != nil {
 		log.Fatalf("❌ COPY to staging failed: %v", err)
 	}
 	log.Printf("  COPY loaded %d rows into staging", n)
+	if plans != nil {
+		if err := plans.flush(); err != nil {
+			log.Fatalf("❌ COPY to plan staging failed: %v", err)
+		}
+	}
+
+	// The queue changes in one transaction, so a run that stops part way leaves
+	// the queue as it was. EXCLUSIVE lets a parse read the queue but not write it
+	// until the commit, and a file a parse is already in stops the rebuild.
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		log.Fatalf("❌ Begin: %v", err)
+	}
+	defer tx.Rollback(ctx) // a no-op once committed
+	if _, err := tx.Exec(ctx, `LOCK TABLE index_files, index_file_plans IN EXCLUSIVE MODE`); err != nil {
+		log.Fatalf("❌ Lock the queue: %v", err)
+	}
+	if err := stopIfProcessing(ctx, tx); err != nil {
+		log.Fatalf("❌ %v", err)
+	}
 
 	// Drop GIN indexes before writing — maintaining them row-by-row during a bulk
 	// update is far slower than dropping and rebuilding once over all rows.
 	for _, idx := range []string{"idx_index_files_market", "idx_index_files_hios", "idx_index_files_plan_states"} {
-		if _, err := conn.Exec(ctx, "DROP INDEX IF EXISTS "+idx); err != nil {
-			log.Printf("⚠️ Could not drop index %s: %v", idx, err)
+		if _, err := tx.Exec(ctx, "DROP INDEX IF EXISTS "+idx); err != nil {
+			log.Fatalf("❌ Could not drop index %s: %v", idx, err)
 		}
 	}
 
-	// UPDATE existing rows via a join — single hash join over all rows.
-	updateTag, err := conn.Exec(ctx, `
+	// A file already in the queue keeps its id, status and parse record; what the
+	// index says about it is refreshed, its signed location included.
+	updateTag, err := tx.Exec(ctx, `
 		UPDATE index_files t
 		SET
+		    location              = s.location,
+		    description           = s.description,
 		    market_types          = s.market_types,
 		    hios_issuer_ids       = s.hios_issuer_ids,
 		    plan_states           = s.plan_states,
@@ -468,22 +508,48 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		    reporting_entity_name = COALESCE(t.reporting_entity_name, s.reporting_entity_name),
 		    reporting_entity_type = COALESCE(t.reporting_entity_type, s.reporting_entity_type)
 		FROM _idx_stage s
-		WHERE t.location = s.location
+		WHERE t.address = s.address
 	`)
 	if err != nil {
 		log.Fatalf("❌ Bulk UPDATE failed: %v", err)
 	}
 
-	// INSERT any genuinely new URLs (first run, or monthly index additions).
-	insertTag, err := conn.Exec(ctx, `
+	// INSERT the files the queue doesn't have yet (first run, or new this month).
+	insertTag, err := tx.Exec(ctx, `
 		INSERT INTO index_files (market_types, hios_issuer_ids, plan_states, network_entity, reporting_entity_name, reporting_entity_type, description, location)
 		SELECT s.market_types, s.hios_issuer_ids, s.plan_states, s.network_entity, s.reporting_entity_name, s.reporting_entity_type, s.description, s.location
 		FROM _idx_stage s
-		LEFT JOIN index_files t ON t.location = s.location
+		LEFT JOIN index_files t ON t.address = s.address
 		WHERE t.id IS NULL
 	`)
 	if err != nil {
 		log.Fatalf("❌ INSERT new rows failed: %v", err)
+	}
+
+	// A run that read the whole index makes the queue match it: the plan links are
+	// replaced with this index's, and a file it no longer lists is removed, unless
+	// it was parsed — its Parquet is keyed by its id, so its row stays, unlinked.
+	// A limited run saw only part of the index, so it only adds and updates.
+	var removed, keptParsed int64
+	if !truncated {
+		if _, err := tx.Exec(ctx, `TRUNCATE index_file_plans`); err != nil {
+			log.Fatalf("❌ Clear the plan links: %v", err)
+		}
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM index_files t
+			WHERE t.status IS DISTINCT FROM 'completed'
+			  AND NOT EXISTS (SELECT 1 FROM _idx_stage s WHERE s.address = t.address)
+		`)
+		if err != nil {
+			log.Fatalf("❌ Remove the files the index no longer lists: %v", err)
+		}
+		removed = tag.RowsAffected()
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*) FROM index_files t
+			WHERE NOT EXISTS (SELECT 1 FROM _idx_stage s WHERE s.address = t.address)
+		`).Scan(&keptParsed); err != nil {
+			log.Fatalf("❌ Count the parsed files the index no longer lists: %v", err)
+		}
 	}
 
 	// Rebuild GIN indexes once over all data — one scan is orders of magnitude
@@ -494,39 +560,75 @@ func Run(ctx context.Context, conn *pgx.Conn, limit int, noCache bool, schemaOnl
 		`CREATE INDEX idx_index_files_hios        ON index_files USING GIN(hios_issuer_ids)`,
 		`CREATE INDEX idx_index_files_plan_states ON index_files USING GIN(plan_states)`,
 	} {
-		if _, err := conn.Exec(ctx, ddl); err != nil {
-			log.Printf("⚠️ Index rebuild: %v", err)
+		if _, err := tx.Exec(ctx, ddl); err != nil {
+			log.Fatalf("❌ Index rebuild: %v", err)
 		}
 	}
 
 	// index_files now has ids, so the staged pairs can resolve file_key → id.
 	// DISTINCT ON collapses the duplicates the streaming stager could not see
-	// across batches; ON CONFLICT DO NOTHING absorbs re-runs against rows a prior
-	// discovery already linked.
-	planTag := "0 rows"
+	// across batches; ON CONFLICT DO NOTHING absorbs a limited run's pairs that
+	// a prior discovery already linked.
+	var linked int64
 	if plans != nil {
-		if err := plans.flush(); err != nil {
-			log.Fatalf("❌ COPY to plan staging failed: %v", err)
-		}
 		log.Printf("📥 Linking %d staged (file, plan) pairs into index_file_plans...", plans.staged)
-		tag, err := conn.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			INSERT INTO index_file_plans (file_id, plan_id, plan_id_type, plan_name, market_type)
 			SELECT DISTINCT ON (f.id, p.plan_id, p.plan_name, p.market_type)
 			       f.id, p.plan_id, p.plan_id_type, p.plan_name, p.market_type
 			FROM _plan_stage p
 			JOIN _idx_stage s   ON s.file_key = p.file_key
-			JOIN index_files f  ON f.location = s.location
+			JOIN index_files f  ON f.address = s.address
 			ORDER BY f.id, p.plan_id, p.plan_name, p.market_type, p.plan_id_type
 			ON CONFLICT (file_id, plan_id, plan_name, market_type) DO NOTHING
 		`)
 		if err != nil {
 			log.Fatalf("❌ index_file_plans link failed: %v", err)
 		}
-		planTag = tag.String()
+		linked = tag.RowsAffected()
 	}
 
-	log.Printf("✅ Discovery complete! Updated %s rows, inserted %s new rows, linked %s (file, plan) pairs.",
-		updateTag, insertTag, planTag)
+	if err := tx.Commit(ctx); err != nil {
+		log.Fatalf("❌ Commit: %v", err)
+	}
+
+	if truncated {
+		log.Printf("✅ Limited read: %d file(s) updated, %d added, %d new (file, plan) link(s). Nothing was removed, because the run didn't read the whole index.",
+			updateTag.RowsAffected(), insertTag.RowsAffected(), linked)
+		return
+	}
+	log.Printf("✅ The queue matches the index: %d file(s) kept, %d added, %d removed; %d (file, plan) link(s).",
+		updateTag.RowsAffected(), insertTag.RowsAffected(), removed, linked)
+	if keptParsed > 0 {
+		log.Printf("   %d parsed file(s) the index no longer lists stay in the queue, unlinked, because their Parquet uses their id.", keptParsed)
+	}
+}
+
+// fileAddress is a file's location without the query a signed URL carries
+// (index_files.address): the key a file keeps from one month's index to the next.
+func fileAddress(location string) string {
+	addr, _, _ := strings.Cut(location, "?")
+	return addr
+}
+
+// queryRower is what stopIfProcessing needs from a connection or a transaction.
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// stopIfProcessing errors when a file is 'processing': a parse is in it, or one
+// stopped part way. Discover leaves the queue alone until that's looked into
+// (Critical Rule 2).
+func stopIfProcessing(ctx context.Context, q queryRower) error {
+	var n int
+	if err := q.QueryRow(ctx, `SELECT count(*) FROM index_files WHERE status = 'processing'`).Scan(&n); err != nil {
+		return fmt.Errorf("count the files being parsed: %w", err)
+	}
+	if n > 0 {
+		return fmt.Errorf("%d file(s) are 'processing': a parse is running, or one stopped part way, "+
+			"and discover won't rebuild the queue under it (etl/queue.md#recovery)", n)
+	}
+	return nil
 }
 
 // ── (file, plan) pair staging ───────────────────────────────────────────────

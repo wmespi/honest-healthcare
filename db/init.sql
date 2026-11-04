@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS billing_codes (
 );
 
 -- ── index_files — the parse queue (Phase 1 writes, Phase 2 advances) ────────
--- One row per unique MRF URL. The plans a file serves are deliberately NOT a
+-- One row per file (its address). The plans a file serves are deliberately NOT a
 -- column here: a rate file is shared across many plans, and the per-file array
 -- is the shape that blew the heap (400k+ plans × 10k files). They live one row
 -- per (file, plan) in index_file_plans below.
@@ -29,12 +29,19 @@ CREATE TABLE IF NOT EXISTS index_files (
     network_entity TEXT,
     description TEXT,
     location TEXT NOT NULL,
+    -- The location without the query a signed URL carries: the key discover
+    -- matches each month's index on, so a file keeps its id (migration 005).
+    address TEXT GENERATED ALWAYS AS (split_part(location, '?', 1)) STORED,
     file_size_bytes BIGINT,
     status VARCHAR(20) DEFAULT 'pending',
     failure_reason TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     completed_at TIMESTAMP,
-    CONSTRAINT uq_index_files_location UNIQUE (location)
+    -- When Anthem last updated the file (Last-Modified), as parse last saw it,
+    -- and the Last-Modified of the copy the last finished parse read.
+    source_updated_at TIMESTAMPTZ,
+    parsed_updated_at TIMESTAMPTZ,
+    CONSTRAINT uq_index_files_address UNIQUE (address)
 );
 
 CREATE INDEX IF NOT EXISTS idx_index_files_status ON index_files(status);
@@ -93,15 +100,22 @@ CREATE TABLE IF NOT EXISTS coverage_log (
 
 -- ── test schema — mirrors public for isolated ETL test runs ────────────────
 -- Connected via search_path=test in TEST_DATABASE_URL. Safe to TRUNCATE or DROP.
--- `LIKE ... INCLUDING ALL` is a one-time copy — when a public column is added,
--- rebuild the test schema via the newest db/migrations/*.sql (test.* is
--- disposable by charter).
+-- `LIKE ... INCLUDING ALL` is a one-time copy; db/migrations/999_test_schema.sql
+-- rebuilds this same mirror on every `make migrate` (test.* is disposable by
+-- charter), so keep the two in step.
 CREATE SCHEMA IF NOT EXISTS test;
 
 CREATE TABLE IF NOT EXISTS test.billing_codes    (LIKE public.billing_codes    INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS test.index_files      (LIKE public.index_files      INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS test.coverage_log     (LIKE public.coverage_log     INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS test.index_file_plans (LIKE public.index_file_plans INCLUDING ALL);
+
+-- LIKE copies a SERIAL column's default still naming public's sequence, so each
+-- test table gets its own, or test inserts would use up public IDs.
+CREATE SEQUENCE IF NOT EXISTS test.index_files_id_seq OWNED BY test.index_files.id;
+ALTER TABLE test.index_files ALTER COLUMN id SET DEFAULT nextval('test.index_files_id_seq');
+CREATE SEQUENCE IF NOT EXISTS test.coverage_log_id_seq OWNED BY test.coverage_log.id;
+ALTER TABLE test.coverage_log ALTER COLUMN id SET DEFAULT nextval('test.coverage_log_id_seq');
 
 -- LIKE never copies foreign keys, so the test mirror's file_id → index_files
 -- link has to be re-declared or a TRUNCATE ... CASCADE would orphan plan rows.
@@ -110,7 +124,11 @@ ALTER TABLE test.index_file_plans
     ADD CONSTRAINT index_file_plans_file_id_fkey
     FOREIGN KEY (file_id) REFERENCES test.index_files(id) ON DELETE CASCADE;
 
--- discover.go manages these by exact name in test mode (search_path=test).
+-- discover.go manages these by exact name in test mode (search_path=test); LIKE
+-- copies them under generated names, so swap those for the real ones.
+DROP INDEX IF EXISTS test.index_files_market_types_idx;
+DROP INDEX IF EXISTS test.index_files_hios_issuer_ids_idx;
+DROP INDEX IF EXISTS test.index_files_plan_states_idx;
 CREATE INDEX IF NOT EXISTS idx_index_files_plan_states ON test.index_files USING GIN(plan_states);
 CREATE INDEX IF NOT EXISTS idx_index_files_market      ON test.index_files USING GIN(market_types);
 CREATE INDEX IF NOT EXISTS idx_index_files_hios        ON test.index_files USING GIN(hios_issuer_ids);

@@ -66,7 +66,7 @@ worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override
 
 ## ── Pipeline: discover → parse → reference → build ───────────────────────────
 
-discover: ## Phase 1 — sync the Anthem index into index_files + index_file_plans, then backfill file sizes. TEST=1 · SCHEMA=1 (index_schema.json only)
+discover: ## Phase 1 — rebuild the queue (index_files + index_file_plans) from this month's Anthem index, then backfill file sizes. TEST=1 · SCHEMA=1 (index_schema.json only)
 	docker compose exec etl go run . discover \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
@@ -120,7 +120,7 @@ test: check ## Every hermetic suite — check + serving pytest + vitest (+ ETL e
 	  .venv/bin/python -m pytest serving/tests -q && \
 	  cd frontend && npx vitest run; \
 	else \
-	  bash tests/e2e/parse.sh && bash tests/e2e/nppes.sh && \
+	  bash tests/e2e/discover.sh && bash tests/e2e/parse.sh && bash tests/e2e/nppes.sh && \
 	  docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/ -q" && \
 	  docker compose exec -T frontend sh -c "cd /app && npx vitest run"; \
 	fi
