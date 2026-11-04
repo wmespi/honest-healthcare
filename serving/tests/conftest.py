@@ -429,6 +429,7 @@ class Corpus:
         self.links = []
         self.plans = []
         self.premiums = []
+        self.zips = []
 
     def plan(self, plan_id, network_id, name, metal_level="Silver"):
         """Add a plan on `network_id` to Georgia's plan file."""
@@ -455,6 +456,13 @@ class Corpus:
                "plan_id, rating_area, age, premium, tobacco_premium",
                [(f"'{p}'", area, f"{age}::BIGINT", f"{300 + 10 * age}::DOUBLE", f"{330 + 11 * age}::DOUBLE")
                 for p, area, age in self.premiums])
+
+    def zip(self, zip_code, lat, lon):
+        """Add a ZIP's centroid to the Census file; None writes an empty coordinate."""
+        self.zips.append((zip_code, lat, lon))
+        _write(duckdb.connect(), f"{self.root}/reference/zip_centroids.parquet", "zip, lat, lon",
+               [(f"'{z}'", "NULL::DOUBLE" if a is None else f"{a}::DOUBLE",
+                 "NULL::DOUBLE" if o is None else f"{o}::DOUBLE") for z, a, o in self.zips])
 
     def _write_plans(self):
         _write(duckdb.connect(), f"{self.root}/reference/exchange_plans_ga.parquet",
@@ -505,8 +513,8 @@ class Corpus:
 @pytest.fixture()
 def corpus(tmp_path, monkeypatch):
     """Blue Value in file 21057, Pathway and an untargeted network in file 701, the
-    index linking each file to its network's plans, and Georgia's networks, plans
-    and premiums."""
+    index linking each file to its network's plans, Georgia's networks, plans and
+    premiums, and three ZIP centroids."""
     monkeypatch.delenv("DUCKDB_TMP", raising=False)
     c = Corpus(str(tmp_path))
     c.rate(21057, BLUE_VALUE)
@@ -527,5 +535,8 @@ def corpus(tmp_path, monkeypatch):
     for plan_id in ("45334GA0020002", "45334GA0020008", "49046GA0700053", "58081GA0010001"):
         c.premium(plan_id, 1)
     c.premium("45334GA0020002", 2)
+    c.zip("30308", 33.770959, -84.377736)
+    c.zip("30322", 33.794605, -84.325247)
+    c.zip("37421", 35.030393, -85.159553)
     (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
     return c

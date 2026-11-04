@@ -37,6 +37,7 @@ They always cover the targets in [`etl/targets.yaml`](../etl/targets.yaml), what
 | `networks.parquet` | one row per network a target names | `network_id`, such as `45334-GAN001`, and Georgia's exchange `name` for it. |
 | `plans.parquet` | one row per plan on those networks | `plan_id`, the HIOS plan ID such as `45334GA0020002`, with Georgia's `name` as published, `carrier`, `metal_level`, `needs_referral` and `network_id`. The index must link each plan to its network's file, or the build stops. |
 | `premiums.parquet` | one row per plan, rating area and age | `premium` and `tobacco_premium`, the monthly premium for one person, from Georgia's premium file. Each plan has premiums in every rating area it's sold in, for every age from 0 to 64, where 64 means 64 and over, or the build stops. |
+| `zips.parquet` | one row per ZIP the Census lists | `zip`, `lat` and `lon`, the point a ZIP search measures distance from. Every ZIP, not only Georgia's, because the Census file has no state and someone near the state line may search from across it. Each must be five digits with a point on the map, or the build stops. |
 
 A file prices a network when the index links it to one of the network's plans and its rates carry one of the target's `network_patterns` labels.
 The plans on a network come from Georgia's exchange plan file, and the link comes from `data/anthem/index_file_plans.parquet`, which `make discover` writes from the index it last read whole, so the build reads no database.

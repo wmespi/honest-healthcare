@@ -32,3 +32,5 @@ EXCHANGE_PLANS = Dataset("reference/exchange_plans_ga.parquet",
 # Each plan's monthly premium by rating area and age (reference/exchange-plans.md).
 EXCHANGE_PREMIUMS = Dataset("reference/exchange_premiums_ga.parquet",
                             "make reference STEP=exchange-plans")
+# Each ZIP's Census centroid: zip, lat, lon (reference/zip-centroids.md).
+ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids")
