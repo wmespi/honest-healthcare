@@ -8,12 +8,6 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/*
-!build/*.py
-!build/*.md
-# ...but `build/` is also our build step's source, its folders included.
-!build/inputs/
-!build/tables/
 develop-eggs/
 dist/
 downloads/
