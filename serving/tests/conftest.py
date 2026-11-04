@@ -769,6 +769,7 @@ def corpus(tmp_path, monkeypatch):
               33.7524, -84.382)
     c.geocode("1365 CLIFTON RD NE", "ATLANTA", "303221013", "1365 CLIFTON RD NE, ATLANTA, GA, 30322",
               33.792, -84.323)
+    c.geocode("1200 MEMORIAL DRIVE", "DALTON", "30720", "1200 MEMORIAL DR, DALTON, GA, 30720", 34.7698, -84.9702)
     (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
     c.flush()
     return c

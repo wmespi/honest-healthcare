@@ -26,13 +26,13 @@ name billing NPIs, and NPPES has no star rating, so this is the register of hosp
 ([geocode.md](geocode.md)). Comparing standardized addresses, or the street and ZIP in USPS's
 abbreviations where Census can't place one, is how a biller registered at a hospital's
 address can join that hospital. The find-care build reads this file for
-`places`, where every hospital is a place ([build.md](../build/build.md#the-find-care-tables)).
+`places`, where every hospital Census can place is a place ([build.md](../build/build.md#the-find-care-tables)).
 
 ## Not covered
 
 - Census can't place some hospital addresses, for example a highway address in a small
-  town. Those hospitals have no standardized address, and `places` puts them at their ZIP's
-  center ([known gaps](../docs/known-gaps.md#imaging)).
+  town. Those hospitals have no standardized address or point, so `places` leaves them out
+  ([known gaps](../docs/known-gaps.md#imaging)).
 - A hospital's departments and campuses share its one CCN and address.
 
 ## Re-run when CMS publishes

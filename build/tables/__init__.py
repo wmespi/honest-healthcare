@@ -1,5 +1,6 @@
 """The serving tables in the #135 ERD, one file each, named after the table, and
-written beside the old ones in build/build.py until those go.
+written beside the old ones in build/build.py until those go. unlocated_places,
+the places left off the map, is written beside them, and nothing serves it.
 
 A table's SQL reads the build-only tables in build/inputs/ by name, so
 `FROM network_files` is build/inputs/network_files.py. build/table.py holds the
@@ -18,7 +19,7 @@ from build.inputs.network_files import NetworkFiles
 from build.inputs.service_list import SERVICES_PATH, ServiceList
 from build.inputs.targets import TARGETS_PATH, Targets
 from build.tables.networks import Networks
-from build.tables.places import Places
+from build.tables.places import Places, UnlocatedPlaces
 from build.tables.plans import Plans
 from build.tables.premiums import Premiums
 from build.tables.services import Services
@@ -52,6 +53,7 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVIC
         Zips(),
         Services(),
         Places(),
+        UnlocatedPlaces(),
     ]
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)

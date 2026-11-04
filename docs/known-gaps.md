@@ -93,10 +93,11 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Imaging
 
-- **Some distances are approximate.** Census can't place about one address in eight, many of
-  them rural, and some are hospitals whose number its street ranges don't cover, such as
-  5353 Reynolds Street in Savannah. `/imaging/providers` and `places` put those at the center
-  of the ZIP code, so unrelated places in one ZIP share a point on the map.
+- **Places Census can't put on the map aren't shown.** Census can't place about one address in
+  eight, many of them rural, and some are hospitals whose number its street ranges don't cover,
+  such as 5353 Reynolds Street in Savannah. `places` leaves them out, prices there included,
+  and `make build` saves them to `unlocated_places.parquet` to try with another geocoder.
+  `/imaging/providers` measures their distance from the center of the ZIP code instead.
 - **A hospital's own billing ID can land as a practice** when its NPPES address is written
   differently from the hospital's beyond spelling, as "541 441 HISTORIC HWY N" is for "541
   HISTORIC HIGHWAY 441-NORTH", or when the hospital isn't in Hospital General Information.

@@ -1,5 +1,5 @@
 """Build-only: the place each biller in biller_rates is, if it has one."""
-from build.inputs.datasets import DOCTORS_CLINICIANS, GEOCODES, NPPES, ZIP_CENTROIDS
+from build.inputs.datasets import DOCTORS_CLINICIANS, GEOCODES, NPPES
 from build.table import Table
 
 # USPS's standard abbreviations (Publication 28) for the street words addresses
@@ -41,8 +41,9 @@ class BillerPlaces(Table):
     """A place's name and address come from the biller's own NPPES record, never
     its roster. Two addresses are one building when Census standardized them to
     the same address, or when their streets and ZIPs match once spelled the same
-    way; an address Census didn't match takes the Census address of another on
-    its street.
+    way; an address Census didn't match takes the Census address and point of
+    another on its street. A point is only ever Census's, so a place in a
+    building Census matched no address in has none.
 
     A biller in a Georgia hospital's building is that hospital, keyed on its CCN.
     Any other biller belongs to a practice: the billers in one building whose
@@ -56,43 +57,52 @@ class BillerPlaces(Table):
     name = "biller_places"
     key = ["biller"]
     columns = {"biller": "VARCHAR", "place_id": "VARCHAR", "kind": "VARCHAR", "name": "VARCHAR",
-               "address": "VARCHAR", "city": "VARCHAR", "lat": "DOUBLE", "lon": "DOUBLE"}
+               "address": "VARCHAR", "city": "VARCHAR", "zip": "VARCHAR", "lat": "DOUBLE", "lon": "DOUBLE"}
 
     def select(self, data_dir):
         return f"""
-            WITH own AS (
+            WITH listed AS (
                 SELECT b.biller, n.taxonomy_code IN (SELECT taxonomy_code FROM imaging_centers) AS center,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name ELSE d.org_name END AS name,
                        concat_ws(', ', n.address_line1, nullif(trim(n.address_line2), '')) AS address,
-                       n.city, {street("n.address_line1")} || ' ' || left(n.postal_code, 5) AS street,
-                       g.matched_address, coalesce(g.latitude, z.lat) AS lat, coalesce(g.longitude, z.lon) AS lon
+                       n.city, left(n.postal_code, 5) AS zip,
+                       {street("n.address_line1")} || ' ' || left(n.postal_code, 5) AS street,
+                       g.matched_address, g.latitude AS lat, g.longitude AS lon
                 FROM (SELECT DISTINCT biller FROM biller_rates) b
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
                 LEFT JOIN {GEOCODES.read(data_dir)} g
                   ON g.address_line1 = n.address_line1 AND coalesce(g.address_line2, '') = coalesce(n.address_line2, '')
                  AND g.city = n.city AND g.state = n.state AND g.postal_code = n.postal_code
-                LEFT JOIN {ZIP_CENTROIDS.read(data_dir)} z ON z.zip = left(n.postal_code, 5)
+            ),
+            streets AS (
+                SELECT DISTINCT ON (street) street, matched_address, lat, lon
+                FROM listed WHERE matched_address IS NOT NULL
+                ORDER BY street, matched_address, lat, lon
+            ),
+            own AS (
+                SELECT l.biller, l.center, l.name, l.address, l.city, l.zip, l.street,
+                       coalesce(l.matched_address, s.matched_address) AS matched_address,
+                       coalesce(l.lat, s.lat) AS lat, coalesce(l.lon, s.lon) AS lon
+                FROM listed l LEFT JOIN streets s USING (street)
             ),
             at_hospital AS (
-                SELECT o.biller, h.ccn, h.name, h.address, h.city, h.lat, h.lon
+                SELECT o.biller, h.ccn, h.name, h.address, h.city, left(h.postal_code, 5) AS zip, h.lat, h.lon
                 FROM own o JOIN hospitals h
                   ON o.matched_address = h.matched_address
                   OR o.street = {street("h.address")} || ' ' || left(h.postal_code, 5)
             ),
             practices AS (
                 SELECT biller, min(biller) OVER practice AS place_id, bool_or(center) OVER practice AS any_center
-                FROM (SELECT *, coalesce(matched_address, min(matched_address) OVER (PARTITION BY street), street)
-                                AS building
-                      FROM own)
+                FROM own
                 WHERE name IS NOT NULL AND biller NOT IN (SELECT biller FROM at_hospital)
-                WINDOW practice AS (PARTITION BY building, {practice_name("name")})
+                WINDOW practice AS (PARTITION BY coalesce(matched_address, street), {practice_name("name")})
             )
-            SELECT biller, ccn AS place_id, 'hospital' AS kind, name, address, city, lat, lon
+            SELECT biller, ccn AS place_id, 'hospital' AS kind, name, address, city, zip, lat, lon
             FROM at_hospital
             UNION ALL
             SELECT p.biller, p.place_id, CASE WHEN p.any_center THEN 'imaging_center' ELSE 'practice' END,
-                   o.name, o.address, o.city, o.lat, o.lon
+                   o.name, o.address, o.city, o.zip, o.lat, o.lon
             FROM practices p JOIN own o ON o.biller = p.place_id
         """
 
