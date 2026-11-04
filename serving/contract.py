@@ -75,7 +75,7 @@ class Place(BaseModel):
     The most you'd pay is its parts added up, and it's empty when any part has
     no price, because then nobody can say what the whole bill could be.
     """
-    place_id: str = Field(description="The CCN for a hospital, the billing NPI for a practice.")
+    place_id: str = Field(description="The CCN for a hospital, the lowest billing NPI for a practice.")
     name: str
     kind: PlaceKind
     address: str

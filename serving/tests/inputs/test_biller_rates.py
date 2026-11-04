@@ -45,7 +45,6 @@ def test_a_billing_id_that_is_not_an_npi_stops_the_build(corpus):
         corpus.build()
 
 
-
 def test_a_registered_center_does_its_kind_of_scan_without_a_medicare_record(corpus):
     # 1000000010 is an MRI center Medicare has no record of, priced for an MRI and a
     # mammogram. 1000000011 is a mammography center whose doctor Medicare shows
