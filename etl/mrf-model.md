@@ -119,9 +119,8 @@ Blue Value shows why the network label isn't enough. `GA_JBNKMED0001` and
 `GA_JBKEMED0001` both carry `GA Blue Value HIX Individual Network`, but they serve
 different plan IDs at different prices: `GA_JBKEMED0001` prices only `45334GA0010112`,
 an older plan that isn't on Georgia's exchange. The rest of the files linked to the
-plan are out-of-state BlueCard copies that don't carry its label. So `etl parse`
-selects files by the plan IDs on the target exchange networks
-([parse.md](parse.md#target-selection)), never by plan name or label.
+plan are out-of-state BlueCard copies that don't carry its label. So `etl/targets.yaml` names each plan's file, and `etl parse` stops unless the index links it to the plan IDs on the target exchange networks ([parse.md](parse.md#target-selection)).
+A label never selects a file.
 The build then prices each network with the rates under its target's label, and
 stops if more than one parsed file carries that label
 ([build.md](../build/build.md#the-find-care-tables)).

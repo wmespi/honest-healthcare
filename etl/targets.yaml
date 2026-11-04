@@ -1,53 +1,61 @@
 # Target plans: the plans this project is trying to price.
 #
-# `etl parse` selects a pending file because the master index says that file
-# prices one of these plans (the index_file_plans link `etl discover` writes),
-# not because of what its filename looks like. Add a target here and the next
-# `make parse` picks up its files; nothing else has to change.
+# `etl parse` downloads only the files named here. The master index links each
+# plan to many more files than the one that prices it, and none of those is
+# downloaded, even when it hasn't been parsed yet.
 #
 #   exchange_networks  Network IDs from Georgia's exchange plan file, issuer and
 #                      network ("45334-GAN001"; reference/exchange-plans.md).
-#                      Every plan on them is a target plan, so a file is parsed
-#                      when it prices a plan someone can buy on one of them.
+#                      Every plan on them is a target plan.
 #                      `make reference STEP=exchange-plans` has to have run.
 #
-# A second list says what the plan's rates should *look like* once a selected
-# file is opened:
+#   files              The insurer files that price those plans, each by the
+#                      last part of its index location, without the query
+#                      ("GA_JBNKMED0001.json.gz"). Parse stops unless the index
+#                      links each one to a plan on the target's networks (the
+#                      index_file_plans link `etl discover` writes), so a file
+#                      that prices only a plan no longer sold can't be named by
+#                      mistake.
+#
+# A third list says what the plan's rates should *look like* once a named file
+# is opened:
 #
 #   network_patterns   The `provider_references[].network_name` labels this
 #                      plan's rates carry, `*`-wildcarded, case-insensitive.
 #                      This is the parse probe's network signal (etl/parse.md
-#                      "The provider probe"), not a row filter: a file the index
-#                      links to the plan but whose provider_references carry
-#                      none of these labels is abandoned before `in_network` is
-#                      read, and marked `skipped`. Every network in a file that
-#                      passes is written; the build step selects.
+#                      "The provider probe"), not a row filter: a named file
+#                      whose provider_references carry none of these labels is
+#                      abandoned before `in_network` is read, and marked
+#                      `skipped`. Every network in a file that passes is
+#                      written; the build step selects.
 #                      Omit it and that file is streamed in full.
 #                      The build prices each exchange network with the rates
 #                      under these labels, and stops unless exactly one parsed
 #                      file carries them (build/build.md).
 #
 # See etl/discover.md (how the plan→file link is captured) and etl/parse.md (how
-# it is selected on, and what the probe does with network_patterns).
+# parse selects and checks the named files).
 
 targets:
   - name: Anthem Blue Value
     # The primary use case (AGENTS.md): Anthem's individual HMOs on the Blue
-    # Value network in Georgia, 8 plans in 2026. Their rates carry the network
-    # label "GA Blue Value HIX Individual Network". The index also links them to
-    # about 250 national BlueCard-mirror shards, which list Georgia NPIs too, so
-    # provider overlap alone waves them through; they were ~40 GB of download
-    # that ended in a rollback. The label is what stops them at the front of the
-    # stream.
+    # Value network in Georgia. Their rates carry the network label
+    # "GA Blue Value HIX Individual Network". The index also links them to
+    # about 250 out-of-state BlueCard shards, which list Georgia NPIs too; they
+    # were ~40 GB of download that ended in a rollback, so they aren't named.
     exchange_networks:
       - "45334-GAN001"
+    files:
+      - "GA_JBNKMED0001.json.gz"
     network_patterns:
       - "GA Blue Value HIX*"
 
   - name: Anthem Pathway PCP Copay Choice
     # A second Georgia individual network, so the plan picker has a real choice.
-    # Same index shape as Blue Value: the label is what finds the file.
+    # Same index shape as Blue Value.
     exchange_networks:
       - "49046-GAN008"
+    files:
+      - "GA_JBLDMEDTR01.json.gz"
     network_patterns:
       - "Pathway PCP Copay Choice*"

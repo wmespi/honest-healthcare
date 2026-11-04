@@ -27,8 +27,8 @@ The probe: [parse.md](parse.md#the-provider-probe).
 
 ## Selection and order
 
-The queue is the pending rows the master index links to a plan in
-[`targets.yaml`](targets.yaml), via `index_file_plans` — exact, not a ranking
+The queue is the pending files [`targets.yaml`](targets.yaml) names, and the master index
+has to link each one to a target plan via `index_file_plans`; nothing else is downloaded
 ([parse.md](parse.md#target-selection) has the query and the escape hatches).
 Order is `file_size_bytes ASC NULLS LAST, id` (smallest first, fast feedback); every
 parse writes the GET's `Content-Length` to `file_size_bytes`, and `make discover`

@@ -606,48 +606,81 @@ type pendingFile struct {
 }
 
 // pendingFiles resolves the queue for this run: either the explicit -file-ids,
-// or the pending rows the master index links to a target plan ID. planIDs == nil
-// means no target restriction (every pending row).
-func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, planIDs []string) ([]pendingFile, error) {
-	const cols = `SELECT f.id, f.location, COALESCE(array_to_string(f.market_types, ' | '), '') FROM index_files f`
-	var query string
-	var args []any
+// or the pending files the targets name, each of which the master index has to
+// link to a plan on its target's networks (planIDs, by target name).
+func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, targets *TargetSet, planIDs map[string][]string) ([]pendingFile, error) {
 	if len(opts.FileIDs) > 0 {
 		// One-off runs bypass target selection entirely — that is the whole point
 		// of -file-ids (re-parse a known file, parse a fixture, probe a shard).
-		query = cols + ` WHERE f.id = ANY($1) ORDER BY f.id`
-		args = []any{opts.FileIDs}
-	} else {
-		where := `f.status = 'pending'`
-		nextArg := 1
-		if planIDs != nil {
-			// EXISTS, not a join: a file serving 40k employer plans must still
-			// appear once, and the semi-join stops at the first matching plan.
-			where += ` AND EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND ` + planMatchSQL("p", nextArg) + `)`
-			args = append(args, planIDs)
-			nextArg++
+		rows, err := conn.Query(ctx, `SELECT f.id, f.location, COALESCE(array_to_string(f.market_types, ' | '), '')
+			FROM index_files f WHERE f.id = ANY($1) ORDER BY f.id`, opts.FileIDs)
+		if err != nil {
+			return nil, err
 		}
-		query = cols + ` WHERE ` + where + ` ORDER BY f.file_size_bytes ASC NULLS LAST, f.id`
-		if opts.Limit > 0 {
-			query += fmt.Sprintf(` LIMIT $%d`, nextArg)
-			args = append(args, opts.Limit)
+		defer rows.Close()
+		var files []pendingFile
+		for rows.Next() {
+			var f pendingFile
+			if err := rows.Scan(&f.ID, &f.Location, &f.PlanName); err != nil {
+				log.Printf("⚠️ Failed to scan row: %v", err)
+				continue
+			}
+			files = append(files, f)
+		}
+		return files, rows.Err()
+	}
+	// Otherwise only the files the targets name, each checked against the index.
+	var files []pendingFile
+	seen := map[int]bool{}
+	for _, t := range targets.Targets {
+		rows, err := namedRows(ctx, conn, t, planIDs[t.Name])
+		if err != nil {
+			return nil, err
+		}
+		picked, err := pickNamed(targets.Path, t, rows)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range picked {
+			if !seen[f.ID] {
+				seen[f.ID] = true
+				files = append(files, f)
+			}
 		}
 	}
-	rows, err := conn.Query(ctx, query, args...)
+	if opts.Limit > 0 && len(files) > opts.Limit {
+		files = files[:opts.Limit]
+	}
+	return files, nil
+}
+
+// fileNameSQL is a queue row's file name: the last part of its location, without
+// the query a signed URL carries (`GA_JBNKMED0001.json.gz`).
+const fileNameSQL = `regexp_replace(split_part(f.location, '?', 1), '^.*/', '')`
+
+// namedRows reads the queue rows whose file name the target names, smallest
+// first, and whether the index links each one to one of planIDs.
+func namedRows(ctx context.Context, conn *pgx.Conn, t Target, planIDs []string) ([]queueRow, error) {
+	rows, err := conn.Query(ctx, `
+		SELECT f.id, f.location, COALESCE(array_to_string(f.market_types, ' | '), ''),
+		       `+fileNameSQL+`, COALESCE(f.status, ''),
+		       EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND `+planMatchSQL("p", 2)+`)
+		FROM index_files f
+		WHERE `+fileNameSQL+` = ANY($1)
+		ORDER BY f.file_size_bytes ASC NULLS LAST, f.id`, t.Files, planIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var files []pendingFile
+	var out []queueRow
 	for rows.Next() {
-		var f pendingFile
-		if err := rows.Scan(&f.ID, &f.Location, &f.PlanName); err != nil {
-			log.Printf("⚠️ Failed to scan row: %v", err)
-			continue
+		var r queueRow
+		if err := rows.Scan(&r.ID, &r.Location, &r.PlanName, &r.Name, &r.Status, &r.Linked); err != nil {
+			return nil, err
 		}
-		files = append(files, f)
+		out = append(out, r)
 	}
-	return files, rows.Err()
+	return out, rows.Err()
 }
 
 // Run is Phase 2: stream pending MRF files into Parquet (+ a little Postgres).
@@ -661,31 +694,34 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 		return err
 	}
 	switch {
+	case targets == nil && len(opts.FileIDs) == 0:
+		return fmt.Errorf(`no targets file and no -file-ids: parse downloads only the files etl/targets.yaml or -file-ids names, never every pending file`)
 	case targets == nil:
-		log.Println("⚠️ no target-plan filter — taking every pending file")
+		log.Println("⚠️ no targets file — the probe has no network signal")
 	case len(opts.FileIDs) > 0:
 		log.Printf("🎯 targets %s loaded — not used to select (-file-ids given), still used by the probe", targets.Path)
 	default:
 		log.Printf("🎯 target plans from %s: %s", targets.Path, strings.Join(targets.Names(), ", "))
 	}
 
-	// The target plans are every plan on the targets' exchange networks. A
-	// -file-ids run doesn't select, so it doesn't need Georgia's plan file.
-	var planIDs []string
+	// The files a target names have to price a plan on its exchange networks, so
+	// each target's plans come from Georgia's plan file. A -file-ids run doesn't
+	// select, so it doesn't need that file.
+	var planIDs map[string][]string
 	if targets != nil && len(opts.FileIDs) == 0 {
 		if planIDs, err = targets.PlanIDs(core.ExchangePlansPath); err != nil {
 			return err
 		}
-		log.Printf("🎯 %d plan(s) on the target exchange networks", len(planIDs))
+		log.Printf("🎯 %d plan(s) on the target exchange networks", len(allPlanIDs(planIDs)))
 	}
 
-	files, err := pendingFiles(ctx, conn, opts, planIDs)
+	files, err := pendingFiles(ctx, conn, opts, targets, planIDs)
 	if err != nil {
-		return fmt.Errorf("query pending files: %w", err)
+		return fmt.Errorf("select files: %w", err)
 	}
 	if len(files) == 0 {
-		if targets != nil && len(opts.FileIDs) == 0 {
-			log.Printf("✅ No pending files serve a plan in %s. Run 'etl discover' first, all target files are already completed, or the target list needs another plan.", targets.Path)
+		if len(opts.FileIDs) == 0 {
+			log.Printf("✅ Every file %s names is already parsed or skipped.", targets.Path)
 			return nil
 		}
 		log.Println("✅ No pending files found in index_files. Run 'etl discover' first, or all files are already completed.")
@@ -755,7 +791,7 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	if !opts.DryRun {
 		writeNPILookup(seenNPIs)
 	}
-	return guardAgainstSilentSkip(ctx, conn, opts, targets, planIDs, outcomes)
+	return guardAgainstSilentSkip(ctx, conn, opts, targets, allPlanIDs(planIDs), outcomes)
 }
 
 // guardAgainstSilentSkip turns the probe's quietest failure mode — every file

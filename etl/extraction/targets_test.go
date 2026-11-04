@@ -37,6 +37,13 @@ func TestLoadTargets_ShippedFile(t *testing.T) {
 	if !slices.Contains(networks, "45334-GAN001") {
 		t.Errorf("shipped targets.yaml no longer names Blue Value's exchange network 45334-GAN001: %v", networks)
 	}
+	var files []string
+	for _, tg := range ts.Targets {
+		files = append(files, tg.Files...)
+	}
+	if !slices.Contains(files, "GA_JBNKMED0001.json.gz") {
+		t.Errorf("shipped targets.yaml no longer names Blue Value's file GA_JBNKMED0001.json.gz: %v", files)
+	}
 
 	// The probe's network signal is only as good as the shipped patterns: drop
 	// them and every BlueCard shard the index links to Blue Value is downloaded
@@ -58,9 +65,11 @@ func TestNetworkMatcher(t *testing.T) {
 targets:
   - name: Blue Value
     exchange_networks: ["45334-GAN001"]
+    files: ["GA_JBNKMED0001.json.gz"]
     network_patterns: ["GA Blue Value HIX*", "  ", "GA Blue Value HIX*"]
   - name: Other
     exchange_networks: ["49046-GAN008"]
+    files: ["GA_JBLDMEDTR01.json.gz"]
     network_patterns: ["EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"]
 `)
 	ts, err := LoadTargets(path)
@@ -97,7 +106,7 @@ targets:
 // A target list with no network_patterns must leave the probe's network signal
 // off rather than matching nothing — that would abort every file.
 func TestNetworkMatcher_AbsentIsNoSignal(t *testing.T) {
-	path := writeTargets(t, "targets:\n  - name: Blue Value\n    exchange_networks: [\"45334-GAN001\"]\n")
+	path := writeTargets(t, "targets:\n  - name: Blue Value\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"GA_JBNKMED0001.json.gz\"]\n")
 	ts, err := LoadTargets(path)
 	if err != nil {
 		t.Fatalf("LoadTargets: %v", err)
@@ -151,6 +160,11 @@ func TestLoadTargets_Rejects(t *testing.T) {
 		"empty list":       "targets: []\n",
 		"unnamed target":   "targets:\n  - exchange_networks: [\"45334-GAN001\"]\n",
 		"matches nothing":  "targets:\n  - name: Ghost\n",
+		"names no files":   "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n",
+		"a blank file":     "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\" \"]\n",
+		"a file's folder":  "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"anthem/GA_JBNKMED0001.json.gz\"]\n",
+		"a file's query":   "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"GA_JBNKMED0001.json.gz?Expires=1\"]\n",
+		"one name twice":   "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"A.json.gz\"]\n  - name: BV\n    exchange_networks: [\"49046-GAN008\"]\n    files: [\"B.json.gz\"]\n",
 		"not valid yaml":   "targets: [\n",
 		"missing the file": "",
 	}
@@ -197,8 +211,10 @@ func TestPlanIDs(t *testing.T) {
 targets:
   - name: Blue Value
     exchange_networks: ["45334-GAN001"]
+    files: ["GA_JBNKMED0001.json.gz"]
   - name: Pathway PCP Copay Choice
     exchange_networks: ["49046-GAN008"]
+    files: ["GA_JBLDMEDTR01.json.gz"]
 `))
 	if err != nil {
 		t.Fatalf("LoadTargets: %v", err)
@@ -207,9 +223,14 @@ targets:
 	if err != nil {
 		t.Fatalf("PlanIDs: %v", err)
 	}
-	want := []string{"45334GA0020002", "45334GA0020008", "49046GA0700053"}
-	if !slices.Equal(got, want) {
-		t.Errorf("PlanIDs = %v, want %v", got, want)
+	if want := []string{"45334GA0020002", "45334GA0020008"}; !slices.Equal(got["Blue Value"], want) {
+		t.Errorf("PlanIDs[Blue Value] = %v, want %v", got["Blue Value"], want)
+	}
+	if want := []string{"49046GA0700053"}; !slices.Equal(got["Pathway PCP Copay Choice"], want) {
+		t.Errorf("PlanIDs[Pathway PCP Copay Choice] = %v, want %v", got["Pathway PCP Copay Choice"], want)
+	}
+	if all := allPlanIDs(got); !slices.Equal(all, []string{"45334GA0020002", "45334GA0020008", "49046GA0700053"}) {
+		t.Errorf("allPlanIDs = %v", all)
 	}
 	if sql := planMatchSQL("p", 3); sql != "p.plan_id = ANY($3)" {
 		t.Errorf("planMatchSQL = %q", sql)
@@ -218,7 +239,7 @@ targets:
 
 func TestPlanIDs_Rejects(t *testing.T) {
 	plans := writePlans(t)
-	stale, err := LoadTargets(writeTargets(t, "targets:\n  - name: Gone\n    exchange_networks: [\"45334-GAN009\"]\n"))
+	stale, err := LoadTargets(writeTargets(t, "targets:\n  - name: Gone\n    exchange_networks: [\"45334-GAN009\"]\n    files: [\"GA_GONE.json.gz\"]\n"))
 	if err != nil {
 		t.Fatalf("LoadTargets: %v", err)
 	}
@@ -250,6 +271,52 @@ func TestResolveTargetsPath_BothWorkingDirs(t *testing.T) {
 			}
 			if _, err := resolveTargetsPath(DefaultTargetsPath); err != nil {
 				t.Errorf("resolveTargetsPath(%q) from %s: %v", DefaultTargetsPath, dir, err)
+			}
+		})
+	}
+}
+
+// Parse downloads only the files a target names, and only while the index links
+// each one to a plan on the target's networks.
+func TestPickNamed(t *testing.T) {
+	bv := Target{Name: "Blue Value", ExchangeNetworks: []string{"45334-GAN001"},
+		Files: []string{"GA_JBNKMED0001.json.gz", "GA_NEW.json.gz"}}
+	row := func(id int, name, status string, linked bool) queueRow {
+		return queueRow{pendingFile: pendingFile{ID: id, Location: "https://x/" + name}, Name: name, Status: status, Linked: linked}
+	}
+
+	got, err := pickNamed("targets.yaml", bv, []queueRow{
+		row(21057, "GA_JBNKMED0001.json.gz", "completed", true),
+		row(40000, "GA_NEW.json.gz", "pending", true),
+	})
+	if err != nil {
+		t.Fatalf("pickNamed: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 40000 {
+		t.Errorf("pickNamed = %+v, want only the pending file 40000", got)
+	}
+
+	rejects := map[string]struct {
+		rows []queueRow
+		want string
+	}{
+		"a name not in the queue": {
+			[]queueRow{row(21057, "GA_JBNKMED0001.json.gz", "completed", true)},
+			"names GA_NEW.json.gz, which isn't in the queue"},
+		"a name on two rows": {
+			[]queueRow{row(21057, "GA_JBNKMED0001.json.gz", "completed", true), row(40000, "GA_NEW.json.gz", "pending", true),
+				row(40001, "GA_NEW.json.gz", "pending", true)},
+			"matches queue rows [40000 40001]"},
+		// GA_JBKEMED0001 carries Blue Value's label, but the index links it only
+		// to a plan no longer sold.
+		"a file that prices another plan": {
+			[]queueRow{row(21057, "GA_JBNKMED0001.json.gz", "completed", true), row(40000, "GA_NEW.json.gz", "pending", false)},
+			"names GA_NEW.json.gz (file 40000), but the index doesn't link it to a plan on 45334-GAN001"},
+	}
+	for name, c := range rejects {
+		t.Run(name, func(t *testing.T) {
+			if _, err := pickNamed("targets.yaml", bv, c.rows); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("pickNamed gave %v, want an error containing %q", err, c.want)
 			}
 		})
 	}

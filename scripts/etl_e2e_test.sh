@@ -18,7 +18,8 @@ cleanup() {
   "${PSQL[@]}" -c "TRUNCATE test.index_file_plans, test.index_files, test.billing_codes, test.coverage_log RESTART IDENTITY;" >/dev/null 2>&1 || true
   # Delete through the etl container — it wrote these files as root, so a host-side
   # rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
-  docker compose exec -T etl rm -rf /app/data-test/anthem 2>/dev/null || rm -rf data-test/anthem
+  docker compose exec -T etl rm -rf /app/data-test/anthem /app/data-test/reference/exchange_plans_ga.parquet \
+    /app/data-test/e2e_targets.yaml 2>/dev/null || rm -rf data-test/anthem data-test/e2e_targets.yaml
 }
 trap cleanup EXIT
 
@@ -70,5 +71,26 @@ STATUS=$("${PSQL[@]}" -c "SELECT status FROM test.index_files WHERE id = $FILE_I
 COV=$("${PSQL[@]}" -c "SELECT n_rate_rows || '/' || n_new_billing_codes || '/' || array_to_string(network_names, ',') FROM test.coverage_log WHERE file_id = $FILE_ID;")
 echo "   coverage_log (rates/newcodes/networks): $COV"
 [ -n "$COV" ] || { echo "FAIL: no coverage_log row"; exit 1; }
+
+echo "→ parse downloads only the files a targets file names"
+# Both files are pending and the index links both to a Blue Value plan, the way
+# it links Blue Value to out-of-state shards. Only the named one is tried (its
+# address refuses, so it fails fast); the other is never touched.
+docker compose exec -T serving python3 -c "
+import os, duckdb
+os.makedirs('/app/data-test/reference', exist_ok=True)
+duckdb.connect().execute(\"COPY (SELECT '45334GA0020008' AS plan_id, '45334-GAN001' AS network_id) TO '/app/data-test/reference/exchange_plans_ga.parquet' (FORMAT parquet)\")
+"
+NAMED=$("${PSQL[@]}" -c "INSERT INTO test.index_files (location) VALUES ('http://127.0.0.1:9/GA_NAMED.json.gz') RETURNING id;")
+SHARD=$("${PSQL[@]}" -c "INSERT INTO test.index_files (location) VALUES ('http://127.0.0.1:9/2026-10_301_71B0_in-network-rates_01_of_02.json.gz?Expires=1') RETURNING id;")
+"${PSQL[@]}" -c "INSERT INTO test.index_file_plans (file_id, plan_id, plan_id_type)
+                 VALUES ($NAMED, '45334GA0020008', 'HIOS'), ($SHARD, '45334GA0020008', 'HIOS');"
+printf 'targets:\n  - name: Blue Value\n    exchange_networks: ["45334-GAN001"]\n    files: ["GA_NAMED.json.gz"]\n' > data-test/e2e_targets.yaml
+docker compose exec -T etl go run . parse -test -targets ../data-test/e2e_targets.yaml || true
+NAMED_STATUS=$("${PSQL[@]}" -c "SELECT status FROM test.index_files WHERE id = $NAMED;")
+SHARD_STATUS=$("${PSQL[@]}" -c "SELECT status FROM test.index_files WHERE id = $SHARD;")
+echo "   named file: $NAMED_STATUS  unnamed file: $SHARD_STATUS"
+[ "$NAMED_STATUS" = "failed" ] || { echo "FAIL: the named file wasn't tried (status=$NAMED_STATUS)"; exit 1; }
+[ "$SHARD_STATUS" = "pending" ] || { echo "FAIL: parse touched a file the targets don't name (status=$SHARD_STATUS)"; exit 1; }
 
 echo "PASS"

@@ -2,16 +2,19 @@ package extraction
 
 // Target-plan selection: which pending files does `etl parse` pull, and why.
 //
-// The master index says which plan IDs a file prices (`etl discover` keeps that
-// in index_file_plans), and Georgia's exchange plan file says which plan IDs are
-// on each provider network (`make reference STEP=exchange-plans`). A target names
-// exchange networks, so a file is parsed when it prices a plan someone can buy on
-// one of them.
+// A target names the insurer files to parse, and nothing else is downloaded,
+// even a file the index links to the same plans. The master index says which
+// plan IDs a file prices (`etl discover` keeps that in index_file_plans), and
+// Georgia's exchange plan file says which plan IDs are on each provider network
+// (`make reference STEP=exchange-plans`), so parse stops unless the index links
+// each named file to a plan someone can buy on one of the target's networks.
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,6 +32,11 @@ type Target struct {
 	// ExchangeNetworks are network IDs from Georgia's exchange plan file, issuer
 	// and network (`45334-GAN001`). Every plan on them is a target plan.
 	ExchangeNetworks []string `yaml:"exchange_networks"`
+	// Files are the insurer files that price the target's plans, each by the
+	// last part of its index location without the query (`GA_JBNKMED0001.json.gz`).
+	// Parse downloads only these, and only while the index links each one to a
+	// plan on the target's networks.
+	Files []string `yaml:"files"`
 	// NetworkPatterns are the `provider_references[].network_name` labels this
 	// plan's rates are expected to carry, `*`-wildcarded and matched
 	// case-insensitively. They are not a row filter — every network in a file
@@ -85,12 +93,27 @@ func LoadTargets(path string) (*TargetSet, error) {
 	if len(ts.Targets) == 0 {
 		return nil, fmt.Errorf("%s lists no targets — parse would select nothing", resolved)
 	}
+	names := map[string]bool{}
 	for i, t := range ts.Targets {
 		if strings.TrimSpace(t.Name) == "" {
 			return nil, fmt.Errorf("%s: target %d has no name", resolved, i+1)
 		}
+		if names[t.Name] {
+			return nil, fmt.Errorf("%s: two targets are named %q", resolved, t.Name)
+		}
+		names[t.Name] = true
 		if len(t.ExchangeNetworks) == 0 {
 			return nil, fmt.Errorf("%s: target %q lists no exchange_networks, so it would match nothing", resolved, t.Name)
+		}
+		if len(t.Files) == 0 {
+			return nil, fmt.Errorf("%s: target %q names no files, so parse would download nothing for it", resolved, t.Name)
+		}
+		for j, f := range t.Files {
+			f = strings.TrimSpace(f)
+			if f == "" || strings.ContainsAny(f, "/?") {
+				return nil, fmt.Errorf("%s: target %q names file %q; give only the last part of its location, with no folder or query", resolved, t.Name, f)
+			}
+			ts.Targets[i].Files[j] = f
 		}
 	}
 	return &ts, nil
@@ -194,10 +217,11 @@ type exchangePlan struct {
 	NetworkID string `parquet:"network_id"`
 }
 
-// PlanIDs reads Georgia's exchange plan file and returns every plan ID on the
-// targets' networks, sorted. A missing file, or a target network with no plans
-// in it, is an error: selecting on an empty list would quietly parse nothing.
-func (ts *TargetSet) PlanIDs(plansPath string) ([]string, error) {
+// PlanIDs reads Georgia's exchange plan file and returns, for each target by
+// name, every plan ID on its networks, sorted. A missing file, or a target
+// network with no plans in it, is an error: checking a file against an empty
+// list would reject every file for the wrong reason.
+func (ts *TargetSet) PlanIDs(plansPath string) (map[string][]string, error) {
 	rows, err := parquet.ReadFile[exchangePlan](plansPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s (run `make reference STEP=exchange-plans`): %w", plansPath, err)
@@ -206,8 +230,9 @@ func (ts *TargetSet) PlanIDs(plansPath string) ([]string, error) {
 	for _, r := range rows {
 		byNetwork[r.NetworkID] = append(byNetwork[r.NetworkID], r.PlanID)
 	}
-	var ids []string
+	byTarget := map[string][]string{}
 	for _, t := range ts.Targets {
+		var ids []string
 		for _, n := range t.ExchangeNetworks {
 			plans, ok := byNetwork[strings.TrimSpace(n)]
 			if !ok {
@@ -215,9 +240,61 @@ func (ts *TargetSet) PlanIDs(plansPath string) ([]string, error) {
 			}
 			ids = append(ids, plans...)
 		}
+		sort.Strings(ids)
+		byTarget[t.Name] = ids
+	}
+	return byTarget, nil
+}
+
+// allPlanIDs is every target's plan IDs in one sorted list, or nil for none.
+func allPlanIDs(byTarget map[string][]string) []string {
+	var ids []string
+	for _, plans := range byTarget {
+		ids = append(ids, plans...)
 	}
 	sort.Strings(ids)
-	return ids, nil
+	return slices.Compact(ids)
+}
+
+// queueRow is a queue row whose file name a target names.
+type queueRow struct {
+	pendingFile
+	Name   string
+	Status string
+	Linked bool // the index links it to a plan on the target's networks
+}
+
+// pickNamed checks the queue rows found for a target's files and returns the
+// pending ones, in the order given. It stops unless every file the target names
+// is in the queue exactly once and the index links it to one of the target's
+// plans, so a mistyped name or a file that prices another plan can't slip by.
+func pickNamed(path string, t Target, rows []queueRow) ([]pendingFile, error) {
+	ids := map[string][]int{}
+	for _, r := range rows {
+		ids[r.Name] = append(ids[r.Name], r.ID)
+	}
+	for _, name := range t.Files {
+		switch len(ids[name]) {
+		case 0:
+			return nil, fmt.Errorf("%s: target %q names %s, which isn't in the queue: run `make discover`, or check the name against the index", path, t.Name, name)
+		case 1:
+		default:
+			return nil, fmt.Errorf("%s: target %q names %s, which matches queue rows %v; it has to match one", path, t.Name, name, ids[name])
+		}
+	}
+	var pending []pendingFile
+	for _, r := range rows {
+		if !r.Linked {
+			return nil, fmt.Errorf("%s: target %q names %s (file %d), but the index doesn't link it to a plan on %s, so it doesn't price the target's plans",
+				path, t.Name, r.Name, r.ID, strings.Join(t.ExchangeNetworks, ", "))
+		}
+		if r.Status == "pending" {
+			pending = append(pending, r.pendingFile)
+		} else {
+			log.Printf("🎯 %s (file %d) is %s, so it isn't downloaded", r.Name, r.ID, r.Status)
+		}
+	}
+	return pending, nil
 }
 
 // planMatchSQL is the condition that an index_file_plans row (aliased alias)
