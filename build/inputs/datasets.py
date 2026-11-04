@@ -32,5 +32,10 @@ EXCHANGE_PLANS = Dataset("reference/exchange_plans_ga.parquet",
 # Each plan's monthly premium by rating area and age (reference/exchange-plans.md).
 EXCHANGE_PREMIUMS = Dataset("reference/exchange_premiums_ga.parquet",
                             "make reference STEP=exchange-plans")
+# Medicare's physician fee schedule in Georgia, by code, modifier, place of
+# service and payment area (reference/mpfs.md).
+MPFS = Dataset("reference/mpfs_ga.parquet", "make reference STEP=mpfs")
+# Medicare's national hospital outpatient rate by code (reference/opps.md).
+OPPS = Dataset("reference/opps.parquet", "make reference STEP=opps")
 # Each ZIP's Census centroid: zip, lat, lon (reference/zip-centroids.md).
 ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids")

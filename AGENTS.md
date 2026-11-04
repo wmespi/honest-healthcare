@@ -157,6 +157,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Discovery — monthly index sync, the plan→file link, the queue, monthly churn | [etl/discover.md](etl/discover.md) |
 | Extraction — target selection, the parser, network attribution, GA NPI filter, Parquet writers | [etl/parse.md](etl/parse.md) |
 | Which plans we parse files for | [etl/targets.yaml](etl/targets.yaml) |
+| The services the find-care screen offers, and what it says about each | [build/services.yaml](build/services.yaml) |
 | Queue selection, ordering, recovering stuck rows | [etl/queue.md](etl/queue.md) |
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |

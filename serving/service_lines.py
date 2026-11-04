@@ -64,6 +64,10 @@ SERVICE_LINES = {
     "imaging": IMAGING_TAXONOMY_CODES,
 }
 
+# The old imaging page's menu: (CPT, plain-language label, group). The find-care
+# screen's services, with their text, live in build/services.yaml; this list
+# goes with the imaging page in step 11 of #135.
+#
 # The scans a patient actually shops for: (CPT, plain-language label, group).
 # A short list on purpose — common outpatient imaging, one row per question a
 # patient asks ("how much is a knee MRI"), not the whole CPT radiology chapter.
