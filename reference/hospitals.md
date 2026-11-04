@@ -24,8 +24,8 @@ name billing NPIs, and NPPES has no star rating, so this is the register of hosp
 `make reference STEP=geocode` sends each hospital's address to Census too, so
 `geocode_addresses.parquet` holds its coordinates and Census's standardized address
 ([geocode.md](geocode.md)). Comparing standardized addresses is how a biller registered at
-a hospital's address can join that hospital. Nothing else reads this file yet; the
-`places` table on #135 will.
+a hospital's address can join that hospital. The find-care build reads this file for
+`places`, where every hospital is a place ([build.md](../build/build.md#the-find-care-tables)).
 
 ## Not covered
 

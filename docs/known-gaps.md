@@ -45,6 +45,9 @@ Where the product is headed: [direction.md](direction.md) and epic
   `GREATEST($1.00, 5% × the code's rate_hist median)` — deliberately loose, so a
   genuinely cheap contract survives. `rate_hist` still counts them. Tighter cut:
   [#51](https://github.com/wmespi/honest-healthcare/issues/51).
+- **A practice in `places` has no phone number.** The NPPES extract
+  ([etl/nppes.md](../etl/nppes.md)) doesn't keep the practice location's phone, so only
+  hospitals, from Hospital General Information, have one.
 - **`/networks` is not scoped** — it answers "what's priced in this network", not
   "what does an outpatient visit cost".
 - **`00810` (anesthesia) has no CPT fee-schedule rate** — anesthesia is priced in

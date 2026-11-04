@@ -10,14 +10,30 @@ import shutil
 
 import duckdb
 
+from build.inputs.biller_places import BillerPlaces
+from build.inputs.biller_rates import BillerRates
+from build.inputs.hospitals import Hospitals
 from build.inputs.network_files import NetworkFiles
 from build.inputs.service_list import SERVICES_PATH, ServiceList
 from build.inputs.targets import TARGETS_PATH, Targets
 from build.tables.networks import Networks
+from build.tables.places import Places
 from build.tables.plans import Plans
 from build.tables.premiums import Premiums
 from build.tables.services import Services
 from build.tables.zips import Zips
+
+
+def inputs(targets_path=TARGETS_PATH, services_path=SERVICES_PATH):
+    """The build-only tables, in the order they're made."""
+    return [
+        Targets(targets_path),
+        NetworkFiles(),
+        ServiceList(services_path),
+        BillerRates(),
+        Hospitals(),
+        BillerPlaces(),
+    ]
 
 
 def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVICES_PATH):
@@ -27,21 +43,17 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVIC
     The inputs, then the tables, are made and checked in this order, and each
     one's SQL may read the ones above it. None is written until all of them
     pass, so a failed check leaves the last build's files as they were."""
-    inputs = [
-        Targets(targets_path),
-        NetworkFiles(),
-        ServiceList(services_path),
-    ]
     tables = [
         Networks(),
         Plans(),
         Premiums(),
         Zips(),
         Services(),
+        Places(),
     ]
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)
-    for table in inputs + tables:
+    for table in inputs(targets_path, services_path) + tables:
         table.make(con, data_dir)
     rows = {}
     for table in tables:

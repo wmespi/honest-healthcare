@@ -49,7 +49,9 @@ Run `make migrate` after any schema change.
   FastAPI `TestClient` to the result. `test_api_contract.py` covers every route this
   way, with no live server and the same build path `make build` runs. Schemas track
   [schema.md](schema.md).
-- `serving/tests/conftest.py` (`corpus` fixture) writes a tiny set of insurer rates, the index's plan-to-file link, and Georgia's networks, plans and premiums in a temp folder, with methods to add or remove rows.
+- `serving/tests/conftest.py` (`corpus` fixture) writes a tiny copy of every source the find-care build reads in a temp folder, with methods to add or remove rows: insurer rates and rosters, the index's plan-to-file link, Georgia's networks, plans, premiums and hospitals, NPPES records, Census matches, Medicare's billing and rates, CMS groups and a services file.
+  Its eight billers priced for a lower-back MRI each show one placement rule.
+  The helpers queue their rows and write each file once, just before a build reads it, which keeps a test's setup to a few milliseconds.
   `serving/tests/inputs/` and `serving/tests/tables/` run the real find-care build (`build.tables.build`) on it and read what it wrote, as `make build` does, rather than calling one table's class.
   So each test also checks that its table is in the build order after the tables it reads, and that every shared check runs.
   A test imports a table's class only to change it, as `test_tables.py` does to check column drift.
