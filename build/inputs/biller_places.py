@@ -9,9 +9,9 @@ class BillerPlaces(Table):
     its CCN: the two match on Census's standardized address, or on the street and
     ZIP when Census matched neither. Any other biller is its own place, keyed on
     its NPI, an imaging center if NPPES registers it as one and a practice
-    otherwise. A doctor's own NPI takes the name of its CMS group and has no place
-    without one, and a biller with no Georgia NPPES record has none either
-    (#135 step 8)."""
+    otherwise. A doctor's own NPI takes the name of its CMS group, and away from a
+    hospital it has no place without one. A biller with no Georgia NPPES record has
+    no place either (#135 step 8)."""
     name = "biller_places"
     key = ["biller"]
     columns = {"biller": "VARCHAR", "place_id": "VARCHAR", "kind": "VARCHAR", "name": "VARCHAR",

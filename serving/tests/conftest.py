@@ -518,12 +518,12 @@ class Corpus:
                              "9999-12-31", service_code, "professional", modifier, "outpatient"))
         self._queue(f"{self.root}/anthem/prices/net={_slug(label)}/{fid}-scans.parquet", PRICE_SCHEMA, rows)
 
-    def roster(self, fid, group_set, group, biller, *npis):
+    def roster(self, fid, group_set, group, biller, *npis, tin_type="npi"):
         """Put provider group `group`, billing as `biller`, with doctors `npis`, in
         `group_set` of file `fid`."""
         self.group_sets.setdefault(fid, []).append((fid, group_set, group))
         self.rosters.setdefault(fid, []).extend(
-            (fid, group, "any network", npi, "npi", biller) for npi in npis)
+            (fid, group, "any network", npi, tin_type, biller) for npi in npis)
         self._queue(f"{self.root}/anthem/group_sets/{fid}.parquet",
                     {"file_id": "BIGINT", "group_set_id": "BIGINT", "provider_group_id": "BIGINT"},
                     self.group_sets[fid])
@@ -750,7 +750,11 @@ def corpus(tmp_path, monkeypatch):
     c.npi(1000000008, "NO MEDICARE CLINIC", "2 MAIN ST", "MACON", "312011234")
     c.group(1000000005, "EMORY MEDICAL CARE FOUNDATION")
     for code, classification, specialization in [
+            ("261QM1200X", "Clinic/Center", "Magnetic Resonance Imaging (MRI)"),
             ("261QR0200X", "Clinic/Center", "Radiology"),
+            ("261QR0206X", "Clinic/Center", "Radiology, Mammography"),
+            ("261QR0207X", "Clinic/Center", "Radiology, Mobile Mammography"),
+            ("261QR0208X", "Clinic/Center", "Radiology, Mobile"),
             ("261QM1300X", "Clinic/Center", "Multi-Specialty"),
             ("2085R0202X", "Radiology", "Diagnostic Radiology")]:
         c.taxonomy(code, classification, specialization)

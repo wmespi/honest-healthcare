@@ -1,5 +1,7 @@
 """The build-only biller_rates table (build/inputs/biller_rates.py): who prices
 each service, and whether they do it or only read it."""
+import pytest
+
 BV = "GA Blue Value HIX Individual Network"
 
 
@@ -35,3 +37,10 @@ def test_a_service_priced_only_for_hospitals_keeps_those_lines(corpus):
     corpus.scan_price(21057, BV, 1, "77067", all_in=150, service_code="22")
     corpus.billed(2000000001, "77067", "O")
     assert rates(corpus, "mammogram-screening") == [("all_in", 150.0)]
+
+
+def test_a_billing_id_that_is_not_an_npi_stops_the_build(corpus):
+    corpus.roster(21057, 9, 9, "581234567", 2000000009, tin_type="ein")
+    with pytest.raises(SystemExit, match="1 roster rows bill under a 'ein' ID, not an NPI"):
+        corpus.build()
+

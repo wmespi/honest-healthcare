@@ -85,3 +85,17 @@ class BillerRates(Table):
             JOIN evidence e USING (network_id, service_id, biller)
             LEFT JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(c.biller AS BIGINT)
         """
+
+    def check(self, con, data_dir):
+        """A biller is found by its NPI, which is what Anthem lists as every billing
+        ID. A file that lists a tax ID (EIN) instead stops the build here, rather
+        than every biller in it landing on the no-NPPES-record list."""
+        other = con.execute(f"""
+            SELECT tin_type, count(*) FROM {ROSTERS.read(data_dir)}
+            WHERE file_id IN (SELECT file_id FROM network_files) AND tin_type IS DISTINCT FROM 'npi'
+            GROUP BY tin_type ORDER BY 2 DESC
+        """).fetchone()
+        if other:
+            raise SystemExit(f"biller_rates: {other[1]:,} roster rows bill under a {other[0]!r} ID, not an NPI, "
+                             f"so NPPES can't say where they are")
+

@@ -53,7 +53,8 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   A biller appears only if Medicare shows a doctor on its roster, or the biller itself, billing that service.
   It does the scan if one billed it in an office, or if NPPES registers it as an imaging center, and otherwise it only reads it.
 - [`biller_places`](inputs/biller_places.py) puts each biller at its own NPPES address: the hospital there, matched on Census's standardized address, or its own place.
-  A doctor's own NPI takes its CMS group's name and has no place without one, and a biller with no Georgia record has none either.
+  A doctor's own NPI takes its CMS group's name, and away from a hospital it has no place without one. A biller with no Georgia record has none either.
+  Every billing ID in Anthem's files is an NPI, and the build stops if a file lists a tax ID instead, since NPPES can't place it.
   The build lists every billing ID with a price but no place, so an NPI missing from the monthly NPPES snapshot doesn't drop out silently.
 
 ## The product rules
