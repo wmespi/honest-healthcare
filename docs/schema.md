@@ -42,6 +42,7 @@ roster per file. `prices ⨝ group_sets` reproduces every original
 | `providers/{id}.parquet` | `file_id`, `provider_group_id`, `network_name`, `npi`, `tin_type`, `tin_value` |
 | `codes/{id}.parquet` | `billing_code_type`, `billing_code`, `name`, `description` |
 | `npi_lookup.parquet` | `npi`, `tin_value` |
+| `index_file_plans.parquet` | `file_id`, `plan_id` |
 
 `tin_value` is the billing entity's tax id — in Anthem's files it's an **NPI**
 (`tin_type` is always `'npi'`), usually an organization's and sometimes a doctor's
@@ -49,6 +50,9 @@ own, so it doubles as a stable practice key: one real
 practice recurs across the MRF as many file-local `provider_group_id`s but keeps
 one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 `/imaging/providers` collapses on it ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
+
+`index_file_plans.parquet` is the plan → file link in the index `make discover` last read whole: one row per `(file_id, plan_id)`, sorted, copied from the Postgres table of the same name below ([etl/discover.md](../etl/discover.md#the-monthly-rebuild)).
+The build reads it to tell which parsed file prices a network, so it reads no database.
 
 ## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md), read straight by the API)
 
@@ -146,7 +150,7 @@ idempotent and `make migrate` applies them.
 | Table | Written by | Purpose |
 |---|---|---|
 | `index_files` | `make discover` / `make parse` | The parse queue — one row per MRF. `address` (the location without its signed query, unique: the key a file keeps across months — [etl/discover.md](../etl/discover.md#the-monthly-rebuild)), `location` (this month's signed URL), `status` (`pending`/`processing`/`completed`/`failed`/`skipped` — [etl/queue.md](../etl/queue.md#status-lifecycle)), `source_updated_at` / `parsed_updated_at` (Anthem's `Last-Modified`, as last seen and as last parsed — [etl/queue.md](../etl/queue.md#when-anthem-updates-a-file)), `file_size_bytes`, `market_types[]`, `hios_issuer_ids[]`, `plan_states[]`, `reporting_entity_*`, `created_at`, `completed_at`, `failure_reason`. GIN indexes on the array columns. |
-| `index_file_plans` | `make discover` | The plan → file link in this month's index — one row per `(file, plan)`, **scoped to Georgia individual-market plans** ([etl/discover.md](../etl/discover.md)): `file_id` (FK, `ON DELETE CASCADE`), `plan_id`, `plan_id_type`, `plan_name`, `market_type`, unique on `(file_id, plan_id, plan_name, market_type)`. Answers *"which files serve plan X"*; `etl parse` checks each file `etl/targets.yaml` names against it ([etl/parse.md](../etl/parse.md#target-selection)). Indexed on `plan_id` (`text_pattern_ops`, prefix lookup); `plan_name` lookups are `ILIKE '%…%'` and unindexed. |
+| `index_file_plans` | `make discover` | The plan → file link in this month's index — one row per `(file, plan)`, **scoped to Georgia individual-market plans** ([etl/discover.md](../etl/discover.md)): `file_id` (FK, `ON DELETE CASCADE`), `plan_id`, `plan_id_type`, `plan_name`, `market_type`, unique on `(file_id, plan_id, plan_name, market_type)`. Answers *"which files serve plan X"*; `etl parse` checks each file `etl/targets.yaml` names against it ([etl/parse.md](../etl/parse.md#target-selection)), and a full `make discover` copies its `(file_id, plan_id)` pairs to `anthem/index_file_plans.parquet` for the build. Indexed on `plan_id` (`text_pattern_ops`, prefix lookup); `plan_name` lookups are `ILIKE '%…%'` and unindexed. |
 | `billing_codes` | `make parse` | Reference upsert — `billing_code` PK, `billing_code_type`, `name`, `description`; first occurrence wins. |
 | `coverage_log` | `make parse` | One row per *parsed* file (`file_id` `UNIQUE`; a re-parse upserts; a probe-`skipped` file gets none) — rate/provider row counts, new codes/NPIs/TINs, distinct networks/settings/billing-classes, `notes` (GA-filter drop counts). Nothing reads it back. |
 

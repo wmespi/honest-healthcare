@@ -57,7 +57,7 @@ Run `make migrate` after any schema change.
 
 ## E2E tests (with teardown)
 
-`tests/e2e/discover.sh` runs discover in the `test` schema on two months of a small index and checks the [monthly rebuild](../etl/discover.md#the-monthly-rebuild): ids kept, dropped files removed unless parsed, links replaced, nothing removed by a limited read, and a stop on a `processing` file.
+`tests/e2e/discover.sh` runs discover in the `test` schema on two months of a small index and checks the [monthly rebuild](../etl/discover.md#the-monthly-rebuild): ids kept, dropped files removed unless parsed, links replaced in the queue and in the build's link Parquet, neither changed by a limited read, and a stop on a `processing` file.
 `tests/e2e/parse.sh` parses `synthetic.json.gz` in the `test` schema and asserts row counts, `network_name` and a `coverage_log` row.
 It then checks that parse downloads only the file a targets file names, never another file the index links to the same plan, and downloads it again only once its `Last-Modified` changes.
 `tests/e2e/nppes.sh` does the same for the NPPES extractor.

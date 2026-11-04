@@ -20,6 +20,12 @@ class Dataset:
 # Every rate `make parse` has written from the insurers' files, one folder per network label.
 INSURER_RATES = Dataset("anthem/prices/*/*.parquet", "make parse",
                         ", hive_partitioning=1, union_by_name=true")
+# The plan -> file link in the index `make discover` last read whole: file_id,
+# plan_id (etl/discover.md).
+INDEX_LINKS = Dataset("anthem/index_file_plans.parquet", "make discover")
 # Georgia's exchange networks: network_id, issuer_id, name (reference/exchange-plans.md).
 EXCHANGE_NETWORKS = Dataset("reference/exchange_networks_ga.parquet",
                             "make reference STEP=exchange-plans")
+# Georgia's exchange plans, each with its network_id (reference/exchange-plans.md).
+EXCHANGE_PLANS = Dataset("reference/exchange_plans_ga.parquet",
+                         "make reference STEP=exchange-plans")

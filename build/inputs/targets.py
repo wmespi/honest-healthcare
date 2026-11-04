@@ -4,7 +4,7 @@ import os
 
 import yaml
 
-from build.inputs.datasets import EXCHANGE_NETWORKS
+from build.inputs.datasets import EXCHANGE_NETWORKS, EXCHANGE_PLANS
 from build.table import Table
 
 TARGETS_PATH = os.path.join(
@@ -14,7 +14,8 @@ TARGETS_PATH = os.path.join(
 
 class Targets(Table):
     """`patterns` are as written, and `likes` are the same patterns as SQL LIKE
-    patterns. Every network must be one that Georgia's exchange lists."""
+    patterns. Every network must be one that Georgia's exchange lists, with at
+    least one plan on it."""
     name = "targets"
     key = ["network_id"]
     columns = {"target": "VARCHAR", "network_id": "VARCHAR",
@@ -42,6 +43,14 @@ class Targets(Table):
         """).fetchone()
         if unknown:
             raise SystemExit(f"{unknown[0]}: {unknown[1]} isn't a network in Georgia's exchange files")
+        planless = con.execute(f"""
+            SELECT t.target, t.network_id FROM targets t
+            WHERE NOT EXISTS (SELECT 1 FROM {EXCHANGE_PLANS.read(data_dir)} p
+                              WHERE p.network_id = t.network_id)
+            ORDER BY t.network_id
+        """).fetchone()
+        if planless:
+            raise SystemExit(f"{planless[0]}: no plan in Georgia's exchange plan file is on {planless[1]}")
 
 
 def read_targets(path=TARGETS_PATH):

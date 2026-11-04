@@ -420,11 +420,27 @@ targets:
 
 
 class Corpus:
-    """Insurer rates, Georgia's network list and a targets file in a tmp dir."""
+    """Insurer rates, the index's plan -> file link, Georgia's networks and plans,
+    and a targets file in a tmp dir."""
 
     def __init__(self, root):
         self.root = root
         self.targets = f"{root}/targets.yaml"
+        self.links = []
+
+    def link(self, fid, *plan_ids):
+        """Have the index link file `fid` to each of `plan_ids`."""
+        self.links += [(fid, p) for p in plan_ids]
+        self._write_links()
+
+    def unlink(self, fid):
+        """Have the index link file `fid` to no plan."""
+        self.links = [(f, p) for f, p in self.links if f != fid]
+        self._write_links()
+
+    def _write_links(self):
+        _write(duckdb.connect(), f"{self.root}/anthem/index_file_plans.parquet", "file_id, plan_id",
+               [(f"{f}::BIGINT", f"'{p}'") for f, p in self.links])
 
     def rate(self, fid, label):
         """Add one insurer rate in file `fid` under network label `label`."""
@@ -454,18 +470,28 @@ class Corpus:
 
 @pytest.fixture()
 def corpus(tmp_path, monkeypatch):
-    """Blue Value in file 21057, Pathway and an untargeted network in file 701, and
-    Georgia's network list."""
+    """Blue Value in file 21057, Pathway and an untargeted network in file 701, the
+    index linking each file to its network's plans, and Georgia's networks and
+    plans."""
     monkeypatch.delenv("DUCKDB_TMP", raising=False)
     c = Corpus(str(tmp_path))
     c.rate(21057, BLUE_VALUE)
     c.rate(701, "Pathway PCP Copay Choice")
     c.rate(701, "TRADITIONAL HEALTH PLAN")
+    c.link(21057, "45334GA0020002", "45334GA0020008")
+    c.link(701, "49046GA0700053")
     _write(duckdb.connect(), f"{c.root}/reference/exchange_networks_ga.parquet",
            "network_id, issuer_id, name", [
                ("'45334-GAN001'", "'45334'", "'Blue Value Individual Network HMO'"),
                ("'49046-GAN008'", "'49046'", "'Pathway PCP Copay Choice'"),
                ("'58081-GAN001'", "'58081'", "'Individual Georgia HMO'"),
+           ])
+    _write(duckdb.connect(), f"{c.root}/reference/exchange_plans_ga.parquet",
+           "plan_id, network_id", [
+               ("'45334GA0020002'", "'45334-GAN001'"),
+               ("'45334GA0020008'", "'45334-GAN001'"),
+               ("'49046GA0700053'", "'49046-GAN008'"),
+               ("'58081GA0010001'", "'58081-GAN001'"),
            ])
     (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
     return c

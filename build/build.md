@@ -36,9 +36,11 @@ They always cover the targets in [`etl/targets.yaml`](../etl/targets.yaml), what
 |---|---|---|
 | `networks.parquet` | one row per network a target names | `network_id`, such as `45334-GAN001`, and Georgia's exchange `name` for it. |
 
-Which insurer file prices a network is build config.
-A target's `network_patterns` name the labels its rates carry, and exactly one parsed file may carry them, or the build stops ([one plan, one contract](../etl/mrf-model.md#one-plan-one-contract)).
-A target network with no parsed file, or one that Georgia's exchange files don't list, also stops it.
+A file prices a network when the index links it to one of the network's plans and its rates carry one of the target's `network_patterns` labels.
+The plans on a network come from Georgia's exchange plan file, and the link comes from `data/anthem/index_file_plans.parquet`, which `make discover` writes from the index it last read whole, so the build reads no database.
+Exactly one parsed file may price each network, or the build stops ([one plan, one contract](../etl/mrf-model.md#one-plan-one-contract)).
+A parsed file the index doesn't link to the network's plans is left out, such as `GA_JBKEMED0001`, which carries Blue Value's label but prices a plan no longer sold.
+A target network with no file that prices it, or one that Georgia's exchange files don't list or list no plans on, also stops the build.
 
 ## The product rules
 
