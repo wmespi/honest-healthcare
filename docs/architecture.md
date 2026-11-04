@@ -49,10 +49,11 @@ flowchart LR
     B --> SRV[(serving: rates by network price-grain, group_sets, group_members, group_networks, provider_dim, provider_affiliations, code_dim, evidence, rate_hist, cross_network_rollup)]
     RAW --> FC["build/tables/"]
     LINK --> FC
-    REF -->|"ZIP centroids, MPFS, OPPS"| FC
+    REF -->|"ZIP centroids, MPFS, OPPS, hospitals, geocodes, CMS groups and billing"| FC
+    GA --> FC
     SVC[build/services.yaml] --> FC
     XNET[(reference: exchange networks, plans and premiums)] --> FC
-    FC --> FCT[("find-care tables, beside the old ones: networks, plans, premiums, zips, services")]
+    FC --> FCT[("find-care tables, beside the old ones: networks, plans, premiums, zips, services, places")]
   end
   subgraph serve [serve]
     SRV --> API[FastAPI, one persistent DuckDB connection]

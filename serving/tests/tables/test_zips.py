@@ -3,10 +3,8 @@ import pytest
 
 
 def test_zips_are_every_census_zip_including_out_of_state(corpus):
-    assert corpus.build()["zips"] == 3
-    assert corpus.rows("zips") == [("30308", 33.770959, -84.377736),
-                                   ("30322", 33.794605, -84.325247),
-                                   ("37421", 35.030393, -85.159553)]
+    assert corpus.build()["zips"] == 5
+    assert ("37421", 35.030393, -85.159553) in corpus.rows("zips")
 
 
 @pytest.mark.parametrize("zip_code, lat, lon", [

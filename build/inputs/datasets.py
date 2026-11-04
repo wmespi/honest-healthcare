@@ -20,6 +20,10 @@ class Dataset:
 # Every rate `make parse` has written from the insurers' files, one folder per network label.
 INSURER_RATES = Dataset("anthem/prices/*/*.parquet", "make parse",
                         ", hive_partitioning=1, union_by_name=true")
+# Who each price covers: a price's group set lists provider groups, and each group
+# lists its doctors (`npi`) and its billing NPI (`tin_value`) (docs/schema.md).
+GROUP_SETS = Dataset("anthem/group_sets/*.parquet", "make parse")
+ROSTERS = Dataset("anthem/providers/*.parquet", "make parse")
 # The plan -> file link in the index `make discover` last read whole: file_id,
 # plan_id (etl/discover.md).
 INDEX_LINKS = Dataset("anthem/index_file_plans.parquet", "make discover")
@@ -37,5 +41,20 @@ EXCHANGE_PREMIUMS = Dataset("reference/exchange_premiums_ga.parquet",
 MPFS = Dataset("reference/mpfs_ga.parquet", "make reference STEP=mpfs")
 # Medicare's national hospital outpatient rate by code (reference/opps.md).
 OPPS = Dataset("reference/opps.parquet", "make reference STEP=opps")
+# Each Georgia NPI's own record: name, specialty code and practice address (etl/nppes.md).
+NPPES = Dataset("nppes/ga_providers.parquet", "make reference STEP=nppes")
+# Who billed Medicare for each code in Georgia, and whether in an office (O) or a
+# facility (F) (reference/cms-utilization.md).
+MEDICARE_BILLING = Dataset("cms/ga_provider_service.parquet", "make reference STEP=cms-utilization")
+# NUCC's specialty codes, with their classification and specialization
+# (reference/taxonomy-labels.md).
+NUCC_TAXONOMY = Dataset("reference/nucc_taxonomy.parquet", "make reference STEP=taxonomy-labels")
+# Each clinician's CMS group, by NPI (reference/doctors-clinicians.md).
+DOCTORS_CLINICIANS = Dataset("reference/dac_ga.parquet", "make reference STEP=doctors-clinicians")
+# Georgia's hospitals: CCN, name, address, phone and star rating (reference/hospitals.md).
+HOSPITALS = Dataset("reference/hospitals_ga.parquet", "make reference STEP=hospitals")
+# Every address sent to Census, with its standardized match and coordinates
+# (reference/geocode.md).
+GEOCODES = Dataset("reference/geocode_addresses.parquet", "make reference STEP=geocode")
 # Each ZIP's Census centroid: zip, lat, lon (reference/zip-centroids.md).
 ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids")

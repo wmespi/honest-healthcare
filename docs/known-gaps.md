@@ -45,6 +45,9 @@ Where the product is headed: [direction.md](direction.md) and epic
   `GREATEST($1.00, 5% × the code's rate_hist median)` — deliberately loose, so a
   genuinely cheap contract survives. `rate_hist` still counts them. Tighter cut:
   [#51](https://github.com/wmespi/honest-healthcare/issues/51).
+- **A practice in `places` has no phone number.** The NPPES extract
+  ([etl/nppes.md](../etl/nppes.md)) doesn't keep the practice location's phone, so only
+  hospitals, from Hospital General Information, have one.
 - **`/networks` is not scoped** — it answers "what's priced in this network", not
   "what does an outpatient visit cost".
 - **`00810` (anesthesia) has no CPT fee-schedule rate** — anesthesia is priced in
@@ -90,8 +93,15 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Imaging
 
-- **Some distances are approximate.** Census can't place about one address in eight, many of
-  them rural. `/imaging/providers` measures those from the center of the practice's ZIP code.
+- **Places Census can't put on the map aren't shown.** Census can't place about one address in
+  eight, many of them rural, and some are hospitals whose number its street ranges don't cover,
+  such as 5353 Reynolds Street in Savannah. `places` leaves them out, prices there included,
+  and `make build` saves them to `unlocated_places.parquet` to try with another geocoder.
+  `/imaging/providers` measures their distance from the center of the ZIP code instead.
+- **A hospital's own billing ID can land as a practice** when its NPPES address is written
+  differently from the hospital's beyond spelling, as "541 441 HISTORIC HWY N" is for "541
+  HISTORIC HIGHWAY 441-NORTH", or when the hospital isn't in Hospital General Information.
+  `make build` lists them.
 - **Practices registered outside Georgia aren't listed.** The NPPES extract keeps an NPI only
   when its primary location is in Georgia, and `/imaging/providers` needs a location to show,
   so a billing ID registered elsewhere has no row. Most are teleradiology groups, which aren't

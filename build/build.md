@@ -39,12 +39,26 @@ They always cover the targets in [`etl/targets.yaml`](../etl/targets.yaml), what
 | `premiums.parquet` | one row per plan, rating area and age | `premium` and `tobacco_premium`, the monthly premium for one person, from Georgia's premium file. Each plan has premiums in every rating area it's sold in, for every age from 0 to 64, where 64 means 64 and over, or the build stops. |
 | `zips.parquet` | one row per ZIP the Census lists | `zip`, `lat` and `lon`, the point a ZIP search measures distance from. Every ZIP, not only Georgia's, because the Census file has no state and someone near the state line may search from across it. Each must be five digits with a point on the map, or the build stops. |
 | `services.parquet` | one row per service in [`build/services.yaml`](services.yaml) | `service_id`, our own slug such as `mri-lower-back`, its one `billing_code`, and what the screen says about it: `name`, `keywords`, `about`, `could_change`, `asks` and an optional `preventive_note`. `medicare_rate` is Medicare's office rate for the whole service, the median of Georgia's two payment areas, and `medicare_facility_rate` is Medicare's national hospital outpatient rate, empty where Medicare doesn't pay that way, as for mammograms. A slug, a five-character code that no other service bills, and text in every field are required, or the build stops. |
+| `places.parquet` | one row per Georgia hospital, plus one per practice with a price, that Census can put on the map | `place_id`, the CCN for a hospital and the practice's lowest billing NPI otherwise, `name`, `kind` (`hospital`, `imaging_center` or `practice`), `address`, `city`, `lat`, `lon`, and a hospital's `phone` and `stars`. The point is always Census's, because any other would be a guess. |
+| `unlocated_places.parquet` | one row per hospital or practice Census can't put on the map | `place_id`, `name`, `kind`, `address`, `city` and `zip`, saved to try with another geocoder. It's left off the screen, so nothing serves it, and a price there isn't shown. |
 
 A file prices a network when the index links it to one of the network's plans and its rates carry one of the target's `network_patterns` labels.
 The plans on a network come from Georgia's exchange plan file, and the link comes from `data/anthem/index_file_plans.parquet`, which `make discover` writes from the index it last read whole, so the build reads no database.
 Exactly one parsed file may price each network, or the build stops ([one plan, one contract](../etl/mrf-model.md#one-plan-one-contract)).
 A parsed file the index doesn't link to the network's plans is left out, such as `GA_JBKEMED0001`, which carries Blue Value's label but prices a plan no longer sold.
 A target network with no file that prices it, or one that Georgia's exchange files don't list or list no plans on, also stops the build.
+
+Who prices a service where follows the rules on #135 ([reading groups versus places](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6639007442)):
+
+- [`biller_rates`](inputs/biller_rates.py) keeps a network's outpatient professional rates for each service, by the billing NPI each covers.
+  A biller appears if Medicare shows a doctor on its roster, or the biller itself, billing that service, or if its NPPES primary specialty code registers it as an imaging center for that kind of scan ([imaging_centers](inputs/imaging_centers.py)).
+  It does the scan if it's such a center or one of them billed the service in an office, and otherwise it only reads it.
+- [`biller_places`](inputs/biller_places.py) puts each biller at its own NPPES address: the hospital in that building, or the practice there under its name.
+  Two addresses are one building when Census standardized them alike, or when their street and ZIP match in USPS's abbreviations.
+  Billers in one building whose names match without punctuation or endings like LLC are one practice, keyed on the lowest NPI, and different practices in one building stay apart ([what one place is](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6643172584)).
+  A doctor's own NPI takes its CMS group's name, and away from a hospital it has no place without one. A biller with no Georgia record has none either.
+  Every billing ID in Anthem's files is an NPI, and the build stops if a file lists a tax ID instead, since NPPES can't place it.
+  The build lists every billing ID with a price but no place, so an NPI missing from the monthly NPPES snapshot doesn't drop out silently.
 
 ## The product rules
 
