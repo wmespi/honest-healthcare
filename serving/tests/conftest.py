@@ -428,6 +428,7 @@ class Corpus:
         self.targets = f"{root}/targets.yaml"
         self.links = []
         self.plans = []
+        self.premiums = []
 
     def plan(self, plan_id, network_id, name, metal_level="Silver"):
         """Add a plan on `network_id` to Georgia's plan file."""
@@ -438,6 +439,22 @@ class Corpus:
         """Take every plan on `network_id` out of Georgia's plan file."""
         self.plans = [p for p in self.plans if p[1] != network_id]
         self._write_plans()
+
+    def premium(self, plan_id, rating_area, ages=range(65)):
+        """Add `plan_id`'s monthly premium in `rating_area` for each of `ages`."""
+        self.premiums += [(plan_id, rating_area, age) for age in ages]
+        self._write_premiums()
+
+    def remove_premiums(self, plan_id, ages=range(65)):
+        """Take `plan_id`'s premiums for `ages` out of Georgia's premium file."""
+        self.premiums = [p for p in self.premiums if not (p[0] == plan_id and p[2] in ages)]
+        self._write_premiums()
+
+    def _write_premiums(self):
+        _write(duckdb.connect(), f"{self.root}/reference/exchange_premiums_ga.parquet",
+               "plan_id, rating_area, age, premium, tobacco_premium",
+               [(f"'{p}'", area, f"{age}::BIGINT", f"{300 + 10 * age}::DOUBLE", f"{330 + 11 * age}::DOUBLE")
+                for p, area, age in self.premiums])
 
     def _write_plans(self):
         _write(duckdb.connect(), f"{self.root}/reference/exchange_plans_ga.parquet",
@@ -488,8 +505,8 @@ class Corpus:
 @pytest.fixture()
 def corpus(tmp_path, monkeypatch):
     """Blue Value in file 21057, Pathway and an untargeted network in file 701, the
-    index linking each file to its network's plans, and Georgia's networks and
-    plans."""
+    index linking each file to its network's plans, and Georgia's networks, plans
+    and premiums."""
     monkeypatch.delenv("DUCKDB_TMP", raising=False)
     c = Corpus(str(tmp_path))
     c.rate(21057, BLUE_VALUE)
@@ -507,5 +524,8 @@ def corpus(tmp_path, monkeypatch):
     c.plan("45334GA0020008", "45334-GAN001", "Anthem Bronze Blue Value HMO 5000", "Expanded Bronze")
     c.plan("49046GA0700053", "49046-GAN008", "Anthem Bronze Pathway PCP Copay Choice HMO 6000", "Expanded Bronze")
     c.plan("58081GA0010001", "58081-GAN001", "Individual Georgia HMO Silver")
+    for plan_id in ("45334GA0020002", "45334GA0020008", "49046GA0700053", "58081GA0010001"):
+        c.premium(plan_id, 1)
+    c.premium("45334GA0020002", 2)
     (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
     return c

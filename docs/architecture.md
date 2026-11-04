@@ -49,8 +49,8 @@ flowchart LR
     B --> SRV[(serving: rates by network price-grain, group_sets, group_members, group_networks, provider_dim, provider_affiliations, code_dim, evidence, rate_hist, cross_network_rollup)]
     RAW --> FC["build/tables/"]
     LINK --> FC
-    XNET[(reference: exchange networks and plans)] --> FC
-    FC --> FCT[("find-care tables, beside the old ones: networks, plans")]
+    XNET[(reference: exchange networks, plans and premiums)] --> FC
+    FC --> FCT[("find-care tables, beside the old ones: networks, plans, premiums")]
   end
   subgraph serve [serve]
     SRV --> API[FastAPI, one persistent DuckDB connection]

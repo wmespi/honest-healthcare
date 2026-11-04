@@ -29,3 +29,6 @@ EXCHANGE_NETWORKS = Dataset("reference/exchange_networks_ga.parquet",
 # Georgia's exchange plans, each with its network_id (reference/exchange-plans.md).
 EXCHANGE_PLANS = Dataset("reference/exchange_plans_ga.parquet",
                          "make reference STEP=exchange-plans")
+# Each plan's monthly premium by rating area and age (reference/exchange-plans.md).
+EXCHANGE_PREMIUMS = Dataset("reference/exchange_premiums_ga.parquet",
+                            "make reference STEP=exchange-plans")
