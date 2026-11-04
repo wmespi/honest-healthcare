@@ -3,7 +3,7 @@
 # Runs the real extractor over the committed ~14-row CSV fixture, verifies the
 # GA filter + hospital/clinic classification, and removes the output.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 OUT=data-test/nppes/ga_providers.parquet
 # Delete through the etl container — it wrote the parquet as root, so a host-side

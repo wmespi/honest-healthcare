@@ -8,7 +8,7 @@
 # removed — so nothing accumulates on disk.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 FIXTURE="extraction/testdata/fixtures/synthetic.json.gz"
 PSQL=(docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 -qtA)

@@ -7,8 +7,14 @@ Three suites, each a `make` target (`make help` is the target list):
 | Command | Covers | Stack? |
 |---|---|---|
 | `make check` | docs drift (`scripts/check_docs.py`) + gofmt + vet + build + Go unit tests | etl up |
-| `make test` | `check` + serving pytest (contract, reference builders, build; golden excluded) + vitest + the ETL e2e / NPPES fixture scripts | full stack |
-| `make test-live` | golden answers (`serving/tests/test_golden.py`) + the named persona journeys ([journeys.md](journeys.md)) against the live API and real corpus | serving up, **real corpus** |
+| `make test` | `check` + `serving/tests` (contract, reference builders, build) + vitest + `tests/e2e` | full stack |
+| `make test-live` | `tests/live`: golden answers (`test_golden.py`) + the named persona journeys ([journeys.md](journeys.md)) against the live API and real corpus | serving up, **real corpus** |
+
+Unit tests live with their code: Go's `_test.go` files beside their package, the frontend's `*.test.js` and `*.test.jsx` files beside their code, and the Python tests (serving, build and reference) in `serving/tests/`.
+Tests that drive the running stack across components live in the top-level `tests/`:
+
+- `tests/e2e/` runs the real ETL against fixtures in test isolation, then tears down.
+- `tests/live/` checks real answers against the live API and real corpus.
 
 `LOCAL=1` runs `check` / `test` on host toolchains with **no Docker** (go, `.venv`,
 node via `scripts/dev-setup.sh`; the e2e fixtures are skipped). Run `make test LOCAL=1` before every commit. `test-live` is
@@ -45,18 +51,18 @@ when `public` changes and never copies foreign keys; the newest
   [schema.md](schema.md).
 - `serving/tests/test_contract.py` (**no fixture**) checks the find-care contract's own rules
   (`serving/contract.py`) on sample rows, and that FastAPI publishes it.
-- `serving/tests/test_golden.py` — **no fixture**: real answers (a quote, a rollup, a
+- `tests/live/test_golden.py` — **no fixture**: real answers (a quote, a rollup, a
   provider ranking, counts) pinned against the live API (`API_URL`, default
   `http://localhost:8000`).
 
-## E2E scripts (with teardown)
+## E2E tests (with teardown)
 
-`scripts/etl_e2e_test.sh` parses `synthetic.json.gz` in the `test` schema, asserts row
-counts, `network_name` and a `coverage_log` row, then truncates `test.*` and removes
-`data-test/anthem`. `scripts/nppes_test.sh` does the same for the NPPES extractor.
-`etl_e2e_test.sh` needs `data-test/nppes/ga_providers.parquet` absent (a stale copy
-makes the GA NPI filter drop every synthetic row) — every test tears down after itself,
-so `rm -rf data-test/*` is only needed after a killed run.
+`tests/e2e/parse.sh` parses `synthetic.json.gz` in the `test` schema and asserts row counts, `network_name` and a `coverage_log` row.
+It then checks that parse tries only the file a targets file names, never another file the index links to the same plan.
+It truncates `test.*` and removes what it wrote under `data-test/`.
+`tests/e2e/nppes.sh` does the same for the NPPES extractor.
+`parse.sh` needs `data-test/nppes/ga_providers.parquet` absent, because a stale copy makes the GA NPI filter drop every synthetic row.
+Every test tears down after itself, so `rm -rf data-test/*` is only needed after a killed run.
 
 ## CI (`.github/workflows/ci.yml`)
 
@@ -70,7 +76,7 @@ status check**: it passes only when every job succeeded or was legitimately skip
 | `changes` | docs drift check; diffs the PR → `run` |
 | `go` | gofmt + vet + build + `go test ./...` (native `setup-go`, no stack) |
 | `web` | `npx vitest run` |
-| `integration` | `docker compose up db etl serving` + `make migrate`; every hermetic pytest file, as `make test` runs them, then `test_golden.py` (skips — no corpus), then the e2e scripts |
+| `integration` | `docker compose up db etl serving` + `make migrate`; every hermetic pytest file, as `make test` runs them, then `tests/live` (skips: no corpus), then `tests/e2e` |
 | `images` | builds the three `prod` Dockerfile targets and smokes each |
 | `gate` | no upstream job failed or was cancelled |
 

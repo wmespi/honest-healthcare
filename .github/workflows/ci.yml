@@ -135,14 +135,14 @@ jobs:
       - name: Python — every hermetic test, as make test runs them
         run: |
           docker compose exec -T serving pip install -q -r /app/serving/requirements-dev.txt
-          docker compose exec -T -w /app/serving serving python -m pytest tests/ --ignore=tests/test_golden.py -q
+          docker compose exec -T -w /app/serving serving python -m pytest tests/ -q
       - name: Golden-answer tests (#96) — real API, empty data/ here, must skip not fail
         run: |
-          docker compose exec -T -w /app serving python -m pytest serving/tests/test_golden.py -v
+          docker compose exec -T -w /app serving python -m pytest tests/live -v
       - name: ETL e2e + NPPES fixtures
         run: |
-          bash scripts/etl_e2e_test.sh
-          bash scripts/nppes_test.sh
+          bash tests/e2e/parse.sh
+          bash tests/e2e/nppes.sh
       - name: Stack logs on failure
         if: failure()
         run: docker compose logs
