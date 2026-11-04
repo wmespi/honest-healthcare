@@ -3,8 +3,8 @@
 *Read this when working on the per-file stream transform — the parser, the Parquet
 writers, network attribution, the GA NPI filter, or the provider probe.*
 
-For each `index_files` row that is `pending` **and serves a target plan**, streams
-the gzipped MRF once and writes Parquet. `make parse` → `etl parse` (package
+For each file [`targets.yaml`](targets.yaml) names whose `index_files` row is `pending`,
+streams the gzipped MRF once and writes Parquet. `make parse` → `etl parse` (package
 `etl/extraction`: parser `stream.go`, probe `probe.go`, writers `extraction.go` +
 `partition.go`). Needs the NPPES and exchange-plans references first (`make reference`).
 
@@ -16,8 +16,8 @@ the gzipped MRF once and writes Parquet. `make parse` → `etl parse` (package
 | `LIMIT=n` | cap files processed |
 | `FIXTURE=path` | with `ID=n`: read a local `*.json.gz` instead of downloading |
 
-CLI-only: `-all-npis`, `-min-groups n`, `-dry-run`, `-targets ""` (no target filter,
-no probe network signal). See `etl parse -h`.
+CLI-only: `-all-npis`, `-min-groups n`, `-dry-run`, `-targets ""` (with `-file-ids`
+only: no probe network signal). See `etl parse -h`.
 
 The parser writes **every network** a file carries; which networks a plan is priced
 on is a build-step decision. `prices/` stays Hive-partitioned by `net=` so the build
@@ -25,28 +25,25 @@ prunes to one directory.
 
 ## Target selection
 
-A file is parsed because the master index says it prices a plan we price.
-[`targets.yaml`](targets.yaml) names Georgia exchange networks; `PlanIDs` in `targets.go`
-reads `data/reference/exchange_plans_ga.parquet`
-([reference/exchange-plans.md](../reference/exchange-plans.md)) for every plan ID on them,
-and stops if the file is missing or a network has no plans. `discover` wrote the plan to
-file link into `index_file_plans`, and the queue query is an `EXISTS` semi-join over it,
-with the plan IDs bound as one array parameter:
+A file is parsed because [`targets.yaml`](targets.yaml) names it, and nothing else is downloaded.
+The index links each target plan to many more files than the one that prices it, such as out-of-state BlueCard shards, and none of those is downloaded, even while it's `pending`.
+A target names its files by the last part of their index location, without the query (`GA_JBNKMED0001.json.gz`).
+`PlanIDs` in `targets.go` reads `data/reference/exchange_plans_ga.parquet` ([reference/exchange-plans.md](../reference/exchange-plans.md)) for every plan ID on the target's exchange networks, and stops if the file is missing or a network has no plans.
+For each target, the queue query finds the named files and asks whether `index_file_plans`, which `discover` writes, links each one to one of those plans:
 
 ```sql
-SELECT f.id, f.location FROM index_files f
-WHERE f.status = 'pending'
-  AND EXISTS (SELECT 1 FROM index_file_plans p
-              WHERE p.file_id = f.id AND p.plan_id = ANY($1))
+SELECT f.id, f.location, f.status,
+       EXISTS (SELECT 1 FROM index_file_plans p
+               WHERE p.file_id = f.id AND p.plan_id = ANY($2)) AS linked
+FROM index_files f
+WHERE regexp_replace(split_part(f.location, '?', 1), '^.*/', '') = ANY($1)
 ORDER BY f.file_size_bytes ASC NULLS LAST, f.id;
 ```
 
-Selecting by plan ID, not name, is what keeps a file that prices only a plan no longer
-sold out of the store, even when it carries a target network's label
-([mrf-model.md](mrf-model.md#one-plan-one-contract)). Adding a network to
-`targets.yaml` is the whole of "parse these plans' files". `-file-ids` and `-targets ""`
-bypass selection, and a `-file-ids` run doesn't read the plan file. Ordering: smallest
-first ([queue.md](queue.md)).
+Parse stops unless every named file matches exactly one queue row and is linked, so a mistyped name, or a file that prices only a plan no longer sold, can't slip through ([mrf-model.md](mrf-model.md#one-plan-one-contract)).
+It downloads the named files that are still `pending` and leaves the rest alone.
+`-file-ids` bypasses selection and doesn't read the plan file, and `-targets ""` works only with it.
+Ordering: smallest first ([queue.md](queue.md)).
 
 ## Per-file steps
 
@@ -106,8 +103,8 @@ marks the row `skipped` with `failure_reason = 'probe: no wanted providers — �
 The network signal is the one that matters: a national shard **does** list Georgia
 NPIs, so overlap alone waves it through. `network_patterns` is not a row filter — the
 probe decides only whether to download; a file that passes is written whole. The
-probe applies however the file was selected (`-file-ids` included); to stream
-regardless, use `-min-groups 0 -targets ""`.
+probe applies however the file was selected (`-file-ids` included); to stream a
+file regardless, use `-file-ids <id> -min-groups 0 -targets ""`.
 
 ### End-of-run guard
 

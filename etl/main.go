@@ -136,7 +136,7 @@ func cmdParse(args []string) {
 	test := fs.Bool("test", false, "isolated test mode (test schema + ../data-test/)")
 	limit := fs.Int("limit", 0, "cap files processed (default 1 in test mode)")
 	fileIDs := fs.String("file-ids", "", "comma-separated index_files IDs to parse (skips target selection)")
-	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only files serving one of its plans are parsed ("" = every pending file)`)
+	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only the files it names are parsed ("" needs -file-ids, and turns off the probe's network signal)`)
 	fixturePath := fs.String("fixture", "", "read a local *.json.gz instead of downloading (with -file-ids N)")
 	allNPIs := fs.Bool("all-npis", false, "keep every NPI/rate (disable the GA NPPES filter)")
 	minGroups := fs.Int("min-groups", 1, "probe: abort a file before in_network unless this many provider groups survive the filter (0 = no overlap check)")

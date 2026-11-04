@@ -75,7 +75,7 @@ discover: ## Phase 1 — sync the Anthem index into index_files + index_file_pla
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 	$(if $(or $(filter 1,$(SCHEMA)),$(filter 1,$(TEST))),@:,docker compose exec etl go run . size)
 
-parse: ## Phase 2 — stream pending files that serve a target plan into Parquet. ID=<index_files.id> · TARGETS=<path> · TEST=1 · LIMIT=n
+parse: ## Phase 2 — stream the pending files etl/targets.yaml names into Parquet. ID=<index_files.id> · TARGETS=<path> · TEST=1 · LIMIT=n
 	docker compose exec etl go run . parse \
 	  $(if $(ID),-file-ids $(ID),) \
 	  $(if $(TARGETS),-targets "$(TARGETS)",) \

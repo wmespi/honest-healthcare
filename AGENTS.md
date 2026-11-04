@@ -68,10 +68,10 @@ parallel C++ reader handles, not a hand-rolled streaming parse.
 4. **Test mode is isolated** — `test.*` tables and `data-test/` are safe to
    truncate; a test run must never touch `public.*` or `data/`.
 5. **One plan, one contract** — a plan a person can pick is priced by one file, so
-   nothing combines or overrides prices across files. `etl/targets.yaml` selects
-   files by the plan IDs on Georgia's exchange networks, which keeps out
-   `GA_JBKEMED0001`: it carries Blue Value's network label but prices an older plan
-   that isn't sold any more. [etl/mrf-model.md](etl/mrf-model.md#one-plan-one-contract).
+   nothing combines or overrides prices across files. `etl/targets.yaml` names
+   the files to parse, and parse stops unless the index links each one to a plan on
+   Georgia's exchange networks, which keeps out `GA_JBKEMED0001`: it carries Blue
+   Value's network label but prices an older plan that isn't sold any more. [etl/mrf-model.md](etl/mrf-model.md#one-plan-one-contract).
 6. **Give regular status updates — the most-missed rule here.** On any multi-step
    task, post a short progress note *as each step lands* — what's done, what's
    next, anything that changed — not just a summary at the end. If you've run
@@ -100,7 +100,7 @@ make discover               # Phase 1 — sync the master index into index_files
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
 make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
-make parse                  # Phase 2 — stream pending files serving a target plan → Parquet (needs the NPPES and exchange-plans references first)
+make parse                  # Phase 2 — stream the pending files etl/targets.yaml names → Parquet (needs the NPPES and exchange-plans references first)
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
