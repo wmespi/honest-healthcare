@@ -316,13 +316,13 @@ func parseRates(
 		markFailed(ctx, conn, fileID, err, dryRun)
 		return nil, outcomeFailed
 	}
+	defer body.Close()
+	defer cancelDownload()
 	if !updated.IsZero() && !dryRun && conn != nil {
 		if _, err := conn.Exec(ctx, "UPDATE index_files SET source_updated_at = $2 WHERE id = $1", fileID, updated); err != nil {
 			log.Printf("⚠️ Failed to record when Anthem updated file %d: %v", fileID, err)
 		}
 	}
-	defer body.Close()
-	defer cancelDownload()
 
 	pr := core.NewProgressReader(body, contentLength)
 
@@ -813,7 +813,7 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 		log.Println("✅ No pending files found in index_files. Run 'etl discover' first, or all files are already completed.")
 		return nil
 	}
-	log.Printf("Found %d pending file(s). Processing...", len(files))
+	log.Printf("Found %d file(s) to download. Processing...", len(files))
 
 	if opts.DryRun {
 		log.Println("🔍 Dry-run mode — streaming only, no DB writes.")
