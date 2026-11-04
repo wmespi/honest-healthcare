@@ -7,7 +7,7 @@ def test_labels_match_the_way_the_parse_probe_matches_them(corpus):
     # Trimmed and case-insensitive, with `*` the only wildcard: `?` is a literal.
     corpus.remove_rate(21057, "GA Blue Value HIX Individual Network")
     corpus.rate(21057, "  ga blue value hix individual network ")
-    assert corpus.build() == {"networks": 2}
+    assert corpus.build()["networks"] == 2
     with open(corpus.targets) as f:
         text = f.read()
     with open(corpus.targets, "w") as f:
@@ -21,7 +21,7 @@ def test_a_file_the_index_doesnt_link_to_the_networks_plans_is_left_out(corpus):
     # 45334GA0010112, a plan Georgia's files no longer list.
     corpus.rate(31628, "GA Blue Value HIX Individual Network")
     corpus.link(31628, "45334GA0010112")
-    assert corpus.build() == {"networks": 2}
+    assert corpus.build()["networks"] == 2
 
 
 def test_a_second_linked_file_with_the_networks_label_stops_the_build(corpus):

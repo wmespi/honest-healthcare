@@ -50,7 +50,7 @@ flowchart LR
     RAW --> FC["build/tables/"]
     LINK --> FC
     XNET[(reference: exchange networks and plans)] --> FC
-    FC --> FCT[("find-care tables, beside the old ones: networks")]
+    FC --> FCT[("find-care tables, beside the old ones: networks, plans")]
   end
   subgraph serve [serve]
     SRV --> API[FastAPI, one persistent DuckDB connection]

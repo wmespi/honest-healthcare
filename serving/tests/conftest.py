@@ -427,6 +427,23 @@ class Corpus:
         self.root = root
         self.targets = f"{root}/targets.yaml"
         self.links = []
+        self.plans = []
+
+    def plan(self, plan_id, network_id, name, metal_level="Silver"):
+        """Add a plan on `network_id` to Georgia's plan file."""
+        self.plans.append((plan_id, network_id, name, metal_level))
+        self._write_plans()
+
+    def remove_plans(self, network_id):
+        """Take every plan on `network_id` out of Georgia's plan file."""
+        self.plans = [p for p in self.plans if p[1] != network_id]
+        self._write_plans()
+
+    def _write_plans(self):
+        _write(duckdb.connect(), f"{self.root}/reference/exchange_plans_ga.parquet",
+               "plan_id, network_id, name, carrier, metal_level, needs_referral",
+               [(f"'{p}'", f"'{n}'", f"'{name}'", "'Anthem Blue Cross and Blue Shield'", f"'{metal}'",
+                 "CAST(false AS BOOLEAN)") for p, n, name, metal in self.plans])
 
     def link(self, fid, *plan_ids):
         """Have the index link file `fid` to each of `plan_ids`."""
@@ -486,12 +503,9 @@ def corpus(tmp_path, monkeypatch):
                ("'49046-GAN008'", "'49046'", "'Pathway PCP Copay Choice'"),
                ("'58081-GAN001'", "'58081'", "'Individual Georgia HMO'"),
            ])
-    _write(duckdb.connect(), f"{c.root}/reference/exchange_plans_ga.parquet",
-           "plan_id, network_id", [
-               ("'45334GA0020002'", "'45334-GAN001'"),
-               ("'45334GA0020008'", "'45334-GAN001'"),
-               ("'49046GA0700053'", "'49046-GAN008'"),
-               ("'58081GA0010001'", "'58081-GAN001'"),
-           ])
+    c.plan("45334GA0020002", "45334-GAN001", "Anthem Silver Blue Value HMO 4000")
+    c.plan("45334GA0020008", "45334-GAN001", "Anthem Bronze Blue Value HMO 5000", "Expanded Bronze")
+    c.plan("49046GA0700053", "49046-GAN008", "Anthem Bronze Pathway PCP Copay Choice HMO 6000", "Expanded Bronze")
+    c.plan("58081GA0010001", "58081-GAN001", "Individual Georgia HMO Silver")
     (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
     return c

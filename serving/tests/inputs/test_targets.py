@@ -1,7 +1,4 @@
 """The build-only targets table (build/inputs/targets.py) and etl/targets.yaml."""
-import os
-
-import duckdb
 import pytest
 
 from build.inputs.targets import read_targets
@@ -31,12 +28,7 @@ def test_a_network_georgia_doesnt_list_stops_the_build(corpus):
 def test_a_network_with_no_plans_stops_the_build(corpus):
     corpus.add_target('  - name: Untargeted\n    exchange_networks: ["58081-GAN001"]\n'
                       '    network_patterns: ["Individual Georgia HMO*"]\n')
-    duckdb.connect().execute(f"""
-        COPY (SELECT * FROM '{corpus.root}/reference/exchange_plans_ga.parquet'
-              WHERE network_id != '58081-GAN001')
-        TO '{corpus.root}/reference/plans.parquet' (FORMAT parquet)""")
-    os.replace(f"{corpus.root}/reference/plans.parquet",
-               f"{corpus.root}/reference/exchange_plans_ga.parquet")
+    corpus.remove_plans("58081-GAN001")
     with pytest.raises(SystemExit, match="no plan in Georgia's exchange plan file is on 58081-GAN001"):
         corpus.build()
 
