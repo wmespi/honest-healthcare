@@ -3,23 +3,28 @@
 #
 # Runs the real Phase-2 parse against a committed *.json.gz fixture in the
 # isolated `test` schema, writing Parquet under data-test/. Verifies the price /
-# group_set row counts, the network partitioning, and the coverage_log row.
-# Cleans up everything on exit — `test.*` tables truncated, data-test/anthem
-# removed — so nothing accumulates on disk.
+# group_set row counts, the network partitioning, and the coverage_log row, then
+# that parse downloads only a file a targets file names, and downloads it again
+# only once its Last-Modified changes. Cleans up everything on exit — `test.*`
+# tables truncated, data-test/anthem removed — so nothing accumulates on disk.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
+source tests/e2e/lib.sh
 
 FIXTURE="extraction/testdata/fixtures/synthetic.json.gz"
+PORT=8765
 PSQL=(docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 -qtA)
 
 cleanup() {
   echo "→ teardown"
+  serve_stop "$PORT"
   "${PSQL[@]}" -c "TRUNCATE test.index_file_plans, test.index_files, test.billing_codes, test.coverage_log RESTART IDENTITY;" >/dev/null 2>&1 || true
   # Delete through the etl container — it wrote these files as root, so a host-side
   # rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
   docker compose exec -T etl rm -rf /app/data-test/anthem /app/data-test/reference/exchange_plans_ga.parquet \
-    /app/data-test/e2e_targets.yaml 2>/dev/null || rm -rf data-test/anthem data-test/e2e_targets.yaml
+    /app/data-test/e2e_targets.yaml /app/data-test/e2e_http 2>/dev/null \
+    || rm -rf data-test/anthem data-test/e2e_targets.yaml data-test/e2e_http
 }
 trap cleanup EXIT
 
@@ -28,6 +33,7 @@ docker compose exec -T etl go test ./...
 
 echo "→ seed test.index_files"
 cleanup  # start from a clean slate
+PUBLIC_IDS=$(public_ids)
 FILE_ID=$("${PSQL[@]}" -c \
   "INSERT INTO test.index_files (location, market_types, hios_issuer_ids, plan_states, status)
    VALUES ('fixture://synthetic', ARRAY['individual','group'], ARRAY['45334'], ARRAY['GA'], 'pending')
@@ -74,23 +80,46 @@ echo "   coverage_log (rates/newcodes/networks): $COV"
 
 echo "→ parse downloads only the files a targets file names"
 # Both files are pending and the index links both to a Blue Value plan, the way
-# it links Blue Value to out-of-state shards. Only the named one is tried (its
-# address refuses, so it fails fast); the other is never touched.
+# it links Blue Value to out-of-state shards. Only the named one is downloaded,
+# from a file server whose Last-Modified stands in for Anthem's; the other is
+# never touched.
 docker compose exec -T serving python3 -c "
 import os, duckdb
 os.makedirs('/app/data-test/reference', exist_ok=True)
 duckdb.connect().execute(\"COPY (SELECT '45334GA0020008' AS plan_id, '45334-GAN001' AS network_id) TO '/app/data-test/reference/exchange_plans_ga.parquet' (FORMAT parquet)\")
 "
-NAMED=$("${PSQL[@]}" -c "INSERT INTO test.index_files (location) VALUES ('http://127.0.0.1:9/GA_NAMED.json.gz') RETURNING id;")
-SHARD=$("${PSQL[@]}" -c "INSERT INTO test.index_files (location) VALUES ('http://127.0.0.1:9/2026-10_301_71B0_in-network-rates_01_of_02.json.gz?Expires=1') RETURNING id;")
+mkdir -p data-test/e2e_http
+cp "etl/$FIXTURE" data-test/e2e_http/GA_NAMED.json.gz
+touch -t 202610170400 data-test/e2e_http/GA_NAMED.json.gz
+serve_start e2e_http "$PORT"
+NAMED=$("${PSQL[@]}" -c "INSERT INTO test.index_files (location) VALUES ('http://serving:$PORT/GA_NAMED.json.gz') RETURNING id;")
+SHARD=$("${PSQL[@]}" -c "INSERT INTO test.index_files (location) VALUES ('http://serving:$PORT/2026-10_301_71B0_in-network-rates_01_of_02.json.gz?Expires=1') RETURNING id;")
 "${PSQL[@]}" -c "INSERT INTO test.index_file_plans (file_id, plan_id, plan_id_type)
                  VALUES ($NAMED, '45334GA0020008', 'HIOS'), ($SHARD, '45334GA0020008', 'HIOS');"
 printf 'targets:\n  - name: Blue Value\n    exchange_networks: ["45334-GAN001"]\n    files: ["GA_NAMED.json.gz"]\n' > data-test/e2e_targets.yaml
-docker compose exec -T etl go run . parse -test -targets ../data-test/e2e_targets.yaml || true
-NAMED_STATUS=$("${PSQL[@]}" -c "SELECT status FROM test.index_files WHERE id = $NAMED;")
-SHARD_STATUS=$("${PSQL[@]}" -c "SELECT status FROM test.index_files WHERE id = $SHARD;")
-echo "   named file: $NAMED_STATUS  unnamed file: $SHARD_STATUS"
-[ "$NAMED_STATUS" = "failed" ] || { echo "FAIL: the named file wasn't tried (status=$NAMED_STATUS)"; exit 1; }
-[ "$SHARD_STATUS" = "pending" ] || { echo "FAIL: parse touched a file the targets don't name (status=$SHARD_STATUS)"; exit 1; }
+parse_named() { docker compose exec -T etl go run . parse -test -targets ../data-test/e2e_targets.yaml; }
+field() {  # field <file id> <index_files column>
+  "${PSQL[@]}" -c "SELECT COALESCE($2::text, '') FROM test.index_files WHERE id = $1;"
+}
+
+parse_named
+echo "   named file: $(field "$NAMED" status)  unnamed file: $(field "$SHARD" status)"
+[ "$(field "$NAMED" status)" = "completed" ] || { echo "FAIL: the named file wasn't parsed"; exit 1; }
+[ "$(field "$SHARD" status)" = "pending" ] || { echo "FAIL: parse touched a file the targets don't name"; exit 1; }
+READ=$(field "$NAMED" parsed_updated_at)
+DONE=$(field "$NAMED" completed_at)
+[ -n "$READ" ] || { echo "FAIL: parse didn't record which update of the file it read"; exit 1; }
+
+echo "→ a parsed file isn't downloaded again until it's updated"
+parse_named
+[ "$(field "$NAMED" completed_at)" = "$DONE" ] || { echo "FAIL: parse downloaded an unchanged file again"; exit 1; }
+touch -t 202610310400 data-test/e2e_http/GA_NAMED.json.gz
+parse_named
+echo "   read the update from $READ, then $(field "$NAMED" parsed_updated_at)"
+[ "$(field "$NAMED" completed_at)" != "$DONE" ] || { echo "FAIL: parse didn't download the updated file"; exit 1; }
+[ "$(field "$NAMED" parsed_updated_at)" != "$READ" ] || { echo "FAIL: parse didn't record the update it read"; exit 1; }
+[ "$(field "$SHARD" status)" = "pending" ] || { echo "FAIL: parse touched a file the targets don't name"; exit 1; }
+
+[ "$(public_ids)" = "$PUBLIC_IDS" ] || { echo "FAIL: the test run used up public index_files ids"; exit 1; }
 
 echo "PASS"

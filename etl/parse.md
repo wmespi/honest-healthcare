@@ -34,21 +34,24 @@ For each target, the queue query finds the named files and asks whether `index_f
 ```sql
 SELECT f.id, f.location, f.status,
        EXISTS (SELECT 1 FROM index_file_plans p
-               WHERE p.file_id = f.id AND p.plan_id = ANY($2)) AS linked
+               WHERE p.file_id = f.id AND p.plan_id = ANY($2)) AS linked,
+       f.parsed_updated_at
 FROM index_files f
 WHERE regexp_replace(split_part(f.location, '?', 1), '^.*/', '') = ANY($1)
 ORDER BY f.file_size_bytes ASC NULLS LAST, f.id;
 ```
 
 Parse stops unless every named file matches exactly one queue row and is linked, so a mistyped name, or a file that prices only a plan no longer sold, can't slip through ([mrf-model.md](mrf-model.md#one-plan-one-contract)).
-It downloads the named files that are still `pending` and leaves the rest alone.
+It downloads the named files that are `pending`, and the parsed or skipped ones that Anthem has updated since parse read them ([queue.md](queue.md#when-anthem-updates-a-file)).
+It leaves the rest alone.
 `-file-ids` bypasses selection and doesn't read the plan file, and `-targets ""` works only with it.
 Ordering: smallest first ([queue.md](queue.md)).
 
 ## Per-file steps
 
-1. Mark the row `processing`, GET the file (or read `FIXTURE`), stream once via
-   `streamMRF` (`provider_references` must precede `in_network`).
+1. Mark the row `processing`, GET the file (or read `FIXTURE`) and record its
+   `Last-Modified` as `source_updated_at`, then stream once via `streamMRF`
+   (`provider_references` must precede `in_network`).
 2. **Probe** at the close of `provider_references` — cancel the request and mark the
    row `skipped` if the file isn't worth the rest of the download
    ([below](#the-provider-probe)).

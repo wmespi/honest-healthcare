@@ -22,7 +22,7 @@ echo "→ seeding data/ from $FIXTURE"
 FILE_ID=$("${PSQL[@]}" -c "
   INSERT INTO index_files (location, market_types, hios_issuer_ids, plan_states, status)
   VALUES ('$LOCATION', ARRAY['individual','group'], ARRAY['45334'], ARRAY['GA'], 'pending')
-  ON CONFLICT (location) DO UPDATE SET status = 'pending'
+  ON CONFLICT (address) DO UPDATE SET status = 'pending'
   RETURNING id;")
 
 # -all-npis because the synthetic NPIs are invented and no NPPES roster holds

@@ -11,6 +11,7 @@
 [parse]    → pending → processing → completed
                                  ↘ failed
                                  ↘ skipped
+[parse]    completed / skipped → processing again, once Anthem updates the file
 ```
 
 | Status | Means |
@@ -22,17 +23,36 @@
 | `skipped` | the probe rejected it *before* `in_network`: the file prices nobody on a target plan. `failure_reason` starts `probe: no wanted providers` and carries the reading. Nothing past `provider_references` was downloaded or written |
 
 `skipped` is deliberately not `failed`: nothing went wrong, the file just isn't ours,
-so `make db-reset WHAT=failed` leaves it alone and the queue never re-downloads it.
+so `make db-reset WHAT=failed` leaves it alone, and parse downloads it again only once Anthem updates it.
 The probe: [parse.md](parse.md#the-provider-probe).
 
 ## Selection and order
 
-The queue is the pending files [`targets.yaml`](targets.yaml) names, and the master index
-has to link each one to a target plan via `index_file_plans`; nothing else is downloaded
+The queue is the files [`targets.yaml`](targets.yaml) names that are `pending`, or parsed and updated by Anthem since ([below](#when-anthem-updates-a-file)).
+The master index has to link each one to a target plan via `index_file_plans`, and nothing else is downloaded
 ([parse.md](parse.md#target-selection) has the query and the escape hatches).
 Order is `file_size_bytes ASC NULLS LAST, id` (smallest first, fast feedback); every
 parse writes the GET's `Content-Length` to `file_size_bytes`, and `make discover`
 backfills it ahead of time.
+
+## When Anthem updates a file
+
+A file keeps its id across months ([discover.md](discover.md#the-monthly-rebuild)), and parse keeps two of Anthem's `Last-Modified` dates for it:
+
+- `source_updated_at`: when Anthem last updated the file, as parse last saw it;
+- `parsed_updated_at`: the update the last finished parse read, `completed` or `skipped`.
+
+`completed_at` is when that parse finished.
+Each run, parse asks Anthem (a HEAD request) about every named file that is `completed` or `skipped`, and records the answer.
+It downloads the file again when the answer differs from `parsed_updated_at`, or when that is empty because the parse predates it.
+The re-parse keeps the file's id, so its Parquet replaces the old.
+A `failed` or `processing` file is never retried this way (Critical Rule 2).
+Parse stops if Anthem doesn't answer, because it can't tell whether a parsed file is current.
+
+```sql
+SELECT id, status, source_updated_at, parsed_updated_at, completed_at
+FROM index_files WHERE address LIKE '%/GA_JBNKMED0001.json.gz';
+```
 
 ## Recovery
 
@@ -60,7 +80,7 @@ The index links the target plan to many files, but only one carries a
 `provider_references[].network_name` that matches its `network_patterns`
 (`GA_JBNKMED0001`, labelled `"GA Blue Value HIX Individual Network"`); the others
 are BlueCard-mirror shards whose GA-NPI overlap is real but whose rates aren't the
-plan's, so they end `skipped` at the front of the stream. Other big `anthem/GA_*`
+plan's, and `targets.yaml` doesn't name them, so they're never downloaded. Other big `anthem/GA_*`
 files are *different* GA individual plans — worth parsing only once their plan is in
 `targets.yaml`. If the pattern goes stale (Anthem renames the network), the
 end-of-run guard catches it ([parse.md](parse.md#end-of-run-guard)). Parse very

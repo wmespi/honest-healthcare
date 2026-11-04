@@ -2,8 +2,8 @@
 
 *Read this when working on the monthly metadata sync into the Postgres queue.*
 
-Populates `index_files` (the parse queue) and `index_file_plans` (the plan → file
-link) from the Anthem master index. Cheap, incremental, safe to re-run.
+Rebuilds `index_files` (the parse queue) and `index_file_plans` (the plan → file link) from this month's Anthem master index.
+Safe to re-run.
 `make discover` → `etl discover` (package `etl/discovery`).
 
 | Variable | Effect |
@@ -12,15 +12,15 @@ link) from the Anthem master index. Cheap, incremental, safe to re-run.
 | `SCHEMA=1` | stream the index, write `data/anthem/index_schema.json`, **no DB writes** |
 | `NO_CACHE=1` | force re-download of the master index |
 | `INDEX_URL=…` | override the monthly master-index URL |
-| `LIMIT=n` | cap reporting structures (default 100 in test mode) |
+| `LIMIT=n` | cap reporting structures (default 100 in test mode); a limited run only adds and updates |
 
 ## What it does
 
 1. Downloads the master index to a local gzip cache (`data/anthem/index_cache.json.gz`,
    multi-GB) via parallel HTTP Range requests; re-runs on the same monthly URL skip
    the download unless `NO_CACHE=1`. The cache is only needed during a run.
-2. Streams the JSON, walks every `reporting_structure`, and per unique file URL
-   accumulates `market_types`, `hios_issuer_ids` (first 5 chars of each HIOS
+2. Streams the JSON, walks every `reporting_structure`, and per file (its address,
+   [below](#the-monthly-rebuild)) accumulates `market_types`, `hios_issuer_ids` (first 5 chars of each HIOS
    `plan_id`), `plan_states` (2-letter state from `plan_id[5:7]` — the positional,
    no-regex GA signal), `reporting_entity_*` (from the index root; the parser later
    overwrites them with the per-file value), `network_entity` (prefix before `" : "`
@@ -34,39 +34,45 @@ link) from the Anthem master index. Cheap, incremental, safe to re-run.
    the full cross-product is hundreds of millions of rows/month, almost all employer
    plans nothing here selects on.
 4. Writes `data/anthem/index_schema.json` (a compact, array-truncated example).
-5. Bulk-loads via `COPY` into a `TEMP` staging table, then set-based
-   `UPDATE … FROM _idx_stage` + `INSERT … LEFT JOIN … WHERE t.id IS NULL`. GIN
-   indexes on the array columns are dropped before the write, rebuilt once after.
+5. Bulk-loads via `COPY` into `TEMP` staging tables, then rebuilds the queue from them
+   set-based, in one transaction ([below](#the-monthly-rebuild)). GIN indexes on the
+   array columns are dropped before the write, rebuilt once after.
 6. Backfills `file_size_bytes` with HEAD requests so the queue can be size-ordered.
 
 ## Why the pairs never sit in memory
 
 `reporting_plans[] × in_network_files[]` is a cross-product of tens of millions of
 pairs, so accumulating per file would blow the heap (Critical Rule 3 applies to
-discovery too). Instead each unique file URL gets a run-local `file_key` int on first
+discovery too). Instead each file gets a run-local `file_key` int on first
 sight, so a staged pair carries 8 bytes, not the signed URL; `planStager` buffers a
 bounded batch (200k pairs), dedupes within it, `COPY`s it to a `TEMP` `_plan_stage`
 and resets; after the `index_files` upsert assigns ids, one statement resolves
 `file_key → id` and inserts `DISTINCT ON (file_id, plan_id, plan_name, market_type)
-… ON CONFLICT DO NOTHING`. Cross-batch duplicates and re-runs are absorbed there.
+… ON CONFLICT DO NOTHING`. Cross-batch duplicates collapse there, and so do a limited run's pairs that are already linked.
 
-## Monthly refresh — signed-URL expiry
+## The monthly rebuild
 
-Every `location` is a CloudFront-signed URL (`?Expires=…&Signature=…`) that dies after
-about a month, and the index's file paths carry a `YYYY-MM_` prefix — so **each month's
-files are new rows, not updates**.
+Each month's index is a new list.
+An out-of-state location is a CloudFront-signed URL (`?Expires=…&Signature=…`) that dies after about a month, and its file name carries a `YYYY-MM_` prefix, so those are new files every month.
+Discover matches files on `index_files.address`, the location without its query.
+A file Anthem keeps listing, like a Georgia file, therefore keeps its id, status and parse record from month to month, and only its signed location is refreshed.
+Parsed Parquet is keyed by that id (`prices/net=<slug>/<id>.parquet`), so a re-parse replaces the file's output instead of adding a second copy.
+
+A run that reads the whole index makes the queue match it, in one transaction:
+
+- every file the index lists is added or refreshed;
+- a file it no longer lists is removed, unless it's `completed`: its Parquet uses its id, so its row stays, with no plan links;
+- the plan links are replaced with this index's.
+
+A limited run (`LIMIT=n`) reads only part of the index, so it only adds and updates.
+Discover stops before downloading the index if a file is `processing`, because a parse is in it or one stopped part way ([queue.md](queue.md#recovery)).
+It locks the queue while it writes, so a parse that starts meanwhile waits for it.
+Whether a parsed file is downloaded again is parse's call ([queue.md](queue.md#when-anthem-updates-a-file)).
 
 ```bash
-make discover NO_CACHE=1 INDEX_URL="https://…/2026-09-01_anthem_index.json.gz"
-# then prune the dead prior month:
-make psql
-#   DELETE FROM index_files
-#   WHERE location LIKE '%/2026-08\_%' AND status IN ('pending','failed');
+make discover   # this month's index
+make discover NO_CACHE=1 INDEX_URL="https://…/2026-12-01_anthem_index.json.gz"
 ```
-
-`location` is not a cross-month key ([../docs/known-gaps.md](../docs/known-gaps.md)).
-`index_file_plans.file_id` is `ON DELETE CASCADE`, so pruning a dead month's
-`index_files` rows takes their plan links with them.
 
 ## Which files serve a plan?
 

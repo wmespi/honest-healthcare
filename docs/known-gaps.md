@@ -85,9 +85,6 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 - **`make reference STEP=nppes` is not atomic** — `ga_providers.parquet` is briefly
   empty during a re-extract and queries touching it 500. Run it when the API is idle.
-- **Monthly index churn.** `location` is a signed URL with a `YYYY-MM_` prefix, not a
-  cross-month key; re-discover monthly and prune the prior month
-  ([../etl/discover.md](../etl/discover.md)).
 - **Large GA files** (multi-GB) are tractable thanks to the price/roster split; still
   parse individually and watch `du -sh data`.
 

@@ -71,15 +71,18 @@ func markFailed(ctx context.Context, conn *pgx.Conn, fileID int, reason error, d
 
 // markSkipped records a probe abort. `skipped` is deliberately not `failed`:
 // nothing went wrong, the file simply prices nobody we serve, and `make db-reset
-// WHAT=failed` must not put it back in the queue to be downloaded again.
-func markSkipped(ctx context.Context, conn *pgx.Conn, fileID int, reason error, dryRun bool) {
+// WHAT=failed` must not put it back in the queue to be downloaded again. It also
+// records which update of the file the probe read (updated), so the file is
+// downloaded again only once Anthem updates it.
+func markSkipped(ctx context.Context, conn *pgx.Conn, fileID int, reason error, updated time.Time, dryRun bool) {
 	if !dryRun && conn != nil {
 		msg := ""
 		if reason != nil {
 			msg = reason.Error()
 		}
 		if _, err := conn.Exec(ctx,
-			"UPDATE index_files SET status = 'skipped', failure_reason = $2 WHERE id = $1", fileID, msg); err != nil {
+			"UPDATE index_files SET status = 'skipped', failure_reason = $2, parsed_updated_at = $3 WHERE id = $1",
+			fileID, msg, orNull(updated)); err != nil {
 			log.Printf("⚠️ Failed to mark file %d as skipped: %v", fileID, err)
 		}
 	}
@@ -130,36 +133,75 @@ func writeNPILookup(seenNPIs map[int64]string) {
 	log.Printf("✅ Wrote npi_lookup.parquet — %d unique NPIs", len(rows))
 }
 
-// openMRF returns a reader for the raw (still gzipped) MRF bytes, its size, and a
-// cancel func that aborts the in-flight request (a no-op for a fixture). A
-// fixturePath reads from disk (offline); otherwise it GETs url under a
-// cancellable context so watchStall can kill a dead transfer.
-func openMRF(ctx context.Context, url, fixturePath string) (io.ReadCloser, int64, context.CancelFunc, error) {
+// openMRF returns a reader for the raw (still gzipped) MRF bytes, its size, when
+// Anthem last updated the copy being read (its Last-Modified; zero for a fixture
+// or a response without one), and a cancel func that aborts the in-flight
+// request (a no-op for a fixture). A fixturePath reads from disk (offline);
+// otherwise it GETs url under a cancellable context so watchStall can kill a
+// dead transfer.
+func openMRF(ctx context.Context, url, fixturePath string) (io.ReadCloser, int64, time.Time, context.CancelFunc, error) {
 	if fixturePath != "" {
 		f, err := os.Open(fixturePath)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, 0, time.Time{}, nil, err
 		}
 		fi, _ := f.Stat()
-		return f, fi.Size(), func() {}, nil
+		return f, fi.Size(), time.Time{}, func() {}, nil
 	}
 	reqCtx, cancel := context.WithCancel(ctx)
 	req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
 	if err != nil {
 		cancel()
-		return nil, 0, nil, err
+		return nil, 0, time.Time{}, nil, err
 	}
 	resp, err := mrfHTTPClient.Do(req)
 	if err != nil {
 		cancel()
-		return nil, 0, nil, err
+		return nil, 0, time.Time{}, nil, err
 	}
 	if resp.StatusCode != 200 {
 		resp.Body.Close()
 		cancel()
-		return nil, 0, nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, 0, time.Time{}, nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return resp.Body, resp.ContentLength, cancel, nil
+	updated, _ := lastModifiedHeader(resp.Header)
+	return resp.Body, resp.ContentLength, updated, cancel, nil
+}
+
+// lastModified asks Anthem when it last updated the file at url: a HEAD
+// request's Last-Modified.
+func lastModified(ctx context.Context, url string) (time.Time, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	resp, err := mrfHTTPClient.Do(req)
+	if err != nil {
+		return time.Time{}, err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return time.Time{}, fmt.Errorf("HEAD: HTTP %d", resp.StatusCode)
+	}
+	return lastModifiedHeader(resp.Header)
+}
+
+// lastModifiedHeader reads a response's Last-Modified, and errors when it is
+// missing or malformed.
+func lastModifiedHeader(h http.Header) (time.Time, error) {
+	v := h.Get("Last-Modified")
+	if v == "" {
+		return time.Time{}, errors.New("no Last-Modified header")
+	}
+	return http.ParseTime(v)
+}
+
+// orNull is t for a query parameter, or NULL when t is the zero time.
+func orNull(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
 
 // stallTimeout is how long a download may deliver zero bytes before watchStall
@@ -269,13 +311,18 @@ func parseRates(
 		}
 	}
 
-	body, contentLength, cancelDownload, err := openMRF(ctx, url, fixturePath)
+	body, contentLength, updated, cancelDownload, err := openMRF(ctx, url, fixturePath)
 	if err != nil {
 		markFailed(ctx, conn, fileID, err, dryRun)
 		return nil, outcomeFailed
 	}
 	defer body.Close()
 	defer cancelDownload()
+	if !updated.IsZero() && !dryRun && conn != nil {
+		if _, err := conn.Exec(ctx, "UPDATE index_files SET source_updated_at = $2 WHERE id = $1", fileID, updated); err != nil {
+			log.Printf("⚠️ Failed to record when Anthem updated file %d: %v", fileID, err)
+		}
+	}
 
 	pr := core.NewProgressReader(body, contentLength)
 
@@ -399,7 +446,7 @@ func parseRates(
 		}
 		log.Printf("  ⛔ File %d skipped — %v", fileID, err)
 		log.Printf("     aborted after reading %s%s", humanBytes(read), of)
-		markSkipped(ctx, conn, fileID, err, dryRun)
+		markSkipped(ctx, conn, fileID, err, updated, dryRun)
 		var pae *probeAbortError
 		if errors.As(err, &pae) && pae.Signal == signalNetwork {
 			return nil, outcomeSkippedNetwork
@@ -467,10 +514,11 @@ func parseRates(
 			UPDATE index_files
 			SET status = 'completed',
 			    completed_at = NOW(),
+			    parsed_updated_at = $4,
 			    reporting_entity_name = COALESCE(NULLIF($2, ''), reporting_entity_name),
 			    reporting_entity_type = COALESCE(NULLIF($3, ''), reporting_entity_type)
 			WHERE id = $1`,
-			fileID, res.ReportingEntityName, res.ReportingEntityType); err != nil {
+			fileID, res.ReportingEntityName, res.ReportingEntityType, orNull(updated)); err != nil {
 			log.Printf("⚠️ Failed to mark file %d as completed: %v", fileID, err)
 		}
 		var parts []string
@@ -641,10 +689,17 @@ func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, targets *Ta
 		if err != nil {
 			return nil, err
 		}
-		for _, f := range picked {
-			if !seen[f.ID] {
-				seen[f.ID] = true
-				files = append(files, f)
+		for _, r := range picked {
+			if seen[r.ID] {
+				continue
+			}
+			seen[r.ID] = true
+			due, err := dueForParse(ctx, conn, r, opts.DryRun)
+			if err != nil {
+				return nil, err
+			}
+			if due {
+				files = append(files, r.pendingFile)
 			}
 		}
 	}
@@ -652,6 +707,36 @@ func pendingFiles(ctx context.Context, conn *pgx.Conn, opts Options, targets *Ta
 		files = files[:opts.Limit]
 	}
 	return files, nil
+}
+
+// dueForParse says whether parse downloads a named file: always when it's
+// pending, and when it's parsed or skipped only if Anthem has updated it since
+// the copy we read. It asks Anthem with a HEAD request and records the answer.
+func dueForParse(ctx context.Context, conn *pgx.Conn, r queueRow, dryRun bool) (bool, error) {
+	if r.Status == "pending" {
+		return true, nil
+	}
+	anthem, err := lastModified(ctx, r.Location)
+	if err != nil {
+		return false, fmt.Errorf("%s (file %d) is %s, and parse can't tell whether Anthem has updated it since: %w", r.Name, r.ID, r.Status, err)
+	}
+	if !dryRun {
+		if _, err := conn.Exec(ctx, "UPDATE index_files SET source_updated_at = $2 WHERE id = $1", r.ID, anthem); err != nil {
+			return false, fmt.Errorf("record when Anthem updated file %d: %w", r.ID, err)
+		}
+	}
+	if !changedSince(r.Parsed, anthem) {
+		log.Printf("🎯 %s (file %d) is %s, and Anthem hasn't updated it since (%s), so it isn't downloaded",
+			r.Name, r.ID, r.Status, anthem.UTC().Format(time.DateTime))
+		return false, nil
+	}
+	read := "an earlier copy"
+	if r.Parsed != nil {
+		read = "the copy from " + r.Parsed.UTC().Format(time.DateTime)
+	}
+	log.Printf("🔄 %s (file %d) is %s, but Anthem updated it on %s and parse read %s, so it's downloaded again",
+		r.Name, r.ID, r.Status, anthem.UTC().Format(time.DateTime), read)
+	return true, nil
 }
 
 // fileNameSQL is a queue row's file name: the last part of its location, without
@@ -664,7 +749,8 @@ func namedRows(ctx context.Context, conn *pgx.Conn, t Target, planIDs []string) 
 	rows, err := conn.Query(ctx, `
 		SELECT f.id, f.location, COALESCE(array_to_string(f.market_types, ' | '), ''),
 		       `+fileNameSQL+`, COALESCE(f.status, ''),
-		       EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND `+planMatchSQL("p", 2)+`)
+		       EXISTS (SELECT 1 FROM index_file_plans p WHERE p.file_id = f.id AND `+planMatchSQL("p", 2)+`),
+		       f.parsed_updated_at
 		FROM index_files f
 		WHERE `+fileNameSQL+` = ANY($1)
 		ORDER BY f.file_size_bytes ASC NULLS LAST, f.id`, t.Files, planIDs)
@@ -675,7 +761,7 @@ func namedRows(ctx context.Context, conn *pgx.Conn, t Target, planIDs []string) 
 	var out []queueRow
 	for rows.Next() {
 		var r queueRow
-		if err := rows.Scan(&r.ID, &r.Location, &r.PlanName, &r.Name, &r.Status, &r.Linked); err != nil {
+		if err := rows.Scan(&r.ID, &r.Location, &r.PlanName, &r.Name, &r.Status, &r.Linked, &r.Parsed); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -721,13 +807,13 @@ func Run(ctx context.Context, conn *pgx.Conn, opts Options) error {
 	}
 	if len(files) == 0 {
 		if len(opts.FileIDs) == 0 {
-			log.Printf("✅ Every file %s names is already parsed or skipped.", targets.Path)
+			log.Printf("✅ Nothing to download: no file %s names is pending or updated by Anthem since we read it.", targets.Path)
 			return nil
 		}
 		log.Println("✅ No pending files found in index_files. Run 'etl discover' first, or all files are already completed.")
 		return nil
 	}
-	log.Printf("Found %d pending file(s). Processing...", len(files))
+	log.Printf("Found %d file(s) to download. Processing...", len(files))
 
 	if opts.DryRun {
 		log.Println("🔍 Dry-run mode — streaming only, no DB writes.")
