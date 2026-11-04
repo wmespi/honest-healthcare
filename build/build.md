@@ -35,6 +35,7 @@ They always cover the targets in [`etl/targets.yaml`](../etl/targets.yaml), what
 | Table | Grain | Notes |
 |---|---|---|
 | `networks.parquet` | one row per network a target names | `network_id`, such as `45334-GAN001`, and Georgia's exchange `name` for it. |
+| `plans.parquet` | one row per plan on those networks | `plan_id`, the HIOS plan ID such as `45334GA0020002`, with Georgia's `name` as published, `carrier`, `metal_level`, `needs_referral` and `network_id`. The index must link each plan to its network's file, or the build stops. |
 
 A file prices a network when the index links it to one of the network's plans and its rates carry one of the target's `network_patterns` labels.
 The plans on a network come from Georgia's exchange plan file, and the link comes from `data/anthem/index_file_plans.parquet`, which `make discover` writes from the index it last read whole, so the build reads no database.

@@ -13,6 +13,7 @@ import duckdb
 from build.inputs.network_files import NetworkFiles
 from build.inputs.targets import TARGETS_PATH, Targets
 from build.tables.networks import Networks
+from build.tables.plans import Plans
 
 
 def build(data_dir, serving_dir, targets_path=TARGETS_PATH):
@@ -28,6 +29,7 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH):
     ]
     tables = [
         Networks(),
+        Plans(),
     ]
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)
