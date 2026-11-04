@@ -44,3 +44,23 @@ def test_a_billing_id_that_is_not_an_npi_stops_the_build(corpus):
     with pytest.raises(SystemExit, match="1 roster rows bill under a 'ein' ID, not an NPI"):
         corpus.build()
 
+
+
+def test_a_registered_center_does_its_kind_of_scan_without_a_medicare_record(corpus):
+    # 1000000010 is an MRI center Medicare has no record of, priced for an MRI and a
+    # mammogram. 1000000011 is a mammography center whose doctor Medicare shows
+    # reading MRIs in hospitals.
+    for biller, doctor, taxonomy in [(1000000010, 2000000010, "261QM1200X"),
+                                     (1000000011, 2000000011, "261QR0206X")]:
+        group = biller - 1000000000
+        corpus.roster(21057, group, group, str(biller), doctor)
+        corpus.scan_price(21057, BV, group, "72148", all_in=500)
+        corpus.scan_price(21057, BV, group, "77067", all_in=150)
+        corpus.npi(biller, f"CENTER {group}", f"{group} MAIN ST", "ATLANTA", "303082233", taxonomy=taxonomy)
+    corpus.billed(2000000011, "72148", "F")
+    rows = corpus.inputs().execute("""
+        SELECT DISTINCT biller, service_id, does_scan FROM biller_rates
+        WHERE biller IN ('1000000010', '1000000011') ORDER BY ALL""").fetchall()
+    assert rows == [("1000000010", "mri-lower-back", True),
+                    ("1000000011", "mammogram-screening", True),
+                    ("1000000011", "mri-lower-back", False)]

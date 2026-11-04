@@ -50,8 +50,8 @@ A target network with no file that prices it, or one that Georgia's exchange fil
 Who prices a service where follows the rules on #135 ([reading groups versus places](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6639007442)):
 
 - [`biller_rates`](inputs/biller_rates.py) keeps a network's outpatient professional rates for each service, by the billing NPI each covers.
-  A biller appears only if Medicare shows a doctor on its roster, or the biller itself, billing that service.
-  It does the scan if one billed it in an office, or if NPPES registers it as an imaging center, and otherwise it only reads it.
+  A biller appears if Medicare shows a doctor on its roster, or the biller itself, billing that service, or if its NPPES primary specialty code registers it as an imaging center for that kind of scan ([imaging_centers](inputs/imaging_centers.py)).
+  It does the scan if it's such a center or one of them billed the service in an office, and otherwise it only reads it.
 - [`biller_places`](inputs/biller_places.py) puts each biller at its own NPPES address: the hospital there, matched on Census's standardized address, or its own place.
   A doctor's own NPI takes its CMS group's name, and away from a hospital it has no place without one. A biller with no Georgia record has none either.
   Every billing ID in Anthem's files is an NPI, and the build stops if a file lists a tax ID instead, since NPPES can't place it.

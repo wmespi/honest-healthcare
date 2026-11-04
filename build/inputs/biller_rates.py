@@ -19,11 +19,13 @@ class BillerRates(Table):
     network label can be several networks joined by `|`, so the price row, not the
     roster, says which network the rate is for.
 
-    A biller appears for a service only if a doctor on its roster, or the biller
-    itself, billed Medicare for it. `does_scan` says one of them billed it in an
-    office, or the biller is registered as an imaging center (imaging_centers),
-    because Medicare's file often misses those centers. Otherwise the biller
-    only reads the scan (the 2026-11-04 decision on #135)."""
+    A biller appears for a service if a doctor on its roster, or the biller
+    itself, billed Medicare for it, or if its NPPES primary specialty code
+    registers it as an imaging center that does that kind of scan
+    (imaging_centers), because Medicare's file often misses those centers.
+    `does_scan` says it's such a center, or one of them billed the service in an
+    office. Otherwise the biller only reads the scan (the 2026-11-04 decisions on
+    #135)."""
     name = "biller_rates"
     key = ["network_id", "service_id", "biller", "part", "rate"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR",
@@ -77,13 +79,20 @@ class BillerRates(Table):
                       UNION SELECT network_id, service_id, biller, TRY_CAST(biller AS BIGINT) FROM covered) c
                 JOIN billed b ON b.npi = c.npi AND b.service_id = c.service_id
                 GROUP BY c.network_id, c.service_id, c.biller
+            ),
+            registered AS (
+                SELECT DISTINCT c.network_id, c.service_id, c.biller
+                FROM covered c
+                JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(c.biller AS BIGINT)
+                JOIN imaging_centers i ON i.taxonomy_code = n.taxonomy_code
+                WHERE i.scans IS NULL OR i.scans = split_part(c.service_id, '-', 1)
             )
             SELECT DISTINCT c.network_id, c.service_id, c.biller, c.part, c.rate,
-                   e.in_office OR coalesce(n.taxonomy_code IN (SELECT taxonomy_code FROM imaging_centers),
-                                           false) AS does_scan
+                   r.biller IS NOT NULL OR coalesce(e.in_office, false) AS does_scan
             FROM covered c
-            JOIN evidence e USING (network_id, service_id, biller)
-            LEFT JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(c.biller AS BIGINT)
+            LEFT JOIN evidence e USING (network_id, service_id, biller)
+            LEFT JOIN registered r USING (network_id, service_id, biller)
+            WHERE e.biller IS NOT NULL OR r.biller IS NOT NULL
         """
 
     def check(self, con, data_dir):

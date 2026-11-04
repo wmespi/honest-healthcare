@@ -1,25 +1,35 @@
-"""Build-only: the NPPES specialty codes for an imaging or mammography center."""
+"""Build-only: the NPPES specialty codes for an imaging or mammography center,
+and which scans each one does."""
 from build.inputs.datasets import NUCC_TAXONOMY
 from build.table import Table
 
-# Which centers count is a product decision (#135, 2026-11-04), so it's a list
-# of NUCC's stable codes, not a match on its labels, which NUCC edits.
-CODES = ("261QM1200X", "261QR0200X", "261QR0206X", "261QR0207X", "261QR0208X")
+# Which centers count, and for which scans, is a product decision (#135,
+# 2026-11-04), so it's NUCC's stable codes, not a match on its labels, which NUCC
+# edits. A scan's kind is the first part of its service_id (build/services.yaml),
+# and None means every scan.
+CODES = {
+    "261QM1200X": "mri",        # MRI center
+    "261QR0200X": None,         # radiology center
+    "261QR0206X": "mammogram",  # mammography center
+    "261QR0207X": "mammogram",  # mobile mammography
+    "261QR0208X": None,         # mobile radiology
+}
 
 
 class ImagingCenters(Table):
-    """The MRI, radiology, mammography, mobile mammography and mobile radiology
-    clinic or center codes, each as NUCC lists it. The build stops if NUCC stops
-    listing one, so a retired code can't drop out silently."""
+    """Each code as NUCC lists it, with the kind of scan a center registered under
+    it does (`scans`, empty for every kind). The build stops if NUCC stops listing
+    one, so a retired code can't drop out silently."""
     name = "imaging_centers"
     key = ["taxonomy_code"]
-    columns = {"taxonomy_code": "VARCHAR", "specialization": "VARCHAR"}
+    columns = {"taxonomy_code": "VARCHAR", "specialization": "VARCHAR", "scans": "VARCHAR"}
 
     def select(self, data_dir):
-        codes = ", ".join(f"'{c}'" for c in CODES)
+        rows = ", ".join(f"('{c}', {'NULL' if k is None else repr(k)})" for c, k in CODES.items())
         return f"""
-            SELECT taxonomy_code, specialization FROM {NUCC_TAXONOMY.read(data_dir)}
-            WHERE taxonomy_code IN ({codes})
+            SELECT n.taxonomy_code, n.specialization, c.scans
+            FROM {NUCC_TAXONOMY.read(data_dir)} n
+            JOIN (VALUES {rows}) AS c(taxonomy_code, scans) USING (taxonomy_code)
         """
 
     def check(self, con, data_dir):
