@@ -46,6 +46,9 @@ NPPES = Dataset("nppes/ga_providers.parquet", "make reference STEP=nppes")
 # Who billed Medicare for each code in Georgia, and whether in an office (O) or a
 # facility (F) (reference/cms-utilization.md).
 MEDICARE_BILLING = Dataset("cms/ga_provider_service.parquet", "make reference STEP=cms-utilization")
+# NUCC's specialty codes, with their classification and specialization
+# (reference/taxonomy-labels.md).
+NUCC_TAXONOMY = Dataset("reference/nucc_taxonomy.parquet", "make reference STEP=taxonomy-labels")
 # Each clinician's CMS group, by NPI (reference/doctors-clinicians.md).
 DOCTORS_CLINICIANS = Dataset("reference/dac_ga.parquet", "make reference STEP=doctors-clinicians")
 # Georgia's hospitals: CCN, name, address, phone and star rating (reference/hospitals.md).

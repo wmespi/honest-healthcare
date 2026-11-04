@@ -13,6 +13,7 @@ import duckdb
 from build.inputs.biller_places import BillerPlaces
 from build.inputs.biller_rates import BillerRates
 from build.inputs.hospitals import Hospitals
+from build.inputs.imaging_centers import ImagingCenters
 from build.inputs.network_files import NetworkFiles
 from build.inputs.service_list import SERVICES_PATH, ServiceList
 from build.inputs.targets import TARGETS_PATH, Targets
@@ -30,6 +31,7 @@ def inputs(targets_path=TARGETS_PATH, services_path=SERVICES_PATH):
         Targets(targets_path),
         NetworkFiles(),
         ServiceList(services_path),
+        ImagingCenters(),
         BillerRates(),
         Hospitals(),
         BillerPlaces(),

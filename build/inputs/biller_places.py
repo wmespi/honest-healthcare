@@ -1,5 +1,4 @@
 """Build-only: the place each biller in biller_rates is, if it has one."""
-from build.inputs.biller_rates import IMAGING_CENTERS
 from build.inputs.datasets import DOCTORS_CLINICIANS, GEOCODES, NPPES, ZIP_CENTROIDS
 from build.table import Table
 
@@ -19,7 +18,6 @@ class BillerPlaces(Table):
                "address": "VARCHAR", "city": "VARCHAR", "lat": "DOUBLE", "lon": "DOUBLE"}
 
     def select(self, data_dir):
-        centers = ", ".join(f"'{c}'" for c in IMAGING_CENTERS)
         return f"""
             WITH own AS (
                 SELECT b.biller, n.taxonomy_code,
@@ -46,7 +44,7 @@ class BillerPlaces(Table):
             SELECT o.biller,
                    coalesce(h.ccn, o.biller) AS place_id,
                    CASE WHEN h.ccn IS NOT NULL THEN 'hospital'
-                        WHEN o.taxonomy_code IN ({centers}) THEN 'imaging_center'
+                        WHEN o.taxonomy_code IN (SELECT taxonomy_code FROM imaging_centers) THEN 'imaging_center'
                         ELSE 'practice' END AS kind,
                    coalesce(h.name, o.name) AS name, coalesce(h.address, o.address) AS address,
                    coalesce(h.city, o.city) AS city, coalesce(h.lat, o.lat) AS lat, coalesce(h.lon, o.lon) AS lon

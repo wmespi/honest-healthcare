@@ -492,6 +492,7 @@ class Corpus:
         self.hospitals = []
         self.geocodes = []
         self.groups = []
+        self.taxonomies = []
         self.pending = {}
 
     def _queue(self, path, schema, rows):
@@ -562,6 +563,14 @@ class Corpus:
         self.groups.append((npi, "SMITH", "PAT", "MD", "DIAGNOSTIC RADIOLOGY", "1234567890", org_name,
                             2005, "OTHER", "F"))
         self._queue(f"{self.root}/reference/dac_ga.parquet", DAC_SCHEMA, self.groups)
+
+    def taxonomy(self, code, classification, specialization):
+        """Add a NUCC specialty code."""
+        self.taxonomies.append((code, None, classification, specialization, None, None, False))
+        self._queue(f"{self.root}/reference/nucc_taxonomy.parquet",
+                    {"taxonomy_code": "VARCHAR", "grouping": "VARCHAR", "classification": "VARCHAR",
+                     "specialization": "VARCHAR", "display_name": "VARCHAR", "specialty": "VARCHAR",
+                     "is_individual": "BOOLEAN"}, self.taxonomies)
 
     def inputs(self):
         """A connection with every build-only table made, to read one directly."""
@@ -740,6 +749,11 @@ def corpus(tmp_path, monkeypatch):
     c.npi(1000000006, "JONES", "1 MAIN ST", "MACON", "312011234", entity_type="individual")
     c.npi(1000000008, "NO MEDICARE CLINIC", "2 MAIN ST", "MACON", "312011234")
     c.group(1000000005, "EMORY MEDICAL CARE FOUNDATION")
+    for code, classification, specialization in [
+            ("261QR0200X", "Clinic/Center", "Radiology"),
+            ("261QM1300X", "Clinic/Center", "Multi-Specialty"),
+            ("2085R0202X", "Radiology", "Diagnostic Radiology")]:
+        c.taxonomy(code, classification, specialization)
     c.hospital("110079", "GRADY MEMORIAL HOSPITAL", "80 JESSE HILL JR DRIVE SE", "ATLANTA", "30303", stars=3)
     c.hospital("110001", "HAMILTON MEDICAL CENTER", "1200 MEMORIAL DRIVE", "DALTON", "30720", stars=4)
     c.geocode("550 PEACHTREE ST NE", "ATLANTA", "303082233", "550 PEACHTREE ST NE, ATLANTA, GA, 30308",

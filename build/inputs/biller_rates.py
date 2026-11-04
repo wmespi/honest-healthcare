@@ -7,10 +7,6 @@ from build.table import Table
 # 26 the reading. Other modifiers, such as 50 for both sides, aren't a part.
 PARTS = {"": "all_in", "TC": "scan", "26": "reading"}
 
-# NPPES specialty codes for imaging and mammography centers. Medicare's file often
-# misses these centers, so registering as one counts as doing the scan.
-IMAGING_CENTERS = ("261QM1200X", "261QR0200X", "261QR0206X", "261QR0207X", "261QR0208X")
-
 
 class BillerRates(Table):
     """Rates are the outpatient professional ones: fee-for-service, a fee schedule
@@ -25,7 +21,8 @@ class BillerRates(Table):
 
     A biller appears for a service only if a doctor on its roster, or the biller
     itself, billed Medicare for it. `does_scan` says one of them billed it in an
-    office, or the biller is a registered imaging center. Otherwise the biller
+    office, or the biller is registered as an imaging center (imaging_centers),
+    because Medicare's file often misses those centers. Otherwise the biller
     only reads the scan (the 2026-11-04 decision on #135)."""
     name = "biller_rates"
     key = ["network_id", "service_id", "biller", "part", "rate"]
@@ -35,7 +32,6 @@ class BillerRates(Table):
     def select(self, data_dir):
         modifiers = ", ".join(f"'{m}'" for m in PARTS)
         part = " ".join(f"WHEN '{m}' THEN '{p}'" for m, p in PARTS.items())
-        centers = ", ".join(f"'{c}'" for c in IMAGING_CENTERS)
         return f"""
             WITH lines AS (
                 SELECT f.network_id, s.service_id, r.file_id, r.network_name, r.group_set_id,
@@ -83,7 +79,8 @@ class BillerRates(Table):
                 GROUP BY c.network_id, c.service_id, c.biller
             )
             SELECT DISTINCT c.network_id, c.service_id, c.biller, c.part, c.rate,
-                   e.in_office OR coalesce(n.taxonomy_code IN ({centers}), false) AS does_scan
+                   e.in_office OR coalesce(n.taxonomy_code IN (SELECT taxonomy_code FROM imaging_centers),
+                                           false) AS does_scan
             FROM covered c
             JOIN evidence e USING (network_id, service_id, biller)
             LEFT JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(c.biller AS BIGINT)
