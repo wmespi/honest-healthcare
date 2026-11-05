@@ -12,7 +12,7 @@ Each table has its own file, named after it, with a class that names its key and
 [`build/inputs/`](inputs/__init__.py) holds what they read: each dataset with the command that makes it, and build-only tables such as which parsed file prices each network.
 [`build/table.py`](table.py) checks every table's columns and key, plus any rule of the table's own, inputs included.
 `make build` makes and checks them all before writing anything, so a failed check leaves the last build's files as they were.
-Two builds from the same inputs write the same bytes, which `serving/tests/tables/` checks.
+Two builds from the same inputs write the same bytes, which `build/tests/tables/` checks.
 They cover the targets in [`etl/targets.yaml`](../etl/targets.yaml).
 `manifest.json` beside them says when the build ran (`built_at`) and how many rows each table has (`rows`), and `GET /` reads it.
 

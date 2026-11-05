@@ -51,4 +51,4 @@ billed it, and does the scan when one billed it in an office
 - Facility / organizational NPIs are mostly absent — a **practitioner** signal.
 - Drug codes are included; `hcpcs_drug_ind` lets the UI filter them.
 
-Tested by `serving/tests/test_cms_utilization.py` against `reference/testdata/cms_sample.csv`.
+Tested by `reference/tests/test_cms_utilization.py` against `reference/testdata/cms_sample.csv`.

@@ -43,7 +43,7 @@ It runs with every `make reference`, and `make refresh` runs it again after the 
 new billing IDs get coordinates the same month. A changed NPPES address is a new address,
 so it's sent; an unchanged one isn't. If Census fails part-way, re-run it.
 
-Tested by `serving/tests/test_geocode.py`, hermetic: a tiny NPPES fixture covers
+Tested by `reference/tests/test_geocode.py`, hermetic: a tiny NPPES fixture covers
 shared-address dedup, a `No_Match`, a wrong-state match, and an NPI that isn't a billing ID,
 whose address is never sent; `--census-response-file` points at
 `reference/testdata/geocode_census_response_sample.csv` instead of the network. It also checks

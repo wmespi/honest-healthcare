@@ -111,7 +111,7 @@ make refresh                # the monthly job: discover → reference → parse 
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
 make check LOCAL=1          #   same gate on host toolchains, NO Docker
-make test                   # every hermetic suite: check + serving pytest + vitest (+ ETL e2e)
+make test                   # every hermetic suite: check + pytest (build, reference, serving) + vitest (+ ETL e2e)
 make test LOCAL=1           #   host toolchains, no Docker; works in any checkout but fails with
                              #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until scripts/dev-setup.sh has been run
 make test-live              # golden answers + user journeys against the live API + real corpus (docs/journeys.md)
