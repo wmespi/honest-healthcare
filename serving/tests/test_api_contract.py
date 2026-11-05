@@ -230,7 +230,7 @@ def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
         ("110079", 1.3, None)]  # the hospital's own fee isn't on file
     assert body["cheapest_place_id"] == "1000000001" and body["closest_place_id"] == "1000000001"
     emory = body["results"][1]
-    assert emory["name"] == "EMORY MEDICAL CARE FOUNDATION" and emory["billers"] == ["1000000005"]
+    assert emory["name"] == "EMORY MEDICAL CARE FOUNDATION" and emory["billers"] == ["EMORY MEDICAL CARE FOUNDATION"]
     assert emory["providers"] == [{"npi": 1000000005, "name": "PAT SMITH",
                                    "specialty": "Diagnostic Radiology Physician", "score": 87.5}]
     grady = body["results"][3]

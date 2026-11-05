@@ -110,7 +110,8 @@ class Place(BaseModel):
     several_rates: bool = Field(
         description="The plan lists more than one rate for a bill here without saying which applies, "
                     "so someone should ask which they'd get.")
-    billers: list[str] = Field(min_length=1, description="Who bills for the service here.")
+    billers: list[str] = Field(min_length=1, description="The groups that bill for the service here, by name: "
+                                                         "at a hospital, the groups reading scans there.")
     providers: list[Provider] = Field(
         description="Who Medicare shows billing the service here, never the whole roster. "
                     "Empty when Medicare shows no one, as at an imaging center it has no record of.")
