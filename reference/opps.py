@@ -8,7 +8,7 @@ national payment rate per HCPCS/CPT code, from CMS's quarterly Addendum B.
 
 Why: Anthem's file carries no hospital facility price for imaging, so the app
 shows this Medicare rate as a labelled estimate of the hospital's part of the
-scan. The build reduces it to `code_dim.opps_payment`.
+scan. The build reduces it to `services.medicare_facility_rate`.
 
 Rows kept: codes with a payment rate (status indicators that pay under OPPS).
 Codes paid elsewhere (status `A`, the physician fee schedule) or not payable

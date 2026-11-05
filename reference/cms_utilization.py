@@ -9,7 +9,7 @@ Part B, from the public CMS dataset:
 
 This is the evidence layer behind issue #14: the MRF is a *rate sheet*, it can't
 say whether an NPI has ever performed a code. This file can — for Medicare Part B.
-The build's `evidence` table reads it.
+The find-care build reads it for who billed each scan (build/inputs/biller_doctors.py).
 
 Why Python/DuckDB and not Go (the source is ~3 GB): the work is a filter +
 projection over a CSV with quoted free-text fields, not a streaming parse of

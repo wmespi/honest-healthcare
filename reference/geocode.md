@@ -15,8 +15,7 @@ is free and gives coordinates we own and can cache indefinitely.
 
 **Why service-line-scoped.** The batch endpoint takes at most 10,000 addresses per request;
 geocoding all of GA NPPES isn't worth the run time or risk. The candidate set is
-`PCP_TAXONOMY_CODES` plus `IMAGING_TAXONOMY_CODES`, mirrors of the constants of the same
-name in `serving/service_lines.py` (`serving/tests/test_geocode.py` fails if they drift),
+`PCP_TAXONOMY_CODES` plus `IMAGING_TAXONOMY_CODES` in `reference/geocode.py`,
 plus every billing ID (`tin_value`) under `anthem/providers` with an NPPES record, because
 a place's point is its own address's. Each hospital's
 address in `hospitals_ga.parquet` ([hospitals.md](hospitals.md)) is sent too, but lands only

@@ -105,10 +105,7 @@ make parse                  # Phase 2 — stream the pending files etl/targets.y
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
-make build                  # Phase 4 — raw + reference parquet → data/serving/ tables, for the networks in etl/targets.yaml
-make build NET=all          #   every network partition
-make build NET=<slug,slug>  #   a subset of network partitions
-make build ALL_CODES=1       #   every billing code, not just the priced service lines' menus
+make build                  # Phase 4 — raw + reference parquet → the find-care tables in data/serving/, for the plans etl/targets.yaml names
 make refresh                # the monthly job: discover → reference → parse → code-labels → geocode → build
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
@@ -163,7 +160,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
 | RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
 | Provider↔procedure evidence (CMS utilization; specialty profiles) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
-| Medicare Physician Fee Schedule benchmark (`code_dim.medicare_allowed`) | [reference/mpfs.md](reference/mpfs.md) |
+| Medicare Physician Fee Schedule rate (`services.medicare_rate`) | [reference/mpfs.md](reference/mpfs.md) |
 | Georgia's hospitals: CCN, name, address, phone and Medicare star rating | [reference/hospitals.md](reference/hospitals.md) |
 | Georgia's individual-market plans: real names, metal level, referral rule, network and premiums by HIOS plan ID | [reference/exchange-plans.md](reference/exchange-plans.md) |
 | Medicare hospital-outpatient (OPPS) rate — the labelled facility estimate on the imaging screen | [reference/opps.md](reference/opps.md) |

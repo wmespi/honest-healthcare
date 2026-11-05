@@ -5,11 +5,10 @@ build/build.md; schema in ../docs/schema.md). Raw `anthem/`, `nppes/`,
 `reference/`, `cms/` are build inputs, never read here, and there is no
 fallback when the build is missing: `GET /` says so, and every other route
 errors. This module holds the table sources, the one process-wide DuckDB
-database and `network_slug()`, which the old half of build/build.py still uses.
+database.
 """
 import json
 import os
-import re
 import threading
 from typing import Optional
 
@@ -102,10 +101,3 @@ def db():
                     pass
                 _CONN = conn
     return _CONN.cursor()
-
-
-def network_slug(name: str) -> str:
-    """Partition key for a network_name. MUST match etl/extraction/partition.go:slugifyNetwork."""
-    s = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
-    s = s[:100].strip("-")
-    return s or "_unattributed"

@@ -62,10 +62,6 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **`make build` is a full rebuild, not incremental**, and is not auto-triggered:
   run it after each `make parse` batch or the find-care tables go stale. A missing build
   is a `503`, not a degraded path. Per-file partials → merge is a future refinement.
-- **`rate_hist.n` is a roster-weighted ranking hint, not a distinct count** — a
-  group in several rosters counts per roster. Never render it as "N providers".
-  A precomputed `(network, code)` NPI count would fan out to hundreds of
-  millions of rows ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
 - **`coverage_log.n_ga_hospital_npis` is never populated** (the NPPES join happens at
   query time).
 

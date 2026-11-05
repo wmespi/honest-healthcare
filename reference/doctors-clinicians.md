@@ -57,9 +57,9 @@ given (the test fixture uses this layout).
 
 ## How it reaches serving
 
-The build joins these into `provider_dim` (`group_name`, `grad_year`) and
-`provider_affiliations` (`ccn`, `facility_name`), and the find-care build names a doctor's
-own billing NPI after its CMS group ([build.md](../build/build.md#the-find-care-tables)).
+The find-care build names a doctor's own billing NPI after its CMS group
+([build.md](../build/build.md#the-find-care-tables)). Nothing reads the hospital
+affiliations.
 
 ## Caveats (also in [../docs/known-gaps.md](../docs/known-gaps.md))
 

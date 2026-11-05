@@ -203,9 +203,3 @@ def test_only_addresses_census_hasnt_answered_are_sent(tmp_path):
         f"SELECT matched_address FROM read_parquet('{seen}') WHERE address_line1 = '1200 MEMORIAL DRIVE'"
     ).fetchone() == ("1200 MEMORIAL DR, DALTON, GA, 30720",)
 
-
-def test_geocode_candidates_mirror_the_service_lines():
-    sys.path.insert(0, REPO)
-    from reference.geocode import GEOCODE_TAXONOMY_CODES
-    from serving.service_lines import IMAGING_TAXONOMY_CODES, PCP_TAXONOMY_CODES
-    assert set(GEOCODE_TAXONOMY_CODES) == set(PCP_TAXONOMY_CODES) | set(IMAGING_TAXONOMY_CODES)

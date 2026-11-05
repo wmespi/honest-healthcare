@@ -15,8 +15,8 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 | Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue; keeps the plan→file link (`index_file_plans`), and writes it to `data/anthem/index_file_plans.parquet` for the build |
 | Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → raw Parquet; a provider probe aborts a download before `in_network` when no wanted provider is in it |
 | Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization, MPFS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
-| Build | Python + DuckDB | `build/` | Raw + reference Parquet → the serving tables; every product decision (scope, sentinel, benchmark, service lines) lives here — [build/build.md](../build/build.md) |
-| Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
+| Build | Python + DuckDB | `build/` | Raw + reference Parquet → the find-care tables; every product decision (who is on a plan, what a price is, where a place is) lives here — [build/build.md](../build/build.md) |
+| Serving | Python + DuckDB | `serving/` | Reads the find-care tables in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | `frontend/` | The find-care screen — `localhost:5173` |
 | Storage | Parquet + ZSTD | `data/` | `data/anthem/`, `data/nppes/`, `data/reference/`, `data/cms/`, `data/serving/` — [docs/schema.md](schema.md) |
 | Queue DB | Postgres 15 | `db/` | `index_files` + `index_file_plans` + `billing_codes` + `coverage_log` |
@@ -43,13 +43,9 @@ flowchart LR
     GA --> PROBE
   end
   subgraph build [build - Python and DuckDB, all product decisions, minutes]
-    RAW --> B[build.py]
-    GA --> B
-    REF[(reference: RBCS, NUCC, MPFS, CMS util, DAC, geocode, MIPS, ZIPs)] --> B
-    B --> SRV[(serving: rates by network price-grain, group_sets, group_members, group_networks, provider_dim, provider_affiliations, code_dim, evidence, rate_hist, cross_network_rollup)]
     RAW --> FC["build/tables/"]
     LINK --> FC
-    REF -->|"ZIP centroids, MPFS, OPPS, hospitals, geocodes, CMS groups and billing"| FC
+    REF[(reference: NUCC, MPFS, OPPS, CMS billing, CMS groups, MIPS, geocodes, hospitals, ZIPs)] --> FC
     GA --> FC
     SVC[build/services.yaml] --> FC
     XNET[(reference: exchange networks, plans, premiums and cost sharing)] --> FC
@@ -61,80 +57,96 @@ flowchart LR
   end
 ```
 
-## Serving entity model (grain = negotiated price)
+## Serving entity model
 
 ```mermaid
 erDiagram
-  RATES }o--|| GROUP_SETS : "file_id + group_set_id"
-  GROUP_SETS ||--o{ GROUP_MEMBERS : "file_id + provider_group_id"
-  GROUP_SETS ||--o{ GROUP_NETWORKS : "file_id + provider_group_id"
-  GROUP_MEMBERS }o--|| PROVIDER_DIM : npi
-  PROVIDER_DIM ||--o{ PROVIDER_AFFILIATIONS : npi
-  RATES }o--|| CODE_DIM : billing_code
-  PROVIDER_DIM ||--o{ EVIDENCE : npi
-  RATES {
-    string network_name PK
-    int file_id PK
-    int group_set_id PK
-    string billing_code PK
-    string modifier PK
-    string setting PK
-    float negotiated_rate
-    float medicare_allowed
-    float vs_medicare
-    bool is_sentinel
-    string scope
-  }
-  GROUP_SETS {
-    int file_id PK
-    int group_set_id PK
-    int provider_group_id PK
-  }
-  GROUP_MEMBERS {
-    int file_id PK
-    int provider_group_id PK
-    long npi PK
-    string tin_value
-  }
-  GROUP_NETWORKS {
-    int file_id PK
-    int provider_group_id PK
-    string net PK
-    string network_name
-  }
-  PROVIDER_DIM {
-    long npi PK
-    string name
-    string specialty
-    string org_name
-    string group_name
-    float lat
-    float lon
-    string service_lines
-  }
-  PROVIDER_AFFILIATIONS {
-    long npi PK
-    string ccn PK
-    string facility_name
-  }
-  CODE_DIM {
-    string billing_code PK
-    string label
-    string category
-    bool shoppable
-  }
-  EVIDENCE {
-    long npi PK
-    string billing_code PK
-    string tier
-  }
+    plans {
+        plan_id str PK
+        name str
+        carrier str
+        metal_level str
+        needs_referral bool
+        network_id str FK
+        deductible number
+    }
+    cost_sharing {
+        plan_id str PK, FK
+        service_category str PK
+        copay number(optional)
+        coinsurance number(optional)
+        after_deductible bool
+    }
+    networks {
+        network_id str PK
+        name str
+    }
+    premiums {
+        plan_id str PK, FK
+        rating_area int PK
+        age int PK
+        premium number
+        tobacco_premium number
+    }
+    services {
+        service_id str PK
+        billing_code str
+        service_category str
+        name str
+        keywords str
+        about str
+        could_change str[]
+        asks str[]
+        preventive_note str(optional)
+        medicare_rate number(optional)
+        medicare_facility_rate number(optional)
+    }
+    prices {
+        network_id str PK, FK
+        service_id str PK, FK
+        place_id str PK, FK
+        parts part[]
+        several_rates bool
+        billers str[]
+        providers bigint[] FK
+    }
+    places {
+        place_id str PK
+        name str
+        kind str
+        address str
+        city str
+        lat number
+        lon number
+        phone str(optional)
+        stars number(optional)
+    }
+    providers {
+        npi bigint PK
+        name str
+        specialty str
+        score number(optional)
+    }
+    zips {
+        zip str PK
+        lat number
+        lon number
+    }
+
+    services ||--o{ prices : "service_id"
+    places ||--o{ prices : "place_id"
+    networks ||--o{ plans : "network_id"
+    plans ||--o{ premiums : "plan_id"
+    plans ||--o{ cost_sharing : "plan_id"
+    services }o--o{ cost_sharing : "service_category"
+    networks ||--o{ prices : "network_id"
+    providers }o--o{ prices : "providers"
 ```
 
-`rates` is the parser's **price grain** — no group fan-out — Hive-partitioned by
-`net=`, so every plan-scoped query prunes to one directory; `group_set_id` links to
-`group_sets` for the join a query needs at read time. The ERD names the grain, not every column
-(full column lists: [schema.md](schema.md)), and that grain is not unique (POS
-variants, multi-roster rates).
+The find-care tables, the same model as the ERD on
+[#135](https://github.com/wmespi/honest-healthcare/issues/135), which holds the decisions behind
+it. Each box reads column, type, then key, and `[]` means a list; a list of keys is checked by
+the build, not enforced by a database. Full column notes: [build/build.md](../build/build.md#the-find-care-tables).
 
 ## Runtime
 

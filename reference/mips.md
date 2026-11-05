@@ -1,6 +1,6 @@
 # `make reference STEP=mips` — CMS MIPS quality score per clinician
 
-*Read this when working on how `provider_dim.mips_score` is sourced.*
+*Read this when working on how `providers.score` is sourced.*
 
 Builds `data/reference/mips_ga.parquet` — `npi | mips_score | mips_source |
 performance_year` — from the Provider Data Catalog's newest
@@ -27,14 +27,12 @@ Most PCPs have no MIPS score — clinicians below CMS's volume thresholds are
 exempt. A missing score stays `NULL`; it is never defaulted and never replaced
 by another field. `years_in_practice` (from DAC `grad_year`) is a different
 signal, shown beside it, never in its place. Coverage for a plan's PCPs is
-measured, not documented here: count `provider_dim.mips_score IS NOT NULL` over
-the plan's priced PCPs.
+measured, not documented here: count `score IS NOT NULL` in `providers`.
 
 ## Downstream
 
-`build/build.py` left-joins this file into `provider_dim` (`mips_score`,
-`mips_source`, `mips_year`), and `build/tables/providers.py` reads it for the
-find-care `providers.score`. No route returns the score today.
+`build/tables/providers.py` reads it for the find-care `providers.score`, which
+`/find-care` returns for each provider at a place.
 
 ## Re-run when
 

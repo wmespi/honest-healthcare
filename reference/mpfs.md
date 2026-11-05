@@ -1,6 +1,6 @@
 # `make reference STEP=mpfs` — Medicare Physician Fee Schedule benchmark
 
-*Read this when working on the per-code Medicare benchmark, `code_dim.medicare_allowed`.*
+*Read this when working on what Medicare pays for a service, `services.medicare_rate`.*
 
 **Builds** `data/reference/mpfs_ga.parquet` from the CMS
 [Physician Fee Schedule Relative Value Files](https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files):
@@ -13,9 +13,8 @@ with the Medicare **allowed amount** (the price before the 80/20 split). Module
 honest per-provider rate. A Medicare amount per code gives a sanity check ("$180 vs
 Medicare's $60" vs a multi-million-dollar drug code,
 [#51](https://github.com/wmespi/honest-healthcare/issues/51)) and a fallback price.
-The build puts the GA non-facility amount on `code_dim` and `rates`, `null` until this
-step has run, and the find-care build puts the global amount on `services.medicare_rate`
-([build.md](../build/build.md#the-find-care-tables)). No route returns it today.
+The find-care build puts the Georgia non-facility global amount on `services.medicare_rate`
+([build.md](../build/build.md#the-find-care-tables)), which `/services` returns.
 
 ## Formula
 
