@@ -23,7 +23,7 @@ def place(place_id="1000000010", kind="imaging_center", parts=None, stars=None, 
         "parts": parts if parts is not None else [part("scan", 340), part("reading", 70)],
         "several_rates": several_rates,
         "billers": ["Dogwood Imaging"],
-        "doctors": [{"npi": 1000000004, "name": "Frank Diaz", "specialty": "Diagnostic Radiology", "score": 91.0}],
+        "providers": [{"npi": 1000000004, "name": "Frank Diaz", "specialty": "Diagnostic Radiology", "score": 91.0}],
     }
 
 

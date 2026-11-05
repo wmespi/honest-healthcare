@@ -493,6 +493,7 @@ class Corpus:
         self.geocodes = []
         self.groups = []
         self.taxonomies = []
+        self.scores = []
         self.pending = {}
 
     def _queue(self, path, schema, rows):
@@ -564,13 +565,21 @@ class Corpus:
                             2005, "OTHER", "F"))
         self._queue(f"{self.root}/reference/dac_ga.parquet", DAC_SCHEMA, self.groups)
 
-    def taxonomy(self, code, classification, specialization):
+    def taxonomy(self, code, classification, specialization, display_name=None):
         """Add a NUCC specialty code."""
-        self.taxonomies.append((code, None, classification, specialization, None, None, False))
+        self.taxonomies.append((code, None, classification, specialization, display_name, None, False))
         self._queue(f"{self.root}/reference/nucc_taxonomy.parquet",
                     {"taxonomy_code": "VARCHAR", "grouping": "VARCHAR", "classification": "VARCHAR",
                      "specialization": "VARCHAR", "display_name": "VARCHAR", "specialty": "VARCHAR",
                      "is_individual": "BOOLEAN"}, self.taxonomies)
+
+    def score(self, npi, score):
+        """Give clinician `npi` Medicare's quality (MIPS) score `score`."""
+        self.scores.append((npi, score))
+        self._queue(f"{self.root}/reference/mips_ga.parquet",
+                    {"npi": "BIGINT", "mips_score": "DOUBLE", "mips_source": "VARCHAR",
+                     "performance_year": "INTEGER"},
+                    [(npi, score, "individual", 2024) for npi, score in self.scores])
 
     def inputs(self):
         """A connection with every build-only table made, to read one directly."""
@@ -755,9 +764,10 @@ def corpus(tmp_path, monkeypatch):
             ("261QR0206X", "Clinic/Center", "Radiology, Mammography"),
             ("261QR0207X", "Clinic/Center", "Radiology, Mobile Mammography"),
             ("261QR0208X", "Clinic/Center", "Radiology, Mobile"),
-            ("261QM1300X", "Clinic/Center", "Multi-Specialty"),
-            ("2085R0202X", "Radiology", "Diagnostic Radiology")]:
+            ("261QM1300X", "Clinic/Center", "Multi-Specialty")]:
         c.taxonomy(code, classification, specialization)
+    c.taxonomy("2085R0202X", "Radiology", "Diagnostic Radiology", "Diagnostic Radiology Physician")
+    c.score(1000000005, 87.5)
     c.hospital("110079", "GRADY MEMORIAL HOSPITAL", "80 JESSE HILL JR DRIVE SE", "ATLANTA", "30303", stars=3)
     c.hospital("110001", "HAMILTON MEDICAL CENTER", "1200 MEMORIAL DRIVE", "DALTON", "30720", stars=4)
     c.geocode("550 PEACHTREE ST NE", "ATLANTA", "303082233", "550 PEACHTREE ST NE, ATLANTA, GA, 30308",
