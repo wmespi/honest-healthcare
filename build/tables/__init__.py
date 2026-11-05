@@ -19,6 +19,7 @@ from build.inputs.imaging_centers import ImagingCenters
 from build.inputs.network_files import NetworkFiles
 from build.inputs.service_list import SERVICES_PATH, ServiceList
 from build.inputs.targets import TARGETS_PATH, Targets
+from build.tables.cost_sharing import CostSharing
 from build.tables.networks import Networks
 from build.tables.places import Places, UnlocatedPlaces
 from build.tables.prices import Prices
@@ -56,6 +57,7 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVIC
         Premiums(),
         Zips(),
         Services(),
+        CostSharing(),
         Places(),
         UnlocatedPlaces(),
         Prices(),

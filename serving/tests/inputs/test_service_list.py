@@ -13,6 +13,7 @@ from build.inputs.service_list import SERVICES_PATH, ServiceList, read_services
     ("mri-brain", "70551", {"asks": []}, "mri-brain has an empty asks"),
     ("mri-brain", "70551", {"could_change": ["Contrast dye", " "]}, "mri-brain has an empty could_change"),
     ("mri-brain", "70551", {"about": ""}, "mri-brain has an empty about"),
+    ("mri-brain", "70551", {"service_category": None}, "mri-brain has an empty service_category"),
     ("mri-brain", "70551", {"colour": "red"}, r"mri-brain has fields the screen doesn't use: \['colour'\]"),
 ])
 def test_a_service_that_breaks_a_rule_stops_the_build(corpus, service_id, billing_code, fields, error):

@@ -12,14 +12,14 @@ SERVICES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 
 class ServiceList(Table):
     """A `service_id` is a lower-case slug, and a `billing_code` is five
-    characters and belongs to one service. Every service has a name, keywords
-    and text about it, and at least one thing that could change the bill and
-    one question to ask."""
+    characters and belongs to one service. Every service has a service category,
+    a name, keywords and text about it, and at least one thing that could change
+    the bill and one question to ask."""
     name = "service_list"
     key = ["service_id"]
-    columns = {"service_id": "VARCHAR", "billing_code": "VARCHAR", "name": "VARCHAR",
-               "keywords": "VARCHAR", "about": "VARCHAR", "could_change": "VARCHAR[]",
-               "asks": "VARCHAR[]", "preventive_note": "VARCHAR"}
+    columns = {"service_id": "VARCHAR", "billing_code": "VARCHAR", "service_category": "VARCHAR",
+               "name": "VARCHAR", "keywords": "VARCHAR", "about": "VARCHAR",
+               "could_change": "VARCHAR[]", "asks": "VARCHAR[]", "preventive_note": "VARCHAR"}
 
     def __init__(self, path):
         self.path = path
@@ -62,7 +62,9 @@ class ServiceList(Table):
             raise SystemExit(f"service_list: {shared[1]} all bill {shared[0]}, but a code is one service")
         empty = con.execute("""
             SELECT service_id, field FROM (
-                SELECT service_id, 'name' AS field FROM service_list WHERE coalesce(trim(name), '') = ''
+                SELECT service_id, 'service_category' AS field FROM service_list
+                    WHERE coalesce(trim(service_category), '') = ''
+                UNION ALL SELECT service_id, 'name' FROM service_list WHERE coalesce(trim(name), '') = ''
                 UNION ALL SELECT service_id, 'keywords' FROM service_list WHERE coalesce(trim(keywords), '') = ''
                 UNION ALL SELECT service_id, 'about' FROM service_list WHERE coalesce(trim(about), '') = ''
                 UNION ALL SELECT service_id, 'could_change' FROM service_list

@@ -37,6 +37,7 @@ def search(results, **extra):
     return {
         "service_id": "mri-brain", "plan_id": "blue-value",
         "origin": {"zip": "30322", "lat": 33.79, "lon": -84.32}, "radius_mi": 10, "sort": "price",
+        "cost_sharing": {"copay": 300.0, "coinsurance": 50.0, "after_deductible": True},
         "results": results, "wider_radius_mi": None, "closest_outside": None, **extra,
     }
 
@@ -80,6 +81,10 @@ def test_a_place_breaking_a_rule_is_rejected(row, why):
     ({"wider_radius_mi": 25}, "widening is only for a search with no price"),
     ({"closest_outside": READS_ONLY}, "the closest outside is only for a search with no results"),
     ({"radius_mi": 15}, "a radius is one the screen offers"),
+    ({"cost_sharing": {"copay": None, "coinsurance": None, "after_deductible": False}},
+     "the plan charges a copay, a coinsurance or both"),
+    ({"cost_sharing": {"copay": None, "coinsurance": 140.0, "after_deductible": True}},
+     "a coinsurance is a percent"),
 ])
 def test_a_search_breaking_a_rule_is_rejected(extra, why):
     with pytest.raises(ValidationError):
@@ -91,7 +96,8 @@ def test_fastapi_publishes_the_contract():
 
     @app.get("/plans", response_model=list[Plan])
     def plans():
-        return [{"plan_id": "blue-value", "name": "Blue Value HMO", "carrier": "Anthem", "needs_referral": True}]
+        return [{"plan_id": "blue-value", "name": "Blue Value HMO", "carrier": "Anthem", "needs_referral": True,
+                 "deductible": 4000.0}]
 
     @app.get("/services", response_model=list[Service])
     def services():

@@ -36,6 +36,10 @@ EXCHANGE_PLANS = Dataset("reference/exchange_plans_ga.parquet",
 # Each plan's monthly premium by rating area and age (reference/exchange-plans.md).
 EXCHANGE_PREMIUMS = Dataset("reference/exchange_premiums_ga.parquet",
                             "make reference STEP=exchange-plans")
+# What each plan charges the member in network, by benefit, in Georgia's wording
+# (reference/exchange-plans.md).
+EXCHANGE_COST_SHARING = Dataset("reference/exchange_cost_sharing_ga.parquet",
+                                "make reference STEP=exchange-plans")
 # Medicare's physician fee schedule in Georgia, by code, modifier, place of
 # service and payment area (reference/mpfs.md).
 MPFS = Dataset("reference/mpfs_ga.parquet", "make reference STEP=mpfs")
