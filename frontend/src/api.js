@@ -16,7 +16,8 @@ const api = axios.create({ baseURL: API_BASE_URL });
 // Dataset context for the trust bar: { priceable_npis, networks, n_codes, as_of, ... }.
 export const getHealth = () => api.get('/');
 
-export const getPlans = (q = '') => api.get('/plans', { params: q ? { q } : {} });
+// The imaging page's curated plan picker: friendly plan name -> network_name.
+export const getPlans = (q = '') => api.get('/imaging/plans', { params: q ? { q } : {} });
 
 // Structured network labels (from provider_references) — the reliable filter for
 // a specific plan, e.g. "GA Blue Value HIX Individual Network". Returns
@@ -25,7 +26,7 @@ export const getNetworks = (q = '') => api.get('/networks', { params: q ? { q } 
 
 // The plan versions on a network, with their sourced cost sharing.
 export const getPlanCostSharing = (network_name) =>
-  api.get('/plans/cost_sharing', { params: { network_name } });
+  api.get('/imaging/plans/cost_sharing', { params: { network_name } });
 
 export const getImagingProviders = (billing_code, network_name, near) =>
   api.get('/imaging/providers', { params: { billing_code, network_name, ...(near || {}) } });

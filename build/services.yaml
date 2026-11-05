@@ -17,9 +17,8 @@
 #   preventive_note  Optional. Shown first when the service is usually free as
 #                    preventive care.
 #
-# This is plain-language text, and it goes through clinical review in step 10
-# of #135 before anyone relies on it. Writing every service by hand doesn't
-# scale past the POC; #158 has the plan to generate them from data.
+# This is plain-language text. Writing every service by hand doesn't scale past
+# the POC; #158 has the plan to generate them from data.
 #
 # Wording several services share, written once:
 shared:

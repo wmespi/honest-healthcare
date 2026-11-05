@@ -35,11 +35,11 @@ def biller(corpus, npi, name, address, postal_code, place_of_service, **rates):
 def test_each_place_shows_the_bills_a_patient_there_would_get(corpus):
     assert prices(corpus) == {
         # They do the scan, so the all-in rate covers the reading.
-        "1000000001": ([part("all_in", 500.0)], False, ["1000000001"]),
-        "1000000002": ([part("all_in", 500.0)], False, ["1000000002"]),
-        "1000000005": ([part("all_in", 500.0)], False, ["1000000005"]),
+        "1000000001": ([part("all_in", 500.0)], False, ["MIDTOWN IMAGING PC"]),
+        "1000000002": ([part("all_in", 500.0)], False, ["HIRAM IMAGING LLC"]),
+        "1000000005": ([part("all_in", 500.0)], False, ["EMORY MEDICAL CARE FOUNDATION"]),
         # The group at Grady's address reads it, and the hospital's own fee isn't on file.
-        "110079": ([part("facility", None), part("reading", 200.0)], False, ["1000000004"])}
+        "110079": ([part("facility", None), part("reading", 200.0)], False, ["GRADY RADIOLOGY GROUP"])}
     # South Georgia Radiology isn't on the map, so it has no row.
     assert all(r[:2] == ("45334-GAN001", "mri-lower-back") for r in corpus.rows("prices"))
 
@@ -47,7 +47,8 @@ def test_each_place_shows_the_bills_a_patient_there_would_get(corpus):
 def test_a_reading_group_elsewhere_shows_an_empty_scan(corpus):
     corpus.geocode("2501 N PATTERSON ST", "VALDOSTA", "316021234", "2501 N PATTERSON ST, VALDOSTA, GA, 31602",
                    30.86, -83.29)
-    assert prices(corpus)["1000000003"] == ([part("scan", None), part("reading", 200.0)], False, ["1000000003"])
+    assert prices(corpus)["1000000003"] == ([part("scan", None), part("reading", 200.0)], False,
+                                            ["SOUTH GEORGIA RADIOLOGY PC"])
 
 
 def test_a_reading_group_with_no_reading_rate_has_no_row(corpus):
@@ -58,7 +59,8 @@ def test_a_reading_group_with_no_reading_rate_has_no_row(corpus):
 def test_a_place_that_lists_no_all_in_rate_shows_the_scan_and_the_reading(corpus):
     biller(corpus, 1000000020, "SPLIT BILL IMAGING", "550 PEACHTREE ST NE", "303082233", "O",
            scan=320, reading=180)
-    assert prices(corpus)["1000000020"] == ([part("scan", 320.0), part("reading", 180.0)], False, ["1000000020"])
+    assert prices(corpus)["1000000020"] == ([part("scan", 320.0), part("reading", 180.0)], False,
+                                            ["SPLIT BILL IMAGING"])
 
 
 def test_several_rates_for_a_bill_show_the_highest_and_say_so(corpus):
@@ -67,8 +69,10 @@ def test_several_rates_for_a_bill_show_the_highest_and_say_so(corpus):
     biller(corpus, 1000000021, "EMORY RADIOLOGY", "80 JESSE HILL JR DR SE", "303033031", "F", reading=250)
     biller(corpus, 1000000022, "MIDTOWN IMAGING LLC", "550 PEACHTREE ST NE", "303082233", "O", all_in=540)
     rows = prices(corpus)
-    assert rows["110079"] == ([part("facility", None), part("reading", 250.0)], True, ["1000000004", "1000000021"])
-    assert rows["1000000001"] == ([part("all_in", 540.0)], True, ["1000000001", "1000000022"])
+    assert rows["110079"] == ([part("facility", None), part("reading", 250.0)], True,
+                              ["EMORY RADIOLOGY", "GRADY RADIOLOGY GROUP"])
+    # Midtown's billing IDs spell its name two ways, and it keeps its lowest NPI's.
+    assert rows["1000000001"] == ([part("all_in", 540.0)], True, ["MIDTOWN IMAGING PC"])
 
 
 def test_a_row_lists_the_clinicians_medicare_shows_billing_the_service_there(corpus):
@@ -100,3 +104,14 @@ def test_a_row_lists_only_the_clinicians_who_bill_its_service_on_its_network(cor
     assert rows[("45334-GAN001", "mammogram-screening", "1000000001")] == [2000000031]
     assert rows[("45334-GAN001", "mri-lower-back", "110079")] == []
     assert rows[("49046-GAN008", "mri-lower-back", "110079")] == [2000000001]
+
+
+def test_a_doctor_billing_at_a_hospital_under_their_own_npi_is_named_for_their_group_or_themselves(corpus):
+    for npi, last_name in [(1000000024, "KIM"), (1000000025, "LEE")]:
+        group = npi - 1000000000
+        corpus.roster(21057, group, group, str(npi), npi)
+        corpus.scan_price(21057, BV, group, "72148", reading=210)
+        corpus.billed(npi, "72148", "F")
+        corpus.npi(npi, last_name, "80 JESSE HILL JR DR SE", "ATLANTA", "303033031", entity_type="individual")
+    corpus.group(1000000024, "ATLANTA RADIOLOGY ASSOCIATES")
+    assert prices(corpus)["110079"][2] == ["ATLANTA RADIOLOGY ASSOCIATES", "GRADY RADIOLOGY GROUP", "PAT LEE"]

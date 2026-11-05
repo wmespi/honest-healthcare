@@ -59,8 +59,7 @@ const ASK_NETWORK = 'Is everyone involved in my network?';
 const ASK_EXACT = 'Is this the exact scan my doctor ordered?';
 const SCAN_ASKS = [ASK_APPROVAL, ASK_ALL_IN, ASK_NETWORK, ASK_EXACT];
 
-// What the screen says about each scan. Plain-language sample copy, which would
-// need a clinical review before anyone relied on it.
+// What the screen says about each scan, in plain-language sample copy.
 export const SERVICE_DETAILS = {
   'mri-lower-back': {
     about: 'Uses magnets and radio waves to picture your lower spine, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.',

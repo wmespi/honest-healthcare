@@ -1,5 +1,6 @@
 """prices.parquet: what a network's contract pays for a service at a place, by
 the bills a patient there would get."""
+from build.inputs.biller_places import practice_name
 from build.inputs.datasets import NPPES
 from build.table import Table
 
@@ -26,8 +27,11 @@ class Prices(Table):
       the scan.
 
     `several_rates` says a part shown has more than one rate on file, so
-    someone should ask which they'd get, and `billers` lists the billing NPIs
-    behind the row. `providers` lists the clinicians Medicare shows billing the
+    someone should ask which they'd get, and `billers` lists the names of the
+    billing groups behind the row (biller_places.biller_name), which at a
+    hospital are the groups reading there. Names that match once punctuation
+    and company endings are dropped are one group, under its lowest billing
+    NPI's spelling, as a practice is. `providers` lists the clinicians Medicare shows billing the
     service for those billers (build/inputs/biller_doctors.py), never the whole
     roster (#135 step 1), and is empty when Medicare shows none, as at an
     imaging center it has no record of. An organization's own NPI isn't a
@@ -48,9 +52,16 @@ class Prices(Table):
                 JOIN {NPPES.read(data_dir)} n ON n.npi = d.npi AND n.entity_type = 'individual'
                 GROUP BY d.network_id, d.service_id, b.place_id
             ),
+            groups AS (
+                SELECT network_id, service_id, place_id, list(name ORDER BY name) AS billers
+                FROM (SELECT r.network_id, r.service_id, b.place_id, arg_min(b.biller_name, b.biller) AS name
+                      FROM biller_rates r JOIN biller_places b USING (biller)
+                      GROUP BY r.network_id, r.service_id, b.place_id, {practice_name("b.biller_name")})
+                GROUP BY network_id, service_id, place_id
+            ),
             rows AS (
                 SELECT r.network_id, r.service_id, b.place_id, any_value(b.kind) = 'hospital' AS hospital,
-                       bool_or(r.does_scan) AS does_scan, list(DISTINCT r.biller ORDER BY r.biller) AS billers,
+                       bool_or(r.does_scan) AS does_scan,
                        {", ".join(f"max(r.rate) FILTER (WHERE r.part = '{p}') AS {p}, "
                                   f"count(DISTINCT r.rate) FILTER (WHERE r.part = '{p}') AS {p}_rates"
                                   for p in ("all_in", "scan", "reading"))}
@@ -66,8 +77,9 @@ class Prices(Table):
                    CASE WHEN hospital OR NOT does_scan THEN reading_rates > 1
                         WHEN all_in IS NOT NULL THEN all_in_rates > 1
                         ELSE scan_rates > 1 OR reading_rates > 1 END AS several_rates,
-                   billers, coalesce(c.providers, []::BIGINT[]) AS providers
+                   g.billers, coalesce(c.providers, []::BIGINT[]) AS providers
             FROM rows
+            JOIN groups g USING (network_id, service_id, place_id)
             LEFT JOIN clinicians c USING (network_id, service_id, place_id)
             WHERE hospital OR does_scan OR reading IS NOT NULL
         """

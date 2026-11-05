@@ -1,9 +1,12 @@
 """Reference / browse endpoints.
 
-  /networks              distinct network_name values (+ price-row count)
-  /plans                 friendly plan name -> network_name (curated, GH #33)
-  /plans/cost_sharing    sourced deductible / out-of-pocket max / imaging cost share per plan version
-  /service_lines         curated taxonomy and billing-code allowlists, and the imaging menu
+  /networks                     distinct network_name values (+ price-row count)
+  /imaging/plans                friendly plan name -> network_name (curated, GH #33)
+  /imaging/plans/cost_sharing   sourced deductible / out-of-pocket max / imaging cost share per plan version
+  /service_lines                curated taxonomy and billing-code allowlists, and the imaging menu
+
+The two /imaging/plans routes are the imaging page's, and go with it in step 11
+of #135; `/plans` is the find-care screen's (routers/find_care.py).
 
 `/networks` reads the precomputed `rate_hist`, never a `rates` scan.
 """
@@ -40,7 +43,7 @@ def get_networks(q: str = Query(default=""), limit: int = Query(default=100, le=
 _PLAN_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plan_networks.json")
 
 
-@router.get("/plans")
+@router.get("/imaging/plans")
 def get_plans(q: str = Query(default="")):
     """Friendly plan names → the network_name the rate store filters by (GH #33).
 
@@ -82,7 +85,7 @@ def get_plans(q: str = Query(default="")):
 _COST_SHARING_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "plan_cost_sharing.json")
 
 
-@router.get("/plans/cost_sharing")
+@router.get("/imaging/plans/cost_sharing")
 def get_plan_cost_sharing(network_name: str = Query(...)):
     """The plan versions on one network with the cost sharing copied from each
     Summary of Benefits and Coverage, so the estimator starts from the plan's

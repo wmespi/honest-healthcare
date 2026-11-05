@@ -10,9 +10,9 @@ so every rule (who is on the plan, what a price is, how places sort) lives in
 the build or here, never in the screen. Money is US dollars to the cent, and
 distance is straight-line miles to one decimal place.
 """
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, computed_field, model_validator
 
 # A bill behind a price. A practice files one all-in rate, or the scan and the
 # reading separately; a hospital also bills its own facility fee.
@@ -110,7 +110,8 @@ class Place(BaseModel):
     several_rates: bool = Field(
         description="The plan lists more than one rate for a bill here without saying which applies, "
                     "so someone should ask which they'd get.")
-    billers: list[str] = Field(min_length=1, description="Who bills for the service here.")
+    billers: list[str] = Field(min_length=1, description="The groups that bill for the service here, by name: "
+                                                         "at a hospital, the groups reading scans there.")
     providers: list[Provider] = Field(
         description="Who Medicare shows billing the service here, never the whole roster. "
                     "Empty when Medicare shows no one, as at an imaging center it has no record of.")
@@ -136,12 +137,17 @@ class Origin(BaseModel):
     lon: float
 
 
+def _whole_number(v):
+    """A query string's radius is text, such as "10", which a Literal won't read."""
+    return int(v) if isinstance(v, str) and v.isdigit() else v
+
+
 class FindCareQuery(BaseModel):
     """GET /find-care's query string."""
     service_id: str
     plan_id: str
     zip: str = Field(pattern=r"^\d{5}$")
-    radius_mi: Optional[RadiusMi] = Field(
+    radius_mi: Optional[Annotated[RadiusMi, BeforeValidator(_whole_number)]] = Field(
         None, description="Leave it out to get the tightest radius with at least 5 places.")
     sort: Sort = "price"
 
