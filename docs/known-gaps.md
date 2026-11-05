@@ -7,12 +7,12 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Attribution
 
-- **The screen doesn't use real plan names yet.** `index_file_plans` links every
+- **The imaging page doesn't use real plan names.** `index_file_plans` links every
   published plan to its files, and `etl parse` selects the files that price the plans on
   the target exchange networks, read from Georgia's exchange plan file
-  ([reference/exchange-plans.md](../reference/exchange-plans.md)). Nothing on the serving
-  side reads that file yet: `serving/plan_networks.json` is still a hand-curated bridge
-  served by `/plans`.
+  ([reference/exchange-plans.md](../reference/exchange-plans.md)). The find-care `/plans`
+  serves those real plans, but the imaging page's picker still reads
+  `serving/plan_networks.json`, a hand-curated bridge served by `/imaging/plans`.
 - **`network_name` is not uniform across files.** The target plan's clean source uses
   `"GA Blue Value HIX Individual Network"`; other `anthem/GA_*` files use
   config-style labels (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`) and are

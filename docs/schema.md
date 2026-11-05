@@ -119,7 +119,7 @@ The structured network label for a price — one member of the
 `provider_references[].network_name` array (e.g. `"GA Blue Value HIX Individual
 Network"`), one value per row, equal to its `net` partition. **The reliable filter
 for the target plan.** A provider group in two networks lands in both partitions.
-`rates` carries no `plan_name`; `/plans` serves the curated plan → network bridge in
+`rates` carries no `plan_name`; `/imaging/plans` serves the curated plan → network bridge in
 `serving/plan_networks.json`, and the friendly plan picker filters on its network.
 
 ---

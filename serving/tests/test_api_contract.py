@@ -4,6 +4,10 @@ conftest.py (`api` fixture). Hermetic: no live server, no data/ mount.
 Checks response shape and the invariants a consumer relies on. Real-data
 assertions live in tests/live/test_golden.py.
 """
+import pytest
+
+from serving.routers.find_care import radius_for, wider_radius
+
 BLUE_VALUE = "GA Blue Value HIX Individual Network"
 
 
@@ -46,7 +50,7 @@ def test_networks_endpoint(api):
 
 
 def test_plans_resolves_blue_value(api):
-    body = api.get("/plans").json()
+    body = api.get("/imaging/plans").json()
     assert body
     for row in body:
         assert {"plan", "network_name", "available"} <= row.keys()
@@ -58,7 +62,7 @@ def test_plans_resolves_blue_value(api):
 
 def test_plans_lists_every_curated_plan(api):
     # Step 8 — a second GA individual plan sits beside Blue Value in the picker.
-    body = api.get("/plans").json()
+    body = api.get("/imaging/plans").json()
     names = {p["plan"] for p in body}
     assert {"Blue Value HMO — Individual", "Pathway PCP Copay Choice — Individual"} <= names
 
@@ -175,7 +179,7 @@ def test_imaging_providers_rejects_bad_requests(api):
 
 
 def test_plan_cost_sharing_lists_sourced_versions_for_a_network(api):
-    r = api.get("/plans/cost_sharing", params={"network_name": BLUE_VALUE})
+    r = api.get("/imaging/plans/cost_sharing", params={"network_name": BLUE_VALUE})
     assert r.status_code == 200
     versions = r.json()
     assert versions and all(v["network_name"] == BLUE_VALUE for v in versions)
@@ -184,10 +188,100 @@ def test_plan_cost_sharing_lists_sourced_versions_for_a_network(api):
         assert v["source"].startswith("https://sbc.anthem.com/")
         for kind in ("diagnostic", "imaging"):
             assert ("coinsurance" in v[kind]) != ("text" in v[kind])
-    assert api.get("/plans/cost_sharing", params={"network_name": "Nope"}).json() == []
-    assert api.get("/plans/cost_sharing").status_code == 422
+    assert api.get("/imaging/plans/cost_sharing", params={"network_name": "Nope"}).json() == []
+    assert api.get("/imaging/plans/cost_sharing").status_code == 422
 
 
 def test_imaging_providers_carries_a_labelled_facility_estimate(api):
     r = api.get("/imaging/providers", params={"billing_code": "70450", "network_name": BLUE_VALUE})
     assert r.json()["facility_estimate"] == {"amount": 106.81, "source": "medicare_opps", "kind": "estimate"}
+
+
+# ── the find-care routes (serving/routers/find_care.py), over the default corpus ──
+
+SILVER = "45334GA0020002"
+MRI = {"service_id": "mri-lower-back", "plan_id": SILVER, "zip": "30308"}
+
+
+def test_find_care_plans_are_georgias_plans_with_their_deductibles(api):
+    assert api.get("/plans").json() == [
+        {"plan_id": "45334GA0020008", "name": "Anthem Bronze Blue Value HMO 5000",
+         "carrier": "Anthem Blue Cross and Blue Shield", "needs_referral": False, "deductible": 5000.0},
+        {"plan_id": "49046GA0700053", "name": "Anthem Bronze Pathway PCP Copay Choice HMO 6000",
+         "carrier": "Anthem Blue Cross and Blue Shield", "needs_referral": False, "deductible": 6000.0},
+        {"plan_id": SILVER, "name": "Anthem Silver Blue Value HMO 4000",
+         "carrier": "Anthem Blue Cross and Blue Shield", "needs_referral": False, "deductible": 4000.0}]
+
+
+def test_find_care_services_carry_what_the_screen_says(api):
+    body = api.get("/services").json()
+    assert [s["service_id"] for s in body] == ["mri-lower-back", "mammogram-screening"]
+    assert body[0]["medicare_rate"] == 180.0 and body[0]["medicare_facility_rate"] == 243.77
+    assert body[1]["preventive_note"] == "Usually $0 in network as preventive care."
+
+
+def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
+    body = api.get("/find-care", params=MRI).json()
+    # Fewer than 5 places within any radius, so the search takes the widest.
+    assert body["radius_mi"] == 50 and body["origin"] == {"zip": "30308", "lat": 33.770959, "lon": -84.377736}
+    assert body["cost_sharing"] == {"copay": None, "coinsurance": 40.0, "after_deductible": True}
+    assert [(p["place_id"], p["distance_mi"], p["max_rate"]) for p in body["results"]] == [
+        ("1000000001", 0.4, 500.0), ("1000000005", 3.5, 500.0), ("1000000002", 23.2, 500.0),
+        ("110079", 1.3, None)]  # the hospital's own fee isn't on file
+    assert body["cheapest_place_id"] == "1000000001" and body["closest_place_id"] == "1000000001"
+    emory = body["results"][1]
+    assert emory["name"] == "EMORY MEDICAL CARE FOUNDATION" and emory["billers"] == ["1000000005"]
+    assert emory["providers"] == [{"npi": 1000000005, "name": "PAT SMITH",
+                                   "specialty": "Diagnostic Radiology Physician", "score": 87.5}]
+    grady = body["results"][3]
+    assert grady["kind"] == "hospital" and grady["stars"] == 3 and grady["phone"] == "(404) 555-0100"
+    assert grady["parts"] == [{"part": "facility", "max": None}, {"part": "reading", "max": 200.0}]
+
+
+def test_find_care_keeps_to_the_radius_and_sorts_by_distance(api):
+    body = api.get("/find-care", params={**MRI, "radius_mi": 5, "sort": "distance"}).json()
+    assert [p["place_id"] for p in body["results"]] == ["1000000001", "110079", "1000000005"]
+    assert body["wider_radius_mi"] is None and body["closest_outside"] is None
+
+
+def test_find_care_with_no_place_near_points_to_the_closest_outside(api):
+    body = api.get("/find-care", params={**MRI, "zip": "30720", "radius_mi": 25}).json()
+    assert body["results"] == [] and body["closest_outside"]["place_id"] == "1000000002"
+    assert body["wider_radius_mi"] is None  # Hiram is beyond the widest radius from Dalton
+    pathway = api.get("/find-care", params={**MRI, "plan_id": "49046GA0700053"}).json()
+    assert pathway["results"] == [] and pathway["closest_outside"] is None
+
+
+def test_find_care_charges_preventive_care_nothing(api):
+    body = api.get("/find-care", params={**MRI, "service_id": "mammogram-screening"}).json()
+    assert body["cost_sharing"] == {"copay": 0.0, "coinsurance": None, "after_deductible": False}
+
+
+@pytest.mark.parametrize("params, code", [
+    ({**MRI, "service_id": "mri-elbow"}, "unknown_service"),
+    ({**MRI, "plan_id": "58081GA0010001"}, "unknown_plan"),  # its network isn't priced
+    ({**MRI, "zip": "99999"}, "unknown_zip"),
+])
+def test_find_care_says_what_it_doesnt_know(api, params, code):
+    r = api.get("/find-care", params=params)
+    assert r.status_code == 404 and r.json()["detail"]["code"] == code
+
+
+def place(distance_mi, *maxes):
+    return {"distance_mi": distance_mi, "parts": [{"part": "all_in", "max": m} for m in maxes]}
+
+
+def test_a_search_with_no_radius_takes_the_tightest_with_five_places():
+    near = [place(d, 100) for d in (1, 2, 3, 4, 8, 30)]
+    assert radius_for(near, None) == 10
+    assert radius_for(near[:3], None) == 50
+    assert radius_for(near, 25) == 25
+
+
+def test_a_search_with_no_full_price_points_to_the_nearest_one():
+    places = [place(2, None), place(7, None), place(18, 300), place(60, 200)]
+    assert wider_radius(places, places[:2]) == 25
+    assert wider_radius(places, []) == 5
+    assert wider_radius(places[:2], places[:2]) is None
+    assert wider_radius([place(70, 100)], []) is None
+    assert wider_radius(places, places[:3]) is None

@@ -13,7 +13,8 @@ test_mpfs, test_doctors_clinicians) run the reference/ builders against their ow
 data-test/ paths (repo-root relative) and ignore this fixture.
 
 `corpus` is a smaller one of its own for the tests in inputs/ and tables/,
-which build the new serving tables (build/tables/) from it.
+which build the new serving tables (build/tables/) from it. `api_data` builds
+those tables from the default corpus too, for the find-care routes.
 """
 import os
 import subprocess
@@ -408,6 +409,12 @@ def _build(data_dir: str) -> None:
     from build.build import build as _build_serving
     _build_serving(data_dir, f"{data_dir}/serving", networks=None, test=False)
 
+    # the find-care tables (build/tables/), from the default corpus, which the
+    # find-care routes read beside the tables above
+    from build import tables
+    c = default_corpus(f"{data_dir}/corpus")
+    tables.build(c.root, f"{data_dir}/serving", targets_path=c.targets, services_path=c.services_file)
+
 
 @pytest.fixture(scope="session")
 def api_data():
@@ -723,12 +730,18 @@ class Corpus:
 
 @pytest.fixture()
 def corpus(tmp_path, monkeypatch):
-    """Blue Value in file 21057, Pathway and an untargeted network in file 701, the
-    index linking each file to its network's plans, Georgia's networks, plans and
-    premiums, ZIP centroids, two services with Medicare's rates, and eight billers
-    priced for a lower-back MRI on Blue Value, each showing one placement rule."""
+    """The default corpus (default_corpus) in a tmp dir, for one test to change."""
     monkeypatch.delenv("DUCKDB_TMP", raising=False)
-    c = Corpus(str(tmp_path))
+    return default_corpus(str(tmp_path))
+
+
+def default_corpus(root):
+    """Blue Value in file 21057, Pathway and an untargeted network in file 701, the
+    index linking each file to its network's plans, Georgia's networks, plans,
+    premiums and cost sharing, ZIP centroids, two services with Medicare's rates,
+    and eight billers priced for a lower-back MRI on Blue Value, each showing one
+    placement rule."""
+    c = Corpus(root)
     c.rate(21057, BLUE_VALUE)
     c.rate(701, "Pathway PCP Copay Choice")
     c.rate(701, "TRADITIONAL HEALTH PLAN")
@@ -800,6 +813,7 @@ def corpus(tmp_path, monkeypatch):
     c.geocode("1365 CLIFTON RD NE", "ATLANTA", "303221013", "1365 CLIFTON RD NE, ATLANTA, GA, 30322",
               33.792, -84.323)
     c.geocode("1200 MEMORIAL DRIVE", "DALTON", "30720", "1200 MEMORIAL DR, DALTON, GA, 30720", 34.7698, -84.9702)
-    (tmp_path / "targets.yaml").write_text(CORPUS_TARGETS)
+    with open(c.targets, "w") as f:
+        f.write(CORPUS_TARGETS)
     c.flush()
     return c

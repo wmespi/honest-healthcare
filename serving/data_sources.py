@@ -55,6 +55,15 @@ EVIDENCE_SRC = _table("evidence")
 RATE_HIST_SRC = _table("rate_hist")
 MANIFEST_PATH = f"{SERVING_DIR}/manifest.json"
 
+# The find-care tables (build/tables/, the ERD on #135), which routers/find_care.py reads.
+PLANS_SRC = _table("plans")
+SERVICES_SRC = _table("services")
+COST_SHARING_SRC = _table("cost_sharing")
+PLACES_SRC = _table("places")
+PRICES_SRC = _table("prices")
+PROVIDERS_SRC = _table("providers")
+ZIPS_SRC = _table("zips")
+
 # A price expanded to its provider groups — the common join. A `net` /
 # `billing_code` filter on the outer query prunes `rates` before the join runs.
 RATE_GROUPS_SRC = f"""(
@@ -66,7 +75,8 @@ RATE_GROUPS_SRC = f"""(
 
 _TABLES = ("group_sets", "group_members", "group_networks", "provider_dim",
            "provider_affiliations", "code_dim", "evidence", "rate_hist",
-           "cross_network_rollup")
+           "cross_network_rollup",
+           "plans", "services", "cost_sharing", "places", "prices", "providers", "zips")
 
 
 def missing_build() -> list:

@@ -15,7 +15,7 @@ from .data_sources import (
     CODE_DIM_SRC, GROUP_MEMBERS_SRC, GROUP_SETS_SRC, RATE_HIST_SRC, RATES_GLOB,
     SERVING_DIR, db, manifest, missing_build,
 )
-from .routers import imaging, reference
+from .routers import find_care, imaging, reference
 
 app = FastAPI(title="Honest Healthcare API")
 
@@ -27,6 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(find_care.router)
 app.include_router(imaging.router)
 app.include_router(reference.router)
 

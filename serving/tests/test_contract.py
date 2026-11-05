@@ -122,3 +122,6 @@ def test_fastapi_publishes_the_contract():
     assert body["results"][0]["max_rate"] == 410
     bad = client.get("/find-care", params={"service_id": "mri-brain", "plan_id": "blue-value", "zip": "3032"})
     assert bad.status_code == 422
+    near = {"service_id": "mri-brain", "plan_id": "blue-value", "zip": "30322"}
+    assert client.get("/find-care", params={**near, "radius_mi": 25}).json()["radius_mi"] == 25
+    assert client.get("/find-care", params={**near, "radius_mi": 15}).status_code == 422
