@@ -1,5 +1,5 @@
 """prices.parquet (build/tables/prices.py)."""
-BV = "GA Blue Value HIX Individual Network"
+BV, PATHWAY = "45334-GAN001", "49046-GAN008"
 
 
 def prices(corpus):
@@ -26,8 +26,8 @@ def biller(corpus, npi, name, address, postal_code, place_of_service, **rates):
     """Price a lower-back MRI at `npi` under its own group set, which Medicare shows
     billing it in an office (O) or a facility (F)."""
     group = npi - 1000000000
-    corpus.roster(21057, group, group, str(npi), npi + 1000000000)
-    corpus.scan_price(21057, BV, group, "72148", **rates)
+    corpus.roster(BV, group, group, str(npi), npi + 1000000000)
+    corpus.scan_price(BV, group, "72148", **rates)
     corpus.billed(npi + 1000000000, "72148", place_of_service)
     corpus.npi(npi, name, address, "ATLANTA", postal_code)
 
@@ -94,11 +94,11 @@ def test_a_row_lists_only_the_clinicians_who_bill_its_service_on_its_network(cor
     # who does Midtown's MRIs on Blue Value reads at Grady instead.
     person(corpus, 2000000001, "OKAFOR")
     person(corpus, 2000000031, "NAKAMURA")
-    corpus.roster(21057, 1, 1, "1000000001", 2000000031)
-    corpus.scan_price(21057, BV, 1, "77067", all_in=150)
+    corpus.roster(BV, 1, 1, "1000000001", 2000000031)
+    corpus.scan_price(BV, 1, "77067", all_in=150)
     corpus.billed(2000000031, "77067", "O")
-    corpus.roster(701, 4, 4, "1000000004", 2000000001)
-    corpus.scan_price(701, "Pathway PCP Copay Choice", 4, "72148", reading=210)
+    corpus.roster(PATHWAY, 4, 4, "1000000004", 2000000001)
+    corpus.scan_price(PATHWAY, 4, "72148", reading=210)
     rows = providers(corpus)
     assert rows[("45334-GAN001", "mri-lower-back", "1000000001")] == [2000000001]
     assert rows[("45334-GAN001", "mammogram-screening", "1000000001")] == [2000000031]
@@ -109,8 +109,8 @@ def test_a_row_lists_only_the_clinicians_who_bill_its_service_on_its_network(cor
 def test_a_doctor_billing_at_a_hospital_under_their_own_npi_is_named_for_their_group_or_themselves(corpus):
     for npi, last_name in [(1000000024, "KIM"), (1000000025, "LEE")]:
         group = npi - 1000000000
-        corpus.roster(21057, group, group, str(npi), npi)
-        corpus.scan_price(21057, BV, group, "72148", reading=210)
+        corpus.roster(BV, group, group, str(npi), npi)
+        corpus.scan_price(BV, group, "72148", reading=210)
         corpus.billed(npi, "72148", "F")
         corpus.npi(npi, last_name, "80 JESSE HILL JR DR SE", "ATLANTA", "303033031", entity_type="individual")
     corpus.group(1000000024, "ATLANTA RADIOLOGY ASSOCIATES")

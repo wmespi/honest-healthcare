@@ -31,7 +31,7 @@ Five stages, one direction: **discovery** (Go) lists this month's MRF URLs and k
 the plan→file link → **extraction** (Go) streams the files `etl/targets.yaml` names to
 raw Parquet, a provider probe aborting empty downloads before `in_network` → **reference** (Go +
 Python/DuckDB) lands the public datasets → **build** (Python/DuckDB, `build/`) turns
-raw + reference into the serving tables and is where every product decision lives →
+the payer rates + reference into the serving tables and is where every product decision lives →
 **serving** (Python/DuckDB + FastAPI, `localhost:8000`) queries the Parquet in-process
 for the **frontend** (React, `localhost:5173`). Storage is Parquet+ZSTD under `data/`,
 with no database. Layer table and diagrams:
@@ -102,16 +102,16 @@ make discover               # Phase 1 - this month's file list + plan→file lin
 make discover SCHEMA=1      #   stream only, write index_schema.json and nothing else
 make reference              # Phase 3 — NPPES, NUCC labels, CMS utilization, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
-make parse                  # Phase 2 - stream the files etl/targets.yaml names → Parquet, when new or updated (needs the NPPES and exchange-plans references first)
+make parse                  # Phase 2 - stream the files etl/targets.yaml names → Parquet when new or updated, then publish their rates by Georgia network (needs the NPPES and exchange-plans references first)
 make parse FILE=GA_JBNKMED0001.json.gz  #   one file by name, now (bypasses target selection and its parse record)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (data-test/)
-make build                  # Phase 4 — raw + reference parquet → the find-care tables in data/serving/, for the plans etl/targets.yaml names
+make build                  # Phase 4 - payer rates + reference parquet → the find-care tables in data/serving/
 make refresh                # the monthly job: discover → reference → parse → geocode → build
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
 make check LOCAL=1          #   same gate on host toolchains, NO Docker
-make test                   # every hermetic suite: check + pytest (build, reference, serving) + vitest (+ ETL e2e)
+make test                   # every hermetic suite: check + pytest (ingestion, reference, build, serving) + vitest (+ ETL e2e)
 make test LOCAL=1           #   host toolchains, no Docker; works in any checkout but fails with
                              #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until scripts/dev-setup.sh has been run
 make test-live              # golden answers + user journeys against the live API + real corpus (docs/journeys.md)
@@ -150,7 +150,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 |---|---|
 | The source-file shape, plan/network/file/provider model, conflict resolution | [etl/mrf-model.md](etl/mrf-model.md) |
 | Discovery - the monthly file list, the plan→file link, a file's ID, monthly churn | [etl/discover.md](etl/discover.md) |
-| Extraction - target selection, when a file is downloaded again, recovering a failed or stopped parse, the parser, network attribution, GA NPI filter, Parquet writers | [etl/parse.md](etl/parse.md) |
+| Extraction - target selection, when a file is downloaded again, recovering a failed or stopped parse, the parser, network attribution, GA NPI filter, Parquet writers, publishing the rates by network | [etl/parse.md](etl/parse.md) |
 | Which plans we parse files for | [etl/targets.yaml](etl/targets.yaml) |
 | The services the find-care screen offers, and what it says about each | [build/services.yaml](build/services.yaml) |
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
@@ -163,7 +163,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
 | CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |
-| The build step — raw + reference → serving tables, `scope` / `is_sentinel` / benchmark | [build/build.md](build/build.md) |
+| The build step: payer rates + reference → the find-care tables, and the checks on its inputs | [build/build.md](build/build.md) |
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
 | API routes, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet) | [docs/schema.md](docs/schema.md) |

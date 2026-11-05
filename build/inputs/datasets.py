@@ -1,12 +1,17 @@
-"""The datasets the build reads, each with the command that makes it."""
+"""The datasets the build reads, which ingestion writes: the contract between
+the two layers (docs/schema.md). Each states its path, the command that makes
+it, the columns the build reads, with their DuckDB types, and its key, if it
+has one. `check_inputs` stops the build unless every dataset has those columns
+with those types, and a key that's never empty or repeated. A dataset may have
+more columns than these."""
 import glob
 
 
 class Dataset:
     """Parquet files under the data directory, and the command that makes them."""
 
-    def __init__(self, path, made_by, options=""):
-        self.path, self.made_by, self.options = path, made_by, options
+    def __init__(self, path, made_by, columns, key=(), options=""):
+        self.path, self.made_by, self.columns, self.key, self.options = path, made_by, columns, list(key), options
 
     def read(self, data_dir):
         """A DuckDB table expression for the dataset, or stop the build with the
@@ -16,52 +21,115 @@ class Dataset:
             raise SystemExit(f"no {path}: run `{self.made_by}`")
         return f"read_parquet('{path}'{self.options})"
 
+    def check(self, con, data_dir):
+        """Stop the build unless the dataset has its columns and its key holds."""
+        source = self.read(data_dir)
+        got = {c: t for c, t, *_ in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()}
+        for column, kind in self.columns.items():
+            if got.get(column) != kind:
+                found = f"is {got[column]}" if column in got else "is missing"
+                raise SystemExit(f"{self.path}: column {column} {found}, but the build reads it as {kind} "
+                                 f"(build/inputs/datasets.py); run `{self.made_by}`")
+        if not self.key:
+            return
+        cols = ", ".join(self.key)
+        empty = con.execute(f"SELECT count(*) FROM {source} WHERE "
+                            + " OR ".join(f"{c} IS NULL" for c in self.key)).fetchone()[0]
+        if empty:
+            raise SystemExit(f"{self.path}: {empty} rows with an empty key ({cols})")
+        dup = con.execute(f"SELECT {cols} FROM {source} GROUP BY {cols} HAVING count(*) > 1 LIMIT 3").fetchall()
+        if dup:
+            raise SystemExit(f"{self.path}: the key ({cols}) repeats, for example {dup}")
 
-# Every rate `make parse` has written from the insurers' files, one folder per network label.
-INSURER_RATES = Dataset("anthem/prices/*/*.parquet", "make parse",
-                        ", hive_partitioning=1, union_by_name=true")
-# Who each price covers: a price's group set lists provider groups, and each group
-# lists its doctors (`npi`) and its billing NPI (`tin_value`) (docs/schema.md).
-GROUP_SETS = Dataset("anthem/group_sets/*.parquet", "make parse")
-ROSTERS = Dataset("anthem/providers/*.parquet", "make parse")
-# The plan -> file link in the index `make discover` last read whole: file_id,
-# plan_id (etl/discover.md).
-INDEX_LINKS = Dataset("anthem/index_file_plans.parquet", "make discover")
-# Georgia's exchange networks: network_id, issuer_id, name (reference/exchange-plans.md).
-EXCHANGE_NETWORKS = Dataset("reference/exchange_networks_ga.parquet",
-                            "make reference STEP=exchange-plans")
+
+def check_inputs(con, data_dir):
+    """Check every dataset, before the build reads any of them."""
+    for dataset in DATASETS:
+        dataset.check(con, data_dir)
+
+
+V, I, B, D, F = "VARCHAR", "INTEGER", "BIGINT", "DOUBLE", "BOOLEAN"
+
+# Every payer's rates by Georgia exchange network, which `make parse` writes, one
+# folder per payer (data/payer_rates/<payer>/). A rate's group set lists the
+# provider groups it covers, and a group's roster lists its doctors (`npi`) and its
+# billing ID (`tin_value`, an NPI or EIN by `tin_type`). The columns are CMS's
+# Transparency in Coverage names, so every payer's rates read alike.
+PAYER_RATES = Dataset("payer_rates/*/rates.parquet", "make parse", {
+    "network_id": V, "group_set_id": B, "billing_code_type": V, "billing_code": V,
+    "negotiation_arrangement": V, "negotiated_type": V, "negotiated_rate": D, "expiration_date": V,
+    "service_code": V, "billing_class": V, "modifier": V, "setting": V})
+PAYER_RATE_GROUPS = Dataset("payer_rates/*/rate_groups.parquet", "make parse", {
+    "network_id": V, "group_set_id": B, "provider_group_id": B},
+    key=["network_id", "group_set_id", "provider_group_id"])
+PAYER_ROSTERS = Dataset("payer_rates/*/rosters.parquet", "make parse", {
+    "network_id": V, "provider_group_id": B, "npi": B, "tin_type": V, "tin_value": V})
+# Georgia's exchange networks (reference/exchange-plans.md).
+EXCHANGE_NETWORKS = Dataset("reference/exchange_networks_ga.parquet", "make reference STEP=exchange-plans", {
+    "network_id": V, "issuer_id": V, "name": V}, key=["network_id"])
 # Georgia's exchange plans, each with its network_id (reference/exchange-plans.md).
-EXCHANGE_PLANS = Dataset("reference/exchange_plans_ga.parquet",
-                         "make reference STEP=exchange-plans")
+EXCHANGE_PLANS = Dataset("reference/exchange_plans_ga.parquet", "make reference STEP=exchange-plans", {
+    "plan_id": V, "network_id": V, "name": V, "carrier": V, "metal_level": V, "needs_referral": F,
+    "deductible": D}, key=["plan_id"])
 # Each plan's monthly premium by rating area and age (reference/exchange-plans.md).
-EXCHANGE_PREMIUMS = Dataset("reference/exchange_premiums_ga.parquet",
-                            "make reference STEP=exchange-plans")
+EXCHANGE_PREMIUMS = Dataset("reference/exchange_premiums_ga.parquet", "make reference STEP=exchange-plans", {
+    "plan_id": V, "rating_area": I, "age": B, "premium": D, "tobacco_premium": D},
+    key=["plan_id", "rating_area", "age"])
 # What each plan charges the member in network, by benefit, in Georgia's wording
 # (reference/exchange-plans.md).
 EXCHANGE_COST_SHARING = Dataset("reference/exchange_cost_sharing_ga.parquet",
-                                "make reference STEP=exchange-plans")
+                                "make reference STEP=exchange-plans", {
+    "plan_id": V, "benefit": V, "covered": F, "copay": V, "coinsurance": V}, key=["plan_id", "benefit"])
 # Medicare's physician fee schedule in Georgia, by code, modifier, place of
 # service and payment area (reference/mpfs.md).
-MPFS = Dataset("reference/mpfs_ga.parquet", "make reference STEP=mpfs")
+MPFS = Dataset("reference/mpfs_ga.parquet", "make reference STEP=mpfs", {
+    "billing_code": V, "billing_code_type": V, "modifier": V, "pos": V, "locality": V,
+    "medicare_allowed": D, "status": V}, key=["billing_code", "modifier", "pos", "locality"])
 # Medicare's national hospital outpatient rate by code (reference/opps.md).
-OPPS = Dataset("reference/opps.parquet", "make reference STEP=opps")
+OPPS = Dataset("reference/opps.parquet", "make reference STEP=opps", {
+    "billing_code": V, "billing_code_type": V, "status_indicator": V, "apc": V, "payment_rate": D,
+    "year": I}, key=["billing_code"])
 # Each Georgia NPI's own record: name, specialty code and practice address (etl/nppes.md).
-NPPES = Dataset("nppes/ga_providers.parquet", "make reference STEP=nppes")
+NPPES = Dataset("nppes/ga_providers.parquet", "make reference STEP=nppes", {
+    "npi": B, "entity_type": V, "org_name": V, "last_name": V, "first_name": V, "taxonomy_code": V,
+    "taxonomy_group": V, "is_hospital": F, "is_clinic": F, "address_line1": V, "address_line2": V,
+    "city": V, "state": V, "postal_code": V}, key=["npi"])
 # Who billed Medicare for each code in Georgia, and whether in an office (O) or a
 # facility (F) (reference/cms-utilization.md).
-MEDICARE_BILLING = Dataset("cms/ga_provider_service.parquet", "make reference STEP=cms-utilization")
+MEDICARE_BILLING = Dataset("cms/ga_provider_service.parquet", "make reference STEP=cms-utilization", {
+    "npi": B, "hcpcs_cd": V, "place_of_service": V, "tot_benes": I, "tot_srvcs": D, "tot_bene_day_srvcs": I,
+    "avg_mdcr_alowd_amt": D, "provider_type": V, "hcpcs_drug_ind": V, "year": I},
+    key=["npi", "hcpcs_cd", "place_of_service"])
 # NUCC's specialty codes, with their classification and specialization
 # (reference/taxonomy-labels.md).
-NUCC_TAXONOMY = Dataset("reference/nucc_taxonomy.parquet", "make reference STEP=taxonomy-labels")
+NUCC_TAXONOMY = Dataset("reference/nucc_taxonomy.parquet", "make reference STEP=taxonomy-labels", {
+    "taxonomy_code": V, "grouping": V, "classification": V, "specialization": V, "display_name": V,
+    "specialty": V, "is_individual": F}, key=["taxonomy_code"])
 # Each clinician's CMS group, by NPI (reference/doctors-clinicians.md).
-DOCTORS_CLINICIANS = Dataset("reference/dac_ga.parquet", "make reference STEP=doctors-clinicians")
+DOCTORS_CLINICIANS = Dataset("reference/dac_ga.parquet", "make reference STEP=doctors-clinicians", {
+    "npi": B, "last_name": V, "first_name": V, "credential": V, "primary_specialty": V, "org_pac_id": V,
+    "org_name": V, "grad_year": I, "med_school": V, "gender": V}, key=["npi"])
 # Each clinician's Medicare quality (MIPS) score, 0 to 100, by NPI (reference/mips.md).
-MIPS = Dataset("reference/mips_ga.parquet", "make reference STEP=mips")
+MIPS = Dataset("reference/mips_ga.parquet", "make reference STEP=mips", {
+    "npi": B, "mips_score": D, "mips_source": V, "performance_year": I}, key=["npi"])
 # Georgia's hospitals: CCN, name, address, phone and star rating (reference/hospitals.md).
-HOSPITALS = Dataset("reference/hospitals_ga.parquet", "make reference STEP=hospitals")
+HOSPITALS = Dataset("reference/hospitals_ga.parquet", "make reference STEP=hospitals", {
+    "ccn": V, "name": V, "address": V, "city": V, "state": V, "postal_code": V, "county": V, "phone": V,
+    "hospital_type": V, "ownership": V, "emergency_services": F, "stars": I}, key=["ccn"])
 # Every address sent to Census, with its standardized match and coordinates
 # (reference/geocode.md).
-GEOCODES = Dataset("reference/geocode_addresses.parquet", "make reference STEP=geocode")
+GEOCODES = Dataset("reference/geocode_addresses.parquet", "make reference STEP=geocode", {
+    "address_line1": V, "address_line2": V, "city": V, "state": V, "postal_code": V, "match_type": V,
+    "matched_address": V, "latitude": D, "longitude": D, "benchmark": V, "geocoded_on": "DATE"},
+    key=["address_line1", "address_line2", "city", "state", "postal_code"])
+# Each ZIP's Census centroid: zip, lat, lon (reference/zip-centroids.md).
+ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids", {
+    "zip": V, "lat": D, "lon": D}, key=["zip"])
+
+DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
+            EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, MEDICARE_BILLING, NUCC_TAXONOMY,
+            DOCTORS_CLINICIANS, MIPS, HOSPITALS, GEOCODES, ZIP_CENTROIDS]
+
 # Georgia's bounding box, with a margin. Census now and then matches an address to a
 # same-named town in another state (LaFayette GA to Tennessee, Riverdale GA to
 # Maryland), so a match outside it is wrong, and counts as no match.
@@ -73,5 +141,3 @@ def georgia_matches(data_dir):
     return (f"(SELECT * FROM {GEOCODES.read(data_dir)} "
             f"WHERE latitude BETWEEN {GEORGIA_LAT[0]} AND {GEORGIA_LAT[1]} "
             f"AND longitude BETWEEN {GEORGIA_LON[0]} AND {GEORGIA_LON[1]})")
-# Each ZIP's Census centroid: zip, lat, lon (reference/zip-centroids.md).
-ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids")

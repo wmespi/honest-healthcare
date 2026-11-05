@@ -8,7 +8,7 @@ from build.build import build
 
 def make(corpus):
     corpus.flush()
-    return build(corpus.root, f"{corpus.root}/serving", corpus.targets, corpus.services_file)
+    return build(corpus.root, f"{corpus.root}/serving", corpus.services_file)
 
 
 def test_the_build_writes_the_find_care_tables_and_says_when(corpus):

@@ -27,12 +27,12 @@
 #                      whose provider_references carry none of these labels is
 #                      abandoned before `in_network` is read, and marked
 #                      `skipped`. Every network in a file that passes is
-#                      written; the build step selects.
+#                      written, and parse publishes only these labels' rates.
 #                      Omit it and that file is streamed in full.
-#                      The build prices each exchange network with the rates
-#                      under these labels, and stops unless exactly one parsed
-#                      file the index links to the network's plans carries
-#                      them (build/build.md).
+#                      Parse's last step prices each exchange network with the
+#                      rates under these labels, and stops unless exactly one
+#                      parsed file the index links to the network's plans
+#                      carries them (etl/parse.md).
 #
 # See etl/discover.md (how the plan→file link is captured) and etl/parse.md (how
 # parse selects and checks the named files).

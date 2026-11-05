@@ -1,21 +1,19 @@
-"""The build's test corpus: a small, coherent set of ingested Parquet in a
-folder (insurer rates and rosters, the index's plan -> file link, Georgia's
-plans, NPPES, Census, Medicare and the rest), with methods to add and remove
-rows. The build's tests (inputs/, tables/) run the real find-care build on it,
-and serving/tests builds the app's fixture tables from `default_corpus`.
+"""The build's test corpus: a small, coherent set of the datasets ingestion
+writes, in a folder (payer rates and rosters by network, Georgia's plans,
+NPPES, Census, Medicare and the rest), with methods to add and remove rows.
+Each file has its dataset's columns (build/inputs/datasets.py). The build's
+tests (inputs/, tables/) run the real find-care build on it, and serving/tests
+builds the app's fixture tables from `default_corpus`.
 """
 import os
 
 import duckdb
 import yaml
 
-BLUE_VALUE = "GA Blue Value HIX Individual Network"
+from build.inputs import datasets as d
 
-
-def _slug(name: str) -> str:
-    import re
-    s = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
-    return s[:100].strip("-") or "_unattributed"
+# The two networks the corpus prices, by Georgia's network ID.
+BLUE_VALUE, PATHWAY = "45334-GAN001", "49046-GAN008"
 
 
 def _parquet(con, path: str, schema: dict, rows: list[tuple]):
@@ -39,80 +37,28 @@ def _literal(v):
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def _write(con, path: str, columns: str, rows: list[tuple]):
-    """Each cell is a raw SQL fragment: "'text'" for strings, an int/float as-is,
-    "CAST(1 AS BOOLEAN)" for bools."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if not rows:
-        raise ValueError(f"no rows for {path}")
-    body = ", ".join("(" + ", ".join(str(c) for c in row) + ")" for row in rows)
-    con.execute(
-        f"COPY (SELECT * FROM (VALUES {body}) AS t({columns})) "
-        f"TO '{path}' (FORMAT parquet)"
-    )
-
-
 # Two of Georgia's service categories, as its cost-sharing file names them.
 IMAGING = "Imaging (CT/PET Scans, MRIs)"
 PREVENTIVE = "Preventive Care/Screening/Immunization"
 
-CORPUS_TARGETS = """
-targets:
-  - name: Blue Value
-    exchange_networks: ["45334-GAN001"]
-    network_patterns: ["GA Blue Value HIX*"]
-  - name: Pathway
-    exchange_networks: ["49046-GAN008"]
-    network_patterns: ["Pathway PCP Copay Choice*"]
-"""
-
-
-PRICE_SCHEMA = {"file_id": "BIGINT", "group_set_id": "BIGINT", "network_name": "VARCHAR",
-                "billing_code_type": "VARCHAR", "billing_code": "VARCHAR",
-                "negotiation_arrangement": "VARCHAR", "negotiated_type": "VARCHAR",
-                "negotiated_rate": "DOUBLE", "expiration_date": "VARCHAR", "service_code": "VARCHAR",
-                "billing_class": "VARCHAR", "modifier": "VARCHAR", "setting": "VARCHAR"}
-NPPES_SCHEMA = {"npi": "BIGINT", "entity_type": "VARCHAR", "org_name": "VARCHAR", "last_name": "VARCHAR",
-                "first_name": "VARCHAR", "taxonomy_code": "VARCHAR", "taxonomy_group": "VARCHAR",
-                "is_hospital": "BOOLEAN", "is_clinic": "BOOLEAN", "address_line1": "VARCHAR",
-                "address_line2": "VARCHAR", "city": "VARCHAR", "state": "VARCHAR", "postal_code": "VARCHAR"}
-MEDICARE_SCHEMA = {"npi": "BIGINT", "hcpcs_cd": "VARCHAR", "place_of_service": "VARCHAR",
-                   "tot_benes": "INTEGER", "tot_srvcs": "DOUBLE", "tot_bene_day_srvcs": "INTEGER",
-                   "avg_mdcr_alowd_amt": "DOUBLE", "provider_type": "VARCHAR", "hcpcs_drug_ind": "VARCHAR",
-                   "year": "INTEGER"}
-HOSPITAL_SCHEMA = {"ccn": "VARCHAR", "name": "VARCHAR", "address": "VARCHAR", "city": "VARCHAR",
-                   "state": "VARCHAR", "postal_code": "VARCHAR", "county": "VARCHAR", "phone": "VARCHAR",
-                   "hospital_type": "VARCHAR", "ownership": "VARCHAR", "emergency_services": "BOOLEAN",
-                   "stars": "INTEGER"}
-GEOCODE_SCHEMA = {"address_line1": "VARCHAR", "address_line2": "VARCHAR", "city": "VARCHAR",
-                  "state": "VARCHAR", "postal_code": "VARCHAR", "match_type": "VARCHAR",
-                  "matched_address": "VARCHAR", "latitude": "DOUBLE", "longitude": "DOUBLE",
-                  "benchmark": "VARCHAR", "geocoded_on": "DATE"}
-DAC_SCHEMA = {"npi": "BIGINT", "last_name": "VARCHAR", "first_name": "VARCHAR", "credential": "VARCHAR",
-              "primary_specialty": "VARCHAR", "org_pac_id": "VARCHAR", "org_name": "VARCHAR",
-              "grad_year": "INTEGER", "med_school": "VARCHAR", "gender": "VARCHAR"}
-
-
 class Corpus:
-    """Insurer rates and rosters, the index's plan -> file link, Georgia's
-    networks, plans, premiums, cost sharing and hospitals, ZIP centroids, NPPES records,
-    Census matches, Medicare's billing and rates, CMS groups, a services file and
-    a targets file in a tmp dir."""
+    """Payer rates and rosters, Georgia's networks, plans, premiums, cost sharing
+    and hospitals, ZIP centroids, NPPES records, Census matches, Medicare's
+    billing and rates, CMS groups and a services file in a tmp dir."""
 
     def __init__(self, root):
         self.root = root
-        self.targets = f"{root}/targets.yaml"
+        os.makedirs(root, exist_ok=True)
         self.services_file = f"{root}/services.yaml"
         self.services = []
         self.mpfs = []
         self.opps = []
-        self.links = []
         self.plans = []
         self.premiums = []
         self.zips = []
-        self.scan_prices = {}
-        self.group_sets = {}
-        self.rosters = {}
+        self.rates = []
+        self.group_sets = []
+        self.rosters = []
         self.npis = []
         self.medicare_billing = []
         self.hospitals = []
@@ -135,29 +81,35 @@ class Corpus:
         con.close()
         self.pending = {}
 
-    def scan_price(self, fid, label, group_set, code, all_in=None, scan=None, reading=None,
+    def rate(self, network_id):
+        """Add one payer rate on `network_id`, for a code no service uses, so the
+        network is priced."""
+        self.rates.append((network_id, 1, "CPT", "70551", "ffs", "negotiated", 250.0, "9999-12-31", "11",
+                           "professional", "", "outpatient"))
+        self._write_rates()
+
+    def scan_price(self, network_id, group_set, code, all_in=None, scan=None, reading=None,
                    service_code="11"):
-        """Add the plan's rates for `code` in file `fid` under `label`, covering the
-        rosters in `group_set`: the whole service, the scan (TC) and the reading (26)."""
-        rows = self.scan_prices.setdefault((fid, label), [])
+        """Add the payer's rates for `code` on `network_id`, covering the rosters in
+        `group_set`: the whole service, the scan (TC) and the reading (26)."""
         for modifier, rate in (("", all_in), ("TC", scan), ("26", reading)):
             if rate is not None:
-                rows.append((fid, group_set, label, "CPT", code, "ffs", "fee schedule", float(rate),
-                             "9999-12-31", service_code, "professional", modifier, "outpatient"))
-        self._queue(f"{self.root}/anthem/prices/net={_slug(label)}/{fid}-scans.parquet", PRICE_SCHEMA, rows)
+                self.rates.append((network_id, group_set, "CPT", code, "ffs", "fee schedule", float(rate),
+                                   "9999-12-31", service_code, "professional", modifier, "outpatient"))
+        self._write_rates()
 
-    def roster(self, fid, group_set, group, biller, *npis, tin_type="npi"):
+    def _write_rates(self):
+        self._queue(f"{self.root}/payer_rates/anthem/rates.parquet", d.PAYER_RATES.columns, self.rates)
+
+    def roster(self, network_id, group_set, group, biller, *npis, tin_type="npi"):
         """Put provider group `group`, billing as `biller`, with doctors `npis`, in
-        `group_set` of file `fid`."""
-        self.group_sets.setdefault(fid, []).append((fid, group_set, group))
-        self.rosters.setdefault(fid, []).extend(
-            (fid, group, "any network", npi, tin_type, biller) for npi in npis)
-        self._queue(f"{self.root}/anthem/group_sets/{fid}.parquet",
-                    {"file_id": "BIGINT", "group_set_id": "BIGINT", "provider_group_id": "BIGINT"},
-                    self.group_sets[fid])
-        self._queue(f"{self.root}/anthem/providers/{fid}.parquet",
-                    {"file_id": "BIGINT", "provider_group_id": "BIGINT", "network_name": "VARCHAR",
-                     "npi": "BIGINT", "tin_type": "VARCHAR", "tin_value": "VARCHAR"}, self.rosters[fid])
+        `group_set` on `network_id`. A group already in the set gains the doctors."""
+        if (network_id, group_set, group) not in self.group_sets:
+            self.group_sets.append((network_id, group_set, group))
+        self.rosters.extend((network_id, group, npi, tin_type, biller) for npi in npis)
+        self._queue(f"{self.root}/payer_rates/anthem/rate_groups.parquet", d.PAYER_RATE_GROUPS.columns,
+                    self.group_sets)
+        self._queue(f"{self.root}/payer_rates/anthem/rosters.parquet", d.PAYER_ROSTERS.columns, self.rosters)
 
     def npi(self, npi, name, address, city, postal_code, entity_type="organization",
             taxonomy="2085R0202X", address_line2=""):
@@ -166,54 +118,50 @@ class Corpus:
         self.npis.append((npi, entity_type, name if org else None, None if org else name,
                           None if org else "PAT", taxonomy, None, taxonomy.startswith("28"),
                           taxonomy.startswith("261Q"), address, address_line2, city, "GA", postal_code))
-        self._queue(f"{self.root}/nppes/ga_providers.parquet", NPPES_SCHEMA, self.npis)
+        self._queue(f"{self.root}/nppes/ga_providers.parquet", d.NPPES.columns, self.npis)
 
     def billed(self, npi, code, place_of_service):
         """Have Medicare's file show `npi` billing `code` in an office (O) or a facility (F)."""
         self.medicare_billing.append((npi, code, place_of_service, 20, 25.0, 25, 100.0,
                                       "Diagnostic Radiology", "N", 2024))
-        self._queue(f"{self.root}/cms/ga_provider_service.parquet", MEDICARE_SCHEMA, self.medicare_billing)
+        self._queue(f"{self.root}/cms/ga_provider_service.parquet", d.MEDICARE_BILLING.columns, self.medicare_billing)
 
     def hospital(self, ccn, name, address, city, postal_code, phone="(404) 555-0100", stars=None):
         """Add a Georgia hospital to Hospital General Information."""
         self.hospitals.append((ccn, name, address, city, "GA", postal_code, "FULTON", phone,
                                "Acute Care Hospitals", "Government", True, stars))
-        self._queue(f"{self.root}/reference/hospitals_ga.parquet", HOSPITAL_SCHEMA, self.hospitals)
+        self._queue(f"{self.root}/reference/hospitals_ga.parquet", d.HOSPITALS.columns, self.hospitals)
 
     def geocode(self, address, city, postal_code, matched_address, lat, lon, address_line2=""):
         """Add Census's answer for an address it was sent."""
         self.geocodes.append((address, address_line2, city, "GA", postal_code, "Exact", matched_address,
                               lat, lon, "Public_AR_Current", None))
-        self._queue(f"{self.root}/reference/geocode_addresses.parquet", GEOCODE_SCHEMA, self.geocodes)
+        self._queue(f"{self.root}/reference/geocode_addresses.parquet", d.GEOCODES.columns, self.geocodes)
 
     def group(self, npi, org_name):
         """Put clinician `npi` in the CMS group `org_name`."""
         self.groups.append((npi, "SMITH", "PAT", "MD", "DIAGNOSTIC RADIOLOGY", "1234567890", org_name,
                             2005, "OTHER", "F"))
-        self._queue(f"{self.root}/reference/dac_ga.parquet", DAC_SCHEMA, self.groups)
+        self._queue(f"{self.root}/reference/dac_ga.parquet", d.DOCTORS_CLINICIANS.columns, self.groups)
 
     def taxonomy(self, code, classification, specialization, display_name=None):
         """Add a NUCC specialty code."""
         self.taxonomies.append((code, None, classification, specialization, display_name, None, False))
         self._queue(f"{self.root}/reference/nucc_taxonomy.parquet",
-                    {"taxonomy_code": "VARCHAR", "grouping": "VARCHAR", "classification": "VARCHAR",
-                     "specialization": "VARCHAR", "display_name": "VARCHAR", "specialty": "VARCHAR",
-                     "is_individual": "BOOLEAN"}, self.taxonomies)
+                    d.NUCC_TAXONOMY.columns, self.taxonomies)
 
     def score(self, npi, score):
         """Give clinician `npi` Medicare's quality (MIPS) score `score`."""
         self.scores.append((npi, score))
         self._queue(f"{self.root}/reference/mips_ga.parquet",
-                    {"npi": "BIGINT", "mips_score": "DOUBLE", "mips_source": "VARCHAR",
-                     "performance_year": "INTEGER"},
-                    [(npi, score, "individual", 2024) for npi, score in self.scores])
+                    d.MIPS.columns, [(npi, score, "individual", 2024) for npi, score in self.scores])
 
     def inputs(self):
         """A connection with every build-only table made, to read one directly."""
         from build import tables
         self.flush()
         con = tables.connect(f"{self.root}/.spill")
-        for table in tables.inputs(self.targets, self.services_file):
+        for table in tables.inputs(self.services_file):
             table.make(con, self.root)
         return con
 
@@ -232,9 +180,7 @@ class Corpus:
         """Set what `plan_id` charges the member for `benefit`, in Georgia's wording."""
         self.benefits[(plan_id, benefit)] = (covered, copay, coinsurance)
         self._queue(f"{self.root}/reference/exchange_cost_sharing_ga.parquet",
-                    {"plan_id": "VARCHAR", "benefit": "VARCHAR", "covered": "BOOLEAN", "copay": "VARCHAR",
-                     "coinsurance": "VARCHAR"},
-                    [(p, b, *v) for (p, b), v in self.benefits.items()])
+                    d.EXCHANGE_COST_SHARING.columns, [(p, b, *v) for (p, b), v in self.benefits.items()])
 
     def remove_plans(self, network_id):
         """Take every plan on `network_id` out of Georgia's plan file."""
@@ -253,15 +199,14 @@ class Corpus:
 
     def _write_premiums(self):
         self._queue(f"{self.root}/reference/exchange_premiums_ga.parquet",
-                    {"plan_id": "VARCHAR", "rating_area": "INTEGER", "age": "BIGINT",
-                     "premium": "DOUBLE", "tobacco_premium": "DOUBLE"},
+                    d.EXCHANGE_PREMIUMS.columns,
                     [(p, area, age, 300 + 10 * age, 330 + 11 * age) for p, area, age in self.premiums])
 
     def zip(self, zip_code, lat, lon):
         """Add a ZIP's centroid to the Census file; None writes an empty coordinate."""
         self.zips.append((zip_code, lat, lon))
         self._queue(f"{self.root}/reference/zip_centroids.parquet",
-                    {"zip": "VARCHAR", "lat": "DOUBLE", "lon": "DOUBLE"}, self.zips)
+                    d.ZIP_CENTROIDS.columns, self.zips)
 
     def service(self, service_id, billing_code, **fields):
         """Add a service to the services file, with placeholder text for any field
@@ -283,60 +228,22 @@ class Corpus:
                       (billing_code, "", "facility", "01", atlanta / 2),
                       (billing_code, "26", "nonfacility", "01", atlanta / 3)]
         self._queue(f"{self.root}/reference/mpfs_ga.parquet",
-                    {"billing_code": "VARCHAR", "billing_code_type": "VARCHAR", "modifier": "VARCHAR",
-                     "pos": "VARCHAR", "locality": "VARCHAR", "medicare_allowed": "DOUBLE", "status": "VARCHAR"},
-                    [(c, "CPT", m, pos, loc, amt, "A") for c, m, pos, loc, amt in self.mpfs])
+                    d.MPFS.columns, [(c, "CPT", m, pos, loc, amt, "A") for c, m, pos, loc, amt in self.mpfs])
         if facility is not None:
             self.opps.append((billing_code, facility))
             self._queue(f"{self.root}/reference/opps.parquet",
-                        {"billing_code": "VARCHAR", "billing_code_type": "VARCHAR",
-                         "status_indicator": "VARCHAR", "apc": "VARCHAR", "payment_rate": "DOUBLE",
-                         "year": "INTEGER"},
-                        [(c, "CPT", "Q3", "5523", amt, 2026) for c, amt in self.opps])
+                        d.OPPS.columns, [(c, "CPT", "Q3", "5523", amt, 2026) for c, amt in self.opps])
 
     def _write_plans(self):
         self._queue(f"{self.root}/reference/exchange_plans_ga.parquet",
-                    {"plan_id": "VARCHAR", "network_id": "VARCHAR", "name": "VARCHAR", "carrier": "VARCHAR",
-                     "metal_level": "VARCHAR", "needs_referral": "BOOLEAN", "deductible": "DOUBLE"},
+                    d.EXCHANGE_PLANS.columns,
                     [(p, n, name, "Anthem Blue Cross and Blue Shield", metal, False, deductible)
                      for p, n, name, metal, deductible in self.plans])
-
-    def link(self, fid, *plan_ids):
-        """Have the index link file `fid` to each of `plan_ids`."""
-        self.links += [(fid, p) for p in plan_ids]
-        self._write_links()
-
-    def unlink(self, fid):
-        """Have the index link file `fid` to no plan."""
-        self.links = [(f, p) for f, p in self.links if f != fid]
-        self._write_links()
-
-    def _write_links(self):
-        self._queue(f"{self.root}/anthem/index_file_plans.parquet",
-                    {"file_id": "BIGINT", "plan_id": "VARCHAR"}, self.links)
-
-    def rate(self, fid, label):
-        """Add one insurer rate in file `fid` under network label `label`."""
-        os.makedirs(f"{self.root}/anthem/prices/net={_slug(label)}", exist_ok=True)
-        duckdb.connect().execute(f"""
-            COPY (SELECT {fid}::BIGINT AS file_id, 1::BIGINT AS group_set_id, '{label}' AS network_name,
-                         'CPT' AS billing_code_type, '70551' AS billing_code, 250.0 AS negotiated_rate)
-            TO '{self.root}/anthem/prices/net={_slug(label)}/{fid}.parquet' (FORMAT parquet)
-        """)
-
-    def remove_rate(self, fid, label):
-        os.remove(f"{self.root}/anthem/prices/net={_slug(label)}/{fid}.parquet")
-
-    def add_target(self, text):
-        """Add a target to the targets file, as YAML list items."""
-        with open(self.targets, "a") as f:
-            f.write(text)
 
     def build(self, out="serving"):
         from build import tables
         self.flush()
-        return tables.build(self.root, f"{self.root}/{out}", targets_path=self.targets,
-                            services_path=self.services_file)
+        return tables.build(self.root, f"{self.root}/{out}", services_path=self.services_file)
 
     def rows(self, table, out="serving"):
         return duckdb.connect().execute(
@@ -345,23 +252,18 @@ class Corpus:
 
 
 def default_corpus(root):
-    """Blue Value in file 21057, Pathway and an untargeted network in file 701, the
-    index linking each file to its network's plans, Georgia's networks, plans,
-    premiums and cost sharing, ZIP centroids, two services with Medicare's rates,
-    and eight billers priced for a lower-back MRI on Blue Value, each showing one
-    placement rule."""
+    """Payer rates on Blue Value and Pathway, Georgia's networks (a third with
+    no rates), plans, premiums and cost sharing, ZIP centroids, two services
+    with Medicare's rates, and eight billers priced for a lower-back MRI on Blue
+    Value, each showing one placement rule."""
     c = Corpus(root)
-    c.rate(21057, BLUE_VALUE)
-    c.rate(701, "Pathway PCP Copay Choice")
-    c.rate(701, "TRADITIONAL HEALTH PLAN")
-    c.link(21057, "45334GA0020002", "45334GA0020008")
-    c.link(701, "49046GA0700053")
-    _write(duckdb.connect(), f"{c.root}/reference/exchange_networks_ga.parquet",
-           "network_id, issuer_id, name", [
-               ("'45334-GAN001'", "'45334'", "'Blue Value Individual Network HMO'"),
-               ("'49046-GAN008'", "'49046'", "'Pathway PCP Copay Choice'"),
-               ("'58081-GAN001'", "'58081'", "'Individual Georgia HMO'"),
-           ])
+    c.rate(BLUE_VALUE)
+    c.rate(PATHWAY)
+    c._queue(f"{c.root}/reference/exchange_networks_ga.parquet", d.EXCHANGE_NETWORKS.columns, [
+        (BLUE_VALUE, "45334", "Blue Value Individual Network HMO"),
+        (PATHWAY, "49046", "Pathway PCP Copay Choice"),
+        ("58081-GAN001", "58081", "Individual Georgia HMO"),
+    ])
     c.plan("45334GA0020002", "45334-GAN001", "Anthem Silver Blue Value HMO 4000")
     c.plan("45334GA0020008", "45334-GAN001", "Anthem Bronze Blue Value HMO 5000", "Expanded Bronze", 5000.0)
     c.plan("49046GA0700053", "49046-GAN008", "Anthem Bronze Pathway PCP Copay Choice HMO 6000", "Expanded Bronze",
@@ -388,8 +290,8 @@ def default_corpus(root):
     for i in range(1, 9):
         biller = 1000000000 + i
         doctor = biller if i in (5, 6) else 2000000000 + i
-        c.roster(21057, i, i, str(biller), doctor)
-        c.scan_price(21057, BLUE_VALUE, i, "72148", all_in=500, scan=300, reading=200)
+        c.roster(BLUE_VALUE, i, i, str(biller), doctor)
+        c.scan_price(BLUE_VALUE, i, "72148", all_in=500, scan=300, reading=200)
         if i != 8:
             c.billed(doctor, "72148", "F" if i in (2, 3, 4) else "O")
     c.npi(1000000001, "MIDTOWN IMAGING PC", "550 PEACHTREE ST NE", "ATLANTA", "303082233")
@@ -422,7 +324,5 @@ def default_corpus(root):
     c.geocode("1365 CLIFTON RD NE", "ATLANTA", "303221013", "1365 CLIFTON RD NE, ATLANTA, GA, 30322",
               33.792, -84.323)
     c.geocode("1200 MEMORIAL DRIVE", "DALTON", "30720", "1200 MEMORIAL DR, DALTON, GA, 30720", 34.7698, -84.9702)
-    with open(c.targets, "w") as f:
-        f.write(CORPUS_TARGETS)
     c.flush()
     return c

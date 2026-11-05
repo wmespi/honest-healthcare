@@ -28,7 +28,7 @@ def api_data():
     from build.tests.corpus import default_corpus
     shutil.rmtree(FIX_DIR, ignore_errors=True)
     c = default_corpus(f"{FIX_DIR}/corpus")
-    build(c.root, f"{FIX_DIR}/serving", c.targets, c.services_file)
+    build(c.root, f"{FIX_DIR}/serving", c.services_file)
     yield FIX_DIR
     shutil.rmtree(FIX_DIR, ignore_errors=True)
 

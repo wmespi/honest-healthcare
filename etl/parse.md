@@ -17,7 +17,7 @@ Needs this month's file list from `make discover`, and the NPPES and exchange-pl
 CLI-only: `-all-npis`, `-min-groups n`, `-dry-run`, `-targets ""` (with `-files` or `-fixture` only: no probe network signal).
 See `etl parse -h`.
 
-The parser writes **every network** a file carries; which networks a plan is priced on is a build-step decision.
+The parser writes **every network** a file carries, and the last step of `make parse` publishes each target network's rates ([below](#publishing-the-rates-by-network)).
 `prices/` stays Hive-partitioned by `net=` so the build prunes to one directory.
 
 ## Target selection
@@ -53,6 +53,13 @@ make parse FILE=GA_JBNKMED0001.json.gz              # retry a failed file, or re
 
 `short read` and `stream truncated` in a `failed` reason are worth retrying; `corrupt gzip` and `malformed MRF` mean a bad file.
 To stream a file the probe skips, run `docker compose exec etl go run . parse -files <name> -min-groups 0 -targets ""`.
+
+## Publishing the rates by network
+
+After the stream, `make parse` runs `ingestion/anthem_rates.py`, which writes what integration reads: `data/payer_rates/anthem/` `rates`, `rate_groups` and `rosters`, keyed on Georgia's exchange network ID ([schema.md](../docs/schema.md)).
+A target network's rates are the ones under its `network_patterns`, matched as the probe matches them, in the one parsed file the index links to the network's plans.
+The step stops unless each network is one of Georgia's, with a plan and one target; one parsed file prices it ([mrf-model.md](mrf-model.md#one-plan-one-contract)); and the index links every plan on it to that file.
+The three files move into place together, so a failed check leaves the last ones, and the step runs even when nothing is downloaded, so a change to `targets.yaml` or Georgia's plans reaches the next build.
 
 ## Per-file steps
 

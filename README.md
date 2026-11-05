@@ -103,7 +103,7 @@ make reference      # builds whatever is missing, in dependency order (several G
 **7 — Build the serving tables:**
 
 ```bash
-make build          # raw + reference parquet → data/serving/
+make build          # payer rates + reference parquet → data/serving/
 ```
 
 After the first load, `make refresh` is the whole monthly job.

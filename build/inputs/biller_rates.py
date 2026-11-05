@@ -1,6 +1,6 @@
 """Build-only: each rate a network's file lists for a service, by the biller it
 covers, for the billers Medicare shows doing or reading that service."""
-from build.inputs.datasets import GROUP_SETS, INSURER_RATES, NPPES, ROSTERS
+from build.inputs.datasets import NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS
 from build.table import Table
 
 # The bill part each modifier prices: none is the whole service, TC the scan and
@@ -15,12 +15,11 @@ def covered(data_dir):
     part = " ".join(f"WHEN '{m}' THEN '{p}'" for m, p in PARTS.items())
     return f"""
         lines AS (
-            SELECT f.network_id, s.service_id, r.file_id, r.network_name, r.group_set_id,
+            SELECT r.network_id, s.service_id, r.group_set_id,
                    CASE coalesce(r.modifier, '') {part} END AS part, r.negotiated_rate AS rate,
                    coalesce(r.service_code, '') IN ('', 'CSTM-00')
                        OR contains('|' || r.service_code || '|', '|11|') AS office_line
-            FROM {INSURER_RATES.read(data_dir)} r
-            JOIN network_files f ON f.file_id = r.file_id AND f.network_name = r.network_name
+            FROM {PAYER_RATES.read(data_dir)} r
             JOIN service_list s ON s.billing_code = r.billing_code
             WHERE r.billing_class = 'professional' AND r.setting IN ('outpatient', 'both')
               AND r.negotiation_arrangement = 'ffs'
@@ -41,9 +40,8 @@ def covered(data_dir):
             SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, p.tin_value AS biller, p.npi
             FROM kept k
             JOIN medians m USING (network_id, service_id, part)
-            JOIN {GROUP_SETS.read(data_dir)} g ON g.file_id = k.file_id AND g.group_set_id = k.group_set_id
-            JOIN {ROSTERS.read(data_dir)} p
-              ON p.file_id = g.file_id AND p.provider_group_id = g.provider_group_id
+            JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
+            JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
             WHERE k.rate > greatest(1, 0.05 * m.median)
         )"""
 
@@ -55,9 +53,8 @@ class BillerRates(Table):
     most $1 or 5% of the median for that service and part on the network, is
     dropped.
 
-    A rate's roster is the provider groups its group set lists. A group's own
-    network label can be several networks joined by `|`, so the price row, not the
-    roster, says which network the rate is for.
+    A rate's roster is the provider groups its group set lists, on the rate's
+    network.
 
     A biller appears for a service if Medicare shows a doctor billing it for that
     biller (biller_doctors), or if its NPPES primary specialty code registers it
@@ -95,11 +92,11 @@ class BillerRates(Table):
 
     def check(self, con, data_dir):
         """A biller is found by its NPI, which is what Anthem lists as every billing
-        ID. A file that lists a tax ID (EIN) instead stops the build here, rather
-        than every biller in it landing on the no-NPPES-record list."""
+        ID. Rates that list a tax ID (EIN) instead stop the build here, rather
+        than every biller in them landing on the no-NPPES-record list."""
         other = con.execute(f"""
-            SELECT tin_type, count(*) FROM {ROSTERS.read(data_dir)}
-            WHERE file_id IN (SELECT file_id FROM network_files) AND tin_type IS DISTINCT FROM 'npi'
+            SELECT tin_type, count(*) FROM {PAYER_ROSTERS.read(data_dir)}
+            WHERE tin_type IS DISTINCT FROM 'npi'
             GROUP BY tin_type ORDER BY 2 DESC
         """).fetchone()
         if other:

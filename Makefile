@@ -73,13 +73,16 @@ discover: ## Phase 1 - write this month's file list and plan links (index_files 
 	  $(if $(filter 1,$(KEEP_INDEX)),-keep-index,) \
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
-parse: ## Phase 2 - stream the files etl/targets.yaml names into Parquet, when they're new or Anthem updated them. FILE=<name>[,<name>] · TARGETS=<path> · TEST=1 · LIMIT=n
+parse: ## Phase 2 - stream the files etl/targets.yaml names into Parquet when they're new or Anthem updated them, then publish their rates by Georgia network. FILE=<name>[,<name>] · TARGETS=<path from the repo root> · TEST=1 · LIMIT=n
 	docker compose exec etl go run . parse \
 	  $(if $(FILE),-files "$(FILE)",) \
 	  $(if $(TARGETS),-targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
 	  $(if $(FIXTURE),-fixture "$(FIXTURE)",)
+	docker compose exec -T -w /app -e DUCKDB_TMP= serving python3 -m ingestion.anthem_rates --data-dir /app/data \
+	  $(if $(TARGETS),--targets "$(TARGETS)",) \
+	  $(if $(filter 1,$(TEST)),--test,)
 
 reference: ## Phase 3 — build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, ZIP centroids, exchange plans, hospitals), skipping what exists. STEP=<name> · FORCE=1 · ARGS="--flag v"
 	@bash scripts/reference.sh
@@ -110,7 +113,7 @@ check: ## Gate — docs drift + Go fmt/vet/build/unit tests (etl container). LOC
 	  docker compose exec etl go test ./...; \
 	fi
 
-test: check ## Every hermetic suite - check + pytest (build, reference, serving) + vitest (+ ETL e2e when not LOCAL). LOCAL=1: host toolchains, no Docker
+test: check ## Every hermetic suite - check + pytest (ingestion, reference, build, serving) + vitest (+ ETL e2e when not LOCAL). LOCAL=1: host toolchains, no Docker
 	@if [ "$(LOCAL)" = 1 ]; then \
 	  test -x .venv/bin/python || { echo "no .venv — run scripts/dev-setup.sh"; exit 1; }; \
 	  test -d frontend/node_modules || { echo "no frontend/node_modules — run scripts/dev-setup.sh"; exit 1; }; \
