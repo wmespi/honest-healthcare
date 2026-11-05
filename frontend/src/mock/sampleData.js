@@ -41,7 +41,7 @@ export const MISSING_BILLS = {
   hospital: {
     label: 'Hospital facility fee',
     rowNote: 'Missing the hospital’s fee',
-    explain: 'Hospitals bill their own fee for the scan, and your plan’s file doesn’t list it here. Ask the hospital what it would charge before you book.',
+    explain: 'Hospitals bill their own fee for the scan, and your plan’s file doesn’t list it here. The doctors who read scans here are in your network, but nothing on file confirms the hospital itself is. Ask the hospital whether it’s in your network and what it would charge before you book.',
   },
   radiology: {
     label: 'The scan',

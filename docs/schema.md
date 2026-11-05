@@ -80,6 +80,7 @@ table here is a `503` from `GET /`, never a fallback to raw `anthem/` / `nppes/`
 | `zips.parquet` | `zip`, `lat`, `lon`: a find-care table ([build.md](../build/build.md#the-find-care-tables)) |
 | `services.parquet` | `service_id`, `billing_code`, `name`, `keywords`, `about`, `could_change`, `asks`, `preventive_note`, `medicare_rate`, `medicare_facility_rate`: a find-care table ([build.md](../build/build.md#the-find-care-tables)) |
 | `places.parquet` | `place_id`, `name`, `kind`, `address`, `city`, `lat`, `lon`, `phone`, `stars`: a find-care table ([build.md](../build/build.md#the-find-care-tables)) |
+| `prices.parquet` | `network_id`, `service_id`, `place_id`, `parts` (`part`, `max`), `several_rates`, `billers`: a find-care table ([build.md](../build/build.md#the-find-care-tables)) |
 | `unlocated_places.parquet` | `place_id`, `name`, `kind`, `address`, `city`, `zip`: the places Census can't put on the map, which nothing serves ([build.md](../build/build.md#the-find-care-tables)) |
 
 `rates` is the parser's **price grain** — one row per negotiated price, no group

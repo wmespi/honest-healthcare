@@ -235,6 +235,7 @@ describe('find care mock', () => {
     expect(screen.getByText('What we know so far')).toBeInTheDocument();
     expect(screen.getByText('Not on file')).toBeInTheDocument();
     expect(screen.getByText('Not known')).toBeInTheDocument();
+    expect(screen.getByText(/nothing on file confirms the hospital itself is/)).toBeInTheDocument();
     expect(screen.getByText(/Medicare pays hospitals about \$\d+/)).toBeInTheDocument();
     expect(screen.getByText(/Midtown Radiology Partners, and Atlanta Diagnostic Physicians bill here/)).toBeInTheDocument();
     expect(screen.queryByText('Rates on file here')).not.toBeInTheDocument();

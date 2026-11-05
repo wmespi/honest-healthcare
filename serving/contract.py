@@ -74,8 +74,12 @@ class Place(BaseModel):
 
     The most you'd pay is its parts added up, and it's empty when any part has
     no price, because then nobody can say what the whole bill could be.
+
+    A hospital is listed because the groups reading scans there are on the
+    plan. Nothing on file confirms the hospital itself is, so the screen says
+    so for every hospital.
     """
-    place_id: str = Field(description="The CCN for a hospital, the billing NPI for a practice.")
+    place_id: str = Field(description="The CCN for a hospital, the lowest billing NPI for a practice.")
     name: str
     kind: PlaceKind
     address: str
