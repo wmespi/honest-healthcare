@@ -4,7 +4,7 @@ import { MotionConfig, motion } from 'framer-motion';
 import { clsx } from 'clsx';
 import { Search, X } from 'lucide-react';
 import { AboutService } from './AboutService';
-import { PriceMap } from './PriceMap';
+import { PriceMap } from '../findCare/PriceMap';
 import { ResultsTable } from './ResultsTable';
 import { SearchFields } from './SearchFields';
 import { PLANS, SERVICES, SERVICE_DETAILS } from './sampleData';

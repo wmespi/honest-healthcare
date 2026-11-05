@@ -1,9 +1,9 @@
 import { useId, useState } from 'react';
 import { clsx } from 'clsx';
 
-// A text field with a pick list, used for both the service and the location.
+// A text field with a pick list, used for the service, the location and the plan.
 export function SuggestInput({
-  label, hideLabel, icon, placeholder, text, options, invalid, className, listClassName,
+  label, hideLabel, icon, placeholder, inputMode, text, options, invalid, className, listClassName,
   onTextChange, onPick, onEnter, onBlur,
 }) {
   const Icon = icon;
@@ -66,6 +66,7 @@ export function SuggestInput({
           aria-activedescendant={showList && active >= 0 ? `${listId}-${active}` : undefined}
           aria-invalid={invalid || undefined}
           autoComplete="off"
+          inputMode={inputMode}
           placeholder={placeholder}
           value={text}
           onChange={(event) => {
