@@ -24,7 +24,8 @@ func useStore(t *testing.T) {
 
 func TestParseRecord_RoundTrip(t *testing.T) {
 	useStore(t)
-	if rec, err := readRecord(7); rec != nil || err != nil {
+	x := core.IndexFile{FileID: 7, Name: "GA_X.json.gz", Address: "https://x/GA_X.json.gz"}
+	if rec, err := readRecord(x); rec != nil || err != nil {
 		t.Fatalf("readRecord of a file never parsed = %v, %v; want nil, nil", rec, err)
 	}
 	updated := time.Date(2026, 10, 31, 9, 24, 31, 0, time.UTC)
@@ -33,7 +34,10 @@ func TestParseRecord_RoundTrip(t *testing.T) {
 	if err := writeRecord(want); err != nil {
 		t.Fatalf("writeRecord: %v", err)
 	}
-	got, err := readRecord(7)
+	if _, err := os.Stat(filepath.Join(core.ParsesDir, "GA_X.parquet")); err != nil {
+		t.Errorf("the record isn't saved under the file's stem: %v", err)
+	}
+	got, err := readRecord(x)
 	if err != nil || got == nil {
 		t.Fatalf("readRecord = %v, %v", got, err)
 	}
@@ -43,10 +47,11 @@ func TestParseRecord_RoundTrip(t *testing.T) {
 	}
 
 	// A fixture's record has no Anthem update.
-	if err := writeRecord(parseRecord{FileID: 8, Status: statusParsed}); err != nil {
+	fixture := fixtureFile("synthetic.json.gz")
+	if err := writeRecord(parseRecord{FileID: fixture.FileID, Name: fixture.Name, Status: statusParsed}); err != nil {
 		t.Fatalf("writeRecord: %v", err)
 	}
-	if got, err := readRecord(8); err != nil || got.AnthemUpdatedAt != nil {
+	if got, err := readRecord(fixture); err != nil || got.AnthemUpdatedAt != nil {
 		t.Errorf("readRecord of a record with no Anthem update = %+v, %v", got, err)
 	}
 }
@@ -60,7 +65,14 @@ func TestDueForParse(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	ctx := context.Background()
-	f := core.IndexFile{FileID: 7, Name: "GA_X.json.gz", Location: srv.URL + "/GA_X.json.gz"}
+	f := core.IndexFile{FileID: 7, Name: "GA_X.json.gz", Address: srv.URL + "/GA_X.json.gz", Location: srv.URL + "/GA_X.json.gz"}
+	record := func(r parseRecord) {
+		t.Helper()
+		r.FileID, r.Name, r.Address = f.FileID, f.Name, f.Address
+		if err := writeRecord(r); err != nil {
+			t.Fatal(err)
+		}
+	}
 	due := func() bool {
 		t.Helper()
 		ok, err := dueForParse(ctx, f)
@@ -86,10 +98,7 @@ func TestDueForParse(t *testing.T) {
 		{statusParsed, nil, true}, // a parse that didn't record its copy
 		{statusFailed, &oct17, false},
 	} {
-		rec := parseRecord{FileID: 7, Status: c.status, AnthemUpdatedAt: c.read, FinishedAt: oct31, Reason: "HTTP 503"}
-		if err := writeRecord(rec); err != nil {
-			t.Fatal(err)
-		}
+		record(parseRecord{Status: c.status, AnthemUpdatedAt: c.read, FinishedAt: oct31, Reason: "HTTP 503"})
 		if got := due(); got != c.want {
 			t.Errorf("a %s file that read %v: due = %v, want %v", c.status, c.read, got, c.want)
 		}
@@ -100,11 +109,16 @@ func TestDueForParse(t *testing.T) {
 	if due() {
 		t.Error("a failed file is due")
 	}
-	if err := writeRecord(parseRecord{FileID: 7, Status: statusParsed, AnthemUpdatedAt: &oct31, FinishedAt: oct31}); err != nil {
-		t.Fatal(err)
-	}
+	record(parseRecord{Status: statusParsed, AnthemUpdatedAt: &oct31, FinishedAt: oct31})
 	if _, err := dueForParse(ctx, f); err == nil || !strings.Contains(err.Error(), "can't tell whether Anthem has updated it") {
 		t.Errorf("a parsed file Anthem can't be asked about gave %v, want an error", err)
+	}
+
+	// The same name at a new address is a new file, even one that failed.
+	record(parseRecord{Status: statusFailed, AnthemUpdatedAt: &oct31, FinishedAt: oct31})
+	f.Address = "https://moved/GA_X.json.gz"
+	if !due() {
+		t.Error("a file Anthem moved to a new address isn't due")
 	}
 }
 
@@ -114,7 +128,7 @@ func TestStopIfStopped(t *testing.T) {
 	if err := stopIfStopped(f); err != nil {
 		t.Fatalf("stopIfStopped with no scratch folder: %v", err)
 	}
-	if err := os.MkdirAll(scratchDir(7), 0o755); err != nil {
+	if err := os.MkdirAll(scratchDir(f), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := stopIfStopped(f); err == nil || !strings.Contains(err.Error(), "stopped part way") {

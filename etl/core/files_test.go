@@ -23,7 +23,19 @@ func TestFileName(t *testing.T) {
 	}
 }
 
-// The parsed Parquet on disk is keyed by these IDs, so they must never change.
+func TestStem(t *testing.T) {
+	for name, want := range map[string]string{
+		"GA_JBNKMED0001.json.gz":                             "GA_JBNKMED0001",
+		"2026-10_301_71B0_in-network-rates_01_of_02.json.gz": "2026-10_301_71B0_in-network-rates_01_of_02",
+		"plain.json": "plain",
+	} {
+		if got := (IndexFile{Name: name}).Stem(); got != want {
+			t.Errorf("Stem of %q = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// Every parsed row carries one of these IDs, so they must never change.
 func TestFileID_Pinned(t *testing.T) {
 	cases := map[string]int64{
 		"https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/GA_JBNKMED0001.json.gz": 3985741317353967653,
@@ -31,7 +43,7 @@ func TestFileID_Pinned(t *testing.T) {
 	}
 	for address, want := range cases {
 		if got := FileID(address); got != want {
-			t.Errorf("FileID(%q) = %d, want %d: changing the hash orphans every parsed file", address, got, want)
+			t.Errorf("FileID(%q) = %d, want %d: changing the hash breaks the link to every parsed file", address, got, want)
 		}
 	}
 	if FileID("https://x/a.json.gz") < 0 {

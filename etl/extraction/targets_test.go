@@ -320,7 +320,7 @@ func TestPickNamed(t *testing.T) {
 		// to a plan no longer sold.
 		"a file that prices another plan": {
 			index(file(1, "x", "GA_JBNKMED0001.json.gz"), file(4, "x", "GA_NEW.json.gz")),
-			"names GA_NEW.json.gz (file 4), but the index doesn't link it to a plan on 45334-GAN001"},
+			"names GA_NEW.json.gz, but the index doesn't link it to a plan on 45334-GAN001"},
 	}
 	for name, c := range rejects {
 		t.Run(name, func(t *testing.T) {

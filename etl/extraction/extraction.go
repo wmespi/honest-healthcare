@@ -248,7 +248,7 @@ func parseRates(
 	dryRun bool,
 ) (*mrfResult, parseOutcome) {
 	fileID := f.FileID
-	log.Printf("⚙️ Processing Rate File [id=%d]: %s", fileID, orFixture(f.Location, fixturePath))
+	log.Printf("⚙️ Processing Rate File %s: %s", f.Name, orFixture(f.Location, fixturePath))
 
 	rec := parseRecord{FileID: fileID, Name: f.Name, Address: f.Address}
 	finish := func(status string, reason error) {
@@ -261,11 +261,11 @@ func parseRates(
 		}
 		rec.FinishedAt = time.Now().UTC()
 		if err := writeRecord(rec); err != nil {
-			log.Printf("⚠️ Failed to write the parse record of file %d: %v", fileID, err)
+			log.Printf("⚠️ Failed to write the parse record of %s: %v", f.Name, err)
 		}
 	}
 	fail := func(err error) (*mrfResult, parseOutcome) {
-		log.Printf("❌ File %d failed: %v", fileID, err)
+		log.Printf("❌ %s failed: %v", f.Name, err)
 		finish(statusFailed, err)
 		return nil, outcomeFailed
 	}
@@ -298,15 +298,15 @@ func parseRates(
 	}
 
 	// Parquet writers (skipped in dry-run). Everything for this file is written
-	// under a per-file scratch dir (…/anthem/.inflight/<id>/) and moved into place
-	// only after a clean stream, so the build - which globs prices/**/*.parquet,
-	// group_sets/*.parquet, providers/*.parquet, codes/*.parquet — never sees a
+	// under a per-file scratch dir (…/anthem/.inflight/<stem>/) and moved into place
+	// only after a clean stream, so the build, which globs prices/**/*.parquet,
+	// group_sets/*.parquet, providers/*.parquet and codes/*.parquet, never sees a
 	// half-written or zero-byte file. Price rows fan out into
-	// prices/net=<slug>/<id>.parquet, one partition per network_name, so a
+	// prices/net=<slug>/<stem>.parquet, one partition per network_name, so a
 	// network-filtered query prunes to it; the deduped provider-group rosters go
-	// to group_sets/<id>.parquet.
-	name := fmt.Sprintf("%d.parquet", fileID)
-	scratch := scratchDir(fileID)
+	// to group_sets/<stem>.parquet. Every row carries the file's ID.
+	name := f.Stem() + ".parquet"
+	scratch := scratchDir(f)
 
 	var w mrfWriters
 	var closers []io.Closer
@@ -391,7 +391,7 @@ func parseRates(
 		if contentLength > 0 {
 			of = fmt.Sprintf(" of %s (%.1f%%)", humanBytes(contentLength), 100*float64(read)/float64(contentLength))
 		}
-		log.Printf("  ⛔ File %d skipped — %v", fileID, err)
+		log.Printf("  ⛔ %s skipped - %v", f.Name, err)
 		log.Printf("     aborted after reading %s%s", humanBytes(read), of)
 		finish(statusSkipped, err)
 		var pae *probeAbortError
@@ -589,8 +589,8 @@ func pickNamed(path string, t Target, byName map[string][]core.IndexFile, plansO
 			return nil, fmt.Errorf("%s: target %q: %w", path, t.Name, err)
 		}
 		if !linksOneOf(plansOf[f.FileID], planIDs) {
-			return nil, fmt.Errorf("%s: target %q names %s (file %d), but the index doesn't link it to a plan on %s, so it doesn't price the target's plans",
-				path, t.Name, f.Name, f.FileID, strings.Join(t.ExchangeNetworks, ", "))
+			return nil, fmt.Errorf("%s: target %q names %s, but the index doesn't link it to a plan on %s, so it doesn't price the target's plans",
+				path, t.Name, f.Name, strings.Join(t.ExchangeNetworks, ", "))
 		}
 		picked = append(picked, f)
 	}
@@ -675,33 +675,38 @@ func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs 
 // the copy that parse read, which it asks Anthem with a HEAD request. A failed
 // file waits until someone has looked at why and names it (Critical Rule 2).
 func dueForParse(ctx context.Context, f core.IndexFile) (bool, error) {
-	rec, err := readRecord(f.FileID)
+	rec, err := readRecord(f)
 	if err != nil {
 		return false, err
 	}
 	if rec == nil {
 		return true, nil
 	}
+	// A file at a new address is a new file, whatever became of the old one.
+	if rec.Address != f.Address {
+		log.Printf("🔄 %s was last read from %s, and this month's index lists it at %s, so it's downloaded", f.Name, rec.Address, f.Address)
+		return true, nil
+	}
 	if rec.Status == statusFailed {
-		log.Printf("🎯 %s (file %d) failed on %s: %s. It isn't downloaded again until someone looks at why and runs `make parse FILE=%s`",
-			f.Name, f.FileID, rec.FinishedAt.UTC().Format(time.DateTime), rec.Reason, f.Name)
+		log.Printf("🎯 %s failed on %s: %s. It isn't downloaded again until someone looks at why and runs `make parse FILE=%s`",
+			f.Name, rec.FinishedAt.UTC().Format(time.DateTime), rec.Reason, f.Name)
 		return false, nil
 	}
 	anthem, err := lastModified(ctx, f.Location)
 	if err != nil {
-		return false, fmt.Errorf("%s (file %d) was %s, and parse can't tell whether Anthem has updated it since: %w", f.Name, f.FileID, rec.Status, err)
+		return false, fmt.Errorf("%s was %s, and parse can't tell whether Anthem has updated it since: %w", f.Name, rec.Status, err)
 	}
 	if !changedSince(rec.AnthemUpdatedAt, anthem) {
-		log.Printf("🎯 %s (file %d) was %s, and Anthem hasn't updated it since (%s), so it isn't downloaded",
-			f.Name, f.FileID, rec.Status, anthem.UTC().Format(time.DateTime))
+		log.Printf("🎯 %s was %s, and Anthem hasn't updated it since (%s), so it isn't downloaded",
+			f.Name, rec.Status, anthem.UTC().Format(time.DateTime))
 		return false, nil
 	}
 	read := "an earlier copy"
 	if rec.AnthemUpdatedAt != nil {
 		read = "the copy from " + rec.AnthemUpdatedAt.UTC().Format(time.DateTime)
 	}
-	log.Printf("🔄 %s (file %d) was %s, but Anthem updated it on %s and parse read %s, so it's downloaded again",
-		f.Name, f.FileID, rec.Status, anthem.UTC().Format(time.DateTime), read)
+	log.Printf("🔄 %s was %s, but Anthem updated it on %s and parse read %s, so it's downloaded again",
+		f.Name, rec.Status, anthem.UTC().Format(time.DateTime), read)
 	return true, nil
 }
 
@@ -823,7 +828,7 @@ func guardAgainstSilentSkip(opts Options, targets *TargetSet, named []core.Index
 
 	completedEver := 0
 	for _, f := range named {
-		if _, err := os.Stat(filepath.Join(core.CodesOutputDir, fmt.Sprintf("%d.parquet", f.FileID))); err == nil {
+		if _, err := os.Stat(filepath.Join(core.CodesOutputDir, f.Stem()+".parquet")); err == nil {
 			completedEver++
 		}
 	}

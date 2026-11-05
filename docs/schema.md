@@ -16,7 +16,7 @@ neither side needs a server process.
 
 | File | Columns |
 |---|---|
-| `prices/net=<slug>/{id}.parquet` | `file_id`, `group_set_id`, `network_name`, `billing_code_type`, `billing_code`, `negotiation_arrangement`, `negotiated_type`, `negotiated_rate`, `expiration_date`, `service_code`, `billing_class`, `modifier`, `setting` |
+| `prices/net=<slug>/{name}.parquet` | `file_id`, `group_set_id`, `network_name`, `billing_code_type`, `billing_code`, `negotiation_arrangement`, `negotiated_type`, `negotiated_rate`, `expiration_date`, `service_code`, `billing_class`, `modifier`, `setting` |
 
 One row per **(network × negotiated price)** — NOT fanned out per provider group.
 Hive-partitioned by `network_name` (slug = `slugifyNetwork` in `etl/extraction/partition.go`); a network-filtered query adds `net = ?` and DuckDB
@@ -30,7 +30,7 @@ expand a price to its provider groups.
 
 | File | Columns |
 |---|---|
-| `group_sets/{id}.parquet` | `file_id`, `group_set_id`, `provider_group_id` |
+| `group_sets/{name}.parquet` | `file_id`, `group_set_id`, `provider_group_id` |
 
 Deduplicated provider-group rosters. `group_set_id` = FNV-64a of a block's sorted
 `provider_reference` ids (`hashGroupSet` in `etl/extraction/stream.go`); written once per distinct
@@ -39,14 +39,14 @@ roster per file. `prices ⨝ group_sets` reproduces every original
 
 | File | Columns |
 |---|---|
-| `providers/{id}.parquet` | `file_id`, `provider_group_id`, `network_name`, `npi`, `tin_type`, `tin_value` |
-| `codes/{id}.parquet` | `billing_code_type`, `billing_code`, `name`, `description` |
+| `providers/{name}.parquet` | `file_id`, `provider_group_id`, `network_name`, `npi`, `tin_type`, `tin_value` |
+| `codes/{name}.parquet` | `billing_code_type`, `billing_code`, `name`, `description` |
 | `npi_lookup.parquet` | `npi`, `tin_value` |
 | `index_files.parquet` | `file_id`, `name`, `address`, `location` |
 | `index_file_plans.parquet` | `file_id`, `plan_id` |
-| `parses/{id}.parquet` | `file_id`, `name`, `address`, `status`, `reason`, `anthem_updated_at`, `finished_at`, `compressed_bytes`, `price_rows`, `provider_rows`, `price_rows_dropped`, `provider_rows_dropped` |
+| `parses/{name}.parquet` | `file_id`, `name`, `address`, `status`, `reason`, `anthem_updated_at`, `finished_at`, `compressed_bytes`, `price_rows`, `provider_rows`, `price_rows_dropped`, `provider_rows_dropped` |
 
-`{id}` is a file's ID, a hash of its address ([etl/discover.md](../etl/discover.md#a-files-id)).
+`{name}` is the file's name in Anthem's index without `.json.gz` (`GA_JBNKMED0001`), and `file_id` is its ID, a hash of its address ([etl/discover.md](../etl/discover.md#a-files-id)).
 
 `tin_value` is the billing entity's tax id — in Anthem's files it's an **NPI**
 (`tin_type` is always `'npi'`), usually an organization's and sometimes a doctor's
@@ -57,7 +57,7 @@ The find-care build calls it the biller ([build/build.md](../build/build.md#the-
 
 `index_files.parquet` is every file this month's index lists, and `index_file_plans.parquet` the Georgia individual-market plans it lists against each, one row per `(file_id, plan_id)`; `make discover` writes both ([etl/discover.md](../etl/discover.md)).
 Parse picks the files `etl/targets.yaml` names from them, and the build reads the link to tell which parsed file prices a network.
-`parses/{id}.parquet` is one row saying what the last parse of a file made of it, which decides whether parse downloads it again ([etl/parse.md](../etl/parse.md#when-parse-downloads-a-file)).
+`parses/{name}.parquet` is one row saying what the last parse of a file made of it, which decides whether parse downloads it again ([etl/parse.md](../etl/parse.md#when-parse-downloads-a-file)).
 
 ### Why price grain + `group_sets`
 

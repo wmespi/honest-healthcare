@@ -64,12 +64,13 @@ worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override
 
 ## ── Pipeline: discover → parse → reference → build ───────────────────────────
 
-discover: ## Phase 1 - write this month's file list and plan links (index_files + index_file_plans Parquet) from Anthem's index. TEST=1 · SCHEMA=1 (index_schema.json only)
+discover: ## Phase 1 - write this month's file list and plan links (index_files + index_file_plans Parquet) from Anthem's index. TEST=1 · SCHEMA=1 (index_schema.json only) · KEEP_INDEX=1 (keep the multi-GB index download)
 	docker compose exec etl go run . discover \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
 	  $(if $(filter 1,$(NO_CACHE)),-no-cache,) \
+	  $(if $(filter 1,$(KEEP_INDEX)),-keep-index,) \
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
 parse: ## Phase 2 - stream the files etl/targets.yaml names into Parquet, when they're new or Anthem updated them. FILE=<name>[,<name>] · TARGETS=<path> · TEST=1 · LIMIT=n

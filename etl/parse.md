@@ -2,7 +2,7 @@
 
 *Read this when working on the per-file stream transform - which files are downloaded, the parser, the Parquet writers, network attribution, the GA NPI filter, or the provider probe.*
 
-Streams each gzipped MRF that [`targets.yaml`](targets.yaml) names once, and writes Parquet keyed by its file ID.
+Streams each gzipped MRF that [`targets.yaml`](targets.yaml) names once, and writes Parquet named after the file (`GA_JBNKMED0001.parquet`), whose rows carry its file ID ([discover.md](discover.md#a-files-id)).
 `make parse` → `etl parse` (package `etl/extraction`: selection `extraction.go`, parse record `record.go`, parser `stream.go`, probe `probe.go`, writers `partition.go`).
 Needs this month's file list from `make discover`, and the NPPES and exchange-plans references (`make reference`).
 
@@ -34,15 +34,15 @@ Files are parsed in the order the targets name them.
 
 ## When parse downloads a file
 
-Each file parse tries gets a parse record, `data/anthem/parses/<file_id>.parquet`: one row with its name and address, `status` (`parsed`, `skipped` or `failed`), `reason`, `anthem_updated_at` (the `Last-Modified` of the copy it read), `finished_at`, the download size, and the rows written and dropped.
+Each file parse tries gets a parse record, `data/anthem/parses/<name>.parquet`: one row with its name and address, `status` (`parsed`, `skipped` or `failed`), `reason`, `anthem_updated_at` (the `Last-Modified` of the copy it read), `finished_at`, the download size, and the rows written and dropped.
 For each named file, parse reads the record and:
 
-- downloads the file when there's no record;
+- downloads the file when there's no record, or the record is for another address, because the same name at a new address is a new file;
 - asks Anthem (a HEAD request) when it's `parsed` or `skipped`, and downloads it again only if `Last-Modified` differs from `anthem_updated_at`, or the record has none;
 - leaves a `failed` file alone, and says why, until someone has looked at it (Critical Rule 2).
 
 Parse stops if Anthem doesn't answer, because it can't tell whether a parsed file is current.
-A re-parse keeps the file's ID, so its Parquet replaces the old.
+A re-parse writes under the same name, so its Parquet replaces the old.
 `skipped` is deliberately not `failed`: nothing went wrong, the file just isn't ours ([below](#the-provider-probe)).
 
 ```bash
@@ -68,7 +68,7 @@ To stream a file the probe skips, run `docker compose exec etl go run . parse -f
 The rest of the body is drained so gzip verifies CRC-32 + ISIZE and the HTTP layer surfaces a short body, and bytes read are reconciled against `Content-Length`.
 A truncated stream, a malformed entry, a document that never closes, or one with neither section (an error page served 200) is `failed`, not `parsed`.
 
-While a parse runs the file is written under `anthem/.inflight/<file_id>/` and promoted by atomic rename only on a clean stream, so the build never reads a half-written file.
+While a parse runs the file is written under `anthem/.inflight/<name>/` and promoted by atomic rename only on a clean stream, so the build never reads a half-written file.
 A failed parse deletes the folder, so one left behind means a parse stopped part way: parse stops on it until someone looks at why and deletes it (Critical Rule 2).
 
 Output layout: [../docs/schema.md](../docs/schema.md). Open attribution gaps: [../docs/known-gaps.md](../docs/known-gaps.md).

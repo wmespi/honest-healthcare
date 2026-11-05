@@ -66,8 +66,16 @@ case "${DOCKER:-}" in
         say "docker image prune (dangling only — DOCKER=all for the rest)"
         docker image prune -f | tail -1
       fi
-      say "docker volume prune (unused only — the running stack's is safe)"
+      say "docker volume prune (unused only - the running stack's is safe)"
       docker volume prune -f | tail -1
+      # Since Docker 23, prune skips named volumes without --all, such as an old
+      # worktree stack's Go caches. --all is kept to this repo's compose projects
+      # (the canonical stack and hh-* worktrees), so another project's are safe.
+      for project in $(docker volume ls --filter dangling=true \
+          --format '{{.Label "com.docker.compose.project"}}' | sort -u | grep -E '^(honest-healthcare|hh-)'); do
+        say "docker volume prune --all ($project)"
+        docker volume prune --all -f --filter "label=com.docker.compose.project=$project" | tail -1
+      done
     else
       say "docker not running — skipped"
     fi ;;
