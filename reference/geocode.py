@@ -1,35 +1,23 @@
 #!/usr/bin/env python3
 """
-Build data/reference/pcp_geocode.parquet — lat/long for every GA PCP- or
-imaging-eligible NPPES provider address, and every billing ID in the parsed rate
-files, via the free US Census Bulk Geocoding API. A result row is a practice, so
-its distance comes from the practice's own address.
+Build data/reference/geocode_addresses.parquet — what the free US Census Bulk
+Geocoding API answers for the NPPES address of every billing ID in the parsed
+rate files, and for each Georgia hospital's address: Census's standardized
+address and its point. The find-care build places each biller and hospital
+with it (build/build.md).
 
   https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html
 
-Why this exists (issue #87, docs/direction.md build sequence step 1):
-"who's closest" needs coordinates on the provider file, and this is the free,
-keyless way to get them — no Google Maps key, no per-call billing (see
-direction.md's "Geography (and the Google Maps question)" section). The batch
-endpoint accepts at most 10,000 addresses per request, so geocoding the whole
-GA NPPES set (hundreds of thousands of rows, most of them not relevant to any
-service line we've built yet) isn't worth doing until a second service line
-needs it too. Scoping to the PCP taxonomy allowlist keeps this small and
-matches how the rest of the PCP pilot (#83/#87) has scoped its data work.
-
-PCP_TAXONOMY_CODES and IMAGING_TAXONOMY_CODES below are this builder's own
-lists of which clinicians' addresses to send.
-
-Addresses are deduped before geocoding (many PCPs share a practice address —
-24,697 GA PCP-eligible NPIs resolve to ~13,500 distinct addresses, verified
-2026-09-04) and the result rejoined onto every NPI at that address, so a
-shared practice doesn't cost Census multiple lookups for one location.
+Why Census: it's free and keyless, with no per-call billing (see direction.md's
+"Geography (and the Google Maps question)" section). The batch endpoint accepts
+at most 10,000 addresses per request, and addresses are deduped before they're
+sent, so a building many billers share costs one lookup.
 
 Every address sent, and what Census answered for it (no match included), is
-kept in data/reference/geocode_addresses.parquet. A run sends only addresses
-that file doesn't hold, so a run with nothing new makes no calls, and the file
-is saved after each batch, so a run that fails part-way resumes. `--fresh`
-sends every address again.
+kept, verbatim: an answer outside Georgia stays as Census gave it, and the build
+counts it as no match. A run sends only addresses the file doesn't hold, so a
+run with nothing new makes no calls, and the file is saved after each batch, so
+a run that fails part-way resumes. `--fresh` sends every address again.
 
 Usage:
   python3 -m reference.geocode [--data-dir data] [--test] [--fresh]
@@ -54,35 +42,6 @@ from ._common import nppes_dir, ref_dir, store_dir, write_parquet_atomic
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
 BENCHMARK = "Public_AR_Current"
 MAX_BATCH = 10_000  # Census's hard per-request cap
-
-# Georgia's real bounding box, generous margin. A sanity check, not a second
-# geocoder: verified 2026-09-04 that on the real 24,697-candidate run, 7 of
-# 21,259 matches (0.03%) landed outside Georgia entirely — Census matching an
-# NPPES address to a same-named town in another state (LaFayette GA vs TN,
-# Riverdale GA vs MD), one of them a genuine source-data error (an NPPES row
-# labeled "DECATUR, GA" carrying an Alabama ZIP). A distance ranking must
-# never show a provider states away as "nearby" because of a bad match.
-GA_LAT_RANGE = (30.3, 35.1)
-GA_LON_RANGE = (-85.7, -80.7)
-
-PCP_TAXONOMY_CODES = [
-    "207Q00000X",  # Family Medicine (general)
-    "207R00000X",  # Internal Medicine (general)
-    "208D00000X",  # General Practice
-    "363LF0000X",  # Nurse Practitioner — Family
-    "363LP2300X",  # Nurse Practitioner — Primary Care
-    "363LA2200X",  # Nurse Practitioner — Adult Health
-    "363L00000X",  # Nurse Practitioner — generic (no specialization on file)
-]
-
-IMAGING_TAXONOMY_CODES = [
-    "2085R0202X", "2085N0700X", "2085B0100X", "2085P0229X", "2085D0003X",
-    "2085N0904X", "2085R0204X", "2085U0001X",  # Radiology
-    "261QM1200X", "261QR0200X", "261QR0206X", "261QR0207X", "261QR0208X",  # Imaging centers
-]
-
-GEOCODE_TAXONOMY_CODES = PCP_TAXONOMY_CODES + IMAGING_TAXONOMY_CODES
-
 
 def _multipart_body(fields: dict, file_field: str, file_name: str, file_bytes: bytes):
     """Hand-rolled multipart/form-data body. The stdlib has no batteries-
@@ -192,14 +151,12 @@ def main() -> None:
     nd = nppes_dir(args.data_dir, args.test)
     rd = ref_dir(args.data_dir, args.test)
     ga_path = f"{nd}/ga_providers.parquet"
-    out_path = f"{rd}/pcp_geocode.parquet"
     seen_path = f"{rd}/geocode_addresses.parquet"
 
     if not os.path.exists(ga_path):
         raise SystemExit(f"{ga_path} not found -- run `make reference STEP=nppes` first")
 
     con = duckdb.connect()
-    placeholders = ", ".join(f"'{c}'" for c in GEOCODE_TAXONOMY_CODES)
 
     # Billing IDs an MRF names. A TIN that isn't an NPI has no NPPES address to find.
     providers = f"{store_dir(args.data_dir, args.test, 'anthem')}/providers/*.parquet"
@@ -209,7 +166,7 @@ def main() -> None:
             FROM read_parquet('{providers}', union_by_name=true)""")
     else:
         con.execute("CREATE TEMP TABLE billing_npis (npi BIGINT)")
-    candidate = f"(taxonomy_code IN ({placeholders}) OR npi IN (SELECT npi FROM billing_npis))"
+    candidate = "npi IN (SELECT npi FROM billing_npis)"
 
     con.execute(f"CREATE TEMP TABLE seen ({SEEN_COLUMNS})")
     if os.path.exists(seen_path) and not args.fresh:
@@ -256,7 +213,7 @@ def main() -> None:
           AND address_line1 IS NOT NULL AND address_line1 <> ''
           AND postal_code IS NOT NULL AND postal_code <> ''
     """).fetchone()
-    print(f"→ {n_npi:,} GA NPIs (PCP, imaging or billing ID) and {n_hosp:,} hospitals -> "
+    print(f"→ {n_npi:,} billing IDs and {n_hosp:,} hospitals -> "
           f"{n_addr:,} distinct addresses, {n_new:,} not sent to Census before")
     if n_addr == 0:
         raise SystemExit("no candidate addresses -- has `make reference STEP=nppes` run?")
@@ -295,43 +252,13 @@ def main() -> None:
             write_parquet_atomic(con, f"SELECT * FROM seen ORDER BY {ADDRESS_KEY}", seen_path)
         print("  nothing new to send to Census")
 
-    con.execute(f"""
-        CREATE TEMP TABLE geocoded AS
-        SELECT c.*, s.latitude, s.longitude
-        FROM candidates c JOIN seen s USING ({ADDRESS_KEY})
-        WHERE s.latitude IS NOT NULL
-    """)
-    if con.execute("SELECT count(*) FROM geocoded").fetchone()[0] == 0:
-        raise SystemExit("Census geocoder matched nothing -- check connectivity / API status")
-
-
-    out_of_ga = con.execute(f"""
-        SELECT count(*) FROM geocoded
-        WHERE latitude NOT BETWEEN {GA_LAT_RANGE[0]} AND {GA_LAT_RANGE[1]}
-           OR longitude NOT BETWEEN {GA_LON_RANGE[0]} AND {GA_LON_RANGE[1]}
+    n_matched = con.execute(f"""
+        SELECT count(*) FROM candidates c JOIN seen s USING ({ADDRESS_KEY}) WHERE s.latitude IS NOT NULL
     """).fetchone()[0]
-    if out_of_ga:
-        print(f"    dropping {out_of_ga:,} address(es) geocoded outside Georgia's "
-              f"bounding box (a wrong-state match, not a real position)")
-
-    select_sql = f"""
-        SELECT g.npi, ge.latitude, ge.longitude
-        FROM read_parquet('{ga_path}') g
-        JOIN geocoded ge
-          ON ge.address_line1 = g.address_line1
-          AND ge.address_line2 = COALESCE(g.address_line2, '')
-          AND ge.city = g.city AND ge.state = g.state AND ge.postal_code = g.postal_code
-        WHERE {candidate}
-          AND ge.latitude BETWEEN {GA_LAT_RANGE[0]} AND {GA_LAT_RANGE[1]}
-          AND ge.longitude BETWEEN {GA_LON_RANGE[0]} AND {GA_LON_RANGE[1]}
-    """
-    write_parquet_atomic(con, select_sql, out_path)
-
-    n_out = con.execute(f"SELECT count(*) FROM read_parquet('{out_path}')").fetchone()[0]
-    n_matched = con.execute("SELECT count(*) FROM geocoded").fetchone()[0]
-    print(f"→ wrote {out_path}")
-    print(f"  {n_out:,}/{n_npi:,} NPIs geocoded ({100 * n_out / n_npi:.1f}%), "
-          f"{n_matched:,}/{n_addr:,} addresses matched ({100 * n_matched / n_addr:.1f}%)")
+    if n_matched == 0:
+        raise SystemExit("Census geocoder matched nothing -- check connectivity / API status")
+    print(f"→ wrote {seen_path}")
+    print(f"  {n_matched:,}/{n_addr:,} addresses matched ({100 * n_matched / n_addr:.1f}%)")
 
 
 if __name__ == "__main__":

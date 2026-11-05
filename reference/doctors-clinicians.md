@@ -1,26 +1,21 @@
-# `make reference STEP=doctors-clinicians` — real practice identity + the CCN↔NPI bridge
+# `make reference STEP=doctors-clinicians` — real practice identity
 
-*Read this when working on **who a provider really practices with** (the group name on
-the provider card / list) or the **hospital-affiliation** data behind the Hospital Care
-Compare quality layer.*
+*Read this when working on **who a provider really practices with**, such as the group
+name a doctor's own billing NPI takes on the find-care screen.*
 
-**Builds** two tables under `data/reference/` from the public CMS **Doctors and
+**Builds** one table under `data/reference/` from the public CMS **Doctors and
 Clinicians** dataset (Care Compare, `data.cms.gov/provider-data`):
 
 | Output | Grain | Columns |
 |---|---|---|
 | `dac_ga.parquet` | one row per NPI | `npi \| last_name \| first_name \| credential \| primary_specialty \| org_pac_id \| org_name \| grad_year \| med_school \| gender` |
-| `dac_hospital_affiliations.parquet` | many rows per NPI | `npi \| ccn \| facility_name` |
 
-Module `reference/doctors_clinicians.py`; `DAC_URL=` / `AFFIL_URL=` override the
-sources (CMS re-stamps the resource hash monthly); module flags `--dac-file`,
-`--affiliations-file`, `--test`.
+Module `reference/doctors_clinicians.py`; `--dac-url` overrides the source (CMS
+re-stamps the resource hash monthly); module flags `--dac-file`, `--test`.
 
 **Why.** Anthem's `provider_references` are network-administration buckets, not
 practices. This supplies an independent identity: `org_pac_id` + `org_name` (CMS's
-group-practice PECOS enrollment — **not** 1:1 with Anthem's billing `tin_value`);
-`ccn`, the Medicare certification number of each affiliated hospital — the
-**CCN↔NPI bridge** that lets CCN-keyed Hospital Care Compare data reach a clinician;
+group-practice PECOS enrollment — **not** 1:1 with Anthem's billing `tin_value`),
 and demographics (`grad_year` → years in practice, `credential`, `gender`,
 `med_school`). Python/DuckDB, not Go: a filter, a projection and one window function
 ([language principle](../AGENTS.md#the-language-principle)).
@@ -34,13 +29,6 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
 
 - **National Downloadable File** (`DAC_NationalDownloadableFile.csv`) — one row per
   clinician × Medicare enrollment × group × practice address.
-- **Facility Affiliation Data** (`Facility_Affiliation.csv`) — one row per
-  clinician × facility; `facility_affiliations_certification_number` is the CCN,
-  `facility_type` the facility kind.
-
-Some older vintages carried wide `hosp_afl_1..5` (CCN) + `hosp_afl_lbn_1..5` (name)
-columns instead; the builder unpivots those when no separate affiliation source is
-given (the test fixture uses this layout).
 
 ## Flattening choices
 
@@ -50,16 +38,11 @@ given (the test fixture uses this layout).
 - **GA scope**: the NPIs in `data/anthem/npi_lookup.parquet` (providers we hold
   Anthem rates for, including GA contractors practising out of state), falling back to
   `State = 'GA'` when it isn't built.
-- **Affiliations** are scoped to `dac_ga.parquet` and deduped on `(npi, ccn)`.
-  `facility_name` is the `facility_type` label (CMS ships no name there) except in the
-  wide layout, where it is the real hospital name; a proper name needs a later
-  `ccn` → Hospital General Information join.
 
 ## How it reaches serving
 
 The find-care build names a doctor's own billing NPI after its CMS group
-([build.md](../build/build.md#the-find-care-tables)). Nothing reads the hospital
-affiliations.
+([build.md](../build/build.md#the-find-care-tables)).
 
 ## Caveats (also in [../docs/known-gaps.md](../docs/known-gaps.md))
 

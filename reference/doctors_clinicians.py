@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Build the CMS **Doctors and Clinicians** (Care Compare / Provider Data Catalog)
-reference tables — a real practice identity + a hospital-affiliation bridge that
-Anthem's coarse `provider_references` buckets can't give us (issue #62).
+reference table — a real practice identity that Anthem's coarse
+`provider_references` buckets can't give us (issue #62). The find-care build
+names a doctor's own billing NPI after its CMS group from it.
 
-Two outputs under ``data/reference/``:
+One output under ``data/reference/``:
 
   dac_ga.parquet                  one row per NPI
     npi | last_name | first_name | credential | primary_specialty
@@ -13,18 +14,6 @@ Two outputs under ``data/reference/``:
       That file is one row per (NPI × group × practice address); we collapse to
       the clinician's *primary* group — the ``org_pac_id`` they appear under most
       often, largest group breaking ties.
-
-  dac_hospital_affiliations.parquet   many rows per NPI  (the CCN↔NPI bridge)
-    npi | ccn | facility_name
-    ← ``ccn`` is CMS's ``facility_affiliations_certification_number`` (a hospital
-      CCN). Read from whichever CMS ships:
-        * the dedicated Facility Affiliation file (``Facility_Affiliation.csv``),
-          where ``facility_name`` is the ``facility_type`` label (no proper name
-          in that file — a human name comes from a later CCN → Hospital General
-          Information join, roadmap step 2); or
-        * the National file's wide ``hosp_afl_1..5`` / ``hosp_afl_lbn_1..5``
-          columns, unpivoted (``hosp_afl_lbn_N`` *is* the facility name).
-      Scoped to the NPIs kept in ``dac_ga.parquet``.
 
 Why Python/DuckDB and not Go: the National file is ~1 GB / ~2.5M rows but the
 work is a filter + projection + a window function to pick one group per NPI —
@@ -35,14 +24,13 @@ finishes in seconds. Not a hand-rolled streaming parse (cf. NPPES). See
 Caveats (also in reference/doctors-clinicians.md):
   - Medicare-enrolled clinicians only — misses pure-commercial / cash-only and
     most pediatric-only practices.
-  - CMS's own directory accuracy is imperfect (stale groups, missing affiliations).
+  - CMS's own directory accuracy is imperfect (stale groups).
   - ``org_pac_id`` is the *group* PAC ID, not a TIN — it does not line up 1:1
     with Anthem's ``tin_value``; it is a second, independent practice key.
 
 Usage:
   python3 -m reference.doctors_clinicians
       [--dac-url URL | --dac-file PATH]
-      [--affiliations-url URL | --affiliations-file PATH]
       [--data-dir data] [--test]
 """
 import argparse
@@ -59,17 +47,12 @@ PDC_METASTORE = (
     "?show-reference-ids=false"
 )
 DAC_TITLE = "National Downloadable File"
-AFFIL_TITLE = "Facility Affiliation Data"
 
-# Fallbacks if the metastore lookup fails. CMS re-stamps the resource hash on
-# every monthly publish — pass --dac-url / --affiliations-url to override.
+# A fallback if the metastore lookup fails. CMS re-stamps the resource hash on
+# every monthly publish — pass --dac-url to override.
 DAC_URL_FALLBACK = (
     "https://data.cms.gov/provider-data/sites/default/files/resources/"
     "69a75aa9d3dc1aed6b881725cf0ddc12_1755561571/DAC_NationalDownloadableFile.csv"
-)
-AFFIL_URL_FALLBACK = (
-    "https://data.cms.gov/provider-data/sites/default/files/resources/"
-    "b1e470bcf3c94e534e0f7255f4b0b8e9_1755561571/Facility_Affiliation.csv"
 )
 
 
@@ -196,72 +179,10 @@ def build_national(con, src: str, out_path: str, geo_filter: str) -> None:
     write_parquet_atomic(con, select_sql, out_path)
 
 
-def build_affiliations(con, src: str, out_path: str, dac_ga_path: str) -> None:
-    """`src` is either the dedicated Facility Affiliation file or the National
-    file carrying wide `hosp_afl_1..5` columns — whichever is present."""
-    src_sql = _read_csv(src)
-    c = _cols(con, src_sql)
-
-    npi = _pick(c, "npi")
-    if not npi:
-        raise SystemExit("affiliation source has no NPI column")
-    ccn = _pick(
-        c,
-        "facility_affiliations_certification_number",
-        "facility affiliations certification number",
-        "ccn",
-    )
-    ga_in = f"""TRY_CAST({_q(npi)} AS BIGINT) IN (
-                    SELECT npi FROM read_parquet('{dac_ga_path}'))"""
-
-    if ccn:
-        # dedicated Facility Affiliation file — one row per (NPI × facility)
-        ftype = _pick(c, "facility_type", "facility type")
-        select_sql = f"""
-            SELECT DISTINCT
-                TRY_CAST({_q(npi)} AS BIGINT)  AS npi,
-                NULLIF(TRIM({_q(ccn)}), '')    AS ccn,
-                NULLIF(TRIM({_q(ftype)}), '')  AS facility_name
-            FROM {src_sql}
-            WHERE TRY_CAST({_q(npi)} AS BIGINT) IS NOT NULL
-              AND NULLIF(TRIM({_q(ccn)}), '') IS NOT NULL
-              AND {ga_in}
-        """
-        write_parquet_atomic(con, select_sql, out_path)
-        return
-
-    # wide National-file columns: hosp_afl_1..N (CCN) + hosp_afl_lbn_1..N (name)
-    legs = []
-    for i in range(1, 6):
-        afl = _pick(c, f"hosp_afl_{i}")
-        if not afl:
-            continue
-        lbn = _pick(c, f"hosp_afl_lbn_{i}")
-        legs.append(f"""
-            SELECT TRY_CAST({_q(npi)} AS BIGINT) AS npi,
-                   NULLIF(TRIM({_q(afl)}), '')   AS ccn,
-                   NULLIF(TRIM({_q(lbn)}), '')   AS facility_name
-            FROM {src_sql}
-        """)
-    if not legs:
-        raise SystemExit(
-            "affiliation source has neither a CCN column nor hosp_afl_* columns"
-        )
-    select_sql = f"""
-        SELECT DISTINCT npi, ccn, facility_name
-        FROM ({' UNION ALL '.join(legs)})
-        WHERE npi IS NOT NULL AND ccn IS NOT NULL
-          AND npi IN (SELECT npi FROM read_parquet('{dac_ga_path}'))
-    """
-    write_parquet_atomic(con, select_sql, out_path)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dac-url", default=None, help="override the National Downloadable File URL")
     ap.add_argument("--dac-file", default=None, help="use a local National file instead of downloading")
-    ap.add_argument("--affiliations-url", default=None, help="override the Facility Affiliation file URL")
-    ap.add_argument("--affiliations-file", default=None, help="use a local affiliation file")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
@@ -269,7 +190,6 @@ def main() -> None:
     data_dir = "data-test" if args.test else args.data_dir
     rd = ref_dir(args.data_dir, args.test)
     ga_out = f"{rd}/dac_ga.parquet"
-    affil_out = f"{rd}/dac_hospital_affiliations.parquet"
     cache_dir = f"{rd}/.cache"
 
     npi_lookup = f"{data_dir}/anthem/npi_lookup.parquet"
@@ -313,48 +233,6 @@ def main() -> None:
     """).fetchall()
     for s, cnt in top:
         print(f"    {cnt:>7,}  {s}")
-
-    # ── hospital affiliations → dac_hospital_affiliations.parquet ──────────
-    # Prefer an explicit Facility Affiliation source; otherwise fall back to the
-    # National file itself (its wide hosp_afl_* columns, if it carries them).
-    if args.affiliations_file or args.affiliations_url:
-        affil_url = _resolve(args.affiliations_url, args.affiliations_file, AFFIL_TITLE,
-                             "Facility_Affiliation.csv", AFFIL_URL_FALLBACK)
-        print("→ CMS Doctors & Clinicians — Facility Affiliation file")
-        affil_src = fetch_to_cache_streaming(
-            f"{cache_dir}/dac_affiliations.csv",
-            [affil_url] if affil_url else [], args.affiliations_file
-        )
-    elif args.dac_file:
-        # fully offline run — don't reach for a separate download
-        print("→ affiliations: offline (--dac-file) — reading the National "
-              "file's hosp_afl_* columns")
-        affil_src = dac_src
-    else:
-        affil_url = _resolve_pdc_url(AFFIL_TITLE, "Facility_Affiliation.csv")
-        if affil_url:
-            print("→ CMS Doctors & Clinicians — Facility Affiliation file")
-            affil_src = fetch_to_cache_streaming(
-                f"{cache_dir}/dac_affiliations.csv", [affil_url], None
-            )
-        else:
-            print("→ affiliations: none published separately — reading the "
-                  "National file's hosp_afl_* columns")
-            affil_src = dac_src
-    build_affiliations(con, affil_src, affil_out, ga_out)
-
-    rows, npis, ccns = con.execute(f"""
-        SELECT count(*), count(DISTINCT npi), count(DISTINCT ccn)
-        FROM read_parquet('{affil_out}')
-    """).fetchone()
-    print(f"→ wrote {affil_out}")
-    print(f"  {rows:,} affiliations · {npis:,} clinicians · {ccns:,} distinct CCNs")
-    kinds = con.execute(f"""
-        SELECT COALESCE(facility_name, '(none)') k, count(*) n
-        FROM read_parquet('{affil_out}') GROUP BY k ORDER BY n DESC LIMIT 10
-    """).fetchall()
-    for k, cnt in kinds:
-        print(f"    {cnt:>7,}  {k}")
 
 
 if __name__ == "__main__":

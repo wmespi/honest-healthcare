@@ -1,5 +1,5 @@
 """Build-only: the place each biller in biller_rates is, if it has one."""
-from build.inputs.datasets import DOCTORS_CLINICIANS, GEOCODES, NPPES
+from build.inputs.datasets import DOCTORS_CLINICIANS, NPPES, georgia_matches
 from build.table import Table
 
 # USPS's standard abbreviations (Publication 28) for the street words addresses
@@ -41,8 +41,8 @@ class BillerPlaces(Table):
     """A place's name and address come from the biller's own NPPES record, never
     its roster. Two addresses are one building when Census standardized them to
     the same address, or when their streets and ZIPs match once spelled the same
-    way; an address Census didn't match takes the Census address and point of
-    another on its street. A point is only ever Census's, so a place in a
+    way; an address Census didn't match in Georgia takes the Census address and
+    point of another on its street. A point is only ever Census's, so a place in a
     building Census matched no address in has none.
 
     A biller in a Georgia hospital's building is that hospital, keyed on its CCN.
@@ -78,7 +78,7 @@ class BillerPlaces(Table):
                 FROM (SELECT DISTINCT biller FROM biller_rates) b
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
-                LEFT JOIN {GEOCODES.read(data_dir)} g
+                LEFT JOIN {georgia_matches(data_dir)} g
                   ON g.address_line1 = n.address_line1 AND coalesce(g.address_line2, '') = coalesce(n.address_line2, '')
                  AND g.city = n.city AND g.state = n.state AND g.postal_code = n.postal_code
             ),

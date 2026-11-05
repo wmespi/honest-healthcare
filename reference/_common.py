@@ -1,4 +1,4 @@
-"""Shared helpers for the reference-data builders (RBCS, NUCC, CMS utilization).
+"""Shared helpers for the reference-data builders.
 
 Small on purpose — a cached download and an atomic Parquet write. The real work
 (joins, reshaping) is DuckDB SQL in each builder. Per the AGENTS.md language

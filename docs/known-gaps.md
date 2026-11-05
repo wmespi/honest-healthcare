@@ -48,9 +48,8 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 - **CMS utilization is the evidence, with limits.** Anthem's
   `provider_references` are network-administration buckets, not practices, so a
-  rollup group "has" every code. Evidence: who billed a code (Tier 1,
-  [cms-utilization](../reference/cms-utilization.md)), specialty profiles (Tier 2,
-  [specialty-profiles](../reference/specialty-profiles.md)), and real practice
+  rollup group "has" every code. Evidence: who billed a code
+  ([cms-utilization](../reference/cms-utilization.md)), and real practice
   identity ([doctors-clinicians](../reference/doctors-clinicians.md)). Limits:
   Part B only (no pediatric / pure-commercial / cash); rows with ≤10 beneficiaries
   are excluded, so `billed: False` is weak; ~2-year lag; single year, so "stopped

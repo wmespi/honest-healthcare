@@ -58,9 +58,10 @@ in-network status of their providers and drugs.
 ### Shared substrate
 
 Both sit on the same foundation, which is most of the work — build it once:
-procedure taxonomy (have — RBCS), provider identity + geocode (have identity,
-need geocode), negotiated rates per `(payer, network, code, provider)` (have for
-one payer), plan cost-sharing structure (missing), quality signal (missing).
+a service list (`build/services.yaml`, hand-written for now), provider identity and
+geocode (have), negotiated rates per `(payer, network, code, provider)` (have for one
+payer), plan cost-sharing structure (have for Georgia's exchange plans), quality signal
+(Medicare's clinician score and hospital stars; patient experience missing).
 
 Target: separate routes (`/find-care`, `/pick-a-plan`) over a shared component
 and query layer. Ship A first.
@@ -141,8 +142,8 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 
 | Source | Adds | Cost | Effort |
 |---|---|---|---|
-| **CMS Hospital Care Compare** (Provider Data Catalog) | star rating, mortality, readmission, safety, HCAHPS patient experience, complication & infection rates | free | low — keyed by `CCN`; the CCN↔NPI bridge is `dac_hospital_affiliations.parquet` |
-| **CMS Doctors & Clinicians** (Care Compare) | group linkage + facility affiliations (`make reference STEP=doctors-clinicians` → `dac_ga` + `dac_hospital_affiliations`); open: MIPS scores, procedure-of-interest volume | free | low — keyed by `NPI`, joins directly |
+| **CMS Hospital Care Compare** (Provider Data Catalog) | star rating, mortality, readmission, safety, HCAHPS patient experience, complication & infection rates | free | low — keyed by `CCN`, which `places` already carries for a hospital |
+| **CMS Doctors & Clinicians** (Care Compare) | group linkage (`make reference STEP=doctors-clinicians` → `dac_ga`); facility affiliations are published too, and nothing reads them yet | free | low — keyed by `NPI`, joins directly |
 | **CMS Medicare Inpatient Hospitals — by Provider & Service** (MS-DRG) | per-hospital discharge volume + payment + charge — the inpatient / surgical side Part B misses | free | low — same builder shape |
 | **CMS Medicare Physician & Other Practitioners — by Provider** (aggregate) | per-NPI beneficiary / service counts, patient & condition mix | free | low |
 | **CMS Provider of Services (POS)** + Hospital Enrollments (PECOS) | facility attributes (beds, ownership, services) and the CCN↔NPI / address bridge | free, quarterly | low |
