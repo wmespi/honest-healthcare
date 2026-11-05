@@ -14,7 +14,9 @@ class Prices(Table):
     there, since the file doesn't say which of several applies:
 
     - a hospital's row is its own fee, which Anthem's professional file doesn't
-      price, so it's empty, and the reading by the groups in its building;
+      price, so it's empty, and the reading by the groups in its building. Their
+      rates put the hospital on the list, and nothing on file confirms the
+      hospital itself is in network, so the screen says so (decided on #135);
     - a place that does the scan shows its all-in rate, which covers the
       reading, or the scan and the reading when it lists no all-in rate;
     - a reading group elsewhere shows the scan, empty because someone else does

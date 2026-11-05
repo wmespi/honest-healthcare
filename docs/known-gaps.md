@@ -109,8 +109,12 @@ Where the product is headed: [direction.md](direction.md) and epic
   secondary practice locations, which the extract doesn't read), and in-network imaging
   centers just across the state line. A new NPI missing from the monthly NPPES snapshot drops
   out the same way. A reading group's fee can still be part of what a Georgia facility's scan
-  costs, which the `places` and `prices` tables on
-  [#135](https://github.com/wmespi/honest-healthcare/issues/135) have to settle.
+  costs, and the find-care `prices` table leaves it out too.
+- **A hospital on the find-care list may not be in network itself.** `prices` lists a hospital
+  when the groups reading scans in its building have rates, but Anthem's professional file
+  prices those doctors, not the hospital, and the build doesn't check the hospital's own NPIs.
+  The screen says the hospital's own network status isn't confirmed
+  ([decided on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6646717812)).
 - **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
   group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
   The row takes the name of the group the doctor bills Medicare with (CMS Doctors &
