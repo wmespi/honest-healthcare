@@ -19,7 +19,8 @@ describe('routing', () => {
     expect(window.location.pathname).toBe('/find-care/imaging');
   });
 
-  it.each(['/', '/find-care', '/find-care/pcp', '/explore', '/nope'])('sends %s to the imaging finder', async (path) => {
+  // /find-care is the find-care screen (findCare/FindCare.test.jsx).
+  it.each(['/', '/find-care/pcp', '/explore', '/nope'])('sends %s to the imaging finder', async (path) => {
     window.history.replaceState(null, '', path);
     render(<App />);
     expect(await screen.findByLabelText('Which scan?')).toBeInTheDocument();

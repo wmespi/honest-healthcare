@@ -7,7 +7,7 @@ import FindCareMock from './FindCareMock';
 import { LOCATIONS } from './sampleData';
 
 // MapLibre needs WebGL, which jsdom doesn't have.
-vi.mock('./PriceMap', () => ({ PriceMap: () => null }));
+vi.mock('../findCare/PriceMap', () => ({ PriceMap: () => null }));
 
 const MRI = '?service=mri-lower-back&loc=30306&plan=blue-value';
 

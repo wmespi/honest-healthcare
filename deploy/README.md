@@ -23,6 +23,11 @@ docker run --rm hh-etl parse -all-npis          # batch job
 docker run -p 8000:8000 -v "$PWD/data:/app/data" hh-serving
 ```
 
+The frontend container keeps `node_modules` in a volume filled when its image was built,
+so a dependency added to `frontend/package.json` isn't there until the image and the volume
+are rebuilt: `docker compose up -d --build --renew-anon-volumes frontend`. Until then Vite
+says it can't resolve the new package.
+
 A deployable `compose.prod.yml` (no bind mounts, resource limits) is
 [#17](https://github.com/wmespi/honest-healthcare/issues/17); `.:/app` mount scoping
 is [#21](https://github.com/wmespi/honest-healthcare/issues/21).

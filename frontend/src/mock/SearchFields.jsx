@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { MapPin, Search, ShieldCheck } from 'lucide-react';
 import { PLANS, SERVICES } from './sampleData';
 import { resolveLocation, suggestLocations, suggestPlans, suggestServices } from './search';
-import { SuggestInput } from './SuggestInput';
+import { SuggestInput } from '../findCare/SuggestInput';
 
 const LOCATION_ERROR = 'We couldn’t place that. This sample covers metro Atlanta, so try a ZIP like 30306.';
 

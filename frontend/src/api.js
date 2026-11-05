@@ -34,4 +34,12 @@ export const getImagingProviders = (billing_code, network_name, near) =>
 // The curated service lines: { [name]: { taxonomy_codes, billing_codes, menu } }.
 export const getServiceLines = () => api.get('/service_lines');
 
+// The find-care screen's routes, in serving/contract.py's shape: every plan, every
+// service, and one service on one plan near one ZIP code.
+export const getFindCarePlans = () => api.get('/plans');
+export const getServices = () => api.get('/services');
+export const getFindCare = ({ serviceId, planId, zip, radiusMi, sort }) => api.get('/find-care', {
+  params: { service_id: serviceId, plan_id: planId, zip, ...(radiusMi ? { radius_mi: radiusMi } : {}), sort },
+});
+
 export default api;

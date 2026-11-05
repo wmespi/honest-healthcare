@@ -12,6 +12,8 @@ const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 const METRO_ATLANTA = { center: [-84.39, 33.82], zoom: 9.3 };
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const MILES_PER_DEGREE_LAT = 69;
+// How far apart pins at one point stack, a pin's height and a gap.
+const PIN_STEP_PX = 28;
 
 function radiusRing({ lat, lon }, miles) {
   const dLat = miles / MILES_PER_DEGREE_LAT;
@@ -100,12 +102,17 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
   }, [map, origin, radiusMi]);
 
   // One price pin per place. Cheaper pins sit on top where they overlap, and a place with no
-  // full price sits under them all with no amount to read as one.
+  // full price sits under them all with no amount to read as one. Places in one building
+  // stack their pins upward, so each stays readable.
   useEffect(() => {
     if (!map) return undefined;
     const pins = pinsRef.current;
     const byPrice = [...results].sort((a, b) => (b.maxRate ?? Infinity) - (a.maxRate ?? Infinity));
+    const inBuilding = new Map();
     byPrice.forEach((location, index) => {
+      const point = `${location.lat},${location.lon}`;
+      const level = inBuilding.get(point) ?? 0;
+      inBuilding.set(point, level + 1);
       const root = document.createElement('div');
       const pin = document.createElement('button');
       pin.type = 'button';
@@ -119,7 +126,8 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
         handlersRef.current.onSelect(location.id);
       });
       root.appendChild(pin);
-      const marker = new maplibregl.Marker({ element: root }).setLngLat([location.lon, location.lat]).addTo(map);
+      const marker = new maplibregl.Marker({ element: root, offset: [0, -PIN_STEP_PX * level] })
+        .setLngLat([location.lon, location.lat]).addTo(map);
       pins.set(location.id, { marker, root, pin, cheapest: location.isCheapest, incomplete, baseZ: index + 1 });
     });
     return () => {

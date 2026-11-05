@@ -31,14 +31,16 @@ providers/facilities, blending **price on their plan**, **quality / volume**, an
 
 - **Exploring:** "find the cheapest care near me" as the lead experience: a service
   and an address or ZIP give a table of providers and rates, supplemented by a map.
-  The frontend-only mock at `/mock/find-care` is where this gets decided
-  ([plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460)).
+  The frontend-only mock at `/mock/find-care` decided the journey
+  ([plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460)),
+  and the real screen at `/find-care` serves it from the find-care tables.
 - Anchored on one network (theirs).
 - Needs: geocoding, CMS quality (hospital + clinician), inpatient volume.
 - **Closest to shippable** — rates exist; the rest is cheap public data.
 - Ends in a "Request this appointment" action (see *information tool → navigator*).
 - **Shipped:** the imaging finder at `/find-care/imaging`, gated on plan selection
-  (persisted to `localStorage`).
+  (persisted to `localStorage`), and the find-care screen at `/find-care`, which replaces
+  it in step 11 of #135.
 - **Next:** the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135).
 
 ### Flow B — Pick a plan  *(open enrollment, once a year)*
