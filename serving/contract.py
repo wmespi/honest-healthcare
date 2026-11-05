@@ -62,8 +62,8 @@ class Part(BaseModel):
 
 
 class Provider(BaseModel):
-    """A clinician Medicare shows billing a service priced at a place on the
-    plan, so someone with a referral can find the place by their name."""
+    """A clinician Medicare shows billing the service at a place on the plan,
+    so someone with a referral can find the place by their name."""
     npi: int
     name: str
     specialty: str
@@ -95,7 +95,9 @@ class Place(BaseModel):
         description="The plan lists more than one rate for a bill here without saying which applies, "
                     "so someone should ask which they'd get.")
     billers: list[str] = Field(min_length=1, description="Who bills for the service here.")
-    providers: list[Provider]
+    providers: list[Provider] = Field(
+        description="Who Medicare shows billing the service here, never the whole roster. "
+                    "Empty when Medicare shows no one, as at an imaging center it has no record of.")
 
     @model_validator(mode="after")
     def _stars_are_for_hospitals(self):
