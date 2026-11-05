@@ -588,13 +588,23 @@ func pickNamed(path string, t Target, byName map[string][]core.IndexFile, plansO
 		if err != nil {
 			return nil, fmt.Errorf("%s: target %q: %w", path, t.Name, err)
 		}
-		if !slices.ContainsFunc(plansOf[f.FileID], func(id string) bool { _, ok := slices.BinarySearch(planIDs, id); return ok }) {
+		if !linksOneOf(plansOf[f.FileID], planIDs) {
 			return nil, fmt.Errorf("%s: target %q names %s (file %d), but the index doesn't link it to a plan on %s, so it doesn't price the target's plans",
 				path, t.Name, f.Name, f.FileID, strings.Join(t.ExchangeNetworks, ", "))
 		}
 		picked = append(picked, f)
 	}
 	return picked, nil
+}
+
+// linksOneOf says whether any of a file's plans is in planIDs, which is sorted.
+func linksOneOf(plans, planIDs []string) bool {
+	for _, id := range plans {
+		if _, ok := slices.BinarySearch(planIDs, id); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // selectFiles is the files this run reads: the fixture, the -files, or the files
@@ -666,8 +676,11 @@ func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs 
 // file waits until someone has looked at why and names it (Critical Rule 2).
 func dueForParse(ctx context.Context, f core.IndexFile) (bool, error) {
 	rec, err := readRecord(f.FileID)
-	if err != nil || rec == nil {
-		return rec == nil && err == nil, err
+	if err != nil {
+		return false, err
+	}
+	if rec == nil {
+		return true, nil
 	}
 	if rec.Status == statusFailed {
 		log.Printf("🎯 %s (file %d) failed on %s: %s. It isn't downloaded again until someone looks at why and runs `make parse FILE=%s`",
