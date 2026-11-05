@@ -85,7 +85,8 @@ func cmdDiscover(args []string) {
 	schemaOnly := fs.Bool("index-schema", false, "stream the index, write data/anthem/index_schema.json and nothing else")
 	limit := fs.Int("limit", 0, "cap reporting structures, with -test or -index-schema only (default 100 in test mode)")
 	indexURL := fs.String("index-url", "", "override the monthly master-index URL")
-	noCache := fs.Bool("no-cache", false, "force re-download of the master index")
+	noCache := fs.Bool("no-cache", false, "download the master index again even if a copy of this month's is kept")
+	keepIndex := fs.Bool("keep-index", false, "keep the downloaded master index after the run, so the next run of the month reads it from disk")
 	_ = fs.Parse(args)
 
 	if *test {
@@ -101,7 +102,7 @@ func cmdDiscover(args []string) {
 		log.Fatalf("❌ -limit reads part of the index, so it runs only with -test or -index-schema")
 	}
 	resolveIndexURL(*indexURL)
-	discovery.Run(*limit, *noCache, *schemaOnly)
+	discovery.Run(discovery.Options{Limit: *limit, KeepIndex: *keepIndex, NoCache: *noCache, SchemaOnly: *schemaOnly})
 }
 
 // ── parse ───────────────────────────────────────────────────────────────────

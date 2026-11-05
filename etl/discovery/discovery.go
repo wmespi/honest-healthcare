@@ -19,13 +19,29 @@ import (
 	"github.com/wmespi/honest-healthcare/etl/core"
 )
 
-// ensureIndexCached downloads the master index to disk if not already cached,
-// then returns the local path. Subsequent calls with the same monthly URL are
-// instant — no network involved.
+// Options configure a discover run (the flags behind `etl discover`).
+type Options struct {
+	// Limit reads only the first Limit reporting structures, so main allows it
+	// only in test mode or with SchemaOnly.
+	Limit int
+	// KeepIndex keeps the downloaded master index after the run, so the next run
+	// of the same month reads it from disk; NoCache downloads it again anyway.
+	KeepIndex, NoCache bool
+	SchemaOnly         bool // stream the index, write index_schema.json and nothing else
+}
+
+// indexCachePaths are where the downloaded master index and its URL are kept.
+func indexCachePaths() (cachePath, cacheURLPath string) {
+	cacheDir := filepath.Dir(core.ExampleOutputPath)
+	return filepath.Join(cacheDir, "index_cache.json.gz"), filepath.Join(cacheDir, "index_cache_url.txt")
+}
+
+// ensureIndexCached downloads the master index to disk unless a copy of this
+// month's is already there, from a run with KeepIndex or one that stopped part
+// way, then returns the local path.
 func ensureIndexCached(noCache bool) string {
 	cacheDir := filepath.Dir(core.ExampleOutputPath)
-	cachePath := filepath.Join(cacheDir, "index_cache.json.gz")
-	cacheURLPath := filepath.Join(cacheDir, "index_cache_url.txt")
+	cachePath, cacheURLPath := indexCachePaths()
 
 	if !noCache {
 		if data, err := os.ReadFile(cacheURLPath); err == nil && strings.TrimSpace(string(data)) == core.IndexURL {
@@ -47,8 +63,24 @@ func ensureIndexCached(noCache bool) string {
 		log.Fatalf("❌ Failed to finalize cache: %v", err)
 	}
 	os.WriteFile(cacheURLPath, []byte(core.IndexURL), 0644)
-	log.Printf("💾 Cached to %s — future runs will skip the download", filepath.Base(cachePath))
+	log.Printf("💾 Downloaded to %s", filepath.Base(cachePath))
 	return cachePath
+}
+
+// dropIndex deletes the downloaded master index once a run has read it, since
+// it's several GB and only needed during a run.
+func dropIndex() {
+	cachePath, cacheURLPath := indexCachePaths()
+	size := int64(0)
+	if fi, err := os.Stat(cachePath); err == nil {
+		size = fi.Size()
+	}
+	if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
+		log.Printf("⚠️ Couldn't delete the downloaded index %s: %v", cachePath, err)
+		return
+	}
+	os.Remove(cacheURLPath)
+	log.Printf("🧹 Deleted the downloaded index (%.1f GB); KEEP_INDEX=1 keeps it for the next run", float64(size)/1e9)
 }
 
 // downloadParallel fetches url into destPath using n concurrent Range requests.
@@ -170,16 +202,16 @@ func downloadParallel(url, destPath string, workers int) error {
 
 // Run is Phase 1: it reads this month's master index and writes the files it
 // lists (index_files.parquet) and the Georgia individual-market plans each one
-// prices (index_file_plans.parquet). A limited run reads only the first limit
-// reporting structures, so main allows one only in test mode or schemaOnly.
-func Run(limit int, noCache bool, schemaOnly bool) {
+// prices (index_file_plans.parquet).
+func Run(opts Options) {
+	limit, schemaOnly := opts.Limit, opts.SchemaOnly
 	if schemaOnly {
 		log.Println("🚀 Starting Anthem Bronze Layer: Index Schema Capture (Go)...")
 	} else {
 		log.Println("🚀 Starting Anthem Bronze Layer: Index Discovery (Go)...")
 	}
 
-	cachePath := ensureIndexCached(noCache)
+	cachePath := ensureIndexCached(opts.NoCache)
 
 	f, err := os.Open(cachePath)
 	if err != nil {
@@ -318,6 +350,9 @@ func Run(limit int, noCache bool, schemaOnly bool) {
 
 	if schemaOnly {
 		log.Printf("✅ Schema-only mode - wrote %s and nothing else. %d unique files seen.", schemaPath, len(files))
+		if !opts.KeepIndex {
+			dropIndex()
+		}
 		return
 	}
 
@@ -354,6 +389,9 @@ func Run(limit int, noCache bool, schemaOnly bool) {
 	}
 	log.Printf("✅ Wrote %s: %d file(s), and %s: %d (file, plan ID) pair(s).",
 		core.IndexFilesPath, len(list), core.IndexFilePlansPath, len(pairs))
+	if !opts.KeepIndex {
+		dropIndex()
+	}
 }
 
 // fileList is the files in ID order, so the same index always writes the same

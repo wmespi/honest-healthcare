@@ -71,7 +71,11 @@ r = duckdb.connect().execute(\"SELECT $2::VARCHAR FROM read_parquet('/app/data-t
 print(r[0][0] if r and r[0][0] is not None else '')"
 }
 
-echo "→ verify the parse record"
+echo "→ verify the parse record, saved under the file's name"
+docker compose exec -T etl test -f /app/data-test/anthem/parses/synthetic.parquet \
+  || { echo "FAIL: the fixture's record isn't parses/synthetic.parquet"; exit 1; }
+docker compose exec -T etl test -f /app/data-test/anthem/codes/synthetic.parquet \
+  || { echo "FAIL: the fixture's codes aren't codes/synthetic.parquet"; exit 1; }
 [ "$(record synthetic.json.gz status)" = "parsed" ] || { echo "FAIL: the fixture's record says '$(record synthetic.json.gz status)', want parsed"; exit 1; }
 [ "$(record synthetic.json.gz price_rows)" = "$N" ] || { echo "FAIL: the record counts $(record synthetic.json.gz price_rows) price rows, the Parquet $N"; exit 1; }
 
@@ -133,8 +137,7 @@ docker compose exec -T etl go run . parse -test -files GA_NAMED.json.gz
 [ "$(record GA_NAMED.json.gz status)" = "parsed" ] || { echo "FAIL: naming the failed file didn't parse it"; exit 1; }
 
 echo "→ a parse that stopped part way stops parse"
-ID=$(record GA_NAMED.json.gz file_id)
-docker compose exec -T etl mkdir -p "/app/data-test/anthem/.inflight/$ID"
+docker compose exec -T etl mkdir -p /app/data-test/anthem/.inflight/GA_NAMED
 if OUT=$(parse_named 2>&1); then
   echo "FAIL: parse ran over a file whose last parse stopped part way"; exit 1
 fi

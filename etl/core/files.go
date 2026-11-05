@@ -41,9 +41,16 @@ func FileName(address string) string {
 	return path.Base(address)
 }
 
-// FileID is the ID a file's parsed Parquet is keyed by: a 63-bit FNV-1a hash of
-// its address, so a file has the same ID every month without anything keeping
-// count. Changing this orphans every parsed file on disk.
+// Stem is the name a parsed file's Parquet and parse record are saved under:
+// its file name without `.json.gz` (`GA_JBNKMED0001`). Parse only reads a file
+// whose name matches one file in the index, so stems don't collide on disk.
+func (f IndexFile) Stem() string {
+	return strings.TrimSuffix(strings.TrimSuffix(f.Name, ".gz"), ".json")
+}
+
+// FileID is the ID a file's parsed rows carry and the plan link uses: a 63-bit
+// FNV-1a hash of its address, so a file has the same ID every month without
+// anything keeping count. Changing this breaks the link to every parsed file.
 func FileID(address string) int64 {
 	h := fnv.New64a()
 	h.Write([]byte(address))

@@ -57,7 +57,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
 
 ## E2E tests (with teardown)
 
-`tests/e2e/discover.sh` runs discover in test mode on two months of a small index and checks each month's lists ([discover.md](../etl/discover.md#a-files-id)): a file keeps its ID when only its signature changes, a dropped file is gone, the links are that month's and name listed files, and the same index writes the same bytes.
+`tests/e2e/discover.sh` runs discover in test mode on two months of a small index and checks each month's lists ([discover.md](../etl/discover.md#a-files-id)): a file keeps its ID when only its signature changes, a dropped file is gone, the links are that month's and name listed files, the same index writes the same bytes, and the index download is deleted unless `-keep-index` keeps it.
 `tests/e2e/parse.sh` parses `synthetic.json.gz` in test mode and asserts row counts, `network_name` and the parse record.
 It then discovers a small served index and checks that parse downloads only the file a targets file names, never another file the index links to the same plan, and downloads it again only once its `Last-Modified` changes.
 It also checks that a failed file waits until it's named with `-files`, and that a parse that stopped part way stops the next one ([parse.md](../etl/parse.md#when-parse-downloads-a-file)).

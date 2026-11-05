@@ -4,8 +4,9 @@
 # Runs the real `etl discover` in test mode against two small monthly indexes
 # served over HTTP, and checks that each run writes that month's lists: a file
 # keeps its ID when only its signed location changes, a file the index drops is
-# gone, the plan links are this month's only and each names a listed file, and
-# the same index always writes the same bytes.
+# gone, the plan links are this month's only and each names a listed file, the
+# same index always writes the same bytes, and the downloaded index is deleted
+# after a run unless it's kept.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -57,8 +58,13 @@ for name, structures in months.items():
 EOF
 serve_start e2e_discover "$PORT"
 
-discover() {  # discover <index file>
-  docker compose exec -T etl go run . discover -test -index-url "$HOST/$1"
+discover() {  # discover <index file> [more flags]
+  local index=$1
+  shift
+  docker compose exec -T etl go run . discover -test -index-url "$HOST/$index" "$@"
+}
+has_index() {  # whether the downloaded index is still on disk
+  docker compose exec -T etl test -f /app/data-test/anthem/index_cache.json.gz
 }
 query() {  # query <SQL over the views files and links>: its one value
   docker compose exec -T serving python3 -c "
@@ -81,6 +87,7 @@ checksum() {
 
 echo "→ discover October"
 discover 2026-10-01_index.json.gz
+! has_index || { echo "FAIL: discover kept the downloaded index"; exit 1; }
 KEEP=$(id_of GA_KEEP.json.gz)
 SHARD=$(id_of SHARD.json.gz)
 [ "$(id_of GA_GONE.json.gz)" != "none" ] || { echo "FAIL: October doesn't list GA_GONE"; exit 1; }
@@ -102,10 +109,16 @@ WANT="GA_KEEP.json.gz:45334GA0020009 GA_NEW.json.gz:45334GA0020008 SHARD.json.gz
 ORPHANS=$(query "SELECT count(*) FROM links ANTI JOIN files USING (file_id)")
 [ "$ORPHANS" = "0" ] || { echo "FAIL: $ORPHANS link(s) name a file the list doesn't have"; exit 1; }
 
-echo "→ the same index writes the same bytes"
+echo "→ the same index writes the same bytes, and a kept index is read again"
 SUM=$(checksum)
-discover 2026-11-01_index.json.gz
+discover 2026-11-01_index.json.gz -keep-index
+has_index || { echo "FAIL: -keep-index didn't keep the downloaded index"; exit 1; }
 [ "$(checksum)" = "$SUM" ] || { echo "FAIL: a second run over the same index wrote different bytes"; exit 1; }
+serve_stop "$PORT"  # the next run has to read the kept copy
+OUT=$(discover 2026-11-01_index.json.gz 2>&1)
+echo "$OUT" | grep -q "Cache hit" || { echo "FAIL: discover didn't read the kept index:"; echo "$OUT" | tail -3; exit 1; }
+[ "$(checksum)" = "$SUM" ] || { echo "FAIL: the kept index wrote different bytes"; exit 1; }
+! has_index || { echo "FAIL: discover kept the index without -keep-index"; exit 1; }
 
 store_untouched
 

@@ -63,7 +63,7 @@ parallel C++ reader handles, not a hand-rolled streaming parse.
 1. **`exec` not `run --rm`** — always `docker compose exec <service>` so output
    streams to Docker Desktop logs. The `make` targets already do this.
 2. **Look at a stopped or failed parse before retrying it** - a `failed` parse
-   record or a leftover `data/anthem/.inflight/<id>/` means investigate first.
+   record or a leftover `data/anthem/.inflight/<name>/` means investigate first.
    Repeated failures on one file mean a bad file, not a transient error.
 3. **No full-file buffering in extraction** — the Go parser must stream; MRFs can
    exceed 10 GB.

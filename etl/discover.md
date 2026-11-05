@@ -11,14 +11,15 @@ Safe to re-run.
 |---|---|
 | `TEST=1` | `data-test/` instead of `data/` |
 | `SCHEMA=1` | stream the index, write `data/anthem/index_schema.json` and nothing else |
-| `NO_CACHE=1` | force re-download of the master index |
+| `KEEP_INDEX=1` | keep the multi-GB index download after the run, so the next run of the month reads it from disk |
+| `NO_CACHE=1` | download the index again even if a copy of this month's is kept |
 | `INDEX_URL=…` | override the monthly master-index URL |
 | `LIMIT=n` | read only the first n reporting structures, with `TEST=1` or `SCHEMA=1` only (default 100 in test mode) |
 
 ## What it does
 
-1. Downloads the master index to a local gzip cache (`data/anthem/index_cache.json.gz`, multi-GB) via parallel HTTP Range requests; re-runs on the same monthly URL skip the download unless `NO_CACHE=1`.
-   The cache is only needed during a run.
+1. Downloads the master index (`data/anthem/index_cache.json.gz`, multi-GB) via parallel HTTP Range requests, and deletes it once the run is done, unless `KEEP_INDEX=1`.
+   A copy of this month's index, kept or left by a run that stopped part way, is read from disk instead of downloaded again, unless `NO_CACHE=1`.
 2. Streams the JSON and walks every `reporting_structure`.
    Each file it lists becomes one `index_files` row: `file_id`, `name`, `address` and `location` ([below](#a-files-id)).
 3. Keeps the **plan → file link**: every `(file_id, plan_id)` pair once, **scoped to Georgia individual-market plans** (`market_type == "individual"` or `plan_id[5:7] == "GA"`).
@@ -35,7 +36,8 @@ Anthem's plan names and market types aren't kept: the plan ID is what links a fi
 
 A file's `address` is its location without the query a signed URL carries.
 Its `file_id` is a hash of the address (`core.FileID`), so a file has the same ID every month, and only its signed `location` changes.
-Parsed Parquet is keyed by that ID (`prices/net=<slug>/<id>.parquet`), so a re-parse replaces the file's output instead of adding a second copy.
+Every parsed row carries that ID, and the plan link uses it, so the build can tell which plans a parsed file prices.
+Parse saves a file's Parquet under its name instead (`prices/net=<slug>/GA_JBNKMED0001.parquet`), which is readable and unique on disk, because parse only reads a name that matches one file in the index ([parse.md](parse.md#target-selection)).
 Discover stops if two addresses ever hash to one ID.
 
 A file's `name` alone isn't unique: one BlueCard file can be mirrored on many hosts.
