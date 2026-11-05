@@ -1,5 +1,6 @@
 """prices.parquet: what a network's contract pays for a service at a place, by
 the bills a patient there would get."""
+from build.inputs.datasets import NPPES
 from build.table import Table
 
 
@@ -26,17 +27,28 @@ class Prices(Table):
 
     `several_rates` says a part shown has more than one rate on file, so
     someone should ask which they'd get, and `billers` lists the billing NPIs
-    behind the row."""
+    behind the row. `providers` lists the clinicians Medicare shows billing the
+    service for those billers (build/inputs/biller_doctors.py), never the whole
+    roster (#135 step 1), and is empty when Medicare shows none, as at an
+    imaging center it has no record of. An organization's own NPI isn't a
+    clinician, and neither is a doctor with no Georgia NPPES record as a person."""
     name = "prices"
     key = ["network_id", "service_id", "place_id"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "place_id": "VARCHAR",
                "parts": "STRUCT(part VARCHAR, max DOUBLE)[]", "several_rates": "BOOLEAN",
-               "billers": "VARCHAR[]"}
+               "billers": "VARCHAR[]", "providers": "BIGINT[]"}
 
     def select(self, data_dir):
         empty = "NULL::DOUBLE"
         return f"""
-            WITH rows AS (
+            WITH clinicians AS (
+                SELECT d.network_id, d.service_id, b.place_id, list(DISTINCT d.npi ORDER BY d.npi) AS providers
+                FROM biller_doctors d
+                JOIN biller_places b USING (biller)
+                JOIN {NPPES.read(data_dir)} n ON n.npi = d.npi AND n.entity_type = 'individual'
+                GROUP BY d.network_id, d.service_id, b.place_id
+            ),
+            rows AS (
                 SELECT r.network_id, r.service_id, b.place_id, any_value(b.kind) = 'hospital' AS hospital,
                        bool_or(r.does_scan) AS does_scan, list(DISTINCT r.biller ORDER BY r.biller) AS billers,
                        {", ".join(f"max(r.rate) FILTER (WHERE r.part = '{p}') AS {p}, "
@@ -54,8 +66,9 @@ class Prices(Table):
                    CASE WHEN hospital OR NOT does_scan THEN reading_rates > 1
                         WHEN all_in IS NOT NULL THEN all_in_rates > 1
                         ELSE scan_rates > 1 OR reading_rates > 1 END AS several_rates,
-                   billers
+                   billers, coalesce(c.providers, []::BIGINT[]) AS providers
             FROM rows
+            LEFT JOIN clinicians c USING (network_id, service_id, place_id)
             WHERE hospital OR does_scan OR reading IS NOT NULL
         """
 

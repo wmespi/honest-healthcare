@@ -33,7 +33,8 @@ the plan's priced PCPs.
 ## Downstream
 
 `build/build.py` left-joins this file into `provider_dim` (`mips_score`,
-`mips_source`, `mips_year`). No route returns the score today.
+`mips_source`, `mips_year`), and `build/tables/providers.py` reads it for the
+find-care `providers.score`. No route returns the score today.
 
 ## Re-run when
 

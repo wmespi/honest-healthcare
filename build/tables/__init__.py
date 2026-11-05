@@ -11,6 +11,7 @@ import shutil
 
 import duckdb
 
+from build.inputs.biller_doctors import BillerDoctors
 from build.inputs.biller_places import BillerPlaces
 from build.inputs.biller_rates import BillerRates
 from build.inputs.hospitals import Hospitals
@@ -23,6 +24,7 @@ from build.tables.places import Places, UnlocatedPlaces
 from build.tables.prices import Prices
 from build.tables.plans import Plans
 from build.tables.premiums import Premiums
+from build.tables.providers import Providers
 from build.tables.services import Services
 from build.tables.zips import Zips
 
@@ -34,6 +36,7 @@ def inputs(targets_path=TARGETS_PATH, services_path=SERVICES_PATH):
         NetworkFiles(),
         ServiceList(services_path),
         ImagingCenters(),
+        BillerDoctors(),
         BillerRates(),
         Hospitals(),
         BillerPlaces(),
@@ -56,6 +59,7 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVIC
         Places(),
         UnlocatedPlaces(),
         Prices(),
+        Providers(),
     ]
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)

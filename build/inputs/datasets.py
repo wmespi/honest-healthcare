@@ -51,6 +51,8 @@ MEDICARE_BILLING = Dataset("cms/ga_provider_service.parquet", "make reference ST
 NUCC_TAXONOMY = Dataset("reference/nucc_taxonomy.parquet", "make reference STEP=taxonomy-labels")
 # Each clinician's CMS group, by NPI (reference/doctors-clinicians.md).
 DOCTORS_CLINICIANS = Dataset("reference/dac_ga.parquet", "make reference STEP=doctors-clinicians")
+# Each clinician's Medicare quality (MIPS) score, 0 to 100, by NPI (reference/mips.md).
+MIPS = Dataset("reference/mips_ga.parquet", "make reference STEP=mips")
 # Georgia's hospitals: CCN, name, address, phone and star rating (reference/hospitals.md).
 HOSPITALS = Dataset("reference/hospitals_ga.parquet", "make reference STEP=hospitals")
 # Every address sent to Census, with its standardized match and coordinates

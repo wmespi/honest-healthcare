@@ -115,6 +115,10 @@ Where the product is headed: [direction.md](direction.md) and epic
   prices those doctors, not the hospital, and the build doesn't check the hospital's own NPIs.
   The screen says the hospital's own network status isn't confirmed
   ([decided on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6646717812)).
+- **The find-care provider list has only the clinicians Medicare shows billing.** A `prices`
+  row lists a clinician only when Medicare's file shows them billing that service for the
+  row's billers, so one with few or no Medicare patients for it isn't listed, and the CMS
+  utilization limits under Provider ↔ procedure apply.
 - **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
   group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
   The row takes the name of the group the doctor bills Medicare with (CMS Doctors &

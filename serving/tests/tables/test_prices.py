@@ -3,8 +3,19 @@ BV = "GA Blue Value HIX Individual Network"
 
 
 def prices(corpus):
+    """Each place's parts, several_rates and billers."""
     corpus.build()
-    return {row[2]: row[3:] for row in corpus.rows("prices")}
+    return {row[2]: row[3:6] for row in corpus.rows("prices")}
+
+
+def providers(corpus):
+    """Each row's providers, by network, service and place."""
+    corpus.build()
+    return {row[:3]: row[6] for row in corpus.rows("prices")}
+
+
+def person(corpus, npi, last_name):
+    corpus.npi(npi, last_name, "1 DOCTOR WAY", "ATLANTA", "303082233", entity_type="individual")
 
 
 def part(name, rate):
@@ -58,3 +69,34 @@ def test_several_rates_for_a_bill_show_the_highest_and_say_so(corpus):
     rows = prices(corpus)
     assert rows["110079"] == ([part("facility", None), part("reading", 250.0)], True, ["1000000004", "1000000021"])
     assert rows["1000000001"] == ([part("all_in", 540.0)], True, ["1000000001", "1000000022"])
+
+
+def test_a_row_lists_the_clinicians_medicare_shows_billing_the_service_there(corpus):
+    for npi, last_name in [(2000000001, "OKAFOR"), (2000000002, "LINDQVIST"), (2000000003, "HADDAD"),
+                           (2000000004, "PRESCOTT"), (2000000008, "IVERSON")]:
+        person(corpus, npi, last_name)
+    corpus.billed(1000000001, "72148", "O")  # an organization's own NPI isn't a clinician
+    mri = "45334-GAN001", "mri-lower-back"
+    assert providers(corpus) == {
+        (*mri, "1000000001"): [2000000001],
+        (*mri, "1000000002"): [2000000002],
+        (*mri, "1000000005"): [1000000005],  # the doctor bills under their own NPI
+        (*mri, "110079"): [2000000004]}
+    # 2000000003's group isn't on the map, and Medicare shows 2000000008 billing nothing.
+
+
+def test_a_row_lists_only_the_clinicians_who_bill_its_service_on_its_network(corpus):
+    # A second doctor at Midtown bills only mammograms. On Pathway, the doctor
+    # who does Midtown's MRIs on Blue Value reads at Grady instead.
+    person(corpus, 2000000001, "OKAFOR")
+    person(corpus, 2000000031, "NAKAMURA")
+    corpus.roster(21057, 1, 1, "1000000001", 2000000031)
+    corpus.scan_price(21057, BV, 1, "77067", all_in=150)
+    corpus.billed(2000000031, "77067", "O")
+    corpus.roster(701, 4, 4, "1000000004", 2000000001)
+    corpus.scan_price(701, "Pathway PCP Copay Choice", 4, "72148", reading=210)
+    rows = providers(corpus)
+    assert rows[("45334-GAN001", "mri-lower-back", "1000000001")] == [2000000001]
+    assert rows[("45334-GAN001", "mammogram-screening", "1000000001")] == [2000000031]
+    assert rows[("45334-GAN001", "mri-lower-back", "110079")] == []
+    assert rows[("49046-GAN008", "mri-lower-back", "110079")] == [2000000001]
