@@ -2,49 +2,39 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"time"
 )
 
-// Mutable process config. ApplyTestMode rewrites the paths + DB URL for an
-// isolated test run; nothing else should mutate these after startup.
+// Mutable process config. ApplyTestMode rewrites the paths for an isolated test
+// run; nothing else should mutate these after startup.
 var (
-	DatabaseURL     = "postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable"
-	TestDatabaseURL = "postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test"
-	IndexURL        = ""
+	IndexURL = ""
 
 	ExampleOutputPath  = "../data/anthem/mrf_example.json"
 	PricesOutputDir    = "../data/anthem/prices"
 	GroupSetsOutputDir = "../data/anthem/group_sets"
 	ProvidersOutputDir = "../data/anthem/providers"
 	CodesOutputDir     = "../data/anthem/codes"
+	ParsesDir          = "../data/anthem/parses"
 	NPILookupPath      = "../data/anthem/npi_lookup.parquet"
+	IndexFilesPath     = "../data/anthem/index_files.parquet"
 	IndexFilePlansPath = "../data/anthem/index_file_plans.parquet"
 	GAProvidersPath    = "../data/nppes/ga_providers.parquet"
 	NPPESOutputPath    = "../data/nppes/ga_providers.parquet"
 	ExchangePlansPath  = "../data/reference/exchange_plans_ga.parquet"
 )
 
-func init() {
-	if url := os.Getenv("DATABASE_URL"); url != "" {
-		DatabaseURL = url
-	}
-	if url := os.Getenv("TEST_DATABASE_URL"); url != "" {
-		TestDatabaseURL = url
-	}
-}
-
-// ApplyTestMode swaps the DB URL and every output path to their test-isolation
-// equivalents (the `test` schema + ../data-test/). Call before opening any
-// database connection.
+// ApplyTestMode swaps every path to its test-isolation equivalent under
+// ../data-test/, so a test run never touches ../data/.
 func ApplyTestMode() {
-	DatabaseURL = TestDatabaseURL
 	ExampleOutputPath = "../data-test/anthem/mrf_example.json"
 	PricesOutputDir = "../data-test/anthem/prices"
 	GroupSetsOutputDir = "../data-test/anthem/group_sets"
 	ProvidersOutputDir = "../data-test/anthem/providers"
 	CodesOutputDir = "../data-test/anthem/codes"
+	ParsesDir = "../data-test/anthem/parses"
 	NPILookupPath = "../data-test/anthem/npi_lookup.parquet"
+	IndexFilesPath = "../data-test/anthem/index_files.parquet"
 	IndexFilePlansPath = "../data-test/anthem/index_file_plans.parquet"
 	NPPESOutputPath = "../data-test/nppes/ga_providers.parquet"
 	GAProvidersPath = "../data-test/nppes/ga_providers.parquet"

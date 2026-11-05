@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
 # Hermetic discover end-to-end test with full teardown.
 #
-# Runs the real `etl discover` in the isolated `test` schema against two small
-# monthly indexes served over HTTP, and checks that the second month rebuilds the
-# queue: a file keeps its id when only its signed location changes, a file the
-# index drops is removed unless it was parsed, the plan links are this month's
-# only, in the queue and in the build's link file, a limited run changes neither,
-# and a file left 'processing' stops it.
+# Runs the real `etl discover` in test mode against two small monthly indexes
+# served over HTTP, and checks that each run writes that month's lists: a file
+# keeps its ID when only its signed location changes, a file the index drops is
+# gone, the plan links are this month's only and each names a listed file, and
+# the same index always writes the same bytes.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 source tests/e2e/lib.sh
 
 PORT=8766
-PSQL=(docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 -qtA)
 HOST="http://serving:$PORT"
 
 cleanup() {
   echo "→ teardown"
   serve_stop "$PORT"
-  "${PSQL[@]}" -c "TRUNCATE test.index_file_plans, test.index_files RESTART IDENTITY;" >/dev/null 2>&1 || true
   # Delete through the etl container — it wrote these files as root, so a host-side
   # rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
   docker compose exec -T etl rm -rf /app/data-test/anthem /app/data-test/e2e_discover 2>/dev/null \
@@ -27,11 +24,11 @@ cleanup() {
 }
 trap cleanup EXIT
 cleanup
-PUBLIC_IDS=$(public_ids)
+store_mark
 
 echo "→ write two months of index"
 # October lists GA_KEEP unsigned. November signs it, links it to a different
-# plan, drops GA_PARSED and GA_GONE, and adds GA_NEW.
+# plan, drops GA_GONE, and adds GA_NEW.
 docker compose exec -T serving python3 - <<'EOF'
 import gzip, json, os
 os.makedirs("/app/data-test/e2e_discover", exist_ok=True)
@@ -44,7 +41,7 @@ months = {
         {"reporting_plans": [plan("45334GA0020008")],
          "in_network_files": files("http://x/GA_KEEP.json.gz", "http://x/SHARD.json.gz?Expires=10")},
         {"reporting_plans": [plan("45334GA0020008")],
-         "in_network_files": files("http://x/GA_PARSED.json.gz", "http://x/GA_GONE.json.gz")},
+         "in_network_files": files("http://x/GA_GONE.json.gz")},
     ],
     "2026-11-01_index.json.gz": [
         {"reporting_plans": [plan("45334GA0020009")],
@@ -60,67 +57,56 @@ for name, structures in months.items():
 EOF
 serve_start e2e_discover "$PORT"
 
-discover() {  # discover <index file> [more flags]
-  local index=$1
-  shift
-  docker compose exec -T etl go run . discover -test -index-url "$HOST/$index" "$@"
+discover() {  # discover <index file>
+  docker compose exec -T etl go run . discover -test -index-url "$HOST/$1"
 }
-id_of() {  # id_of <file name>
-  "${PSQL[@]}" -c "SELECT COALESCE(max(id)::text, 'none') FROM test.index_files WHERE address = 'http://x/$1';"
-}
-links() {  # every (file, plan) link, as name:plan
-  "${PSQL[@]}" -c "SELECT string_agg(link, ' ' ORDER BY link) FROM (
-                     SELECT regexp_replace(f.address, '^.*/', '') || ':' || p.plan_id AS link
-                     FROM test.index_file_plans p JOIN test.index_files f ON f.id = p.file_id) l;"
-}
-id_links() {  # every (file, plan ID) pair in the queue, as id:plan, in order
-  "${PSQL[@]}" -c "SELECT string_agg(file_id || ':' || plan_id, ' ' ORDER BY file_id, plan_id)
-                   FROM (SELECT DISTINCT file_id, plan_id FROM test.index_file_plans) l;"
-}
-parquet_links() {  # the pairs in the build's link file, as id:plan, in file order
+query() {  # query <SQL over the views files and links>: its one value
   docker compose exec -T serving python3 -c "
 import duckdb
-rows = duckdb.connect().execute(\"SELECT file_id, plan_id FROM '/app/data-test/anthem/index_file_plans.parquet'\").fetchall()
-print(' '.join(f'{f}:{p}' for f, p in rows))"
+con = duckdb.connect()
+con.execute(\"CREATE VIEW files AS FROM '/app/data-test/anthem/index_files.parquet'\")
+con.execute(\"CREATE VIEW links AS FROM '/app/data-test/anthem/index_file_plans.parquet'\")
+v = con.execute(\"\"\"$1\"\"\").fetchone()[0]
+print('' if v is None else v)"
+}
+id_of() {  # id_of <file name>
+  query "SELECT coalesce(max(file_id)::VARCHAR, 'none') FROM files WHERE address = 'http://x/$1'"
+}
+links() {  # every (file, plan) link, as name:plan
+  query "SELECT string_agg(f.name || ':' || l.plan_id, ' ' ORDER BY f.name, l.plan_id) FROM links l JOIN files f USING (file_id)"
+}
+checksum() {
+  docker compose exec -T etl sh -c 'cat /app/data-test/anthem/index_files.parquet /app/data-test/anthem/index_file_plans.parquet | md5sum'
 }
 
 echo "→ discover October"
 discover 2026-10-01_index.json.gz
 KEEP=$(id_of GA_KEEP.json.gz)
 SHARD=$(id_of SHARD.json.gz)
-PARSED=$(id_of GA_PARSED.json.gz)
-"${PSQL[@]}" -c "UPDATE test.index_files SET status = 'completed' WHERE id = $PARSED;"
-[ "$(parquet_links)" = "$(id_links)" ] || { echo "FAIL: the build's link file isn't October's links"; exit 1; }
+[ "$(id_of GA_GONE.json.gz)" != "none" ] || { echo "FAIL: October doesn't list GA_GONE"; exit 1; }
+WANT="GA_GONE.json.gz:45334GA0020008 GA_KEEP.json.gz:45334GA0020008 SHARD.json.gz:45334GA0020008"
+[ "$(links)" = "$WANT" ] || { echo "FAIL: links are $(links), not October's ($WANT)"; exit 1; }
 
 echo "→ discover November"
 discover 2026-11-01_index.json.gz
-[ "$(id_of GA_KEEP.json.gz)" = "$KEEP" ] || { echo "FAIL: GA_KEEP changed id ($KEEP → $(id_of GA_KEEP.json.gz))"; exit 1; }
-[ "$(id_of SHARD.json.gz)" = "$SHARD" ] || { echo "FAIL: SHARD changed id when only its signature did"; exit 1; }
-LOCATION=$("${PSQL[@]}" -c "SELECT location FROM test.index_files WHERE id = $SHARD;")
+[ "$(id_of GA_KEEP.json.gz)" = "$KEEP" ] || { echo "FAIL: GA_KEEP changed ID ($KEEP → $(id_of GA_KEEP.json.gz))"; exit 1; }
+[ "$(id_of SHARD.json.gz)" = "$SHARD" ] || { echo "FAIL: SHARD changed ID when only its signature did"; exit 1; }
+LOCATION=$(query "SELECT location FROM files WHERE file_id = $SHARD")
 [ "$LOCATION" = "http://x/SHARD.json.gz?Expires=11" ] || { echo "FAIL: SHARD kept last month's location ($LOCATION)"; exit 1; }
-[ "$(id_of GA_PARSED.json.gz)" = "$PARSED" ] || { echo "FAIL: discover removed a parsed file"; exit 1; }
-[ "$(id_of GA_GONE.json.gz)" = "none" ] || { echo "FAIL: discover kept a file the index dropped"; exit 1; }
-[ "$(id_of GA_NEW.json.gz)" != "none" ] || { echo "FAIL: discover didn't add GA_NEW"; exit 1; }
+[ "$(id_of GA_GONE.json.gz)" = "none" ] || { echo "FAIL: November still lists GA_GONE"; exit 1; }
+[ "$(id_of GA_NEW.json.gz)" != "none" ] || { echo "FAIL: November doesn't list GA_NEW"; exit 1; }
 LINKS=$(links)
 echo "   links: $LINKS"
 WANT="GA_KEEP.json.gz:45334GA0020009 GA_NEW.json.gz:45334GA0020008 SHARD.json.gz:45334GA0020009"
 [ "$LINKS" = "$WANT" ] || { echo "FAIL: links are not November's ($WANT)"; exit 1; }
-NOVEMBER=$(parquet_links)
-echo "   link file: $NOVEMBER"
-[ "$NOVEMBER" = "$(id_links)" ] || { echo "FAIL: the build's link file isn't November's links ($(id_links))"; exit 1; }
+ORPHANS=$(query "SELECT count(*) FROM links ANTI JOIN files USING (file_id)")
+[ "$ORPHANS" = "0" ] || { echo "FAIL: $ORPHANS link(s) name a file the list doesn't have"; exit 1; }
 
-echo "→ a limited read removes nothing"
-discover 2026-10-01_index.json.gz -limit 1
-[ "$(id_of GA_NEW.json.gz)" != "none" ] || { echo "FAIL: a limited read removed GA_NEW"; exit 1; }
-[ "$(parquet_links)" = "$NOVEMBER" ] || { echo "FAIL: a limited read rewrote the build's link file"; exit 1; }
+echo "→ the same index writes the same bytes"
+SUM=$(checksum)
+discover 2026-11-01_index.json.gz
+[ "$(checksum)" = "$SUM" ] || { echo "FAIL: a second run over the same index wrote different bytes"; exit 1; }
 
-echo "→ a file left processing stops discover"
-"${PSQL[@]}" -c "UPDATE test.index_files SET status = 'processing' WHERE id = $KEEP;"
-if OUT=$(discover 2026-11-01_index.json.gz 2>&1); then
-  echo "FAIL: discover rebuilt the queue under a file being parsed"; exit 1
-fi
-echo "$OUT" | grep -q "'processing'" || { echo "FAIL: discover stopped without saying why:"; echo "$OUT" | tail -3; exit 1; }
-
-[ "$(public_ids)" = "$PUBLIC_IDS" ] || { echo "FAIL: the test run used up public index_files ids"; exit 1; }
+store_untouched
 
 echo "PASS"

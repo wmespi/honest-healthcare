@@ -23,15 +23,9 @@ the target network isn't loaded or the API isn't reachable.
 
 ## Test isolation (`TEST=1` / `-test`)
 
-Swaps two things: the **DB** (`TEST_DATABASE_URL`, `search_path=test`, so queue and
-`coverage_log` writes hit `test.*`) and the **Parquet root** (`data-test/…`). Both are
-safe to truncate at any time; a test run never touches `public.*` or `data/`
-(Critical Rule 4). Discovery in test mode caps at 100 reporting structures, parsing
-at 1 file (`LIMIT=` overrides).
-
-The `test` schema is created from `public` via `LIKE … INCLUDING ALL`, which drifts when `public` changes and never copies foreign keys or sequences.
-`db/migrations/999_test_schema.sql`, which `make migrate` runs last, drops and recreates it with its own foreign keys and id sequences, so a test run never uses up a `public` id.
-Run `make migrate` after any schema change.
+Swaps the **Parquet root**: every path the ETL reads and writes moves from `data/` to `data-test/` (`core.ApplyTestMode`).
+`data-test/` is safe to delete at any time, and a test run never writes `data/` (Critical Rule 4).
+Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIMIT=` overrides).
 
 ## Fixtures (committed)
 
@@ -63,11 +57,12 @@ Run `make migrate` after any schema change.
 
 ## E2E tests (with teardown)
 
-`tests/e2e/discover.sh` runs discover in the `test` schema on two months of a small index and checks the [monthly rebuild](../etl/discover.md#the-monthly-rebuild): ids kept, dropped files removed unless parsed, links replaced in the queue and in the build's link Parquet, neither changed by a limited read, and a stop on a `processing` file.
-`tests/e2e/parse.sh` parses `synthetic.json.gz` in the `test` schema and asserts row counts, `network_name` and a `coverage_log` row.
-It then checks that parse downloads only the file a targets file names, never another file the index links to the same plan, and downloads it again only once its `Last-Modified` changes.
+`tests/e2e/discover.sh` runs discover in test mode on two months of a small index and checks each month's lists ([discover.md](../etl/discover.md#a-files-id)): a file keeps its ID when only its signature changes, a dropped file is gone, the links are that month's and name listed files, and the same index writes the same bytes.
+`tests/e2e/parse.sh` parses `synthetic.json.gz` in test mode and asserts row counts, `network_name` and the parse record.
+It then discovers a small served index and checks that parse downloads only the file a targets file names, never another file the index links to the same plan, and downloads it again only once its `Last-Modified` changes.
+It also checks that a failed file waits until it's named with `-files`, and that a parse that stopped part way stops the next one ([parse.md](../etl/parse.md#when-parse-downloads-a-file)).
 `tests/e2e/nppes.sh` does the same for the NPPES extractor.
-Each truncates `test.*` and removes what it wrote under `data-test/`; `discover.sh` and `parse.sh` also check that `public`'s id sequence didn't move.
+Each removes what it wrote under `data-test/`, and `discover.sh` and `parse.sh` also check that nothing under `data/` changed during the run.
 `tests/e2e/lib.sh` holds their helpers, including the file server that stands in for Anthem: a Python server in the `serving` container, which the `etl` container reaches at `http://serving:<port>/`.
 `parse.sh` needs `data-test/nppes/ga_providers.parquet` absent, because a stale copy makes the GA NPI filter drop every synthetic row.
 Every test tears down after itself, so `rm -rf data-test/*` is only needed after a killed run.
@@ -84,7 +79,7 @@ status check**: it passes only when every job succeeded or was legitimately skip
 | `changes` | docs drift check; diffs the PR → `run` |
 | `go` | gofmt + vet + build + `go test ./...` (native `setup-go`, no stack) |
 | `web` | `npx vitest run` |
-| `integration` | `docker compose up db etl serving` + `make migrate`; every hermetic pytest file, as `make test` runs them, then `tests/live` (skips: no corpus), then `tests/e2e` |
+| `integration` | `docker compose up etl serving`; every hermetic pytest file, as `make test` runs them, then `tests/live` (skips: no corpus), then `tests/e2e` |
 | `images` | builds the three `prod` Dockerfile targets and smokes each |
 | `gate` | no upstream job failed or was cancelled |
 

@@ -26,9 +26,20 @@ serve_stop() {
     "kill \$(cat /tmp/e2e_http_$1.pid) 2>/dev/null; rm -f /tmp/e2e_http_$1.pid" >/dev/null 2>&1 || true
 }
 
-# public_ids prints the last id public.index_files handed out. A test run must
-# never move it (Critical Rule 4).
-public_ids() {
-  docker compose exec -T db psql -U postgres -d honest_healthcare -qtA \
-    -c "SELECT last_value FROM public.index_files_id_seq;"
+# store_mark notes the time a test starts, and store_untouched fails if the run
+# wrote anything under data/ since: a test run writes only data-test/
+# (Critical Rule 4). Both look through the etl container, which mounts the store.
+store_mark() {
+  docker compose exec -T etl sh -c "mkdir -p /app/data-test && touch /app/data-test/.e2e_start"
+}
+
+store_untouched() {
+  local changed
+  changed=$(docker compose exec -T etl sh -c \
+    "[ -d /app/data ] && find /app/data -newer /app/data-test/.e2e_start -type f | head -5" || true)
+  if [ -n "$changed" ]; then
+    echo "FAIL: the test run wrote under data/:"
+    echo "$changed"
+    return 1
+  fi
 }

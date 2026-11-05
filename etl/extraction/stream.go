@@ -14,7 +14,7 @@ import (
 )
 
 // mrfWriters are the side-effecting sinks for a streamed MRF. The production
-// caller wires these to Parquet writers + a Postgres billing-code upsert; tests
+// caller wires these to Parquet writers; tests
 // wire them to in-memory slices. Every field may be nil (dry run / counting only).
 type mrfWriters struct {
 	prices          func([]core.PriceRow)
@@ -39,20 +39,14 @@ func hashGroupSet(sortedIDs []int64) int64 {
 
 // mrfResult is the per-file coverage summary — what this one file contributed.
 type mrfResult struct {
-	ProviderRows        int64
-	PriceRows           int64
-	GroupSetMemberRows  int64
-	GroupSets           int
-	NewBillingCodes     int
-	NewNPIs             int
-	NewTINs             int
-	NetworkNames        map[string]struct{}
-	Settings            map[string]struct{}
-	BillingClasses      map[string]struct{}
-	BillingCodeTypes    map[string]struct{}
-	ReportingEntityName string
-	ReportingEntityType string
-	SchemaExample       map[string]interface{}
+	ProviderRows       int64
+	PriceRows          int64
+	GroupSetMemberRows int64
+	GroupSets          int
+	NewBillingCodes    int
+	NewNPIs            int
+	NetworkNames       map[string]struct{}
+	SchemaExample      map[string]interface{}
 
 	// Completeness signals (issue #52). streamMRF errors on a truncated or
 	// malformed document, so a non-nil result already means the stream closed
@@ -74,8 +68,7 @@ type mrfResult struct {
 
 func newStringSet() map[string]struct{} { return map[string]struct{}{} }
 
-// SortedKeys returns a set's members as a sorted slice (stable output for logs,
-// Parquet, and Postgres array columns).
+// sortedKeys returns a set's members as a sorted slice (stable output for logs).
 func sortedKeys(m map[string]struct{}) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -223,18 +216,15 @@ func buildProviderRows(ref core.ProviderReference, fileID int64) ([]core.Provide
 // before a byte of in_network is read (probe.go).
 func streamMRF(
 	r io.Reader,
-	planName string,
 	fileID int64,
 	wantSchema bool,
 	seenBillingCodes map[string]bool,
 	seenNPIs map[int64]string,
-	seenTINs map[string]bool,
 	gaNPIs map[int64]struct{}, // nil = keep everything; non-nil = drop providers/rates with no GA NPI
 	pb providerProbe, // the pre-in_network gate; the zero value never aborts
 	w mrfWriters,
 	pr *core.ProgressReader,
 ) (*mrfResult, error) {
-	_ = planName // no longer stamped onto rows — see core.PriceRow / Known gaps
 	progress := func() string {
 		if pr == nil {
 			return ""
@@ -244,11 +234,8 @@ func streamMRF(
 
 	decoder := json.NewDecoder(r)
 	res := &mrfResult{
-		NetworkNames:     newStringSet(),
-		Settings:         newStringSet(),
-		BillingClasses:   newStringSet(),
-		BillingCodeTypes: newStringSet(),
-		SchemaExample:    map[string]interface{}{},
+		NetworkNames:  newStringSet(),
+		SchemaExample: map[string]interface{}{},
 	}
 	networkByGroup := make(map[int64]string)
 	// keptGroups holds every provider_group_id that survived the filters — with
@@ -265,7 +252,6 @@ func streamMRF(
 	// merged the moment the probe passes and dropped if it doesn't. Bounded by
 	// the file's own new NPIs, which the run-level set would have held anyway.
 	stagedNPIs := map[int64]string{}
-	stagedTINs := map[string]bool{}
 	// seenSets dedupes provider-group rosters across the whole file so each
 	// distinct roster's membership edges are written to group_sets exactly once.
 	seenSets := make(map[int64]struct{})
@@ -411,10 +397,6 @@ func streamMRF(
 							res.NewNPIs++
 						}
 					}
-					if row.TINValue != "" && seenTINs != nil && !seenTINs[row.TINValue] && !stagedTINs[row.TINValue] {
-						stagedTINs[row.TINValue] = true
-						res.NewTINs++
-					}
 				}
 				providerBuf = append(providerBuf, rows...)
 				if len(providerBuf) >= copyBatchSize {
@@ -445,16 +427,11 @@ func streamMRF(
 					reading.KeptGroups, reading.Refs)
 			}
 
-			// Past the probe — this file is ours, so its NPIs and TINs join the run.
+			// Past the probe - this file is ours, so its NPIs join the run.
 			for npi, tin := range stagedNPIs {
 				seenNPIs[npi] = tin
 			}
-			if seenTINs != nil {
-				for tin := range stagedTINs {
-					seenTINs[tin] = true
-				}
-			}
-			stagedNPIs, stagedTINs = map[int64]string{}, map[string]bool{}
+			stagedNPIs = map[int64]string{}
 
 		case "in_network":
 			log.Println("    🎯 Found 'in_network'. Streaming...")
@@ -478,9 +455,6 @@ func streamMRF(
 				}
 				res.InNetworkItems++
 
-				if item.BillingCodeType != "" {
-					res.BillingCodeTypes[item.BillingCodeType] = struct{}{}
-				}
 				if !seenBillingCodes[item.BillingCode] {
 					seenBillingCodes[item.BillingCode] = true
 					res.NewBillingCodes++
@@ -503,14 +477,6 @@ func streamMRF(
 				}
 				rows := buildPriceRows(item, fileID, networkByGroup, keptFilter,
 					seenSets, emitMembers, &res.PriceRowsDropped)
-				for _, row := range rows {
-					if row.Setting != "" {
-						res.Settings[row.Setting] = struct{}{}
-					}
-					if row.BillingClass != "" {
-						res.BillingClasses[row.BillingClass] = struct{}{}
-					}
-				}
 				priceBuf = append(priceBuf, rows...)
 				if len(priceBuf) >= copyBatchSize {
 					flushPrice()
@@ -530,11 +496,6 @@ func streamMRF(
 		case "reporting_entity_name", "reporting_entity_type":
 			tVal, _ := decoder.Token()
 			s, _ := tVal.(string)
-			if key == "reporting_entity_name" {
-				res.ReportingEntityName = s
-			} else {
-				res.ReportingEntityType = s
-			}
 			if wantSchema {
 				res.SchemaExample[key] = s
 			}
@@ -575,7 +536,7 @@ func streamMRF(
 
 	// A real in-network-rates MRF carries both sections. Neither present means an
 	// empty shard, an error page served with a 200, or a truncated header —
-	// never a file worth marking `completed`.
+	// never a file worth recording as `parsed`.
 	if res.InNetworkItems == 0 && res.ProviderRefs == 0 {
 		return nil, fmt.Errorf("malformed MRF: no in_network or provider_references entries")
 	}

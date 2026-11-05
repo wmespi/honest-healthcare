@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/wmespi/honest-healthcare/etl/core"
 	"github.com/wmespi/honest-healthcare/etl/discovery"
@@ -23,11 +20,10 @@ const usageText = `etl — Anthem MRF ingestion
 Usage: etl <command> [flags]
 
 Commands:
-  discover   Phase 1 — sync the Anthem master index into the index_files queue
-  parse      Phase 2 — stream pending files into Parquet (+ a little Postgres)
-  size       Backfill index_files.file_size_bytes via concurrent HEAD requests
+  discover   Phase 1 - write this month's file list and plan links from the Anthem master index
+  parse      Phase 2 - stream the files etl/targets.yaml names into Parquet
   nppes      Download the NPPES national file, write the GA subset Parquet
-  fixture    Build a truncated *.json.gz fixture from a file id or URL
+  fixture    Build a truncated *.json.gz fixture from a file name or URL
 
 Run "etl <command> -h" for that command's flags.
 Most workflows have a matching "make" target — see "make help".
@@ -45,8 +41,6 @@ func main() {
 		cmdDiscover(args)
 	case "parse":
 		cmdParse(args)
-	case "size":
-		cmdSize(args)
 	case "nppes":
 		cmdNPPES(args)
 	case "fixture":
@@ -72,40 +66,24 @@ func resolveIndexURL(override string) {
 	}
 }
 
-// mustConnect opens the single pgx connection the DB-backed commands share.
-func mustConnect(ctx context.Context) *pgx.Conn {
-	conn, err := pgx.Connect(ctx, core.DatabaseURL)
-	if err != nil {
-		log.Fatalf("❌ Failed to connect to database: %v", err)
-	}
-	log.Printf("✅ Connected to database.")
-	return conn
-}
-
-// parseFileIDs turns "1,2,3" into []int, fatal on a bad token.
-func parseFileIDs(spec string) []int {
-	if spec == "" {
-		return nil
-	}
-	parts := strings.Split(spec, ",")
-	ids := make([]int, 0, len(parts))
-	for _, p := range parts {
-		id, err := strconv.Atoi(strings.TrimSpace(p))
-		if err != nil {
-			log.Fatalf("❌ Invalid file ID %q: %v", p, err)
+// splitList turns "a,b" into ["a", "b"], and "" into nil.
+func splitList(spec string) []string {
+	var out []string
+	for _, p := range strings.Split(spec, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
 		}
-		ids = append(ids, id)
 	}
-	return ids
+	return out
 }
 
 // ── discover ────────────────────────────────────────────────────────────────
 
 func cmdDiscover(args []string) {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
-	test := fs.Bool("test", false, "isolated test mode (test schema + ../data-test/)")
-	schemaOnly := fs.Bool("index-schema", false, "stream the index, write data/anthem/index_schema.json, no DB writes")
-	limit := fs.Int("limit", 0, "cap reporting structures (default 100 in test mode)")
+	test := fs.Bool("test", false, "isolated test mode (../data-test/)")
+	schemaOnly := fs.Bool("index-schema", false, "stream the index, write data/anthem/index_schema.json and nothing else")
+	limit := fs.Int("limit", 0, "cap reporting structures, with -test or -index-schema only (default 100 in test mode)")
 	indexURL := fs.String("index-url", "", "override the monthly master-index URL")
 	noCache := fs.Bool("no-cache", false, "force re-download of the master index")
 	_ = fs.Parse(args)
@@ -115,29 +93,26 @@ func cmdDiscover(args []string) {
 		if *limit == 0 {
 			*limit = 100
 		}
-		log.Println("🧪 Test mode enabled — writing to 'test' schema and ../data-test/")
+		log.Println("🧪 Test mode enabled - writing to ../data-test/")
+	}
+	// A limited read lists only part of the index, and parse and the build read
+	// this month's lists as the whole of it.
+	if *limit > 0 && !*test && !*schemaOnly {
+		log.Fatalf("❌ -limit reads part of the index, so it runs only with -test or -index-schema")
 	}
 	resolveIndexURL(*indexURL)
-
-	ctx := context.Background()
-	if *schemaOnly {
-		discovery.Run(ctx, nil, *limit, *noCache, true)
-		return
-	}
-	conn := mustConnect(ctx)
-	defer conn.Close(ctx)
-	discovery.Run(ctx, conn, *limit, *noCache, false)
+	discovery.Run(*limit, *noCache, *schemaOnly)
 }
 
 // ── parse ───────────────────────────────────────────────────────────────────
 
 func cmdParse(args []string) {
 	fs := flag.NewFlagSet("parse", flag.ExitOnError)
-	test := fs.Bool("test", false, "isolated test mode (test schema + ../data-test/)")
+	test := fs.Bool("test", false, "isolated test mode (../data-test/)")
 	limit := fs.Int("limit", 0, "cap files processed (default 1 in test mode)")
-	fileIDs := fs.String("file-ids", "", "comma-separated index_files IDs to parse (skips target selection)")
-	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only the files it names are parsed ("" needs -file-ids, and turns off the probe's network signal)`)
-	fixturePath := fs.String("fixture", "", "read a local *.json.gz instead of downloading (with -file-ids N)")
+	files := fs.String("files", "", "comma-separated file names from this month's index to parse now (skips target selection and the parse record)")
+	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only the files it names are parsed ("" needs -files or -fixture, and turns off the probe's network signal)`)
+	fixturePath := fs.String("fixture", "", "parse a local *.json.gz instead of a file from the index")
 	allNPIs := fs.Bool("all-npis", false, "keep every NPI/rate (disable the GA NPPES filter)")
 	minGroups := fs.Int("min-groups", 1, "probe: abort a file before in_network unless this many provider groups survive the filter (0 = no overlap check)")
 	dryRun := fs.Bool("dry-run", false, "stream only, skip all writes")
@@ -149,16 +124,12 @@ func cmdParse(args []string) {
 		if *limit == 0 {
 			*limit = 1
 		}
-		log.Println("🧪 Test mode enabled — writing to 'test' schema and ../data-test/")
+		log.Println("🧪 Test mode enabled - writing to ../data-test/")
 	}
 	resolveIndexURL(*indexURL)
 
-	ctx := context.Background()
-	conn := mustConnect(ctx)
-	defer conn.Close(ctx)
-
-	err := extraction.Run(ctx, conn, extraction.Options{
-		FileIDs:   parseFileIDs(*fileIDs),
+	err := extraction.Run(context.Background(), extraction.Options{
+		Files:     splitList(*files),
 		Targets:   *targets,
 		Limit:     *limit,
 		Fixture:   *fixturePath,
@@ -169,24 +140,6 @@ func cmdParse(args []string) {
 	if err != nil {
 		log.Fatalf("❌ %v", err)
 	}
-}
-
-// ── size ────────────────────────────────────────────────────────────────────
-
-func cmdSize(args []string) {
-	fs := flag.NewFlagSet("size", flag.ExitOnError)
-	test := fs.Bool("test", false, "isolated test mode (test schema)")
-	limit := fs.Int("limit", 0, "cap rows to HEAD (0 = all unsized)")
-	_ = fs.Parse(args)
-
-	if *test {
-		core.ApplyTestMode()
-		log.Println("🧪 Test mode enabled — writing to 'test' schema and ../data-test/")
-	}
-	ctx := context.Background()
-	conn := mustConnect(ctx)
-	defer conn.Close(ctx)
-	discovery.Sizes(ctx, conn, *limit)
 }
 
 // ── nppes ───────────────────────────────────────────────────────────────────
@@ -201,7 +154,7 @@ func cmdNPPES(args []string) {
 
 	if *test {
 		core.ApplyTestMode()
-		log.Println("🧪 Test mode enabled — writing to 'test' schema and ../data-test/")
+		log.Println("🧪 Test mode enabled - writing to ../data-test/")
 	}
 	nppes.Run(*url, *file, *limit)
 }
@@ -210,25 +163,27 @@ func cmdNPPES(args []string) {
 
 func cmdFixture(args []string) {
 	fs := flag.NewFlagSet("fixture", flag.ExitOnError)
-	fileIDs := fs.String("file-ids", "", "index_files id to build the fixture from")
-	url := fs.String("url", "", "source URL (alternative to -file-ids)")
-	name := fs.String("name", "", "output name (default: the file id)")
+	file := fs.String("file", "", "name of the file in this month's index to build the fixture from")
+	url := fs.String("url", "", "source URL (alternative to -file)")
+	name := fs.String("name", "", "output name (default: the file's name)")
 	indexURL := fs.String("index-url", "", "override the monthly master-index URL")
 	_ = fs.Parse(args)
 
 	resolveIndexURL(*indexURL)
 
-	firstFileID := 0
-	if ids := parseFileIDs(*fileIDs); len(ids) > 0 {
-		firstFileID = ids[0]
+	switch {
+	case *url != "":
+		fixture.Make(*url, *name)
+	case *file != "":
+		f, err := extraction.FindFile(*file)
+		if err != nil {
+			log.Fatalf("❌ %v", err)
+		}
+		if *name == "" {
+			*name = strings.TrimSuffix(f.Name, ".json.gz")
+		}
+		fixture.Make(f.Location, *name)
+	default:
+		log.Fatalf("❌ fixture needs -file NAME or -url URL")
 	}
-
-	ctx := context.Background()
-	if *url != "" {
-		fixture.Make(ctx, nil, firstFileID, *url, *name)
-		return
-	}
-	conn := mustConnect(ctx)
-	defer conn.Close(ctx)
-	fixture.Make(ctx, conn, firstFileID, "", *name)
 }

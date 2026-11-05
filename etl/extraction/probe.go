@@ -56,8 +56,8 @@ type probeAbortError struct {
 }
 
 func (e *probeAbortError) Error() string {
-	// Lands in index_files.failure_reason — the "probe: no wanted providers"
-	// prefix is stable and queried on (queue.md, the end-of-run guard).
+	// Lands in the parse record's reason - the "probe: no wanted providers"
+	// prefix is stable, so a skipped file reads the same in every record.
 	return "probe: no wanted providers — " + e.detail
 }
 

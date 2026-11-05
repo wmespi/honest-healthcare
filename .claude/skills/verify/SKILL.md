@@ -18,8 +18,6 @@ description: >
 | Go parser behaviour / MRF handling, NPPES extraction | `make test` (runs the ETL e2e + NPPES fixtures) | full stack |
 | Serving layer (`serving/**`) | `make test` (or `make test LOCAL=1`) | serving container running the new code (see restart note) |
 | Frontend (`frontend/src/**`) | `make test` (or `make test LOCAL=1`) | `frontend` container up |
-| SQL migrations (`db/migrations/*.sql`) | `make migrate` then re-run it (must be idempotent) | `db` up |
-| `db/init.sql` | apply it to a scratch database and diff `\dt` | `db` up |
 | Docs / Makefile / scripts only | `make check` is enough | `etl` up |
 | Anything non-trivial before a PR | `make test` | full stack |
 | A change to a real answer (rates, rankings, labels) | `make test-live` | serving up, **real corpus** |
@@ -35,12 +33,12 @@ description: >
 - **Ad-hoc DuckDB queries spill into the repo.** A one-off `duckdb.connect()` (not
   through `serving/data_sources.py:db()`, which sets `DUCKDB_TMP`) must
   `SET temp_directory='/tmp/dsp'` first, or a big aggregate spills to `./.tmp/`
-  and breaks `git add`. Read one `net=<slug>` partition of `data/serving/rates/`,
+  and breaks `git add`. Read one `net=<slug>` partition of `data/anthem/prices/`,
   not the whole store.
 - **`make reference STEP=nppes` is not atomic** — mid-run the output file is 0
   bytes and queries that touch it 500. Let it finish, then restart `serving`.
-- **`make test` and `make test-live` hit different data.** `test` is hermetic —
-  fixtures, the `test` schema, mocked `./api` in vitest. A green `test` does not
+- **`make test` and `make test-live` hit different data.** `test` is hermetic:
+  fixtures, `data-test/`, mocked `./api` in vitest. A green `test` does not
   prove a serving-layer change works on real volume — run `test-live` too.
 
 ## Reporting

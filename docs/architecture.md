@@ -12,18 +12,17 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 
 | Layer | Tech | Dir | Purpose |
 |---|---|---|---|
-| Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue; keeps the plan→file link (`index_file_plans`), and writes it to `data/anthem/index_file_plans.parquet` for the build |
-| Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → raw Parquet; a provider probe aborts a download before `in_network` when no wanted provider is in it |
+| Discovery | Go | `etl/discovery/` | Monthly read of Anthem's index: the files it lists (`data/anthem/index_files.parquet`) and the plan→file link (`index_file_plans.parquet`) |
+| Extraction | Go (streaming JSON) | `etl/extraction/` | Parses the gzipped MRFs `etl/targets.yaml` names in one pass → raw Parquet, with a parse record per file; a provider probe aborts a download before `in_network` when no wanted provider is in it |
 | Reference | Go (NPPES) + Python/DuckDB (NUCC, CMS utilization, MPFS, OPPS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
 | Build | Python + DuckDB | `build/` | Raw + reference Parquet → the find-care tables; every product decision (who is on a plan, what a price is, where a place is) lives here — [build/build.md](../build/build.md) |
 | Serving | Python + DuckDB | `serving/` | Reads the find-care tables in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | `frontend/` | The find-care screen — `localhost:5173` |
 | Storage | Parquet + ZSTD | `data/` | `data/anthem/`, `data/nppes/`, `data/reference/`, `data/cms/`, `data/serving/` — [docs/schema.md](schema.md) |
-| Queue DB | Postgres 15 | `db/` | `index_files` + `index_file_plans` + `billing_codes` + `coverage_log` |
 
 The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
 `extraction` / `nppes` / `fixture` packages; shared structs, config, and the
-progress reader live in `etl/core/`. Docker services: `db`, `etl`, `serving`,
+progress reader live in `etl/core/`. Docker services: `etl`, `serving`,
 `frontend` — each from a multi-stage Dockerfile in
 [deploy/](../deploy/README.md) (`prod` target = deployable artifact; compose
 runs the `dev` target).
@@ -33,18 +32,20 @@ runs the `dev` target).
 ```mermaid
 flowchart LR
   subgraph fetch [fetch - Go, streaming, dumb, stable]
-    IDX[Anthem index] -->|"plans and files, keep the link"| Q[(queue: file, plan, market, status)]
-    Q -->|"the month's link, after a full read"| LINK[(plan link parquet)]
-    TGT[targets.yaml] --> Q
-    Q -->|"files linked to a target plan"| PROBE{"probe: any wanted providers?"}
-    PROBE -->|"no: abort early"| Q
+    IDX[Anthem index] -->|"this month's files and the plans each prices"| LIST[(file list and plan link parquet)]
+    LIST --> PICK["the files targets.yaml names, new or updated since their parse record"]
+    TGT[targets.yaml] --> PICK
+    PICK --> PROBE{"probe: any wanted providers?"}
+    PROBE -->|"no: abort early, record skipped"| REC[(parse record per file)]
     PROBE -->|"yes: stream"| RAW[(raw parquet per file: prices, group_sets, providers, codes)]
+    RAW --> REC
+    REC --> PICK
     NPPES[NPPES national CSV] --> GA[(GA providers)]
     GA --> PROBE
   end
   subgraph build [build - Python and DuckDB, all product decisions, minutes]
     RAW --> FC["build/tables/"]
-    LINK --> FC
+    LIST --> FC
     REF[(reference: NUCC, MPFS, OPPS, CMS billing, CMS groups, MIPS, geocodes, hospitals, ZIPs)] --> FC
     GA --> FC
     SVC[build/services.yaml] --> FC
