@@ -11,12 +11,14 @@ import pytest
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SAMPLES = os.path.join(REPO, "reference/testdata")
 OUT = os.path.join(REPO, "data-test/reference")
+TABLES = ("plans", "networks", "premiums", "cost_sharing")
 
 
 def build(*extra, plan=f"{SAMPLES}/exchange_plan_sample.csv"):
     files = ["--plan-file", plan,
              "--network-file", f"{SAMPLES}/exchange_network_sample.csv",
-             "--rate-file", f"{SAMPLES}/exchange_rate_sample.csv"]
+             "--rate-file", f"{SAMPLES}/exchange_rate_sample.csv",
+             "--benefits-file", f"{SAMPLES}/exchange_benefits_sample.csv"]
     return subprocess.run([sys.executable, "-m", "reference.exchange_plans", *files, "--test", *extra],
                           cwd=REPO, capture_output=True, text=True)
 
@@ -29,8 +31,8 @@ def read(table):
 def built():
     r = build("--year", "2026")
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
-    yield {t: read(t) for t in ("plans", "networks", "premiums")}
-    for t in ("plans", "networks", "premiums"):
+    yield {t: read(t) for t in TABLES}
+    for t in TABLES:
         try:
             os.remove(f"{OUT}/exchange_{t}_ga.parquet")
         except FileNotFoundError:
@@ -42,7 +44,21 @@ def test_a_plan_is_one_row_named_after_its_standard_version(built):
     assert plans["45334GA0020002"] == (
         "45334GA0020002", 2026, "45334", "Anthem Blue Cross and Blue Shield",
         "Anthem Silver Blue Value HMO 4000 $10 $0 Virtual PCP $0 Select Drugs",
-        "Silver", "HMO", False, "45334-GAN001")
+        "Silver", "HMO", False, "45334-GAN001", 4000.0)
+
+
+def test_cost_sharing_is_the_standard_versions_in_network_wording_by_benefit(built):
+    silver = {r[1]: r[2:] for r in built["cost_sharing"] if r[0] == "45334GA0020002"}
+    assert silver == {
+        "Imaging (CT/PET Scans, MRIs)": (True, "$300.00 Copay after deductible",
+                                         "50.00% Coinsurance after deductible"),
+        "X-rays and Diagnostic Imaging": (True, "Not Applicable", "40.00% Coinsurance after deductible"),
+        "Preventive Care/Screening/Immunization": (True, "No Charge", "Not Applicable"),
+        # Georgia's file starts this name with a tab.
+        "Outpatient Facility Fee (e.g., Ambulatory Surgery Center)": (True, "Not Applicable",
+                                                                      "40.00% Coinsurance after deductible"),
+        "Acupuncture": (False, None, None)}
+    assert {r[0] for r in built["cost_sharing"]} == {"45334GA0020002", "45334GA0020008", "89942GA0050030"}
 
 
 def test_dental_plans_are_dropped(built):

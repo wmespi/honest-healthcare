@@ -139,11 +139,15 @@ Where the product is headed: [direction.md](direction.md) and epic
   imaging clinician (an orthopedic or anesthesia group, say) can appear beside the
   radiology groups.
 - **Plan cost sharing covers a few plan versions.** `serving/plan_cost_sharing.json` is
-  copied by hand from Anthem summaries of benefits. Georgia's exchange publishes every
-  plan's cost sharing in its benefits file, which nothing reads yet
+  copied by hand from Anthem summaries of benefits for the imaging page. The find-care
+  `cost_sharing` table reads every plan's from Georgia's benefits file instead
   ([reference/exchange-plans.md](../reference/exchange-plans.md)). Cost-sharing-reduction variants, Bronze, and
   Pathway Silver are not carried; a member on one of those picks "Not sure" and sees the
   price without a share. Refresh the file each plan year.
+- **Find-care cost sharing is the standard plan's.** `plans.deductible` and `cost_sharing`
+  hold each plan's standard version (`-01`), in network. Someone with a cost-sharing
+  reduction, on a version from `-02` to `-06`, has a lower deductible and pays less
+  ([#152](https://github.com/wmespi/honest-healthcare/issues/152)).
 - **Some imaging cost shares are not estimated.** A structure such as "$300 a day, then
   50% coinsurance" is shown as the plan's own words, not turned into a dollar figure. A
   screening mammogram is shown as preventive. Every estimate assumes the deductible

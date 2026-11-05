@@ -430,6 +430,10 @@ def api(api_data):
 
 # ── the new serving tables (build/tables/) ───────────────────────────────────
 
+# Two of Georgia's service categories, as its cost-sharing file names them.
+IMAGING = "Imaging (CT/PET Scans, MRIs)"
+PREVENTIVE = "Preventive Care/Screening/Immunization"
+
 CORPUS_TARGETS = """
 targets:
   - name: Blue Value
@@ -469,7 +473,7 @@ DAC_SCHEMA = {"npi": "BIGINT", "last_name": "VARCHAR", "first_name": "VARCHAR", 
 
 class Corpus:
     """Insurer rates and rosters, the index's plan -> file link, Georgia's
-    networks, plans, premiums and hospitals, ZIP centroids, NPPES records,
+    networks, plans, premiums, cost sharing and hospitals, ZIP centroids, NPPES records,
     Census matches, Medicare's billing and rates, CMS groups, a services file and
     a targets file in a tmp dir."""
 
@@ -494,6 +498,7 @@ class Corpus:
         self.groups = []
         self.taxonomies = []
         self.scores = []
+        self.benefits = {}
         self.pending = {}
 
     def _queue(self, path, schema, rows):
@@ -590,10 +595,24 @@ class Corpus:
             table.make(con, self.root)
         return con
 
-    def plan(self, plan_id, network_id, name, metal_level="Silver"):
-        """Add a plan on `network_id` to Georgia's plan file."""
-        self.plans.append((plan_id, network_id, name, metal_level))
+    def plan(self, plan_id, network_id, name, metal_level="Silver", deductible=4000.0):
+        """Add a plan on `network_id` to Georgia's plan file, charging a 40%
+        coinsurance after the deductible for every service category the
+        services use, and nothing for preventive care."""
+        self.plans.append((plan_id, network_id, name, metal_level, deductible))
         self._write_plans()
+        for benefit in (IMAGING, PREVENTIVE):
+            preventive = benefit == PREVENTIVE
+            self.cost_sharing(plan_id, benefit, "No Charge" if preventive else "Not Applicable",
+                              "Not Applicable" if preventive else "40.00% Coinsurance after deductible")
+
+    def cost_sharing(self, plan_id, benefit, copay, coinsurance, covered=True):
+        """Set what `plan_id` charges the member for `benefit`, in Georgia's wording."""
+        self.benefits[(plan_id, benefit)] = (covered, copay, coinsurance)
+        self._queue(f"{self.root}/reference/exchange_cost_sharing_ga.parquet",
+                    {"plan_id": "VARCHAR", "benefit": "VARCHAR", "covered": "BOOLEAN", "copay": "VARCHAR",
+                     "coinsurance": "VARCHAR"},
+                    [(p, b, *v) for (p, b), v in self.benefits.items()])
 
     def remove_plans(self, network_id):
         """Take every plan on `network_id` out of Georgia's plan file."""
@@ -626,7 +645,7 @@ class Corpus:
         """Add a service to the services file, with placeholder text for any field
         not given."""
         self.services.append({"service_id": service_id, "billing_code": billing_code,
-                              "name": f"Service {service_id}", "keywords": "scan",
+                              "service_category": IMAGING, "name": f"Service {service_id}", "keywords": "scan",
                               "about": "A scan.", "could_change": ["Contrast dye"],
                               "asks": ["Is this everything?"], **fields})
         with open(self.services_file, "w") as f:
@@ -656,9 +675,9 @@ class Corpus:
     def _write_plans(self):
         self._queue(f"{self.root}/reference/exchange_plans_ga.parquet",
                     {"plan_id": "VARCHAR", "network_id": "VARCHAR", "name": "VARCHAR", "carrier": "VARCHAR",
-                     "metal_level": "VARCHAR", "needs_referral": "BOOLEAN"},
-                    [(p, n, name, "Anthem Blue Cross and Blue Shield", metal, False)
-                     for p, n, name, metal in self.plans])
+                     "metal_level": "VARCHAR", "needs_referral": "BOOLEAN", "deductible": "DOUBLE"},
+                    [(p, n, name, "Anthem Blue Cross and Blue Shield", metal, False, deductible)
+                     for p, n, name, metal, deductible in self.plans])
 
     def link(self, fid, *plan_ids):
         """Have the index link file `fid` to each of `plan_ids`."""
@@ -722,8 +741,9 @@ def corpus(tmp_path, monkeypatch):
                ("'58081-GAN001'", "'58081'", "'Individual Georgia HMO'"),
            ])
     c.plan("45334GA0020002", "45334-GAN001", "Anthem Silver Blue Value HMO 4000")
-    c.plan("45334GA0020008", "45334-GAN001", "Anthem Bronze Blue Value HMO 5000", "Expanded Bronze")
-    c.plan("49046GA0700053", "49046-GAN008", "Anthem Bronze Pathway PCP Copay Choice HMO 6000", "Expanded Bronze")
+    c.plan("45334GA0020008", "45334-GAN001", "Anthem Bronze Blue Value HMO 5000", "Expanded Bronze", 5000.0)
+    c.plan("49046GA0700053", "49046-GAN008", "Anthem Bronze Pathway PCP Copay Choice HMO 6000", "Expanded Bronze",
+           6000.0)
     c.plan("58081GA0010001", "58081-GAN001", "Individual Georgia HMO Silver")
     for plan_id in ("45334GA0020002", "45334GA0020008", "49046GA0700053", "58081GA0010001"):
         c.premium(plan_id, 1)
@@ -734,7 +754,7 @@ def corpus(tmp_path, monkeypatch):
     c.zip("31602", 30.8774, -83.2799)
     c.zip("30720", 34.7698, -84.9702)
     c.service("mri-lower-back", "72148", name="Lower-back MRI")
-    c.service("mammogram-screening", "77067", name="Screening mammogram",
+    c.service("mammogram-screening", "77067", name="Screening mammogram", service_category=PREVENTIVE,
               preventive_note="Usually $0 in network as preventive care.")
     c.medicare("72148", office=(170.0, 190.0), facility=243.77)
     c.medicare("77067", office=(110.0, 120.0))

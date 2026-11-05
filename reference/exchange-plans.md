@@ -1,16 +1,19 @@
 # `make reference STEP=exchange-plans`: Georgia's individual-market plans
 
-*Read this when working on which plans we price, a plan's name or network, or premiums.*
+*Read this when working on which plans we price, a plan's name, network or deductible, premiums, or what a plan charges the member.*
 
-**Builds** three files from the [Georgia Access public use files](https://georgiaaccess.gov/public-use-files/),
+**Builds** four files from the [Georgia Access public use files](https://georgiaaccess.gov/public-use-files/),
 module `reference/exchange_plans.py`:
 
 - `data/reference/exchange_plans_ga.parquet`: one row per plan, keyed on its HIOS plan ID
-  (`45334GA0020002`), with its name, carrier, metal level, plan type, referral rule and network.
+  (`45334GA0020002`), with its name, carrier, metal level, plan type, referral rule, network and
+  in-network deductible for one person.
 - `data/reference/exchange_networks_ga.parquet`: one row per provider network those plans use,
   keyed on issuer and network ID (`45334-GAN001`).
 - `data/reference/exchange_premiums_ga.parquet`: the monthly premium for one person, by plan,
   rating area and age, with and without tobacco use.
+- `data/reference/exchange_cost_sharing_ga.parquet`: what each plan charges the member in network,
+  one row per plan and benefit, in Georgia's wording (`$300.00 Copay after deductible`).
 
 **Why.** Every plan anyone can buy on Georgia's exchange is here, keyed on the same HIOS plan
 IDs the insurers' indexes list, so it says which plans exist and which network each one uses.
@@ -20,7 +23,8 @@ plan's real name, such as Anthem Silver Blue Value HMO 4000.
 
 `etl parse` reads `exchange_plans_ga.parquet` to turn the exchange networks in
 [`etl/targets.yaml`](../etl/targets.yaml) into plan IDs and parse the files that price
-them ([etl/parse.md](../etl/parse.md#target-selection)). Nothing else reads these files yet.
+them ([etl/parse.md](../etl/parse.md#target-selection)), and `make build` reads all four for the
+find-care plans, networks, premiums and cost sharing ([build/build.md](../build/build.md#the-find-care-tables)).
 
 ## What is kept
 
@@ -31,9 +35,14 @@ them ([etl/parse.md](../etl/parse.md#target-selection)). Nothing else reads thes
 - **Premiums for every age.** The file prices children as one band (`0-14`) and adults 64 and
   over as one, so each age gets its own row and a lookup uses `min(age, 64)`. A plan with no
   tobacco surcharge repeats its premium as `tobacco_premium`.
+- **The standard version's deductible and cost sharing.** The deductible is the in-network one
+  for one person: the combined medical and drug deductible when the plan has one, and the
+  medical deductible otherwise. Cost sharing is the in-network copay and coinsurance as Georgia
+  words them, which `make build` reads; the subsidy versions' lower amounts aren't kept
+  ([#152](https://github.com/wmespi/honest-healthcare/issues/152)).
 
-The builder stops if a key repeats, if a plan's network isn't in the network file, or if a file
-is for a different plan year than `--year`.
+The builder stops if a key repeats, if a plan's network isn't in the network file, if a plan has
+no deductible or no cost sharing, or if a file is for a different plan year than `--year`.
 
 ## Not covered
 
@@ -41,8 +50,7 @@ is for a different plan year than `--year`.
   plans sold only off the exchange aren't in these files.
 - **Rating areas are numbers.** Georgia defines its 16 areas by county, and nothing here turns a
   ZIP code or county into a rating area yet.
-- **Other files on the page aren't read yet:** each plan's cost sharing by service (`BENCS`),
-  service areas (`SA`), last year's plan IDs mapped to this year's (`CW`), and each insurer's
+- **Other files on the page aren't read yet:** service areas (`SA`), last year's plan IDs mapped to this year's (`CW`), and each insurer's
   machine-readable provider directory (`MR`).
 
 ## Re-run each plan year

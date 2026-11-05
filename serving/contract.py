@@ -35,6 +35,22 @@ class Plan(BaseModel):
     name: str
     carrier: str
     needs_referral: bool
+    deductible: float = Field(ge=0, description="The in-network deductible for one person.")
+
+
+class CostSharing(BaseModel):
+    """What the plan charges the member for a service in network, as its
+    standard version does. With both a copay and a coinsurance, the member pays
+    the copay and then the coinsurance."""
+    copay: Optional[float] = Field(ge=0)
+    coinsurance: Optional[float] = Field(ge=0, le=100, description="A percent of the rate.")
+    after_deductible: bool = Field(description="The member pays the whole rate until the deductible is met.")
+
+    @model_validator(mode="after")
+    def _charges_something(self):
+        if self.copay is None and self.coinsurance is None:
+            raise ValueError("a share has a copay, a coinsurance or both")
+        return self
 
 
 class Service(BaseModel):
@@ -152,6 +168,7 @@ class FindCare(BaseModel):
     origin: Origin
     radius_mi: RadiusMi = Field(description="The radius asked for, or the one chosen when none was.")
     sort: Sort
+    cost_sharing: CostSharing = Field(description="What the plan charges the member for the service.")
     results: list[Place]
     wider_radius_mi: Optional[RadiusMi] = Field(
         description="When no result has a `max_rate`, the smallest radius that reaches the nearest place with one, "
