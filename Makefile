@@ -8,15 +8,14 @@
 # helper doc next to the code all share it. Test isolation and
 # single-item selection are variables, not separate targets:
 #
-#   make discover TEST=1        # run in the test schema + data-test/
+#   make discover TEST=1        # write to data-test/ instead of data/
 #   make discover SCHEMA=1      # stream the index, write index_schema.json only
-#   make parse ID=10065         # parse one file by index_files.id
+#   make parse FILE=GA_JBNKMED0001.json.gz   # parse one file by name, now
 #   make parse TARGETS=<path>   # a different target-plan list (default etl/targets.yaml)
 #   make reference STEP=mpfs    # run one reference builder (ARGS="--year 2025" passes through)
 #   make reference FORCE=1      # rebuild every reference output even if it exists
 #   make check LOCAL=1          # the same gate on host toolchains, no Docker
 #   make test  LOCAL=1          # ... incl. pytest + vitest
-#   make db-reset WHAT=failed   # reset transiently-failed rows → pending
 #   make sh S=serving           # shell into a container
 
 .PHONY: help \
@@ -26,7 +25,6 @@
         check test test-live \
         footprint clean \
         fixture seed \
-        psql migrate db-reset db-snapshot db-restore \
         sh \
         _require-etl-running
 
@@ -34,7 +32,7 @@
 
 help: ## Show all available make targets
 	@echo ""
-	@echo "Usage: make <target>   (variables like TEST=1 / ID= / LOCAL=1 are in the Makefile header)"
+	@echo "Usage: make <target>   (variables like TEST=1 / FILE= / LOCAL=1 are in the Makefile header)"
 	@echo ""
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -66,18 +64,17 @@ worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override
 
 ## ── Pipeline: discover → parse → reference → build ───────────────────────────
 
-discover: ## Phase 1 — rebuild the queue (index_files + index_file_plans) from this month's Anthem index, then backfill file sizes. TEST=1 · SCHEMA=1 (index_schema.json only)
+discover: ## Phase 1 - write this month's file list and plan links (index_files + index_file_plans Parquet) from Anthem's index. TEST=1 · SCHEMA=1 (index_schema.json only)
 	docker compose exec etl go run . discover \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
 	  $(if $(filter 1,$(NO_CACHE)),-no-cache,) \
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
-	$(if $(or $(filter 1,$(SCHEMA)),$(filter 1,$(TEST))),@:,docker compose exec etl go run . size)
 
-parse: ## Phase 2 — stream the pending files etl/targets.yaml names into Parquet. ID=<index_files.id> · TARGETS=<path> · TEST=1 · LIMIT=n
+parse: ## Phase 2 - stream the files etl/targets.yaml names into Parquet, when they're new or Anthem updated them. FILE=<name>[,<name>] · TARGETS=<path> · TEST=1 · LIMIT=n
 	docker compose exec etl go run . parse \
-	  $(if $(ID),-file-ids $(ID),) \
+	  $(if $(FILE),-files "$(FILE)",) \
 	  $(if $(TARGETS),-targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
@@ -142,62 +139,20 @@ clean: ## Reclaim disk in THIS worktree (stray .tmp, data-test, caches). DOCKER=
 
 ## ── Dev ──────────────────────────────────────────────────────────────────────
 
-fixture: ## Build a truncated *.json.gz fixture from a file id — usage: make fixture ID=5043 NAME=ga_small
-	docker compose exec etl go run . fixture -file-ids $(ID) $(if $(NAME),-name $(NAME),)
+fixture: ## Build a truncated *.json.gz fixture from a file in this month's index - usage: make fixture FILE=GA_JBNKMED0001.json.gz NAME=ga_small
+	docker compose exec etl go run . fixture -file "$(FILE)" $(if $(NAME),-name $(NAME),)
 
 seed: ## Populate data/ with the committed synthetic MRF (fresh-clone bootstrap; idempotent)
 	bash scripts/seed.sh
 
-## ── Database ─────────────────────────────────────────────────────────────────
-
-psql: ## Open a psql shell on honest_healthcare
-	docker compose exec db psql -U postgres -d honest_healthcare
-
-migrate: ## Apply db/migrations/*.sql to the running database (idempotent; each file in one transaction)
-	@for f in db/migrations/*.sql; do \
-	  echo "→ $$f"; \
-	  docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 --single-transaction < "$$f" || exit 1; \
-	done
-
-db-snapshot: ## pg_dump the queue tables (data only) to db/snapshots/<utc>.dump — take one before a risky migration
-	@mkdir -p db/snapshots
-	@ts=$$(date -u +%Y%m%dT%H%M%SZ); \
-	docker compose exec -T db pg_dump -U postgres -d honest_healthcare -Fc --data-only \
-	  -t index_files -t index_file_plans -t billing_codes -t coverage_log > db/snapshots/$$ts.dump && \
-	echo "→ db/snapshots/$$ts.dump ($$(du -h db/snapshots/$$ts.dump | cut -f1))"
-
-db-restore: ## Replace the queue tables' data from a snapshot. FILE=db/snapshots/<utc>.dump (default: newest)
-	@f="$(or $(FILE),$$(ls -t db/snapshots/*.dump 2>/dev/null | head -1))"; \
-	[ -n "$$f" ] || { echo "no snapshot — run 'make db-snapshot' first"; exit 1; }; \
-	echo "→ truncating + restoring from $$f"; \
-	docker compose exec -T db psql -U postgres -d honest_healthcare -v ON_ERROR_STOP=1 \
-	  -c "TRUNCATE index_files, index_file_plans, billing_codes, coverage_log RESTART IDENTITY CASCADE;"; \
-	docker compose exec -T db pg_restore -U postgres -d honest_healthcare \
-	  --data-only --disable-triggers --no-owner < "$$f"
-
-db-reset: ## Reset index_files rows → pending. WHAT=processing (stale) | failed (transient only)
-	@case "$(WHAT)" in \
-	  processing) \
-	    docker compose exec db psql -U postgres -d honest_healthcare \
-	      -c "UPDATE index_files SET status = 'pending' WHERE status = 'processing';" ;; \
-	  failed) \
-	    docker compose exec db psql -U postgres -d honest_healthcare \
-	      -c "UPDATE index_files SET status = 'pending', failure_reason = NULL \
-	          WHERE status = 'failed' \
-	            AND (failure_reason IS NULL \
-	              OR failure_reason NOT SIMILAR TO '%(gzip|unexpected EOF|invalid header|HTTP 4%|malformed MRF)%');" ;; \
-	  *) echo "usage: make db-reset WHAT=processing|failed" && exit 1 ;; \
-	esac
-
 ## ── Shells ────────────────────────────────────────────────────────────────────
 
-sh: ## Open a shell inside a container — usage: make sh S=etl|serving|frontend|db
+sh: ## Open a shell inside a container - usage: make sh S=etl|serving|frontend
 	@case "$(S)" in \
 	  etl)      svc=etl ;; \
 	  serving)  svc=serving ;; \
 	  frontend) svc=frontend ;; \
-	  db)       svc=db ;; \
-	  *) echo "usage: make sh S=etl|serving|frontend|db" && exit 1 ;; \
+	  *) echo "usage: make sh S=etl|serving|frontend" && exit 1 ;; \
 	esac; \
 	echo "Entering $$svc shell — type 'exit' to quit"; \
 	docker compose exec $$svc sh

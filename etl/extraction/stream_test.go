@@ -35,8 +35,8 @@ func TestFixtures_Parse(t *testing.T) {
 			}
 			defer gz.Close()
 
-			res, err := streamMRF(gz, "individual | group", 1, true,
-				map[string]bool{}, map[int64]string{}, map[string]bool{}, nil, providerProbe{},
+			res, err := streamMRF(gz, 1, true,
+				map[string]bool{}, map[int64]string{}, nil, providerProbe{},
 				mrfWriters{}, nil)
 			if err != nil {
 				t.Fatalf("streamMRF: %v", err)
@@ -118,8 +118,8 @@ func streamCollect(r io.Reader, gaNPIs map[int64]struct{}, pb providerProbe) (co
 		code:            func(bc core.BillingCodeRow) { c.codes = append(c.codes, bc) },
 	}
 
-	res, err := streamMRF(r, "individual | group", testFileID, true,
-		map[string]bool{}, map[int64]string{}, map[string]bool{}, gaNPIs, pb, w, nil)
+	res, err := streamMRF(r, testFileID, true,
+		map[string]bool{}, map[int64]string{}, gaNPIs, pb, w, nil)
 	c.res = res
 	return c, err
 }
@@ -164,9 +164,6 @@ func TestStreamMRF_Counts(t *testing.T) {
 	}
 	if res.NewNPIs != 5 {
 		t.Errorf("res.NewNPIs = %d, want 5", res.NewNPIs)
-	}
-	if res.NewTINs != 4 {
-		t.Errorf("res.NewTINs = %d, want 4", res.NewTINs)
 	}
 }
 
@@ -265,18 +262,9 @@ func TestJoinModifiers(t *testing.T) {
 	}
 }
 
-func TestStreamMRF_SetsAndReportingEntity(t *testing.T) {
+func TestStreamMRF_NetworkNames(t *testing.T) {
 	res := collect(t, "testdata/synthetic_mrf.json").res
 
-	if res.ReportingEntityName != "Anthem Blue Cross and Blue Shield Georgia" {
-		t.Errorf("reporting_entity_name = %q", res.ReportingEntityName)
-	}
-	if res.ReportingEntityType != "Health Insurance Network" {
-		t.Errorf("reporting_entity_type = %q", res.ReportingEntityType)
-	}
-	assertSet(t, "settings", res.Settings, "inpatient", "outpatient")
-	assertSet(t, "billing_classes", res.BillingClasses, "institutional", "professional")
-	assertSet(t, "billing_code_types", res.BillingCodeTypes, "CPT")
 	assertSet(t, "network_names", res.NetworkNames,
 		"GA Blue Open Access POS Network", "GA Blue Value HIX Individual Network")
 }
@@ -376,7 +364,7 @@ func TestProbe_AbortsWhenNoNetworkMatches(t *testing.T) {
 		t.Errorf("in_network was parsed after the probe aborted: %d prices, %d codes, %d edges",
 			len(c.prices), len(c.codes), len(c.members))
 	}
-	// The reason lands in index_files.failure_reason — it has to name both the
+	// The reason lands in the parse record - it has to name both the
 	// patterns that were wanted and the labels the file actually carries.
 	msg := err.Error()
 	for _, want := range []string{"probe: no wanted providers", "CO Blue Priority*", "GA Blue Value HIX Individual Network"} {
@@ -429,33 +417,33 @@ func TestProbe_AbortsBlueCardShardDespiteGANPIs(t *testing.T) {
 // An abandoned file must leave nothing behind — including in the run-level NPI
 // and TIN sets that npi_lookup.parquet is written from at the end of a run.
 func TestProbe_AbortLeavesNoNPIsInTheRun(t *testing.T) {
-	seenNPIs, seenTINs := map[int64]string{}, map[string]bool{}
+	seenNPIs := map[int64]string{}
 	f, err := os.Open("testdata/synthetic_mrf.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	_, err = streamMRF(f, "individual", testFileID, false,
-		map[string]bool{}, seenNPIs, seenTINs, nil,
+	_, err = streamMRF(f, testFileID, false,
+		map[string]bool{}, seenNPIs, nil,
 		probeMatcher(t, "CO Blue Priority*"), mrfWriters{}, nil)
 	if !errors.Is(err, errNoWantedProviders) {
 		t.Fatalf("error = %v, want errNoWantedProviders", err)
 	}
-	if len(seenNPIs) != 0 || len(seenTINs) != 0 {
-		t.Errorf("a skipped file left %d NPIs and %d TINs in the run", len(seenNPIs), len(seenTINs))
+	if len(seenNPIs) != 0 {
+		t.Errorf("a skipped file left %d NPIs in the run", len(seenNPIs))
 	}
 
 	// The same file, probe passed: the NPIs land as before.
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := streamMRF(f, "individual", testFileID, false,
-		map[string]bool{}, seenNPIs, seenTINs, nil,
+	if _, err := streamMRF(f, testFileID, false,
+		map[string]bool{}, seenNPIs, nil,
 		probeMatcher(t, "GA Blue Value HIX*"), mrfWriters{}, nil); err != nil {
 		t.Fatalf("streamMRF: %v", err)
 	}
-	if len(seenNPIs) != 5 || len(seenTINs) != 4 {
-		t.Errorf("after a passing parse: %d NPIs, %d TINs, want 5 and 4", len(seenNPIs), len(seenTINs))
+	if len(seenNPIs) != 5 {
+		t.Errorf("after a passing parse: %d NPIs, want 5", len(seenNPIs))
 	}
 }
 

@@ -41,7 +41,7 @@ loopback by default. `tailscale serve` (`scripts/tailscale-up.sh`) proxies
 access.
 
 `container_name:` is unset, so `COMPOSE_PROJECT_NAME` (default: directory name)
-scopes every container, network and volume. `DB_PORT` / `API_PORT` / `WEB_PORT` and
+scopes every container, network and volume. `API_PORT` / `WEB_PORT` and
 `HH_DATA_ROOT` are env-driven: copy `.env.example` → `.env` in a worktree to run a
 second stack beside the canonical one (`make worktree` does this).
 

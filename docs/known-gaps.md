@@ -15,12 +15,12 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **A target's `network_patterns` are hand-written** in
   [`etl/targets.yaml`](../etl/targets.yaml). The provider probe skips a file whose
   `provider_references[].network_name` matches none of them, so a wrong guess skips
-  every file for that plan. It fails loudly (`failure_reason` lists the labels the
-  file carried; the end-of-run guard exits non-zero when every target file is
-  skipped and nothing ever completed). Deriving the patterns is the same open
+  every file for that plan. It fails loudly (the parse record's `reason` lists the
+  labels the file carried; the end-of-run guard exits non-zero when every target file
+  is skipped and none has Parquet on disk). Deriving the patterns is the same open
   problem.
-- **Coverage is verified for the target network, not quantified in a doc.** Query
-  `coverage_log` (`make psql`) and run `make test-live`.
+- **Coverage is verified for the target network, not quantified in a doc.** Read
+  the parse records ([etl/parse.md](../etl/parse.md#when-parse-downloads-a-file)) and run `make test-live`.
 
 ## Data scope
 
@@ -61,8 +61,6 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **`make build` is a full rebuild, not incremental**, and is not auto-triggered:
   run it after each `make parse` batch or the find-care tables go stale. A missing build
   is a `503`, not a degraded path. Per-file partials → merge is a future refinement.
-- **`coverage_log.n_ga_hospital_npis` is never populated** (the NPPES join happens at
-  query time).
 
 ## Operational
 

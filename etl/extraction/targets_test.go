@@ -12,6 +12,7 @@ import (
 	"time"
 
 	parquet "github.com/parquet-go/parquet-go"
+	"github.com/wmespi/honest-healthcare/etl/core"
 )
 
 func writeTargets(t *testing.T, body string) string {
@@ -25,7 +26,7 @@ func writeTargets(t *testing.T, body string) string {
 
 // The shipped etl/targets.yaml is the file `etl parse` reads by default — if it
 // stops loading, or stops matching the plan the whole project exists to price,
-// every queue run silently selects nothing.
+// every target-selected run silently selects nothing.
 func TestLoadTargets_ShippedFile(t *testing.T) {
 	ts, err := LoadTargets(filepath.Join("..", "targets.yaml"))
 	if err != nil {
@@ -236,9 +237,6 @@ targets:
 	if all := allPlanIDs(got); !slices.Equal(all, []string{"45334GA0020002", "45334GA0020008", "49046GA0700053"}) {
 		t.Errorf("allPlanIDs = %v", all)
 	}
-	if sql := planMatchSQL("p", 3); sql != "p.plan_id = ANY($3)" {
-		t.Errorf("planMatchSQL = %q", sql)
-	}
 }
 
 func TestPlanIDs_Rejects(t *testing.T) {
@@ -284,53 +282,49 @@ func TestResolveTargetsPath_BothWorkingDirs(t *testing.T) {
 // each one to a plan on the target's networks.
 func TestPickNamed(t *testing.T) {
 	bv := Target{Name: "Blue Value", ExchangeNetworks: []string{"45334-GAN001"},
-		Files: []string{"GA_JBNKMED0001.json.gz", "GA_NEW.json.gz"}}
-	row := func(id int, name, status string, linked bool) queueRow {
-		return queueRow{pendingFile: pendingFile{ID: id, Location: "https://x/" + name}, Name: name, Status: status, Linked: linked}
+		Files: []string{"GA_NEW.json.gz", "GA_JBNKMED0001.json.gz"}}
+	plans := []string{"45334GA0020002", "45334GA0020008"}
+	file := func(id int64, host, name string) core.IndexFile {
+		addr := "https://" + host + "/" + name
+		return core.IndexFile{FileID: id, Name: name, Address: addr, Location: addr}
 	}
+	index := func(files ...core.IndexFile) map[string][]core.IndexFile {
+		byName := map[string][]core.IndexFile{}
+		for _, f := range files {
+			byName[f.Name] = append(byName[f.Name], f)
+		}
+		return byName
+	}
+	linked := map[int64][]string{1: {"45334GA0020008"}, 2: {"45334GA0010112", "45334GA0020002"}}
 
-	// Parsed and skipped files come back too, for dueForParse to check against
-	// Anthem; a failed or processing file waits for someone to look at it.
-	all := Target{Name: "Blue Value", ExchangeNetworks: []string{"45334-GAN001"},
-		Files: []string{"A.json.gz", "B.json.gz", "C.json.gz", "D.json.gz", "E.json.gz"}}
-	got, err := pickNamed("targets.yaml", all, []queueRow{
-		row(1, "A.json.gz", "completed", true),
-		row(2, "B.json.gz", "pending", true),
-		row(3, "C.json.gz", "skipped", true),
-		row(4, "D.json.gz", "failed", true),
-		row(5, "E.json.gz", "processing", true),
-	})
+	got, err := pickNamed("targets.yaml", bv, index(file(1, "x", "GA_JBNKMED0001.json.gz"), file(2, "x", "GA_NEW.json.gz")), linked, plans)
 	if err != nil {
 		t.Fatalf("pickNamed: %v", err)
 	}
-	var ids []int
-	for _, r := range got {
-		ids = append(ids, r.ID)
-	}
-	if !slices.Equal(ids, []int{1, 2, 3}) {
-		t.Errorf("pickNamed picked files %v, want [1 2 3]: the completed, pending and skipped ones, in order", ids)
+	if len(got) != 2 || got[0].FileID != 2 || got[1].FileID != 1 {
+		t.Errorf("pickNamed picked %v, want files 2 then 1, in the order the target names them", got)
 	}
 
 	rejects := map[string]struct {
-		rows []queueRow
-		want string
+		index map[string][]core.IndexFile
+		want  string
 	}{
-		"a name not in the queue": {
-			[]queueRow{row(21057, "GA_JBNKMED0001.json.gz", "completed", true)},
-			"names GA_NEW.json.gz, which isn't in the queue"},
-		"a name on two rows": {
-			[]queueRow{row(21057, "GA_JBNKMED0001.json.gz", "completed", true), row(40000, "GA_NEW.json.gz", "pending", true),
-				row(40001, "GA_NEW.json.gz", "pending", true)},
-			"matches queue rows [40000 40001]"},
+		"a name not in the index": {
+			index(file(1, "x", "GA_JBNKMED0001.json.gz")),
+			"target \"Blue Value\": GA_NEW.json.gz isn't in this month's index"},
+		// One BlueCard file can be mirrored on many hosts, and a name has to say which.
+		"a name on two hosts": {
+			index(file(1, "x", "GA_JBNKMED0001.json.gz"), file(2, "x", "GA_NEW.json.gz"), file(3, "y", "GA_NEW.json.gz")),
+			"GA_NEW.json.gz matches 2 files in this month's index, https://x/GA_NEW.json.gz, https://y/GA_NEW.json.gz"},
 		// GA_JBKEMED0001 carries Blue Value's label, but the index links it only
 		// to a plan no longer sold.
 		"a file that prices another plan": {
-			[]queueRow{row(21057, "GA_JBNKMED0001.json.gz", "completed", true), row(40000, "GA_NEW.json.gz", "pending", false)},
-			"names GA_NEW.json.gz (file 40000), but the index doesn't link it to a plan on 45334-GAN001"},
+			index(file(1, "x", "GA_JBNKMED0001.json.gz"), file(4, "x", "GA_NEW.json.gz")),
+			"names GA_NEW.json.gz (file 4), but the index doesn't link it to a plan on 45334-GAN001"},
 	}
 	for name, c := range rejects {
 		t.Run(name, func(t *testing.T) {
-			if _, err := pickNamed("targets.yaml", bv, c.rows); err == nil || !strings.Contains(err.Error(), c.want) {
+			if _, err := pickNamed("targets.yaml", bv, c.index, linked, plans); err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("pickNamed gave %v, want an error containing %q", err, c.want)
 			}
 		})

@@ -115,23 +115,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Build + start db, etl, serving
+      - name: Build + start etl, serving
         run: |
           mkdir -p data data-test
-          docker compose up -d --build db etl serving
-      - name: Wait for Postgres
-        run: |
-          for _ in $(seq 1 30); do
-            if docker compose exec -T db pg_isready -U postgres -d honest_healthcare; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::Postgres did not become ready"
-          docker compose logs db
-          exit 1
-      - name: Apply migrations (idempotent — keeps test.* in sync with public)
-        run: make migrate
+          docker compose up -d --build etl serving
       - name: Python — every hermetic test, as make test runs them
         run: |
           docker compose exec -T serving pip install -q -r /app/serving/requirements-dev.txt

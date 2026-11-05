@@ -1,17 +1,16 @@
 package extraction
 
-// Target-plan selection: which pending files does `etl parse` pull, and why.
+// Target-plan selection: which files does `etl parse` download, and why.
 //
 // A target names the insurer files to parse, and nothing else is downloaded,
 // even a file the index links to the same plans. The master index says which
-// plan IDs a file prices (`etl discover` keeps that in index_file_plans), and
+// plan IDs a file prices (`etl discover` writes that to index_file_plans.parquet), and
 // Georgia's exchange plan file says which plan IDs are on each provider network
 // (`make reference STEP=exchange-plans`), so parse stops unless the index links
 // each named file to a plan someone can buy on one of the target's networks.
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -257,60 +256,9 @@ func allPlanIDs(byTarget map[string][]string) []string {
 	return slices.Compact(ids)
 }
 
-// queueRow is a queue row whose file name a target names.
-type queueRow struct {
-	pendingFile
-	Name   string
-	Status string
-	Linked bool       // the index links it to a plan on the target's networks
-	Parsed *time.Time // Anthem's Last-Modified for the copy we last parsed, if known
-}
-
-// pickNamed checks the queue rows found for a target's files and returns, in the
-// order given, the ones parse may download: pending ones, and parsed or skipped
-// ones, which are downloaded again only if Anthem has updated them since
-// (dueForParse). It stops unless every file the target names is in the queue
-// exactly once and the index links it to one of the target's plans, so a
-// mistyped name or a file that prices another plan can't slip by.
-func pickNamed(path string, t Target, rows []queueRow) ([]queueRow, error) {
-	ids := map[string][]int{}
-	for _, r := range rows {
-		ids[r.Name] = append(ids[r.Name], r.ID)
-	}
-	for _, name := range t.Files {
-		switch len(ids[name]) {
-		case 0:
-			return nil, fmt.Errorf("%s: target %q names %s, which isn't in the queue: run `make discover`, or check the name against the index", path, t.Name, name)
-		case 1:
-		default:
-			return nil, fmt.Errorf("%s: target %q names %s, which matches queue rows %v; it has to match one", path, t.Name, name, ids[name])
-		}
-	}
-	var picked []queueRow
-	for _, r := range rows {
-		if !r.Linked {
-			return nil, fmt.Errorf("%s: target %q names %s (file %d), but the index doesn't link it to a plan on %s, so it doesn't price the target's plans",
-				path, t.Name, r.Name, r.ID, strings.Join(t.ExchangeNetworks, ", "))
-		}
-		switch r.Status {
-		case "pending", "completed", "skipped":
-			picked = append(picked, r)
-		default:
-			log.Printf("🎯 %s (file %d) is %s, so it isn't downloaded", r.Name, r.ID, r.Status)
-		}
-	}
-	return picked, nil
-}
-
 // changedSince says whether Anthem's copy of a file, last updated at anthem,
 // differs from the copy we parsed. A parse that didn't record its copy counts
 // as a different one.
 func changedSince(parsed *time.Time, anthem time.Time) bool {
 	return parsed == nil || !parsed.Equal(anthem)
-}
-
-// planMatchSQL is the condition that an index_file_plans row (aliased alias)
-// prices one of planIDs, bound as one array parameter numbered arg.
-func planMatchSQL(alias string, arg int) string {
-	return fmt.Sprintf(`%s.plan_id = ANY($%d)`, alias, arg)
 }

@@ -3,8 +3,8 @@
 #   make clean            # regenerable local artifacts in this worktree
 #   make clean DOCKER=1    # + docker build cache / dangling images / unused volumes
 #
-# Never touches: source, .git, data/ (the parsed store), the running stack's
-# postgres_data volume (it's in-use, so `docker volume prune` skips it).
+# Never touches: source, .git, data/ (the parsed store), or a volume the
+# running stack uses (`docker volume prune` skips it).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -8,31 +8,8 @@
 # host ports + data root are env-driven. Copy .env.example → .env in a worktree
 # to run a second stack alongside the canonical one; see deploy/README.md.
 # With no .env this behaves exactly as before (project `honest-healthcare`,
-# ports 5432/8000/5173, ./data).
+# ports 8000/5173, ./data).
 services:
-  db:
-    image: postgis/postgis:15-3.3-alpine
-    command: >
-      postgres
-      -c max_wal_size=4GB
-      -c checkpoint_timeout=15min
-      -c log_min_messages=warning
-      -c log_checkpoints=off
-    environment:
-      - POSTGRES_DB=honest_healthcare
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    ports:
-      - "${DB_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   etl:
     build:
       context: .
@@ -50,13 +27,8 @@ services:
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable
-      - TEST_DATABASE_URL=postgres://postgres:postgres@db:5432/honest_healthcare?sslmode=disable&search_path=test
       # Empty unless a worktree builds its own serving tables into ./data-local/serving.
       - SERVING_DIR=${SERVING_DIR:-}
-    depends_on:
-      db:
-        condition: service_healthy
 
   serving:
     build:
@@ -100,6 +72,5 @@ services:
       - serving
 
 volumes:
-  postgres_data:
   go-mod-cache:
   go-build-cache:

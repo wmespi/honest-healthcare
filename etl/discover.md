@@ -1,91 +1,61 @@
 # `make discover` — Phase 1: index discovery
 
-*Read this when working on the monthly metadata sync into the Postgres queue.*
+*Read this when working on the monthly read of Anthem's master index: the file list and the plan → file link.*
 
-Rebuilds `index_files` (the parse queue) and `index_file_plans` (the plan → file link) from this month's Anthem master index, and writes the link to `data/anthem/index_file_plans.parquet` for the build.
+Reads this month's Anthem master index and writes two Parquet files under `data/anthem/`: the files it lists (`index_files.parquet`) and the plans each one prices (`index_file_plans.parquet`).
+Parse picks the files [`targets.yaml`](targets.yaml) names from them ([parse.md](parse.md#target-selection)), and the build reads the link ([build.md](../build/build.md#the-find-care-tables)).
 Safe to re-run.
 `make discover` → `etl discover` (package `etl/discovery`).
 
 | Variable | Effect |
 |---|---|
-| `TEST=1` | test schema + `data-test/` |
-| `SCHEMA=1` | stream the index, write `data/anthem/index_schema.json`, **no DB writes** |
+| `TEST=1` | `data-test/` instead of `data/` |
+| `SCHEMA=1` | stream the index, write `data/anthem/index_schema.json` and nothing else |
 | `NO_CACHE=1` | force re-download of the master index |
 | `INDEX_URL=…` | override the monthly master-index URL |
-| `LIMIT=n` | cap reporting structures (default 100 in test mode); a limited run only adds and updates |
+| `LIMIT=n` | read only the first n reporting structures, with `TEST=1` or `SCHEMA=1` only (default 100 in test mode) |
 
 ## What it does
 
-1. Downloads the master index to a local gzip cache (`data/anthem/index_cache.json.gz`,
-   multi-GB) via parallel HTTP Range requests; re-runs on the same monthly URL skip
-   the download unless `NO_CACHE=1`. The cache is only needed during a run.
-2. Streams the JSON, walks every `reporting_structure`, and per file (its address,
-   [below](#the-monthly-rebuild)) accumulates `market_types`, `hios_issuer_ids` (first 5 chars of each HIOS
-   `plan_id`), `plan_states` (2-letter state from `plan_id[5:7]` — the positional,
-   no-regex GA signal), `reporting_entity_*` (from the index root; the parser later
-   overwrites them with the per-file value), `network_entity` (prefix before `" : "`
-   in a BlueCard file description, else NULL), `description`, `location`.
-3. Keeps the **plan → file link**: every `(reporting_plan, in_network_file)` pair,
-   **scoped to Georgia individual-market plans** (`market_type == "individual"` or
-   `plan_id[5:7] == "GA"`), becomes an `index_file_plans` row (`plan_id`,
-   `plan_id_type`, `plan_name`, `market_type`, `file_id`). That answers *"which files
-   serve plan X"* and is what [`parse`](parse.md) selects on. The scope is the
-   project's product boundary (AGENTS.md, `docs/direction.md`), not `targets.yaml`:
-   the full cross-product is hundreds of millions of rows/month, almost all employer
-   plans nothing here selects on.
+1. Downloads the master index to a local gzip cache (`data/anthem/index_cache.json.gz`, multi-GB) via parallel HTTP Range requests; re-runs on the same monthly URL skip the download unless `NO_CACHE=1`.
+   The cache is only needed during a run.
+2. Streams the JSON and walks every `reporting_structure`.
+   Each file it lists becomes one `index_files` row: `file_id`, `name`, `address` and `location` ([below](#a-files-id)).
+3. Keeps the **plan → file link**: every `(file_id, plan_id)` pair once, **scoped to Georgia individual-market plans** (`market_type == "individual"` or `plan_id[5:7] == "GA"`).
+   That answers *"which files price plan X"*.
+   The scope is the project's product boundary (`docs/direction.md`), not `targets.yaml`, so a new target never needs a new discover: the full cross-product is hundreds of millions of rows a month, almost all employer plans nothing here selects on.
 4. Writes `data/anthem/index_schema.json` (a compact, array-truncated example).
-5. Bulk-loads via `COPY` into `TEMP` staging tables, then rebuilds the queue from them
-   set-based, in one transaction ([below](#the-monthly-rebuild)). GIN indexes on the
-   array columns are dropped before the write, rebuilt once after.
-6. Backfills `file_size_bytes` with HEAD requests so the queue can be size-ordered.
+5. Writes both Parquet files sorted by ID, so the same index always makes the same bytes, and moves them into place together, so nothing reads one month's files with another's links.
 
-## Why the pairs never sit in memory
+Pairs are kept once each in memory as the index streams.
+The index publishes `reporting_plans[] × in_network_files[]`, tens of millions of pairs, but kept to Georgia's individual market they come to a few hundred thousand distinct ones, so memory doesn't grow with the cross-product (Critical Rule 3 applies to discovery too).
+Anthem's plan names and market types aren't kept: the plan ID is what links a file to Georgia's plan file.
 
-`reporting_plans[] × in_network_files[]` is a cross-product of tens of millions of
-pairs, so accumulating per file would blow the heap (Critical Rule 3 applies to
-discovery too). Instead each file gets a run-local `file_key` int on first
-sight, so a staged pair carries 8 bytes, not the signed URL; `planStager` buffers a
-bounded batch (200k pairs), dedupes within it, `COPY`s it to a `TEMP` `_plan_stage`
-and resets; after the `index_files` upsert assigns ids, one statement resolves
-`file_key → id` and inserts `DISTINCT ON (file_id, plan_id, plan_name, market_type)
-… ON CONFLICT DO NOTHING`. Cross-batch duplicates collapse there, and so do a limited run's pairs that are already linked.
+## A file's ID
 
-## The monthly rebuild
+A file's `address` is its location without the query a signed URL carries.
+Its `file_id` is a hash of the address (`core.FileID`), so a file has the same ID every month, and only its signed `location` changes.
+Parsed Parquet is keyed by that ID (`prices/net=<slug>/<id>.parquet`), so a re-parse replaces the file's output instead of adding a second copy.
+Discover stops if two addresses ever hash to one ID.
 
-Each month's index is a new list.
-An out-of-state location is a CloudFront-signed URL (`?Expires=…&Signature=…`) that dies after about a month, and its file name carries a `YYYY-MM_` prefix, so those are new files every month.
-Discover matches files on `index_files.address`, the location without its query.
-A file Anthem keeps listing, like a Georgia file, therefore keeps its id, status and parse record from month to month, and only its signed location is refreshed.
-Parsed Parquet is keyed by that id (`prices/net=<slug>/<id>.parquet`), so a re-parse replaces the file's output instead of adding a second copy.
+A file's `name` alone isn't unique: one BlueCard file can be mirrored on many hosts.
+An out-of-state location is CloudFront-signed (`?Expires=…&Signature=…`) and dies after about a month, and its name carries a `YYYY-MM_` prefix, so those are new files every month.
 
-A run that reads the whole index makes the queue match it, in one transaction:
-
-- every file the index lists is added or refreshed;
-- a file it no longer lists is removed, unless it's `completed`: its Parquet uses its id, so its row stays, with no plan links;
-- the plan links are replaced with this index's.
-
-It then writes `data/anthem/index_file_plans.parquet`, one row per `(file_id, plan_id)` the index links, in order, for the build ([build.md](../build/build.md#the-find-care-tables)), which reads no database.
-The file moves into place only once the queue commits, so the two always agree.
-Anthem's plan names and market types stay in Postgres.
-
-A limited run (`LIMIT=n`) reads only part of the index, so it only adds and updates, and leaves the Parquet as it was.
-Discover stops before downloading the index if a file is `processing`, because a parse is in it or one stopped part way ([queue.md](queue.md#recovery)).
-It locks the queue while it writes, so a parse that starts meanwhile waits for it.
-Whether a parsed file is downloaded again is parse's call ([queue.md](queue.md#when-anthem-updates-a-file)).
+Each run writes this month's lists whole, so a file the index no longer lists is gone from them.
+Its parsed Parquet stays on disk, and the build leaves it out, because the link no longer names it.
+Whether a listed file is downloaded is parse's call ([parse.md](parse.md#when-parse-downloads-a-file)).
 
 ```bash
 make discover   # this month's index
 make discover NO_CACHE=1 INDEX_URL="https://…/2026-12-01_anthem_index.json.gz"
 ```
 
-## Which files serve a plan?
+## Which files price a plan?
 
-```sql
-SELECT f.id, f.status, f.location
-FROM index_files f
-JOIN index_file_plans p ON p.file_id = f.id
-WHERE p.plan_name ILIKE '%blue value%';
+```bash
+docker compose exec serving python3 -c "import duckdb; duckdb.sql(\"
+  SELECT f.file_id, f.name, f.address
+  FROM '/app/data/anthem/index_files.parquet' f
+  JOIN '/app/data/anthem/index_file_plans.parquet' l USING (file_id)
+  WHERE l.plan_id = '45334GA0020002'\").show()"
 ```
-
-`etl parse` runs the same shape as an `EXISTS` semi-join, with the patterns read
-from [`targets.yaml`](targets.yaml) — see [parse.md](parse.md).

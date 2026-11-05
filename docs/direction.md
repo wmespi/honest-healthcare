@@ -158,7 +158,7 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 | **CMS Health Insurance Exchange PUFs** (Plan Attributes + Benefits & Cost-Sharing especially) | structured per-plan deductible, OOP max, copays, coinsurance, metal, premium, counties, network/formulary URLs | free, annual CSV | med — kills the "user types their deductible" gap |
 | **QHP Landscape Files** | county plan list w/ premium, deductible, OOP, metal | free | low — GA moved to the "Georgia Access" state exchange for 2026; confirm GA still in the CMS files or pull Georgia Access's own data |
 | **QHP provider & formulary machine-readable JSON** (CMS schema, ≠ TiC) | per-plan in-network NPI roster + drug formulary | free | med — directory accuracy is poor, but it's the only machine-readable roster |
-| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs + `index_files.hios_issuer_ids`) | *derives* plan → network | free | done for Georgia's exchange plans ([exchange-plans](../reference/exchange-plans.md)) |
+| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs) | *derives* plan → network | free | done for Georgia's exchange plans ([exchange-plans](../reference/exchange-plans.md)) |
 | CMS Marketplace Open Enrollment PUFs | enrollment by plan / metal / county | free | low — secondary |
 
 ### Other pricing inputs

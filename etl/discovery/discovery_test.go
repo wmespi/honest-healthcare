@@ -24,17 +24,17 @@ func TestHiosStateCode(t *testing.T) {
 	}
 }
 
-func TestFileAddress(t *testing.T) {
-	cases := map[string]string{
-		// A Georgia file's location carries no query, so it is its own address.
-		"https://anthem.s3.amazonaws.com/anthem/GA_JBNKMED0001.json.gz": "https://anthem.s3.amazonaws.com/anthem/GA_JBNKMED0001.json.gz",
-		// A signed location changes every month; its address doesn't.
-		"https://mrf.example.com/2026-10_301_71B0_in-network-rates_01_of_02.json.gz?Expires=1&Signature=a": "https://mrf.example.com/2026-10_301_71B0_in-network-rates_01_of_02.json.gz",
-		"https://x/a.json.gz?b=1?c=2": "https://x/a.json.gz",
+func TestFileList(t *testing.T) {
+	files := map[string]core.IndexFile{
+		"https://x/b.json.gz": {FileID: 2, Address: "https://x/b.json.gz"},
+		"https://x/a.json.gz": {FileID: 1, Address: "https://x/a.json.gz"},
 	}
-	for location, want := range cases {
-		if got := fileAddress(location); got != want {
-			t.Errorf("fileAddress(%q) = %q, want %q", location, got, want)
-		}
+	list, err := fileList(files)
+	if err != nil || len(list) != 2 || list[0].FileID != 1 || list[1].FileID != 2 {
+		t.Fatalf("fileList = %v, %v; want both files in ID order", list, err)
+	}
+	files["https://x/c.json.gz"] = core.IndexFile{FileID: 2, Address: "https://x/c.json.gz"}
+	if _, err := fileList(files); err == nil {
+		t.Error("fileList accepted two addresses with one file ID")
 	}
 }

@@ -1,12 +1,12 @@
-# Storage schema — Parquet + Postgres
+# Storage schema - Parquet
 
 *Read this when writing a query against the data or changing what the parser
-writes. The single home for the on-disk layout — Parquet and Postgres both.*
+writes. The single home for the on-disk layout.*
 
-The serving layer reads **Parquet**. Postgres holds only the discovery queue and one
-log table. `du -sh data/*` and `make psql` give the current inventory.
+Everything is **Parquet** under `data/`, and there is no database.
+`du -sh data/*` gives the current inventory.
 
-**Why Parquet + DuckDB, not Postgres.** One sequential bulk writer (the ETL) and
+**Why Parquet + DuckDB, not a database.** One sequential bulk writer (the ETL) and
 read-only analytical queries (the API) — the opposite of OLTP. Columnar ZSTD is far
 smaller for repetitive rate data, DuckDB scans only the columns a query needs, and
 neither side needs a server process.
@@ -42,7 +42,11 @@ roster per file. `prices ⨝ group_sets` reproduces every original
 | `providers/{id}.parquet` | `file_id`, `provider_group_id`, `network_name`, `npi`, `tin_type`, `tin_value` |
 | `codes/{id}.parquet` | `billing_code_type`, `billing_code`, `name`, `description` |
 | `npi_lookup.parquet` | `npi`, `tin_value` |
+| `index_files.parquet` | `file_id`, `name`, `address`, `location` |
 | `index_file_plans.parquet` | `file_id`, `plan_id` |
+| `parses/{id}.parquet` | `file_id`, `name`, `address`, `status`, `reason`, `anthem_updated_at`, `finished_at`, `compressed_bytes`, `price_rows`, `provider_rows`, `price_rows_dropped`, `provider_rows_dropped` |
+
+`{id}` is a file's ID, a hash of its address ([etl/discover.md](../etl/discover.md#a-files-id)).
 
 `tin_value` is the billing entity's tax id — in Anthem's files it's an **NPI**
 (`tin_type` is always `'npi'`), usually an organization's and sometimes a doctor's
@@ -51,8 +55,9 @@ practice recurs across the MRF as many file-local `provider_group_id`s but keeps
 one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 The find-care build calls it the biller ([build/build.md](../build/build.md#the-find-care-tables)).
 
-`index_file_plans.parquet` is the plan → file link in the index `make discover` last read whole: one row per `(file_id, plan_id)`, sorted, copied from the Postgres table of the same name below ([etl/discover.md](../etl/discover.md#the-monthly-rebuild)).
-The build reads it to tell which parsed file prices a network, so it reads no database.
+`index_files.parquet` is every file this month's index lists, and `index_file_plans.parquet` the Georgia individual-market plans it lists against each, one row per `(file_id, plan_id)`; `make discover` writes both ([etl/discover.md](../etl/discover.md)).
+Parse picks the files `etl/targets.yaml` names from them, and the build reads the link to tell which parsed file prices a network.
+`parses/{id}.parquet` is one row saying what the last parse of a file made of it, which decides whether parse downloads it again ([etl/parse.md](../etl/parse.md#when-parse-downloads-a-file)).
 
 ### Why price grain + `group_sets`
 
@@ -117,21 +122,4 @@ Paths are under `data/`, and each file is built by `make reference` with the `ST
 | `reference/exchange_premiums_ga.parquet`<br>[`STEP=exchange-plans`](../reference/exchange-plans.md) | The monthly premium for one person, for ages 0 to 64, where 64 means 64 and over.<br>**Columns:** `plan_id`, `rating_area`, `age`, `premium`, `tobacco_premium` |
 | `reference/exchange_cost_sharing_ga.parquet`<br>[`STEP=exchange-plans`](../reference/exchange-plans.md) | What each plan above charges the member in network, by benefit, in Georgia's wording, such as `$300.00 Copay after deductible`.<br>**Columns:** `plan_id`, `benefit`, `covered`, `copay`, `coinsurance` |
 
----
-
-## Postgres — `honest_healthcare` (discovery queue + log only)
-
-`localhost:5432` (`db:5432` in Docker), database `honest_healthcare`, user/password
-`postgres`/`postgres`. `db/init.sql` creates a fresh volume; `db/migrations/*.sql` are
-idempotent and `make migrate` applies them.
-
-| Table | Written by | Purpose |
-|---|---|---|
-| `index_files` | `make discover` / `make parse` | The parse queue — one row per MRF. `address` (the location without its signed query, unique: the key a file keeps across months — [etl/discover.md](../etl/discover.md#the-monthly-rebuild)), `location` (this month's signed URL), `status` (`pending`/`processing`/`completed`/`failed`/`skipped` — [etl/queue.md](../etl/queue.md#status-lifecycle)), `source_updated_at` / `parsed_updated_at` (Anthem's `Last-Modified`, as last seen and as last parsed — [etl/queue.md](../etl/queue.md#when-anthem-updates-a-file)), `file_size_bytes`, `market_types[]`, `hios_issuer_ids[]`, `plan_states[]`, `reporting_entity_*`, `created_at`, `completed_at`, `failure_reason`. GIN indexes on the array columns. |
-| `index_file_plans` | `make discover` | The plan → file link in this month's index — one row per `(file, plan)`, **scoped to Georgia individual-market plans** ([etl/discover.md](../etl/discover.md)): `file_id` (FK, `ON DELETE CASCADE`), `plan_id`, `plan_id_type`, `plan_name`, `market_type`, unique on `(file_id, plan_id, plan_name, market_type)`. Answers *"which files serve plan X"*; `etl parse` checks each file `etl/targets.yaml` names against it ([etl/parse.md](../etl/parse.md#target-selection)), and a full `make discover` copies its `(file_id, plan_id)` pairs to `anthem/index_file_plans.parquet` for the build. Indexed on `plan_id` (`text_pattern_ops`, prefix lookup); `plan_name` lookups are `ILIKE '%…%'` and unindexed. |
-| `billing_codes` | `make parse` | Reference upsert — `billing_code` PK, `billing_code_type`, `name`, `description`; first occurrence wins. |
-| `coverage_log` | `make parse` | One row per *parsed* file (`file_id` `UNIQUE`; a re-parse upserts; a probe-`skipped` file gets none) — rate/provider row counts, new codes/NPIs/TINs, distinct networks/settings/billing-classes, `notes` (GA-filter drop counts). Nothing reads it back. |
-
-Status lifecycle and stuck-row recovery: [etl/queue.md](../etl/queue.md). The monthly
-rebuild: [etl/discover.md](../etl/discover.md#the-monthly-rebuild). Test isolation (`test.*`,
-`data-test/`): [testing.md](testing.md).
+Test isolation (`data-test/`): [testing.md](testing.md).

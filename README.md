@@ -42,7 +42,7 @@ out-of-pocket cost.
 
 ## Requirements
 
-Everything runs in containers — Go, Node, Python libraries, Postgres, and DuckDB
+Everything runs in containers - Go, Node, Python libraries and DuckDB
 are **not** installed on your machine. You need four host tools:
 
 | Tool | Why | Install |
@@ -82,12 +82,12 @@ make test                   # full suite against committed fixtures
 while; run them in order, stop any time — the UI shows whatever has parsed.
 
 ```bash
-make discover       # one-time, large download — Anthem's master index → the file queue
+make discover       # large download - Anthem's master index → this month's file list
 make reference STEP=nppes
                     # Georgia provider registry (names, specialties, and
                     #   the GA filter that keeps parse output small) — before parse
-make parse          # streams the rate files that serve a plan in
-                    #   etl/targets.yaml into Parquet, smallest first
+make parse          # streams the rate files etl/targets.yaml names
+                    #   into Parquet
 ```
 
 **6 — Reference data** — consumer labels (without them procedures show as
@@ -145,7 +145,6 @@ Rules and footprint: [AGENTS.md](AGENTS.md#development-commands).
 | Storage | Parquet + ZSTD, read in-process by DuckDB |
 | API | Python + FastAPI |
 | UI | React + Vite |
-| Queue | Postgres 15 + PostGIS (discovery queue only) |
 
 Architecture, the Go-vs-Python split, and where each piece is documented:
 [AGENTS.md](AGENTS.md).

@@ -3,15 +3,11 @@ package fixture
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/wmespi/honest-healthcare/etl/core"
 )
@@ -32,27 +28,14 @@ const (
 // regression tests. Relative to the etl/ working dir.
 const FixtureDir = "extraction/testdata/fixtures"
 
-// makeFixture streams a gzipped MRF and writes a heavily truncated, deterministic
+// Make streams the gzipped MRF at url and writes a heavily truncated, deterministic
 // *.json.gz fixture: the first N provider_references, the first N in_network items
 // that reference a kept provider group (negotiated_rates filtered to kept groups
 // and capped), and every scalar root key verbatim. provider_references is emitted
 // before in_network so the parser's ordering assumption holds.
-func Make(ctx context.Context, conn *pgx.Conn, fileID int, fixtureURL, name string) {
-	url := fixtureURL
-	if url == "" {
-		if conn == nil || fileID == 0 {
-			log.Fatalf("❌ -make-fixture needs -file-ids N or -fixture-url URL")
-		}
-		if err := conn.QueryRow(ctx, `SELECT location FROM index_files WHERE id = $1`, fileID).Scan(&url); err != nil {
-			log.Fatalf("❌ Could not resolve URL for file id %d: %v", fileID, err)
-		}
-	}
+func Make(url, name string) {
 	if name == "" {
-		if fileID != 0 {
-			name = fmt.Sprintf("%d", fileID)
-		} else {
-			name = "fixture"
-		}
+		name = "fixture"
 	}
 
 	log.Printf("🧪 Building fixture %q from %s", name, url)
