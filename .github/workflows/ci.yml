@@ -71,13 +71,13 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: etl
+        working-directory: ingestion/etl
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: etl/go.mod
-          cache-dependency-path: etl/go.sum
+          go-version-file: ingestion/etl/go.mod
+          cache-dependency-path: ingestion/etl/go.sum
       - name: gofmt (non-mutating check)
         run: |
           unformatted="$(gofmt -l .)"
@@ -108,29 +108,23 @@ jobs:
       - run: npm ci
       - run: npx vitest run
 
-  integration:
-    name: Serving + ETL (compose)
+  layers:
+    name: Layers + ETL e2e (compose)
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Build + start etl, serving
+      - name: Build + start ingestion, integration, serving
         run: |
-          mkdir -p data data-test
-          docker compose up -d --build etl serving
-      - name: Python — every hermetic test, as make test runs them
-        run: |
-          docker compose exec -T serving pip install -q -r /app/serving/requirements-dev.txt
-          docker compose exec -T -w /app serving python -m pytest -q
+          # Made by the runner's user, so the e2e tests can write into them from the host.
+          mkdir -p data/raw data/ingestion data/serving data-test/raw data-test/ingestion data-test/serving
+          docker compose up -d --build ingestion integration serving
+      - name: ETL e2e, then each layer's tests in its own container, as make test runs them
+        run: make _test-layers
       - name: Golden-answer tests (#96) — real API, empty data/ here, must skip not fail
         run: |
-          docker compose exec -T -w /app serving python -m pytest tests/live -v
-      - name: ETL e2e + NPPES fixtures
-        run: |
-          bash tests/e2e/discover.sh
-          bash tests/e2e/parse.sh
-          bash tests/e2e/nppes.sh
+          docker compose exec -T serving python3 -m pytest tests/live -v
       - name: Stack logs on failure
         if: failure()
         run: docker compose logs
@@ -144,11 +138,21 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build the prod image targets
         run: |
-          docker build -f deploy/Dockerfile.etl      --target prod -t hh-etl:ci .
-          docker build -f deploy/Dockerfile.serving                -t hh-serving:ci .
-          docker build -f deploy/Dockerfile.frontend --target prod -t hh-frontend:ci .
-      - name: Smoke — etl binary runs
-        run: docker run --rm hh-etl:ci --help | grep -q "discover"
+          docker build -f deploy/Dockerfile.ingestion   --target prod -t hh-ingestion:ci .
+          docker build -f deploy/Dockerfile.integration --target prod -t hh-integration:ci .
+          docker build -f deploy/Dockerfile.serving     --target prod -t hh-serving:ci .
+          docker build -f deploy/Dockerfile.frontend    --target prod -t hh-frontend:ci .
+      - name: Smoke - ingestion's etl binary and Python steps run
+        run: |
+          docker run --rm hh-ingestion:ci etl --help 2>&1 | grep -q "discover"
+          docker run --rm -w /app hh-ingestion:ci python3 -m ingestion.anthem_rates --help | grep -q "targets"
+      - name: Smoke - integration stops on a missing input, naming the step that makes it
+        run: |
+          # No data/ is mounted, so the build has nothing to read and must say so.
+          if out=$(docker run --rm hh-integration:ci 2>&1); then
+            echo "the build ran with no inputs"; echo "$out"; exit 1
+          fi
+          echo "$out" | grep -q "no /app/data/ingestion/payer_rates/" || { echo "$out"; exit 1; }
       - name: Smoke — serving answers /
         run: |
           # No data/ is mounted here, so there's no serving-table build for the
@@ -180,7 +184,7 @@ jobs:
 
   gate:
     name: CI Gate
-    needs: [changes, go, web, integration, images]
+    needs: [changes, go, web, layers, images]
     if: always()
     runs-on: ubuntu-latest
     steps:

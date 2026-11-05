@@ -1,10 +1,9 @@
 """Where the serving tables live and how to query them.
 
 The API reads ONLY `data/serving/` — the build step's output (`make build`,
-build/build.md; schema in ../docs/schema.md). Raw `anthem/`, `nppes/`,
-`reference/`, `cms/` are build inputs, never read here, and there is no
-fallback when the build is missing: `GET /` says so, and every other route
-errors. This module holds the table sources, the one process-wide DuckDB
+integration/build.md; schema in ../docs/schema.md), and the only data its
+container mounts. There is no fallback when the build is missing: `GET /` says
+so, and every other route errors. This module holds the table sources, the one process-wide DuckDB
 database.
 """
 import json
@@ -13,10 +12,8 @@ import threading
 from typing import Optional
 
 DATA_DIR = os.getenv("DATA_DIR", "/app/data")
-# The build's output dir. SERVING_DIR lets a worktree serve its own
-# ./data-local/serving while the build reads the shared corpus (GH #59); with
-# nothing set this is DATA_DIR/serving. `or`, not the getenv default: Compose
-# passes an unset var through as "".
+# The build's output dir: DATA_DIR/serving unless SERVING_DIR says otherwise, as
+# the app's tests do.
 SERVING_DIR = os.getenv("SERVING_DIR") or f"{DATA_DIR}/serving"
 
 
@@ -24,7 +21,7 @@ def _table(name: str) -> str:
     return f"read_parquet('{SERVING_DIR}/{name}.parquet')"
 
 
-# The find-care tables (build/tables/, the ERD on #135), which the routes read.
+# The find-care tables (integration/tables/, the ERD on #135), which the routes read.
 NETWORKS_SRC = _table("networks")
 PLANS_SRC = _table("plans")
 SERVICES_SRC = _table("services")

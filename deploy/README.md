@@ -2,25 +2,30 @@
 
 *Read this before touching a Dockerfile, a port, or sharing the app with someone.*
 
-One Dockerfile per service. Each has a **`prod`** target (the deployable artifact)
-and, where the dev loop needs a toolchain, a **`dev`** target. `docker-compose.yml`
-runs the dev target and layers on the dev conveniences (bind-mounted source,
-`--reload`, loopback ports, build caches). CI builds all three prod images and
-smokes each (`images` job in `.github/workflows/ci.yml`); `docker images` gives
-their sizes.
+One Dockerfile per layer, plus the frontend's, and one container each ([architecture.md](../docs/architecture.md#layers)).
+Each has a **`prod`** target (the deployable artifact, holding only its own layer's code) and a
+**`dev`** target (the toolchains and test deps). `docker-compose.yml` runs the dev target and
+layers on the dev conveniences (the layer's own code bind-mounted, `--reload`, loopback ports,
+build caches). CI builds all four prod images and smokes each (`images` job in
+`.github/workflows/ci.yml`); `docker images` gives their sizes.
 
 | File | `dev` target | `prod` target |
 |---|---|---|
-| `Dockerfile.etl` | Go toolchain (tag matches `go.mod`'s `toolchain`); source mounted, `go run .` on demand | static `CGO_ENABLED=0` binary on `alpine` (`ENTRYPOINT ["etl"]`) |
-| `Dockerfile.serving` | same image — compose adds `--reload` + mount | `python:3.14-slim` + pinned wheels, `uvicorn` no reload |
+| `Dockerfile.ingestion` | `python:3.14-slim` + the Go toolchain (tag matches `go.mod`'s `toolchain`); `ingestion/` mounted, `go run .` and `python3 -m` on demand | static `CGO_ENABLED=0` `etl` binary beside the Python steps |
+| `Dockerfile.integration` | `python:3.14-slim` + pinned wheels + pytest; `integration/` mounted | the build, run once (`python3 -m integration.build`) |
+| `Dockerfile.serving` | `python:3.14-slim` + pinned wheels + test deps; `serving/` mounted, `uvicorn --reload` | `uvicorn`, no reload |
 | `Dockerfile.frontend` | `node:20-slim` vite dev server | `nginx:alpine` serving the built `dist/` |
 
+Each container mounts only the data folders its layer reads and writes, the layer before it read-only ([architecture.md](../docs/architecture.md#layers)), as in the `docker run` lines below.
+
 ```bash
-docker build -f deploy/Dockerfile.etl      --target prod -t hh-etl .
-docker build -f deploy/Dockerfile.serving                -t hh-serving .
-docker build -f deploy/Dockerfile.frontend --target prod -t hh-frontend .
-docker run --rm hh-etl parse -all-npis          # batch job
-docker run -p 8000:8000 -v "$PWD/data:/app/data" hh-serving
+docker build -f deploy/Dockerfile.ingestion   --target prod -t hh-ingestion .
+docker build -f deploy/Dockerfile.integration --target prod -t hh-integration .
+docker build -f deploy/Dockerfile.serving     --target prod -t hh-serving .
+docker build -f deploy/Dockerfile.frontend    --target prod -t hh-frontend .
+docker run --rm -v "$PWD/data/raw:/app/data/raw" -v "$PWD/data/ingestion:/app/data/ingestion" hh-ingestion etl discover
+docker run --rm -v "$PWD/data/ingestion:/app/data/ingestion:ro" -v "$PWD/data/serving:/app/data/serving" hh-integration
+docker run -p 8000:8000 -v "$PWD/data/serving:/app/data/serving:ro" hh-serving
 ```
 
 The frontend container keeps `node_modules` in a volume filled when its image was built,
@@ -29,8 +34,7 @@ are rebuilt: `docker compose up -d --build --renew-anon-volumes frontend`. Until
 says it can't resolve the new package.
 
 A deployable `compose.prod.yml` (no bind mounts, resource limits) is
-[#17](https://github.com/wmespi/honest-healthcare/issues/17); `.:/app` mount scoping
-is [#21](https://github.com/wmespi/honest-healthcare/issues/21).
+[#17](https://github.com/wmespi/honest-healthcare/issues/17).
 
 ## Ports and multiple stacks
 
@@ -41,8 +45,8 @@ loopback by default. `tailscale serve` (`scripts/tailscale-up.sh`) proxies
 access.
 
 `container_name:` is unset, so `COMPOSE_PROJECT_NAME` (default: directory name)
-scopes every container, network and volume. `API_PORT` / `WEB_PORT` and
-`HH_DATA_ROOT` are env-driven: copy `.env.example` → `.env` in a worktree to run a
+scopes every container, network and volume. `API_PORT` / `WEB_PORT`,
+`HH_DATA_ROOT` and `HH_SERVING_DIR` are env-driven: copy `.env.example` → `.env` in a worktree to run a
 second stack beside the canonical one (`make worktree` does this).
 
 ## Sharing the app with a tester

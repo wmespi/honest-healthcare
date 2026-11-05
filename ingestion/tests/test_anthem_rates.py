@@ -119,15 +119,17 @@ def test_a_network_with_no_plans_stops_the_step(anthem):
 
 
 def test_every_target_in_the_targets_file_names_networks_and_labels():
-    """etl/targets.yaml itself: every target pairs exchange networks with labels."""
+    """ingestion/etl/targets.yaml itself: every target pairs exchange networks with labels."""
     for name, nets, patterns in read_targets():
         assert nets and patterns, name
 
 
 def test_ingestion_imports_nothing_from_the_layers_after_it():
     r = subprocess.run([sys.executable, "-c",
-                        "import sys, ingestion.anthem_rates; "
-                        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('build', 'serving')))"],
+                        "import importlib, pkgutil, sys, ingestion.anthem_rates, ingestion.reference; "
+                        "[importlib.import_module(f'ingestion.reference.{m.name}') "
+                        " for m in pkgutil.iter_modules(ingestion.reference.__path__) if m.name != 'tests']; "
+                        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('integration', 'serving')))"],
                        cwd=REPO, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "[]"

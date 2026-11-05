@@ -58,15 +58,18 @@ else
 fi
 
 # ── 2. python venv + dev deps ───────────────────────────────────────────────
-say "python venv: .venv  (serving/requirements-dev.txt)"
+# Every layer's deps in one venv, so `make test LOCAL=1` runs every suite; a
+# layer that pins a shared dep differently fails the install here.
+REQS=(-r ingestion/requirements-dev.txt -r integration/requirements-dev.txt -r serving/requirements-dev.txt)
+say "python venv: .venv  (each layer's requirements-dev.txt)"
 # Rebuilt every run, so a Python bump in .mise.toml replaces the old interpreter.
 if [ -n "$UV" ]; then
   "$UV" venv --clear --python "$PY" .venv >/dev/null
-  "$UV" pip install --python .venv -q -r serving/requirements-dev.txt
+  "$UV" pip install --python .venv -q "${REQS[@]}"
 else
   "$PY" -m venv --clear .venv
   ./.venv/bin/pip install -q --upgrade pip
-  ./.venv/bin/pip install -q -r serving/requirements-dev.txt
+  ./.venv/bin/pip install -q "${REQS[@]}"
 fi
 
 # ── 3. frontend deps ───────────────────────────────────────────────────────

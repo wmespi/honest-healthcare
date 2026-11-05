@@ -222,9 +222,9 @@ spark-warehouse/
 metastore_db/
 derby.log
 *.parquet
-etl/etl
-etl/etl-parser
-etl/go-parser
+ingestion/etl/etl
+ingestion/etl/etl-parser
+ingestion/etl/go-parser
 
 # node_modules anywhere in the tree (frontend/.gitignore already covers its
 # own; this catches a root-level `node_modules/` too, e.g. a stray `npm ci`
@@ -234,10 +234,10 @@ node_modules/
 docker-compose.override.yml
 
 # ...but DO commit the test fixtures (small, truncated *.json.gz + synthetic MRFs)
-!etl/extraction/testdata/
-!etl/extraction/testdata/**
-!etl/nppes/testdata/
-!etl/nppes/testdata/**
+!ingestion/etl/extraction/testdata/
+!ingestion/etl/extraction/testdata/**
+!ingestion/etl/nppes/testdata/
+!ingestion/etl/nppes/testdata/**
 
 # DuckDB spill dir if a query runs without temp_directory set (should not happen — see serving/data_sources.py db())
 .tmp/

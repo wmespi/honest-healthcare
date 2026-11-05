@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Doc drift check — runs in `make check` and CI. Exit 1 with a list on any miss.
 
-For AGENTS.md, README.md, docs/, etl/, reference/, serving/, build/, deploy/ Markdown:
+For AGENTS.md, README.md, docs/, ingestion/etl/, ingestion/reference/, serving/, integration/, deploy/ Markdown:
   1. every relative Markdown link resolves to a file or directory;
   2. every `make <target>` in a code span / fenced block exists in the Makefile;
   3. every backticked path that looks like a file (a/b.c) exists in the repo.
@@ -16,8 +16,8 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DOC_GLOBS = ["AGENTS.md", "README.md", "docs/*.md", "etl/*.md", "reference/*.md",
-             "serving/*.md", "build/*.md", "deploy/*.md"]
+DOC_GLOBS = ["AGENTS.md", "README.md", "docs/*.md", "ingestion/etl/*.md", "ingestion/reference/*.md",
+             "serving/*.md", "integration/*.md", "deploy/*.md"]
 # Generated / gitignored / container-side locations a doc may legitimately name.
 GENERATED = ("data/", "data-test/", "data-local/", "db/snapshots/", "/app/", "~/", ".tmp/",
              "node_modules/", ".venv/", ".claude/settings.local.json")

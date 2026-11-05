@@ -5,7 +5,7 @@
 # Versions match the container images so host tests behave like CI:
 #   python -> deploy/Dockerfile.serving (python:3.14-slim)
 #   node   -> deploy/Dockerfile.frontend (node:20-slim)
-#   go     -> etl/go.mod `toolchain go1.24.13` / golang:1.24.13-alpine
+#   go     -> ingestion/etl/go.mod `toolchain go1.24.13` / golang:1.24.13-alpine
 #
 # Setup:  brew install mise  (then add `mise activate` to your shell — see
 #         https://mise.jdx.dev/getting-started.html), then `scripts/dev-setup.sh`.

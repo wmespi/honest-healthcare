@@ -1,0 +1,5 @@
+# Runtime deps for the build (integration/) - pinned. Bump deliberately, and keep
+# a dep another layer shares on the same version (scripts/dev-setup.sh installs
+# every layer's into one .venv).
+duckdb==1.5.5
+PyYAML==6.0.3

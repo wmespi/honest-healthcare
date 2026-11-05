@@ -1,7 +1,13 @@
-# Dev stack. Every service builds from a multi-stage Dockerfile in deploy/ whose
-# default target is the production artifact; here we select the `dev` target and
-# layer on the dev-loop conveniences (bind-mounted source, exposed ports,
-# --reload, persistent build caches). A deployable compose file lands with #17.
+# Dev stack: one container per layer (docs/architecture.md). Every service builds
+# from a multi-stage Dockerfile in deploy/ whose default target is the production
+# artifact; here we select the `dev` target and layer on the dev-loop conveniences
+# (bind-mounted source, exposed ports, --reload, persistent build caches).
+#
+# Each layer mounts only its own code, and the data it reads and writes:
+#   ingestion    writes data/raw/ (its own files) and data/ingestion/ (what integration reads)
+#   integration  reads data/ingestion/ read-only, writes data/serving/
+#   serving      reads data/serving/ read-only
+# data-test/ is split the same way, so a test run stays inside its layer too.
 #
 # Multi-stack (GH #59): container names are unset so the project name
 # (COMPOSE_PROJECT_NAME, default = directory name) scopes everything, and the
@@ -10,35 +16,58 @@
 # With no .env this behaves exactly as before (project `honest-healthcare`,
 # ports 8000/5173, ./data).
 services:
-  etl:
+  ingestion:
     build:
       context: .
-      dockerfile: deploy/Dockerfile.etl
+      dockerfile: deploy/Dockerfile.ingestion
       target: dev
     init: true
-    command: tail -f /dev/null
     mem_limit: 6g
     volumes:
-      - .:/app
-      # Parquet store — this worktree's ./data by default; point HH_DATA_ROOT at
-      # the canonical checkout's data/ to read a shared store. ETL that *writes*
-      # (parse/discover) should leave this unset or use TEST=1.
-      - ${HH_DATA_ROOT:-./data}:/app/data
+      - ./ingestion:/app/ingestion
+      - ./pytest.ini:/app/pytest.ini:ro
+      # The Parquet store - this worktree's ./data by default; point HH_DATA_ROOT at
+      # the canonical checkout's data/ to read a shared store. Ingestion that
+      # *writes* (parse/discover/reference) should leave it unset or use TEST=1.
+      - ${HH_DATA_ROOT:-./data}/raw:/app/data/raw
+      - ${HH_DATA_ROOT:-./data}/ingestion:/app/data/ingestion
+      - ./data-test/raw:/app/data-test/raw
+      - ./data-test/ingestion:/app/data-test/ingestion
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     environment:
-      # Empty unless a worktree builds its own serving tables into ./data-local/serving.
-      - SERVING_DIR=${SERVING_DIR:-}
+      - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
+
+  integration:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.integration
+      target: dev
+    init: true
+    working_dir: /app
+    volumes:
+      - ./integration:/app/integration
+      - ./pytest.ini:/app/pytest.ini:ro
+      - ${HH_DATA_ROOT:-./data}/ingestion:/app/data/ingestion:ro
+      # HH_SERVING_DIR lets a worktree build its own find-care tables
+      # (./data-local/serving) while reading the shared store's ingestion.
+      - ${HH_SERVING_DIR:-${HH_DATA_ROOT:-./data}/serving}:/app/data/serving
+      - ./data-test/ingestion:/app/data-test/ingestion:ro
+      - ./data-test/serving:/app/data-test/serving
+    environment:
+      - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
 
   serving:
     build:
       context: .
       dockerfile: deploy/Dockerfile.serving
-    # image default is a prod server; --reload + the source mount are dev-only
-    command: uvicorn serving.main:app --host 0.0.0.0 --port 8000 --reload
+      target: dev
     volumes:
-      - .:/app
-      - ${HH_DATA_ROOT:-./data}:/app/data
+      - ./serving:/app/serving
+      - ./pytest.ini:/app/pytest.ini:ro
+      - ./tests/live:/app/tests/live:ro
+      - ${HH_SERVING_DIR:-${HH_DATA_ROOT:-./data}/serving}:/app/data/serving:ro
+      - ./data-test/serving:/app/data-test/serving:ro
     ports:
       # loopback by default — remote access is via `tailscale serve`
       # (scripts/tailscale-up.sh), which proxies 127.0.0.1:$API_PORT, and a 0.0.0.0
@@ -49,7 +78,6 @@ services:
       - DATA_DIR=/app/data
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
       - DUCKDB_TMP=${DUCKDB_TMP:-/tmp/duckdb_spill}
-      - SERVING_DIR=${SERVING_DIR:-}
 
   frontend:
     build:

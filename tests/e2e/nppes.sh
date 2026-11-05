@@ -5,21 +5,21 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-OUT=data-test/nppes/ga_providers.parquet
-# Delete through the etl container — it wrote the parquet as root, so a host-side
+OUT=data-test/ingestion/nppes/ga_providers.parquet
+# Delete through the ingestion container - it wrote the parquet as root, so a host-side
 # rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
-cleanup() { docker compose exec -T etl rm -rf /app/data-test/nppes 2>/dev/null || rm -rf data-test/nppes; }
+cleanup() { docker compose exec -T ingestion rm -rf /app/data-test/ingestion/nppes 2>/dev/null || rm -rf data-test/ingestion/nppes; }
 trap cleanup EXIT
 cleanup
 
 echo "→ unit tests (nppes)"
-docker compose exec -T etl go test ./nppes/ -run 'NPPES|ClassifyTaxonomy' -v 2>&1 | tail -8
+docker compose exec -T ingestion go test ./nppes/ -run 'NPPES|ClassifyTaxonomy' -v 2>&1 | tail -8
 
 echo "→ extract GA subset from fixture (test output dir)"
-docker compose exec -T etl go run . nppes -test -file nppes/testdata/nppes_sample.csv
+docker compose exec -T ingestion go run . nppes -test -file nppes/testdata/nppes_sample.csv
 
-echo "→ verify parquet (via serving duckdb)"
-docker compose exec -T serving python3 -c "
+echo "→ verify parquet (via DuckDB)"
+docker compose exec -T ingestion python3 -c "
 import duckdb
 con = duckdb.connect()
 n, h, c = con.execute('''

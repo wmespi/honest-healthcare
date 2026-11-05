@@ -14,11 +14,12 @@ description: >
 
 | Changed | Run | Needs |
 |---|---|---|
-| Go (`etl/**`) | `make check` (or `make check LOCAL=1`, no Docker) | `etl` container up |
+| Go (`ingestion/etl/**`) | `make check` (or `make check LOCAL=1`, no Docker) | `ingestion` container up |
 | Go parser behaviour / MRF handling, NPPES extraction | `make test` (runs the ETL e2e + NPPES fixtures) | full stack |
+| Ingestion's Python (`ingestion/reference/**`, `ingestion/anthem_rates.py`) or the build (`integration/**`) | `make test` (or `make test LOCAL=1`) | full stack |
 | Serving layer (`serving/**`) | `make test` (or `make test LOCAL=1`) | serving container running the new code (see restart note) |
 | Frontend (`frontend/src/**`) | `make test` (or `make test LOCAL=1`) | `frontend` container up |
-| Docs / Makefile / scripts only | `make check` is enough | `etl` up |
+| Docs / Makefile / scripts only | `make check` is enough | `ingestion` up |
 | Anything non-trivial before a PR | `make test` | full stack |
 | A change to a real answer (rates, rankings, labels) | `make test-live` | serving up, **real corpus** |
 
@@ -33,7 +34,7 @@ description: >
 - **Ad-hoc DuckDB queries spill into the repo.** A one-off `duckdb.connect()` (not
   through `serving/data_sources.py:db()`, which sets `DUCKDB_TMP`) must
   `SET temp_directory='/tmp/dsp'` first, or a big aggregate spills to `./.tmp/`
-  and breaks `git add`. Read one `net=<slug>` partition of `data/anthem/prices/`,
+  and breaks `git add`. Read one `net=<slug>` partition of `data/raw/anthem/prices/`,
   not the whole store.
 - **`make reference STEP=nppes` is not atomic** — mid-run the output file is 0
   bytes and queries that touch it 500. Let it finish, then restart `serving`.

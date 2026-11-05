@@ -1,0 +1,3 @@
+# Test-only deps, in the dev image and the host .venv. Not in the prod image.
+-r requirements.txt
+pytest==9.1.1

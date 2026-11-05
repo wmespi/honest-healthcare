@@ -24,9 +24,9 @@ derby.log
 .venv/
 venv/
 # The tests: the dev stack and CI mount the repo, and no image needs them.
-build/tests/
+integration/tests/
 ingestion/tests/
-reference/tests/
+ingestion/reference/tests/
 serving/tests/
 tests/
 
@@ -35,8 +35,8 @@ tests/
 frontend/dist/
 
 # Go build artifacts (the binary is produced inside the build stage)
-etl/etl
-etl/etl-parser
+ingestion/etl/etl
+ingestion/etl/etl-parser
 
 # Editor / OS / local
 .DS_Store

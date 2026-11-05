@@ -45,7 +45,7 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
   docker system df --format '{{printf "docker %-13s %9s  %s reclaimable" .Type .Size .Reclaimable}}' 2>/dev/null \
     | sed 's/^/  /'
   # project-attributable: honest-healthcare images + this project's volumes
-  imgs=$(docker images --format '{{.Repository}} {{.Size}}' | awk '/honest-healthcare|hh-(etl|serving|frontend)/{print $2$3}')
+  imgs=$(docker images --format '{{.Repository}} {{.Size}}' | awk '/honest-healthcare|hh-(ingestion|integration|serving|frontend)/{print $2$3}')
   vols=$(docker system df -v 2>/dev/null | awk '/honest-healthcare_/{print $NF}')
   toB() { awk -v s="$1" 'BEGIN{n=s+0; if(s~/GB/)n*=1073741824; else if(s~/MB/)n*=1048576; else if(s~/kB/)n*=1024; printf "%d", n}'; }
   for x in $imgs $vols; do DOCK_KB=$((DOCK_KB + $(toB "$x")/1024)); done

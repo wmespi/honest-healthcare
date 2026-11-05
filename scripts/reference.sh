@@ -15,19 +15,19 @@ STEP="${STEP:-}"
 FORCE="${FORCE:-}"
 ARGS="${ARGS:-}"
 
-# name | output (inside the serving container) | command
+# name | output (inside the ingestion container) | command
 STEPS=(
-  "nppes|/app/data/nppes/ga_providers.parquet|etl"
-  "taxonomy-labels|/app/data/reference/nucc_taxonomy.parquet|reference.taxonomy_labels"
-  "cms-utilization|/app/data/cms/ga_provider_service.parquet|reference.cms_utilization"
-  "doctors-clinicians|/app/data/reference/dac_ga.parquet|reference.doctors_clinicians"
-  "mpfs|/app/data/reference/mpfs_ga.parquet|reference.mpfs"
-  "opps|/app/data/reference/opps.parquet|reference.opps"
-  "hospitals|/app/data/reference/hospitals_ga.parquet|reference.hospitals"
-  "geocode||reference.geocode"
-  "mips|/app/data/reference/mips_ga.parquet|reference.mips"
-  "zip-centroids|/app/data/reference/zip_centroids.parquet|reference.zip_centroids"
-  "exchange-plans|/app/data/reference/exchange_plans_ga.parquet|reference.exchange_plans"
+  "nppes|/app/data/ingestion/nppes/ga_providers.parquet|etl"
+  "taxonomy-labels|/app/data/ingestion/reference/nucc_taxonomy.parquet|ingestion.reference.taxonomy_labels"
+  "cms-utilization|/app/data/ingestion/cms/ga_provider_service.parquet|ingestion.reference.cms_utilization"
+  "doctors-clinicians|/app/data/ingestion/reference/dac_ga.parquet|ingestion.reference.doctors_clinicians"
+  "mpfs|/app/data/ingestion/reference/mpfs_ga.parquet|ingestion.reference.mpfs"
+  "opps|/app/data/ingestion/reference/opps.parquet|ingestion.reference.opps"
+  "hospitals|/app/data/ingestion/reference/hospitals_ga.parquet|ingestion.reference.hospitals"
+  "geocode||ingestion.reference.geocode"
+  "mips|/app/data/ingestion/reference/mips_ga.parquet|ingestion.reference.mips"
+  "zip-centroids|/app/data/ingestion/reference/zip_centroids.parquet|ingestion.reference.zip_centroids"
+  "exchange-plans|/app/data/ingestion/reference/exchange_plans_ga.parquet|ingestion.reference.exchange_plans"
 )
 
 if [ -n "$STEP" ]; then
@@ -43,16 +43,16 @@ for s in "${STEPS[@]}"; do
   IFS='|' read -r name out cmd <<<"$s"
   [ -n "$STEP" ] && [ "$STEP" != "$name" ] && continue
   if [ -z "$STEP" ] && [ "$FORCE" != 1 ] && [ -n "$out" ] &&
-     docker compose exec -T serving test -e "$out" 2>/dev/null; then
+     docker compose exec -T ingestion test -e "$out" 2>/dev/null; then
     echo "→ $name: exists ($out) — skipping (FORCE=1 to rebuild)"
     continue
   fi
   echo "→ $name"
   if [ "$cmd" = etl ]; then
     # shellcheck disable=SC2086
-    docker compose exec etl go run . nppes $ARGS
+    docker compose exec ingestion go run . nppes $ARGS
   else
     # shellcheck disable=SC2086
-    docker compose exec -T -w /app serving python3 -m "$cmd" --data-dir /app/data $ARGS
+    docker compose exec -T -w /app ingestion python3 -m "$cmd" --data-dir /app/data $ARGS
   fi
 done

@@ -37,7 +37,7 @@ providers/facilities, blending **price on their plan**, **quality / volume**, an
 - Needs: geocoding, CMS quality (hospital + clinician), inpatient volume.
 - **Closest to shippable** — rates exist; the rest is cheap public data.
 - Ends in a "Request this appointment" action (see *information tool → navigator*).
-- **Shipped:** the find-care screen at `/find-care`, for the scans in `build/services.yaml`
+- **Shipped:** the find-care screen at `/find-care`, for the scans in `integration/services.yaml`
   on Anthem's Georgia exchange plans, with each plan's deductible and cost sharing.
 - **Next:** the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135).
 
@@ -58,7 +58,7 @@ in-network status of their providers and drugs.
 ### Shared substrate
 
 Both sit on the same foundation, which is most of the work — build it once:
-a service list (`build/services.yaml`, hand-written for now), provider identity and
+a service list (`integration/services.yaml`, hand-written for now), provider identity and
 geocode (have), negotiated rates per `(payer, network, code, provider)` (have for one
 payer), plan cost-sharing structure (have for Georgia's exchange plans), quality signal
 (Medicare's clinician score and hospital stars; patient experience missing).
@@ -135,7 +135,7 @@ Low-scope, HIPAA-light features that compound on the same data:
 
 ## Data roadmap
 
-All free unless marked. Most fit the `reference/cms_utilization.py` pattern —
+All free unless marked. Most fit the `ingestion/reference/cms_utilization.py` pattern -
 DuckDB filter/project a CMS CSV to a GA Parquet.
 
 ### For "where should I go" (Flow A)
@@ -158,7 +158,7 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 | **CMS Health Insurance Exchange PUFs** (Plan Attributes + Benefits & Cost-Sharing especially) | structured per-plan deductible, OOP max, copays, coinsurance, metal, premium, counties, network/formulary URLs | free, annual CSV | med — kills the "user types their deductible" gap |
 | **QHP Landscape Files** | county plan list w/ premium, deductible, OOP, metal | free | low — GA moved to the "Georgia Access" state exchange for 2026; confirm GA still in the CMS files or pull Georgia Access's own data |
 | **QHP provider & formulary machine-readable JSON** (CMS schema, ≠ TiC) | per-plan in-network NPI roster + drug formulary | free | med — directory accuracy is poor, but it's the only machine-readable roster |
-| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs) | *derives* plan → network | free | done for Georgia's exchange plans ([exchange-plans](../reference/exchange-plans.md)) |
+| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs) | *derives* plan → network | free | done for Georgia's exchange plans ([exchange-plans](../ingestion/reference/exchange-plans.md)) |
 | CMS Marketplace Open Enrollment PUFs | enrollment by plan / metal / county | free | low — secondary |
 
 ### Other pricing inputs
@@ -198,9 +198,9 @@ order it serves — each step ships something usable and nothing waits on the
 multi-payer lift longer than it must.
 
 1. **Geocode + distance + map** — Census batch-geocode, lat/long on the provider
-   table, distance filter/sort, a MapLibre map ([reference/geocode.md](../reference/geocode.md)).
+   table, distance filter/sort, a MapLibre map ([ingestion/reference/geocode.md](../ingestion/reference/geocode.md)).
 2. **CMS quality layer** — Doctors & Clinicians identity and the `ccn`↔`npi` bridge
-   exist ([reference/doctors-clinicians.md](../reference/doctors-clinicians.md)); open:
+   exist ([ingestion/reference/doctors-clinicians.md](../ingestion/reference/doctors-clinicians.md)); open:
    Hospital Care Compare (keyed by `ccn`), POS / Hospital Enrollments facility
    attributes, quality on the provider card and ranking.
 3. **Medicare inpatient volume (MS-DRG)** — into the evidence tiers; fills the
@@ -208,7 +208,7 @@ multi-payer lift longer than it must.
 4. **Ship Flow A — "Find care"** — a dedicated route: procedure/need → ranked list +
    map blending plan price, quality, volume, distance.
 5. **Exchange PUFs + HIOS crosswalk** — done for Georgia: each plan's network,
-   deductible and cost sharing ([exchange-plans](../reference/exchange-plans.md)).
+   deductible and cost sharing ([exchange-plans](../ingestion/reference/exchange-plans.md)).
 6. **Scale the rate store** ([#10](https://github.com/wmespi/honest-healthcare/issues/10))
    — add a `payer` dimension; prerequisite for 7–8.
 7. **Multi-payer rate ingestion** — per-carrier discovery adapters for the largest GA
