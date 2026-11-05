@@ -53,8 +53,8 @@ The find-care build names a doctor's own billing NPI after its CMS group
 - A clinician with no recent Medicare claims drops out of the National file.
 - CMS publishes monthly; re-run to pick up the new URL.
 
-Tested by `serving/tests/test_doctors_clinicians.py` against
+Tested by `reference/tests/test_doctors_clinicians.py` against
 `reference/testdata/dac_sample.csv`, covering both geo branches (`State='GA'` and
 `npi IN npi_lookup` — the production path, where the file's all-varchar NPI vs
 `npi_lookup`'s BIGINT once raised a real-data-only `BinderException`), and by
-`serving/tests/test_api_contract.py` for the card fields.
+`build/tests/tables/test_places.py` for a doctor's own NPI named after its CMS group.

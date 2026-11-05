@@ -110,15 +110,15 @@ check: ## Gate — docs drift + Go fmt/vet/build/unit tests (etl container). LOC
 	  docker compose exec etl go test ./...; \
 	fi
 
-test: check ## Every hermetic suite — check + serving pytest + vitest (+ ETL e2e when not LOCAL). LOCAL=1: host toolchains, no Docker
+test: check ## Every hermetic suite - check + pytest (build, reference, serving) + vitest (+ ETL e2e when not LOCAL). LOCAL=1: host toolchains, no Docker
 	@if [ "$(LOCAL)" = 1 ]; then \
 	  test -x .venv/bin/python || { echo "no .venv — run scripts/dev-setup.sh"; exit 1; }; \
 	  test -d frontend/node_modules || { echo "no frontend/node_modules — run scripts/dev-setup.sh"; exit 1; }; \
-	  .venv/bin/python -m pytest serving/tests -q && \
+	  .venv/bin/python -m pytest -q && \
 	  cd frontend && npx vitest run; \
 	else \
 	  bash tests/e2e/discover.sh && bash tests/e2e/parse.sh && bash tests/e2e/nppes.sh && \
-	  docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app/serving && python -m pytest tests/ -q" && \
+	  docker compose exec -T serving sh -c "pip install -q -r /app/serving/requirements-dev.txt && cd /app && python -m pytest -q" && \
 	  docker compose exec -T frontend sh -c "cd /app && npx vitest run"; \
 	fi
 

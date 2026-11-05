@@ -7,10 +7,11 @@ Three suites, each a `make` target (`make help` is the target list):
 | Command | Covers | Stack? |
 |---|---|---|
 | `make check` | docs drift (`scripts/check_docs.py`) + gofmt + vet + build + Go unit tests | etl up |
-| `make test` | `check` + `serving/tests` (contract, reference builders, build) + vitest + `tests/e2e` | full stack |
+| `make test` | `check` + pytest (`build/tests`, `reference/tests`, `serving/tests`) + vitest + `tests/e2e` | full stack |
 | `make test-live` | `tests/live`: golden answers (`test_golden.py`) + the named persona journeys ([journeys.md](journeys.md)) against the live API and real corpus | serving up, **real corpus** |
 
-Unit tests live with their code: Go's `_test.go` files beside their package, the frontend's `*.test.js` and `*.test.jsx` files beside their code, and the Python tests (serving, build and reference) in `serving/tests/`.
+Unit tests live with their code: Go's `_test.go` files beside their package, the frontend's `*.test.js` and `*.test.jsx` files beside their code, and each Python layer's in its own `tests/` folder: `reference/tests/`, `build/tests/` and `serving/tests/`.
+`pytest.ini` at the root lists the three, so `python -m pytest` from the root runs them all.
 Tests that drive the running stack across components live in the top-level `tests/`:
 
 - `tests/e2e/` runs the real ETL against fixtures in test isolation, then tears down.
@@ -36,17 +37,17 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
   guards (`TestFixtures_Parse`). **Add one only for a genuinely new file shape.**
 - `etl/nppes/testdata/nppes_sample.csv` — NPPES GA extractor sample.
 - `reference/testdata/*` — small CMS / MPFS / DAC / geocode samples; each
-  `serving/tests/test_<builder>.py` runs its `reference/` builder against them in test
+  `reference/tests/test_<builder>.py` runs its `reference/` builder against them in test
   isolation.
-- `serving/tests/conftest.py` (`api` fixture) — writes a small coherent RAW Parquet set
+- `serving/tests/conftest.py` (`api` fixture) writes the build's default test corpus
   under `data-test/apifix/`, runs the real `build.build.build()` on it, and binds a
   FastAPI `TestClient` to the result. `test_api_contract.py` covers every route this
   way, with no live server and the same build path `make build` runs. Schemas track
   [schema.md](schema.md).
-- `serving/tests/conftest.py` (`corpus` fixture) writes a tiny copy of every source the find-care build reads in a temp folder, with methods to add or remove rows: insurer rates and rosters, the index's plan-to-file link, Georgia's networks, plans, premiums and hospitals, NPPES records, Census matches, Medicare's billing and rates, CMS groups and a services file.
+- `build/tests/corpus.py` (the `corpus` fixture in `build/tests/conftest.py`) writes a tiny copy of every source the find-care build reads in a temp folder, with methods to add or remove rows: insurer rates and rosters, the index's plan-to-file link, Georgia's networks, plans, premiums and hospitals, NPPES records, Census matches, Medicare's billing and rates, CMS groups and a services file.
   Its eight billers priced for a lower-back MRI each show one placement rule.
   The helpers queue their rows and write each file once, just before a build reads it, which keeps a test's setup to a few milliseconds.
-  `serving/tests/inputs/` and `serving/tests/tables/` run the real find-care build (`build.tables.build`) on it and read what it wrote, as `make build` does, rather than calling one table's class.
+  `build/tests/inputs/` and `build/tests/tables/` run the real find-care build (`build.tables.build`) on it and read what it wrote, as `make build` does, rather than calling one table's class.
   So each test also checks that its table is in the build order after the tables it reads, and that every shared check runs.
   A test imports a table's class only to change it, as `test_tables.py` does to check column drift.
 - `serving/tests/test_contract.py` (**no fixture**) checks the find-care contract's own rules

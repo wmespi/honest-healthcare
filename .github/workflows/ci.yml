@@ -122,7 +122,7 @@ jobs:
       - name: Python — every hermetic test, as make test runs them
         run: |
           docker compose exec -T serving pip install -q -r /app/serving/requirements-dev.txt
-          docker compose exec -T -w /app/serving serving python -m pytest tests/ -q
+          docker compose exec -T -w /app serving python -m pytest -q
       - name: Golden-answer tests (#96) — real API, empty data/ here, must skip not fail
         run: |
           docker compose exec -T -w /app serving python -m pytest tests/live -v

@@ -69,6 +69,7 @@ needed. The cache key includes the year.
 - No modifier -50/-51/-62 pricing rules (bilateral / multiple-procedure / co-surgeon
   reductions are not applied).
 
-Tested by `serving/tests/test_mpfs.py` (formula, fac/non-fac split, status handling,
-GA filter) against `reference/testdata/mpfs_*sample.csv`, and by
-`serving/tests/test_api_contract.py::test_quote_carries_medicare_benchmark`.
+Tested by `reference/tests/test_mpfs.py` (formula, fac/non-fac split, status handling,
+GA filter) against `reference/testdata/mpfs_*sample.csv`, by
+`build/tests/tables/test_services.py` for `services.medicare_rate`, and by
+`serving/tests/test_api_contract.py` for the rate `/services` returns.

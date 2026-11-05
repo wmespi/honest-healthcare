@@ -12,7 +12,7 @@ Skips cleanly (not failing) when Blue Value isn't loaded or the API isn't
 reachable at all. Only `make test-live` (run via docker compose exec, so it
 shares the container's live localhost:8000) exercises the real assertions
 below; a bare `pytest tests/live` with nothing listening skips all of them.
-`make test` never collects this file (it reads serving/tests): it is not
+`make test` never collects this file (pytest.ini's testpaths leave tests/live out): it is not
 hermetic and must never gate on which build steps happen to have been run.
 """
 import os
