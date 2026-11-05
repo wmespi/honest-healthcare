@@ -16,8 +16,8 @@ const networkSlugUnattributed = "_unattributed"
 
 // slugifyNetwork turns a network_name into a filesystem- and Hive-safe partition
 // key: lowercase, every run of non-alphanumerics collapsed to '-', trimmed,
-// capped at 100 chars. MUST stay identical to backend/main.py:network_slug so the
-// API can prune partitions by name.
+// capped at 100 chars. The build reads every partition and picks rates by their
+// network_name, so the slug is only the directory's name.
 func slugifyNetwork(name string) string {
 	var b strings.Builder
 	prevDash := false

@@ -17,11 +17,8 @@ service line we've built yet) isn't worth doing until a second service line
 needs it too. Scoping to the PCP taxonomy allowlist keeps this small and
 matches how the rest of the PCP pilot (#83/#87) has scoped its data work.
 
-PCP_TAXONOMY_CODES below mirrors serving/service_lines.py's constant of the
-same name — kept in sync by hand, same as SERVICE_LINE_BILLING_CODES mirrors
-the frontend's SERVICE_LINE_CODES (no shared build step between reference/
-and serving/, and no existing reference/ builder imports across that
-boundary — this one doesn't start).
+PCP_TAXONOMY_CODES and IMAGING_TAXONOMY_CODES below are this builder's own
+lists of which clinicians' addresses to send.
 
 Addresses are deduped before geocoding (many PCPs share a practice address —
 24,697 GA PCP-eligible NPIs resolve to ~13,500 distinct addresses, verified
@@ -68,9 +65,6 @@ MAX_BATCH = 10_000  # Census's hard per-request cap
 GA_LAT_RANGE = (30.3, 35.1)
 GA_LON_RANGE = (-85.7, -80.7)
 
-# Mirrors serving/service_lines.py:PCP_TAXONOMY_CODES / IMAGING_TAXONOMY_CODES
-# (serving/tests/test_geocode.py fails if they drift) — see the module
-# docstring above for why this isn't a cross-package import.
 PCP_TAXONOMY_CODES = [
     "207Q00000X",  # Family Medicine (general)
     "207R00000X",  # Internal Medicine (general)

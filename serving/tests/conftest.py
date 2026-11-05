@@ -1,23 +1,17 @@
 """Shared fixtures for the serving tests.
 
-`api_data` writes a small, coherent set of RAW Parquet (rates + provider-group
-rosters + the NPPES / NUCC / RBCS / CMS reference tables) under a temp DATA_DIR,
-runs `build.build.build()` against it exactly as `make build` would (so the
-fixture and the real pipeline exercise the same code), and points the FastAPI
-app at the resulting `data/serving/` via a `TestClient`. Schemas track
-docs/schema.md; the row values are chosen so every contract assertion in
-test_api_contract.py has something real to check.
+`corpus` is a small, coherent set of raw and reference Parquet in a tmp dir —
+insurer rates and rosters, Georgia's plans, NPPES, Census, Medicare and the
+rest — for the tests in inputs/ and tables/, which build the find-care tables
+(build/tables/) from it. `api_data` builds the default corpus with `make
+build`'s own build() into FIX_DIR/serving, and `api` binds a `TestClient` to
+the app reading it.
 
 The other test files here (test_cms_utilization, test_specialty_profiles,
-test_mpfs, test_doctors_clinicians) run the reference/ builders against their own
-data-test/ paths (repo-root relative) and ignore this fixture.
-
-`corpus` is a smaller one of its own for the tests in inputs/ and tables/,
-which build the new serving tables (build/tables/) from it. `api_data` builds
-those tables from the default corpus too, for the find-care routes.
+test_mpfs, test_doctors_clinicians and the like) run the reference/ builders
+against their own data-test/ paths (repo-root relative) and ignore these.
 """
 import os
-import subprocess
 import sys
 
 import duckdb
@@ -36,13 +30,11 @@ os.environ["SERVING_DIR"] = f"{FIX_DIR}/serving"
 
 # `cd serving && pytest tests/` (make test) puts serving/ on sys.path but not
 # the repo root — test_build.py imports `build.build` (which in turn imports
-# `serving.*` and `reference.*`). Prepend the root so it resolves everywhere.
+# `reference.*`). Prepend the root so it resolves everywhere.
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
 BLUE_VALUE = "GA Blue Value HIX Individual Network"
-OPEN_ACCESS = "GA Blue Open Access POS Network"
-FILE_ID = 1
 
 
 def _slug(name: str) -> str:
@@ -85,344 +77,16 @@ def _write(con, path: str, columns: str, rows: list[tuple]):
     )
 
 
-def _build(data_dir: str) -> None:
-    a = f"{data_dir}/anthem"
-    con = duckdb.connect()
-
-    # ── codes ────────────────────────────────────────────────────────────────
-    _write(con, f"{a}/codes/1.parquet",
-           "billing_code_type, billing_code, name, description", [
-               ("'CPT'", "'99213'", "'Office visit, est. patient'", "'Office/outpatient visit est'"),
-               ("'CPT'", "'70450'", "'CT head/brain w/o contrast'", "'Ct head/brain w/o dye'"),
-               ("'CPT'", "'45378'", "'Diagnostic colonoscopy'", "'Colonoscopy diagnostic'"),
-               ("'CPT'", "'93000'", "'Electrocardiogram, complete'", "'Electrocardiogram complete'"),
-               ("'CPT'", "'90837'", "'Psychotherapy, 60 min'", "'Psytx w pt 60 minutes'"),
-           ])
-
-    # ── group_sets: gs 100 -> pg{10,20}; gs 200 -> pg{30}; gs 300 -> pg{10,20,30,40};
-    # gs 400 -> pg{60} — Ng's own group, priced separately from Baker's so a
-    # cost-sort test (#87 follow-up) has two PCP providers with different rates.
-    # gs 500 -> pg{70,80,90,95}: radiologists billing under their own NPIs, priced for 70450 only.
-    gs_rows = []
-    for gs, pgs in ((100, (10, 20)), (200, (30,)), (300, (10, 20, 30, 40)), (400, (60,)),
-                    (500, (70, 80, 90, 95))):
-        for pg in pgs:
-            gs_rows.append((FILE_ID, gs, pg))
-    _write(con, f"{a}/group_sets/1.parquet",
-           "file_id, group_set_id, provider_group_id",
-           [tuple(map(str, r)) for r in gs_rows])
-
-    # ── providers: NPI -> provider_group membership + network ────────────────
-    # 1000000001 cardiologist, ...02 internal med, ...03 clinical social worker,
-    # ...04 radiologist, 1000000005 hospital org NPI.
-    # provider_group_id → (network, npi). Groups 10 & 20 bill under the same org
-    # NPI (tin_value 1000000010) — a two-doctor practice split across two
-    # provider-reference buckets, which must fold into one practice.
-    prov = [
-        (10, BLUE_VALUE, 1000000001, 1000000010), (10, BLUE_VALUE, 1000000002, 1000000010),
-        (20, BLUE_VALUE, 1000000003, 1000000010), (20, BLUE_VALUE, 1000000004, 1000000010),
-        (30, OPEN_ACCESS, 1000000005, 1000000030), (30, OPEN_ACCESS, 1000000001, 1000000030),
-        (40, OPEN_ACCESS, 1000000002, 1000000040),
-        # Ng (NP, PCP-eligible) — her own group/group_set, priced separately
-        # from Baker's so the two PCP providers can carry different rates.
-        (60, BLUE_VALUE, 1000000011, 1000000060),
-        # Diaz also bills under his own NPI, and under an NPI with no Georgia
-        # NPPES record, as an out-of-state reading group would. Ito, in Diaz's
-        # CMS group, and Okafor, in none, bill under their own NPIs.
-        (70, BLUE_VALUE, 1000000004, 1000000004),
-        (80, BLUE_VALUE, 1000000004, 1999999999),
-        (90, BLUE_VALUE, 1000000012, 1000000012),
-        (95, BLUE_VALUE, 1000000013, 1000000013),
-    ]
-    _write(con, f"{a}/providers/1.parquet",
-           "file_id, provider_group_id, network_name, npi, tin_type, tin_value",
-           [(FILE_ID, pg, f"'{net}'", npi, "'npi'", f"'{tin}'") for pg, net, npi, tin in prov])
-
-    _write(con, f"{a}/npi_lookup.parquet", "npi, tin_value",
-           [(n, f"'{t}'") for n, t in
-            ((1000000001, 1000000010), (1000000002, 1000000010), (1000000003, 1000000010),
-             (1000000004, 1000000010), (1000000005, 1000000030), (1000000011, 1000000060))])
-
-    # ── prices: one row per (network x negotiated price) ─────────────────────
-    # cols: file_id group_set_id network_name billing_code_type billing_code
-    #       negotiation_arrangement negotiated_type negotiated_rate
-    #       expiration_date service_code billing_class modifier setting net
-    P = []
-
-    def price(gs, net, code, rate, *, svc="11", mod="", setting="outpatient",
-              arr="ffs", ntype="negotiated", cls="professional"):
-        P.append((FILE_ID, gs, f"'{net}'", "'CPT'", f"'{code}'", f"'{arr}'",
-                  f"'{ntype}'", rate, "'9999-12-31'", f"'{svc}'", f"'{cls}'",
-                  f"'{mod}'", f"'{setting}'", f"'{_slug(net)}'"))
-
-    # 99213 — the workhorse. Blue Value cheaper median than Open Access.
-    price(100, BLUE_VALUE, "99213", 88.00)
-    price(300, BLUE_VALUE, "99213", 92.50)
-    price(100, BLUE_VALUE, "99213", 95.00, svc="11|02")
-    price(300, OPEN_ACCESS, "99213", 108.00)
-    price(200, OPEN_ACCESS, "99213", 121.00)
-    # out-of-scope noise the consumer rate views must exclude (outpatient scope):
-    # a facility line, an inpatient-only rate, and a "% of charges" row whose
-    # negotiated_rate (60.0) is a percentage, not $60.
-    price(100, BLUE_VALUE, "99213", 900.00, cls="institutional")
-    price(100, BLUE_VALUE, "99213", 500.00, setting="inpatient")
-    price(100, BLUE_VALUE, "99213", 60.00, ntype="percentage")
-    # in-scope by type but a placeholder: $0.50 is below the sentinel ceiling
-    # (~5% of the code's ~$92 median) — the compare / quote views drop it.
-    price(100, BLUE_VALUE, "99213", 0.50)
-    # 70450 — global + professional (-26) + technical (-TC), office & hosp-outpatient
-    price(100, BLUE_VALUE, "70450", 240.00)
-    price(100, BLUE_VALUE, "70450", 70.00, mod="26")
-    price(100, BLUE_VALUE, "70450", 175.00, mod="TC")
-    # a facility-only line for the same practice and scan — never part of an office quote
-    price(100, BLUE_VALUE, "70450", 800.00, svc="22")
-    price(300, OPEN_ACCESS, "70450", 265.00)
-    price(500, BLUE_VALUE, "70450", 300.00)
-    # 45378 — ASC + hospital outpatient
-    price(300, BLUE_VALUE, "45378", 410.00, svc="24", setting="outpatient")
-    price(300, OPEN_ACCESS, "45378", 505.00, svc="22", setting="outpatient")
-    # 93000 — EKG, cardiology bread-and-butter
-    price(100, BLUE_VALUE, "93000", 14.31)
-    price(300, OPEN_ACCESS, "93000", 18.90)
-    # 90837 — psychotherapy (behavioral); only via the LCSW's group
-    price(100, BLUE_VALUE, "90837", 132.10)
-    # 99204 — new-patient PCP visit (#87 follow-up cost-sort). Baker (gs 100,
-    # via provider_group 10) is pricier than Ng (gs 400, her own group) — the
-    # cheapest-first PCP ranking test needs these to differ. Ng's group also
-    # has a *cheaper* $10 rate on 12002 (wound repair, not in the PCP
-    # billing-code family) — a decoy: if the family filter were missing, MIN
-    # would wrongly pick the $10 row instead of her real $60 99204 rate.
-    price(100, BLUE_VALUE, "99204", 150.00)
-    price(400, BLUE_VALUE, "99204", 60.00)
-    price(400, BLUE_VALUE, "12002", 10.00)
-    # 99202 — a *cheaper* new-patient code, also reachable via Baker's own
-    # group (gs 100), but not typical for Internal Medicine (no profile row
-    # below) and never billed by Baker to Medicare. This is the real bug the
-    # plausible-tier fix (#87 follow-up) catches: a naive MIN() would prefer
-    # this $38 over Baker's real (typical) $150 99204 rate — reproducing live
-    # testing, where a network-wide group-fanout floor for 99202 (reachable
-    # by thousands of unrelated NPIs) out-competed a provider's actual menu.
-    price(100, BLUE_VALUE, "99202", 38.00)
-
-    os.makedirs(f"{a}/prices", exist_ok=True)
-    for net in (BLUE_VALUE, OPEN_ACCESS):
-        rows = [r for r in P if r[2] == f"'{net}'"]
-        # drop the trailing `net` column from the file — it's the Hive path key
-        _write(con, f"{a}/prices/net={_slug(net)}/1.parquet",
-               "file_id, group_set_id, network_name, billing_code_type, billing_code, "
-               "negotiation_arrangement, negotiated_type, negotiated_rate, expiration_date, "
-               "service_code, billing_class, modifier, setting",
-               [r[:-1] for r in rows])
-
-    # ── NPPES GA subset ─────────────────────────────────────────────────────
-    npp = [
-        (1000000001, "individual", "", "Adams", "Carol", "207RC0000X", "Internal Medicine", 0, 0,
-         "1968 Peachtree Rd NW", "", "Atlanta", "GA", "30309"),
-        (1000000002, "individual", "", "Baker", "David", "207R00000X", "Internal Medicine", 0, 0,
-         "550 Peachtree St NE", "", "Atlanta", "GA", "30308"),
-        (1000000003, "individual", "", "Carter", "Ellen", "1041C0700X", "Other", 0, 0,
-         "12 Clairmont Ave", "Ste 200", "Decatur", "GA", "30030"),
-        (1000000004, "individual", "", "Diaz", "Frank", "2085R0202X", "Radiology", 0, 0,
-         "1 Baptist Way", "", "Marietta", "GA", "30060"),
-        (1000000012, "individual", "", "Ito", "Kenji", "2085R0202X", "Radiology", 0, 0,
-         "4 Bay Ave", "", "Savannah", "GA", "31401"),
-        (1000000013, "individual", "", "Okafor", "Ada", "2085R0202X", "Radiology", 0, 0,
-         "5 Lake Dr", "", "Athens", "GA", "30601"),
-        # psychiatrist + neurologist share the NUCC classification "Psychiatry &
-        # Neurology", so matching on classification alone would over-match.
-        (1000000006, "individual", "", "Evans", "Grace", "2084P0800X", "Psychiatry", 0, 0,
-         "2 Mind Way", "", "Atlanta", "GA", "30307"),
-        (1000000007, "individual", "", "Foster", "Henry", "2084N0400X", "Neurology", 0, 0,
-         "3 Brain Ct", "", "Atlanta", "GA", "30306"),
-        (1000000005, "organization", "Emory University Hospital", "", "", "282N00000X", "Hospital", 1, 0,
-         "1364 Clifton Rd NE", "", "Atlanta", "GA", "30322"),
-        # Nurse Practitioner, Family — PCP-eligible (#83), her own group so a
-        # cost-sort ranking can put her below/above Baker on price (#87).
-        (1000000011, "individual", "", "Ng", "Priya", "363LF0000X", "Nurse Practitioner", 0, 0,
-         "9 Primary Way", "", "Atlanta", "GA", "30310"),
-        # org NPIs used as tin_value (the billing practice) — resolve to a name
-        (1000000010, "organization", "Peachtree Internal Medicine LLC", "", "", "207R00000X", "Internal Medicine", 0, 1,
-         "1 Peachtree St", "", "Atlanta", "GA", "30303"),
-        (1000000030, "organization", "Open Access Health Partners", "", "", "193200000X", "Multi-Specialty", 0, 1,
-         "5 Access Way", "", "Macon", "GA", "31201"),
-    ]
-    _write(con, f"{data_dir}/nppes/ga_providers.parquet",
-           "npi, entity_type, org_name, last_name, first_name, taxonomy_code, taxonomy_group, "
-           "is_hospital, is_clinic, address_line1, address_line2, city, state, postal_code",
-           [(n[0], f"'{n[1]}'", f"'{n[2]}'", f"'{n[3]}'", f"'{n[4]}'", f"'{n[5]}'", f"'{n[6]}'",
-             f"CAST({n[7]} AS BOOLEAN)", f"CAST({n[8]} AS BOOLEAN)", f"'{n[9]}'", f"'{n[10]}'",
-             f"'{n[11]}'", f"'{n[12]}'", f"'{n[13]}'") for n in npp])
-
-    # ── NUCC taxonomy labels ───────────────────────────────────────────────
-    nucc = [
-        # physician subspecialties: NUCC puts the specialty in Classification
-        ("207RC0000X", "Allopathic & Osteopathic Physicians", "Cardiovascular Disease",
-         "", "Cardiovascular Disease", "Cardiovascular Disease", 1),
-        ("207R00000X", "Allopathic & Osteopathic Physicians", "Internal Medicine",
-         "", "Internal Medicine", "Internal Medicine", 1),
-        ("1041C0700X", "Behavioral Health & Social Service Providers", "Social Worker",
-         "Clinical", "Clinical", "Social Worker, Clinical", 1),
-        ("2085R0202X", "Allopathic & Osteopathic Physicians", "Radiology",
-         "Diagnostic Radiology", "Diagnostic Radiology", "Diagnostic Radiology", 1),
-        ("2084P0800X", "Allopathic & Osteopathic Physicians", "Psychiatry & Neurology",
-         "", "Psychiatry", "Psychiatry", 1),
-        ("2084N0400X", "Allopathic & Osteopathic Physicians", "Psychiatry & Neurology",
-         "", "Neurology", "Neurology", 1),
-        ("282N00000X", "Hospitals", "General Acute Care Hospital",
-         "", "General Acute Care Hospital", "General Acute Care Hospital", 0),
-        ("363LF0000X", "Physician Assistants & Advanced Practice Nursing Providers",
-         "Nurse Practitioner", "Family", "Family", "Family", 1),
-    ]
-    _write(con, f"{data_dir}/reference/nucc_taxonomy.parquet",
-           "taxonomy_code, grouping, classification, specialization, display_name, specialty, is_individual",
-           [(f"'{c}'", f"'{g}'", f"'{cl}'", f"'{sp}'", f"'{dn}'", f"'{spec}'",
-             f"CAST({iv} AS BOOLEAN)") for c, g, cl, sp, dn, spec, iv in nucc])
-
-    # ── RBCS consumer code labels ──────────────────────────────────────────
-    lab = [
-        ("99213", "Office visit (established patient)", "Evaluation and Management",
-         "Office/Outpatient Services", "Office/Outpatient Visits", 1),
-        ("70450", "CT scan of the head", "Imaging", "Advanced Imaging", "CT Head", 1),
-        ("45378", "Colonoscopy", "Procedure", "Endoscopy", "Colonoscopy", 1),
-        ("93000", "Electrocardiogram (EKG)", "Test", "Cardiovascular Testing", "EKG", 0),
-        ("90837", "Therapy session (60 minutes)", "Behavioral Health",
-         "Psychotherapy", "Psychotherapy", 1),
-    ]
-    _write(con, f"{data_dir}/reference/code_labels.parquet",
-           "billing_code_type, billing_code, short_name, rbcs_category, rbcs_subcategory, "
-           "rbcs_family, rbcs_is_major, label, search_text",
-           [("'CPT'", f"'{code}'", f"'{sn}'", f"'{cat}'", f"'{sub}'", f"'{fam}'",
-             f"CAST({maj} AS BOOLEAN)", f"'{fam}'",
-             f"'{(sn + ' ' + cat + ' ' + fam + ' ' + code).lower()}'")
-            for code, sn, cat, sub, fam, maj in lab])
-
-    # ── CMS Medicare Part B utilization (evidence Tier 1) ──────────────────
-    cms = [
-        (1000000001, "93000", "O", 130, 210, 205, 12.40, "Cardiology", "N", 2024),
-        (1000000001, "99213", "O", 240, 410, 405, 84.10, "Cardiology", "N", 2024),
-        (1000000003, "90837", "O", 60, 410, 405, 118.90, "Clinical Social Worker", "N", 2024),
-        (1000000004, "70450", "O", 90, 120, 118, 41.00, "Diagnostic Radiology", "N", 2024),
-    ]
-    _write(con, f"{data_dir}/cms/ga_provider_service.parquet",
-           "npi, hcpcs_cd, place_of_service, tot_benes, tot_srvcs, tot_bene_day_srvcs, "
-           "avg_mdcr_alowd_amt, provider_type, hcpcs_drug_ind, year",
-           [(n, f"'{c}'", f"'{pos}'", b, s, d, amt, f"'{pt}'", f"'{drug}'", y)
-            for n, c, pos, b, s, d, amt, pt, drug, y in cms])
-
-    # ── specialty procedure profiles (evidence Tier 2) ────────────────────
-    prof = [
-        ("Cardiovascular Disease", "70450", 8, 10, 0.80),
-        ("Cardiovascular Disease", "99213", 9, 10, 0.90),
-        ("Internal Medicine", "99213", 40, 42, 0.95),
-        # 99204 typical for Internal Medicine, but 99202 is not (no row) —
-        # the #87 follow-up plausible-tier cost-sort test needs that split.
-        ("Internal Medicine", "99204", 38, 42, 0.90),
-    ]
-    _write(con, f"{data_dir}/reference/specialty_procedure_profiles.parquet",
-           "specialty, hcpcs_cd, billers, specialty_providers, prevalence",
-           [(f"'{sp}'", f"'{c}'", b, n, p) for sp, c, b, n, p in prof])
-
-    # ── CMS Medicare Physician Fee Schedule benchmark (issue #61) ─────────
-    # GA allowed $ per (code × modifier × POS × locality). 99213 across both
-    # GA localities → benchmark = median(67.20, 63.36) = 65.28.
-    mpfs = [
-        ("99213", "CPT", "",   "nonfacility", "01", 67.20, "A"),
-        ("99213", "CPT", "",   "facility",    "01", 51.20, "A"),
-        ("99213", "CPT", "",   "nonfacility", "99", 63.36, "A"),
-        ("99213", "CPT", "",   "facility",    "99", 48.96, "A"),
-        ("70450", "CPT", "",   "nonfacility", "01", 166.40, "A"),
-        ("70450", "CPT", "26", "nonfacility", "01", 48.00, "A"),
-        ("70450", "CPT", "TC", "nonfacility", "01", 118.40, "A"),
-        ("93000", "CPT", "",   "nonfacility", "01", 10.88, "R"),
-        ("J9299", "HCPCS", "", "nonfacility", "01", None,  "C"),  # carrier-priced flag
-    ]
-    _write(con, f"{data_dir}/reference/mpfs_ga.parquet",
-           "billing_code, billing_code_type, modifier, pos, locality, medicare_allowed, status",
-           [(f"'{bc}'", f"'{t}'", f"'{m}'", f"'{p}'", f"'{loc}'",
-             "NULL" if amt is None else amt, f"'{st}'")
-            for bc, t, m, p, loc, amt, st in mpfs])
-
-    # ── CMS OPPS Addendum B (make reference STEP=opps) — national hospital rate ──
-    _write(con, f"{data_dir}/reference/opps.parquet",
-           "billing_code, billing_code_type, status_indicator, apc, payment_rate, year",
-           [("'70450'", "'CPT'", "'Q3'", "'5522'", 106.81, 2026)])
-
-    # ── CMS Doctors & Clinicians (make reference STEP=doctors-clinicians) ────────────────
-    # one row per NPI: real group identity + demographics
-    dac = [
-        (1000000001, "Adams", "Carol", "M.D.", "Cardiology",
-         "G0000001", "Peachtree Cardiology Associates", 2005,
-         "Emory University School of Medicine", "F"),
-        (1000000002, "Baker", "David", "M.D.", "Internal Medicine",
-         "G0000001", "Peachtree Cardiology Associates", 2000,
-         "Medical College of Georgia", "M"),
-        (1000000003, "Carter", "Ellen", "LCSW", "Clinical Social Worker",
-         "G0000002", "Decatur Behavioral Health", 2012,
-         "University of Georgia", "F"),
-        (1000000004, "Diaz", "Frank", "M.D.", "Diagnostic Radiology",
-         "G0000003", "Marietta Imaging Partners", 2008,
-         "Duke University School of Medicine", "M"),
-        (1000000012, "Ito", "Kenji", "M.D.", "Diagnostic Radiology",
-         "G0000003", "Marietta Imaging Partners", 2015,
-         "Emory University School of Medicine", "M"),
-        (1000000006, "Evans", "Grace", "M.D.", "Psychiatry",
-         None, None, 2001, "Yale School of Medicine", "F"),
-    ]
-
-    def _s(v):
-        return "NULL" if v is None else f"'{v}'"
-
-    _write(con, f"{data_dir}/reference/dac_ga.parquet",
-           "npi, last_name, first_name, credential, primary_specialty, "
-           "org_pac_id, org_name, grad_year, med_school, gender",
-           [(n[0], _s(n[1]), _s(n[2]), _s(n[3]), _s(n[4]), _s(n[5]), _s(n[6]),
-             "NULL" if n[7] is None else f"CAST({n[7]} AS INTEGER)", _s(n[8]), _s(n[9]))
-            for n in dac])
-
-    # PCP geocodes (make reference STEP=geocode), MIPS (STEP=mips) and ZIP centroids
-    # (STEP=zip-centroids). Baker sits ~1 mi from 30309; Ng ~14 mi away, no MIPS.
-    _write(con, f"{data_dir}/reference/pcp_geocode.parquet", "npi, latitude, longitude",
-           [(1000000002, 33.7900, -84.3900), (1000000011, 33.9500, -84.5500),
-            (1000000010, 33.7550, -84.3900)])
-    _write(con, f"{data_dir}/reference/mips_ga.parquet",
-           "npi, mips_score, mips_source, performance_year",
-           [(1000000002, 90.0, "'individual'", 2024)])
-    _write(con, f"{data_dir}/reference/zip_centroids.parquet", "zip, lat, lon",
-           [("'30309'", 33.7990, -84.3880), ("'30303'", 33.7000, -84.3900)])
-
-    # the CCN↔NPI bridge — many rows per NPI
-    affil = [
-        (1000000001, "110001", "Emory University Hospital"),
-        (1000000001, "110002", "Grady Memorial Hospital"),
-        (1000000002, "110001", "Emory University Hospital"),
-        (1000000004, "110003", "Northside Hospital"),
-    ]
-    _write(con, f"{data_dir}/reference/dac_hospital_affiliations.parquet",
-           "npi, ccn, facility_name",
-           [(n, f"'{c}'", f"'{fn}'") for n, c, fn in affil])
-
-    con.close()
-
-    # the serving tables — run the real build against the raw parquet just
-    # written, exactly as `make build` would (no --networks: builds every
-    # partition, both BLUE_VALUE and OPEN_ACCESS).
-    from build.build import build as _build_serving
-    _build_serving(data_dir, f"{data_dir}/serving", networks=None, test=False)
-
-    # the find-care tables (build/tables/), from the default corpus, which the
-    # find-care routes read beside the tables above
-    from build import tables
-    c = default_corpus(f"{data_dir}/corpus")
-    tables.build(c.root, f"{data_dir}/serving", targets_path=c.targets, services_path=c.services_file)
-
-
 @pytest.fixture(scope="session")
 def api_data():
-    subprocess.run([sys.executable, "-c",
-                    f"import shutil; shutil.rmtree({FIX_DIR!r}, ignore_errors=True)"], check=True)
-    _build(FIX_DIR)
-    yield FIX_DIR
+    """The default corpus, built into FIX_DIR/serving by `make build`'s own
+    build(), which the app reads."""
     import shutil
+    from build.build import build
+    shutil.rmtree(FIX_DIR, ignore_errors=True)
+    c = default_corpus(f"{FIX_DIR}/corpus")
+    build(c.root, f"{FIX_DIR}/serving", c.targets, c.services_file)
+    yield FIX_DIR
     shutil.rmtree(FIX_DIR, ignore_errors=True)
 
 

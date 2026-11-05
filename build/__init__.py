@@ -1,6 +1,5 @@
-"""The build step — raw + reference Parquet into the serving tables.
+"""The build step — raw + reference Parquet into the find-care serving tables.
 
-See build/build.md. Product decisions that used to live in serving-layer SQL
-strings (the sentinel-price rule, the Medicare benchmark, service-line
-allowlists, the browse rollup) live here now.
+See build/build.md. Every product decision (who is on a plan, what a price is,
+where a place is) lives here, so the API reads the tables as they are.
 """
