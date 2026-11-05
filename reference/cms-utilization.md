@@ -40,8 +40,9 @@ F and O stay separate rows; the build aggregates over them.
 
 The build turns this file into the `evidence` table: `tier = 'billed'` for a code the
 NPI billed, `tier = 'typical'` for one billed by enough of its specialty
-([specialty-profiles.md](specialty-profiles.md)). `/imaging/providers` keeps a practice
-when one of its imaging providers has a `billed` row for the scan.
+([specialty-profiles.md](specialty-profiles.md)). The find-care build reads the file
+itself: a biller has a price for a scan when one of its doctors billed it, and does the
+scan when one billed it in an office ([build.md](../build/build.md#the-find-care-tables)).
 
 An absent file means an empty `evidence` table, so the build still runs without it.
 

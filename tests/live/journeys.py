@@ -5,7 +5,7 @@ answer" checks behind docs/journeys.md.
 
 Unlike test_golden.py beside it (pinned answers), this is depth: for a handful
 of named personas, does the specific expected outcome still hold — the canary rate,
-the labelled facility estimate, a complete price.
+the hospital's missing fee, whole prices first.
 
 Needs the REAL corpus in the running stack (the assertions check real dollar
 figures), so this is a local tool — `make test-live` — not a CI gate.
@@ -32,9 +32,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-NET = "GA Blue Value HIX Individual Network"
-CANARY_70551 = 180.49  # brain MRI at Emory Medical Care Foundation on Blue Value — must not move without a known reason
-EMORY_PRACTICE = "1306002829"
+BLUE_VALUE = "45334-GAN001"
+SILVER = "45334GA0020002"  # Anthem Silver Blue Value HMO 4000, Rosa's plan here
+CANARY_70551 = 180.49  # brain MRI at The Emory Clinic on Blue Value — must not move without a known reason
+EMORY_CLINIC = "1396798229"
 SLOW_CALL_MS = 1500   # a single API call slower than this gets flagged (not a failure)
 
 _calls = []  # (path, ms) for the journey currently running — reset per journey
@@ -58,50 +59,50 @@ def get(api, path, **params):
 # ── journeys ────────────────────────────────────────────────────────────────
 # each returns (ok: bool, detail: str)
 
-def imaging(api, code, **extra):
-    body, status = get(api, "/imaging/providers", billing_code=code,
-                       network_name=NET, zip="30322", limit=200, **extra)
-    return body, status
+def search(api, service_id, **extra):
+    return get(api, "/find-care", service_id=service_id, plan_id=SILVER, zip="30322", **extra)
 
 
 def j1(api):
-    body, status = imaging(api, "70551")
+    body, status = search(api, "mri-brain")
     rows = (body or {}).get("results") or []
     if status != 200 or not rows:
-        return False, f"/imaging/providers 70551 returned {status} / {len(rows)} practices"
-    emory = next((r for r in rows if r["practice_id"] == EMORY_PRACTICE), None)
+        return False, f"/find-care mri-brain returned {status} / {len(rows)} places"
+    clinic = next((r for r in rows if r["place_id"] == EMORY_CLINIC), None)
+    hospitals = [r for r in rows if r["kind"] == "hospital"]
     checks = [
-        (emory is not None, "Emory Medical Care Foundation listed"),
-        (emory and emory["global"]["typical"] == CANARY_70551, f"Emory typical {emory and emory['global']['typical']} (want {CANARY_70551})"),
-        (emory and emory["global"]["min"] == emory["global"]["max"], "Emory quotes one price, not a range"),
-        ((body.get("facility_estimate") or {}).get("kind") == "estimate", "hospital fee shown as a labelled estimate"),
-        (all(r["practice_name"] and r["city"] and r["distance_mi"] is not None for r in rows),
-         "every practice has its own name, a city and a distance from the ZIP"),
+        (clinic is not None, "The Emory Clinic listed"),
+        (clinic and clinic["max_rate"] == CANARY_70551, f"Emory Clinic {clinic and clinic['max_rate']} (want {CANARY_70551})"),
+        (body.get("cost_sharing") is not None, "the plan's share of the rate"),
+        (all(h["max_rate"] is None and h["parts"][0] == {"part": "facility", "max": None} for h in hospitals),
+         "a hospital's own fee shows as missing, so it has no most you'd pay"),
+        (all(r["name"] and r["city"] and r["distance_mi"] is not None for r in rows),
+         "every place has its own name, a city and a distance from the ZIP"),
     ]
     bad = [msg for ok, msg in checks if not ok]
     return (not bad), ("; ".join(bad) if bad else
-            f"{len(rows)} practices · Emory ${CANARY_70551} flat · nearest {rows[0]['distance_mi']} mi")
+            f"{len(rows)} places · Emory Clinic ${CANARY_70551} · nearest {min(r['distance_mi'] for r in rows)} mi")
 
 
 def j2(api):
-    body, status = imaging(api, "73721")
+    body, status = search(api, "mri-knee", radius_mi=10)
     rows = (body or {}).get("results") or []
     if status != 200 or not rows:
-        return False, f"/imaging/providers 73721 returned {status} / {len(rows)} practices"
-    complete = [r for r in rows if r["basis"] in ("global", "split")]
-    ok = bool(complete) and all(r["typical_rate"] > 0 for r in complete)
-    return ok, f"{len(rows)} practices · {len(complete)} with a complete price · first basis {rows[0]['basis']}"
+        return False, f"/find-care mri-knee returned {status} / {len(rows)} places"
+    whole = [r["max_rate"] is not None for r in rows]
+    ok = any(whole) and whole == sorted(whole, reverse=True)
+    return ok, f"{len(rows)} places · {sum(whole)} with a whole price, listed first"
 
 
 def j4(api):
-    body, status = get(api, "/imaging/providers", billing_code="70551")
-    return status == 400, f"no plan -> {status} (want 400: imaging needs a plan)"
+    body, status = get(api, "/find-care", service_id="mri-brain", zip="30322")
+    return status == 422, f"no plan -> {status} (want 422: prices depend on the plan)"
 
 
 JOURNEYS = [
-    ("J1", "Rosa — brain MRI price (70551)", j1),
-    ("J2", "Rosa — knee MRI (73721)", j2),
-    ("J4", "Dana — imaging with no plan", j4),
+    ("J1", "Rosa — brain MRI price near Emory", j1),
+    ("J2", "Rosa — knee MRI", j2),
+    ("J4", "Dana — a search with no plan", j4),
 ]
 
 
@@ -112,8 +113,8 @@ def main():
     args = ap.parse_args()
 
     health, hs = get(args.api, "/")
-    if hs != 200 or NET not in ((health or {}).get("networks") or []):
-        msg = f"{NET!r} not loaded at {args.api} — journeys need the real corpus"
+    if hs != 200 or BLUE_VALUE not in [n["network_id"] for n in (health or {}).get("networks") or []]:
+        msg = f"{BLUE_VALUE} not loaded at {args.api} — journeys need the real corpus"
         if args.json:
             print(json.dumps({"skipped": True, "reason": msg}))
         else:

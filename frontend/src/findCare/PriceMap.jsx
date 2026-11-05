@@ -34,17 +34,29 @@ function pinClass({ cheapest, incomplete, active }) {
   );
 }
 
+// MapLibre draws with WebGL2 and throws without it, which would take the page down
+// with the map, so the map checks first.
+function canDrawMap() {
+  try {
+    return Boolean(document.createElement('canvas').getContext('webgl2'));
+  } catch {
+    return false;
+  }
+}
+
 export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, onHover, onSelect }) {
   const containerRef = useRef(null);
   const pinsRef = useRef(new Map());
   const handlersRef = useRef({ onHover, onSelect });
   const [map, setMap] = useState(null);
+  const [drawable] = useState(canDrawMap);
 
   useEffect(() => {
     handlersRef.current = { onHover, onSelect };
   });
 
   useEffect(() => {
+    if (!drawable) return undefined;
     const instance = new maplibregl.Map({
       container: containerRef.current,
       style: STYLE_URL,
@@ -72,7 +84,7 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
       observer.disconnect();
       instance.remove();
     };
-  }, []);
+  }, [drawable]);
 
   // The search area: where the person is, how far they'll go, and a view that fits it.
   useEffect(() => {
@@ -153,6 +165,13 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
     }
   }, [map, results, selectedId]);
 
+  if (!drawable) {
+    return (
+      <div className="flex size-full items-center justify-center bg-slate-50 px-6 text-center text-sm text-slate-500">
+        This browser can&rsquo;t draw the map, but every place is in the list.
+      </div>
+    );
+  }
   // `isolate` keeps pin z-indexes inside the map, so they can't show through the header's lists.
   return <div ref={containerRef} className="isolate size-full" />;
 }

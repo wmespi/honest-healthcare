@@ -64,8 +64,8 @@ HIST_CAP = 5000      # rates >= this land in one overflow bucket
 TYPICAL_THRESHOLD = 0.03
 
 
-# serving/data_sources.outpatient_scope — the slice the consumer rate views
-# compare. Kept in sync by hand; serving/tests/test_build.py pins the two equal.
+# The slice of rates the old serving tables compare: outpatient professional
+# fee-for-service dollar amounts.
 def _scope(a=""):
     a = f"{a}." if a else ""
     return (f"{a}billing_class = 'professional' "

@@ -31,16 +31,14 @@ providers/facilities, blending **price on their plan**, **quality / volume**, an
 
 - **Exploring:** "find the cheapest care near me" as the lead experience: a service
   and an address or ZIP give a table of providers and rates, supplemented by a map.
-  The frontend-only mock at `/mock/find-care` decided the journey
-  ([plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460)),
-  and the real screen at `/find-care` serves it from the find-care tables.
+  The screen at `/find-care` does this for imaging
+  ([plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460)).
 - Anchored on one network (theirs).
 - Needs: geocoding, CMS quality (hospital + clinician), inpatient volume.
 - **Closest to shippable** — rates exist; the rest is cheap public data.
 - Ends in a "Request this appointment" action (see *information tool → navigator*).
-- **Shipped:** the imaging finder at `/find-care/imaging`, gated on plan selection
-  (persisted to `localStorage`), and the find-care screen at `/find-care`, which replaces
-  it in step 11 of #135.
+- **Shipped:** the find-care screen at `/find-care`, for the scans in `build/services.yaml`
+  on Anthem's Georgia exchange plans, with each plan's deductible and cost sharing.
 - **Next:** the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135).
 
 ### Flow B — Pick a plan  *(open enrollment, once a year)*
@@ -159,7 +157,7 @@ DuckDB filter/project a CMS CSV to a GA Parquet.
 | **CMS Health Insurance Exchange PUFs** (Plan Attributes + Benefits & Cost-Sharing especially) | structured per-plan deductible, OOP max, copays, coinsurance, metal, premium, counties, network/formulary URLs | free, annual CSV | med — kills the "user types their deductible" gap |
 | **QHP Landscape Files** | county plan list w/ premium, deductible, OOP, metal | free | low — GA moved to the "Georgia Access" state exchange for 2026; confirm GA still in the CMS files or pull Georgia Access's own data |
 | **QHP provider & formulary machine-readable JSON** (CMS schema, ≠ TiC) | per-plan in-network NPI roster + drug formulary | free | med — directory accuracy is poor, but it's the only machine-readable roster |
-| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs + `index_files.hios_issuer_ids`) | *derives* plan-name → network, retires the hand-curated `serving/plan_networks.json` | free | med |
+| **HIOS `plan_id` ↔ issuer ↔ network crosswalk** (from the PUFs + `index_files.hios_issuer_ids`) | *derives* plan → network | free | done for Georgia's exchange plans ([exchange-plans](../reference/exchange-plans.md)) |
 | CMS Marketplace Open Enrollment PUFs | enrollment by plan / metal / county | free | low — secondary |
 
 ### Other pricing inputs
@@ -208,8 +206,8 @@ multi-payer lift longer than it must.
    surgical / admission hole Part B leaves.
 4. **Ship Flow A — "Find care"** — a dedicated route: procedure/need → ranked list +
    map blending plan price, quality, volume, distance.
-5. **Exchange PUFs + HIOS crosswalk** — per-plan cost-sharing defaults for the
-   estimator; derive plan-name → network, retire `plan_networks.json`.
+5. **Exchange PUFs + HIOS crosswalk** — done for Georgia: each plan's network,
+   deductible and cost sharing ([exchange-plans](../reference/exchange-plans.md)).
 6. **Scale the rate store** ([#10](https://github.com/wmespi/honest-healthcare/issues/10))
    — add a `payer` dimension; prerequisite for 7–8.
 7. **Multi-payer rate ingestion** — per-carrier discovery adapters for the largest GA

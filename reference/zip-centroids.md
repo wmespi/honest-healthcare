@@ -1,6 +1,6 @@
 # `make reference STEP=zip-centroids` — ZIP → lat/lon for distance
 
-*Read this when working on `/imaging/providers?zip=` or the distance column.*
+*Read this when working on `/find-care?zip=` or the distance column.*
 
 Builds `data/reference/zip_centroids.parquet` — `zip | lat | lon` — from the
 Census Gazetteer ZCTA file (internal point of each ZIP Code Tabulation Area).
@@ -18,12 +18,12 @@ coordinates come from [geocode.md](geocode.md).
 ## Gaps
 
 A ZCTA is a Census approximation of a USPS ZIP: ZIPs that are PO-box or
-single-building have no ZCTA and no row. An unknown ZIP is a 400 from the API
-(`unknown zip`), never silently ignored.
+single-building have no ZCTA and no row. An unknown ZIP is a 404 from the API
+(`unknown_zip`), never silently ignored.
 
 ## Downstream
 
 `build/build.py` copies it to `serving/zip_centroids.parquet`; the API reads only
 that copy. The find-care build writes `serving/zips.parquet` from it
-([build.md](../build/build.md#the-find-care-tables)). Joined to `provider_dim.lat/lon` with a haversine in
-`serving/ranking.py`.
+([build.md](../build/build.md#the-find-care-tables)), which `/find-care` measures from to
+each place's point with a haversine in `serving/ranking.py`.

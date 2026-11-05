@@ -17,7 +17,7 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 | Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization, MPFS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
 | Build | Python + DuckDB | `build/` | Raw + reference Parquet → the serving tables; every product decision (scope, sentinel, benchmark, service lines) lives here — [build/build.md](../build/build.md) |
 | Serving | Python + DuckDB | `serving/` | Queries the Parquet globs in-process via FastAPI (`localhost:8000`) |
-| Frontend | React + Vite | `frontend/` | Rate explorer — `localhost:5173` |
+| Frontend | React + Vite | `frontend/` | The find-care screen — `localhost:5173` |
 | Storage | Parquet + ZSTD | `data/` | `data/anthem/`, `data/nppes/`, `data/reference/`, `data/cms/`, `data/serving/` — [docs/schema.md](schema.md) |
 | Queue DB | Postgres 15 | `db/` | `index_files` + `index_file_plans` + `billing_codes` + `coverage_log` |
 
@@ -52,12 +52,12 @@ flowchart LR
     REF -->|"ZIP centroids, MPFS, OPPS, hospitals, geocodes, CMS groups and billing"| FC
     GA --> FC
     SVC[build/services.yaml] --> FC
-    XNET[(reference: exchange networks, plans and premiums)] --> FC
-    FC --> FCT[("find-care tables, beside the old ones: networks, plans, premiums, zips, services, places")]
+    XNET[(reference: exchange networks, plans, premiums and cost sharing)] --> FC
+    FC --> FCT[("find-care tables: networks, plans, premiums, zips, services, cost_sharing, places, prices, providers")]
   end
   subgraph serve [serve]
-    SRV --> API[FastAPI, one persistent DuckDB connection]
-    API --> WEB[React: imaging finder]
+    FCT --> API[FastAPI, one persistent DuckDB connection]
+    API --> WEB[React: find-care screen]
   end
 ```
 

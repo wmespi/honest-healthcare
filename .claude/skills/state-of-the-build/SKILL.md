@@ -46,9 +46,8 @@ Then **verify the product still answers correctly** — hit the live API for the
 canary and 2–3 journey endpoints (`serving/` must be running):
 
 ```bash
-N='GA%20Blue%20Value%20HIX%20Individual%20Network'
-curl -s "http://localhost:8000/imaging/providers?billing_code=70551&network_name=$N&limit=200" | python3 -m json.tool
-# expect: practice_id 1306002829 (Emory Medical Care Foundation) global.typical 180.49, and a facility_estimate
+curl -s "http://localhost:8000/find-care?service_id=mri-brain&plan_id=45334GA0020002&zip=30322" | python3 -m json.tool
+# expect: place_id 1396798229 (The Emory Clinic) with an all_in part of 180.49, and the plan's cost_sharing
 ```
 
 If a canary has moved, that's the headline of the brief, not a footnote.

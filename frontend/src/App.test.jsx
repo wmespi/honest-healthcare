@@ -2,28 +2,22 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from './api';
 import App from './App';
-import { installDefaultMocks } from './test-support/mockApi';
 
 vi.mock('./api');
+// MapLibre needs WebGL, which jsdom doesn't have.
+vi.mock('./findCare/PriceMap', () => ({ PriceMap: () => null }));
 
 beforeEach(() => {
-  installDefaultMocks(api);
-  api.getServiceLines.mockResolvedValue({ data: { imaging: { menu: [] } } });
+  vi.resetAllMocks();
+  api.getPlans.mockResolvedValue({ data: [] });
+  api.getServices.mockResolvedValue({ data: [] });
 });
 
 describe('routing', () => {
-  it('serves the imaging finder at its own address', async () => {
-    window.history.replaceState(null, '', '/find-care/imaging');
-    render(<App />);
-    expect(await screen.findByLabelText('Which scan?')).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/find-care/imaging');
-  });
-
-  // /find-care is the find-care screen (findCare/FindCare.test.jsx).
-  it.each(['/', '/find-care/pcp', '/explore', '/nope'])('sends %s to the imaging finder', async (path) => {
+  it.each(['/', '/find-care', '/find-care/imaging', '/mock/find-care', '/nope'])('sends %s to the find-care screen', async (path) => {
     window.history.replaceState(null, '', path);
     render(<App />);
-    expect(await screen.findByLabelText('Which scan?')).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/find-care/imaging');
+    expect(await screen.findByText(/know the most you could pay/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/find-care');
   });
 });
