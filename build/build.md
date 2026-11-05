@@ -1,4 +1,4 @@
-# build — raw + reference Parquet → the serving tables
+# build: what ingestion writes → the serving tables
 
 *Read this when changing what the serving layer reads, or a product rule.*
 `make build` (→ `build/build.py`) is the one cheap, re-runnable step between
@@ -9,17 +9,17 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 
 [`build/tables/`](tables/__init__.py) writes the tables the find-care screen reads, the ones in the [#135](https://github.com/wmespi/honest-healthcare/issues/135) ERD and in [docs/architecture.md](../docs/architecture.md#serving-entity-model).
 Each table has its own file, named after it, with a class that names its key and columns and selects its rows.
-[`build/inputs/`](inputs/__init__.py) holds what they read: each dataset with the command that makes it, and build-only tables such as which parsed file prices each network.
+[`build/inputs/`](inputs/__init__.py) holds what they read: each dataset ingestion writes, with the command that makes it and the columns and key the build checks before reading any of them ([docs/schema.md](../docs/schema.md)), and build-only tables such as each biller's rates.
 [`build/table.py`](table.py) checks every table's columns and key, plus any rule of the table's own, inputs included.
 `make build` makes and checks them all before writing anything, so a failed check leaves the last build's files as they were.
 Two builds from the same inputs write the same bytes, which `build/tests/tables/` checks.
-They cover the targets in [`etl/targets.yaml`](../etl/targets.yaml).
+They cover the networks the payer rates in `data/payer_rates/` price, which `make parse` publishes for the targets in [`etl/targets.yaml`](../etl/targets.yaml) ([etl/parse.md](../etl/parse.md#publishing-the-rates-by-network)); the build reads neither that file nor Anthem's own.
 `manifest.json` beside them says when the build ran (`built_at`) and how many rows each table has (`rows`), and `GET /` reads it.
 
 | Table | Grain | Notes |
 |---|---|---|
-| `networks.parquet` | one row per network a target names | `network_id`, such as `45334-GAN001`, and Georgia's exchange `name` for it. |
-| `plans.parquet` | one row per plan on those networks | `plan_id`, the HIOS plan ID such as `45334GA0020002`, with Georgia's `name` as published, `carrier`, `metal_level`, `needs_referral`, `network_id` and `deductible`, the standard version's in-network deductible for one person. The index must link each plan to its network's file, or the build stops. |
+| `networks.parquet` | one row per network the payer rates price | `network_id`, such as `45334-GAN001`, and Georgia's exchange `name` for it. Each has to be one of Georgia's networks, or the build stops. |
+| `plans.parquet` | one row per plan on those networks | `plan_id`, the HIOS plan ID such as `45334GA0020002`, with Georgia's `name` as published, `carrier`, `metal_level`, `needs_referral`, `network_id` and `deductible`, the standard version's in-network deductible for one person. |
 | `premiums.parquet` | one row per plan, rating area and age | `premium` and `tobacco_premium`, the monthly premium for one person, from Georgia's premium file. Each plan has premiums in every rating area it's sold in, for every age from 0 to 64, where 64 means 64 and over, or the build stops. |
 | `zips.parquet` | one row per ZIP the Census lists | `zip`, `lat` and `lon`, the point a ZIP search measures distance from. Every ZIP, not only Georgia's, because the Census file has no state and someone near the state line may search from across it. Each must be five digits with a point on the map, or the build stops. |
 | `services.parquet` | one row per service in [`build/services.yaml`](services.yaml) | `service_id`, our own slug such as `mri-lower-back`, its one `billing_code`, its `service_category`, the benefit in Georgia's cost-sharing file it falls under, and what the screen says about it: `name`, `keywords`, `about`, `could_change`, `asks` and an optional `preventive_note`. `medicare_rate` is Medicare's office rate for the whole service, the median of Georgia's two payment areas, and `medicare_facility_rate` is Medicare's national hospital outpatient rate, empty where Medicare doesn't pay that way, as for mammograms. A slug, a five-character code that no other service bills, and text in every field are required, or the build stops. |
@@ -52,7 +52,7 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
 ## Running it
 
 ```
-make build                 # the targets in etl/targets.yaml, in the serving container
+make build                 # the networks in data/payer_rates/, in the serving container
 make build TEST=1          # data-test/
 python -m build.build --data-dir <path> --serving-dir <path>
 ```

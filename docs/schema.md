@@ -12,7 +12,7 @@ smaller for repetitive rate data, DuckDB scans only the columns a query needs, a
 neither side needs a server process.
 
 ---
-## Parquet — `data/anthem/` (a build input — `make build` reads this, the API doesn't)
+## Parquet: `data/anthem/` (ingestion's own: `make parse` turns it into the payer rates below)
 
 | File | Columns |
 |---|---|
@@ -56,7 +56,7 @@ one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 The find-care build calls it the biller ([build/build.md](../build/build.md#the-find-care-tables)).
 
 `index_files.parquet` is every file this month's index lists, and `index_file_plans.parquet` the Georgia individual-market plans it lists against each, one row per `(file_id, plan_id)`; `make discover` writes both ([etl/discover.md](../etl/discover.md)).
-Parse picks the files `etl/targets.yaml` names from them, and the build reads the link to tell which parsed file prices a network.
+Parse picks the files `etl/targets.yaml` names from them, and its last step reads the link to tell which parsed file prices a network ([etl/parse.md](../etl/parse.md#publishing-the-rates-by-network)).
 `parses/{name}.parquet` is one row saying what the last parse of a file made of it, which decides whether parse downloads it again ([etl/parse.md](../etl/parse.md#when-parse-downloads-a-file)).
 
 ### Why price grain + `group_sets`
@@ -76,6 +76,22 @@ networks lands in both partitions. A price carries no `plan_name`; a plan's netw
 comes from Georgia's exchange plan file
 ([reference/exchange-plans.md](../reference/exchange-plans.md)), and the build picks a
 network's rates by this label ([build/build.md](../build/build.md#the-find-care-tables)).
+
+## Parquet: `data/payer_rates/<payer>/` (the payer rates `make build` reads)
+
+What ingestion hands integration: each target network's rates, keyed on Georgia's exchange network ID, in the same columns for every payer.
+`make parse` writes Anthem's ([etl/parse.md](../etl/parse.md#publishing-the-rates-by-network)).
+`build/inputs/datasets.py` declares the columns and key the build checks before reading them, as it does for every dataset in the sections below, which may have more columns than it reads.
+
+| File | Columns |
+|---|---|
+| `rates.parquet` | `network_id`, `group_set_id`, `billing_code_type`, `billing_code`, `negotiation_arrangement`, `negotiated_type`, `negotiated_rate`, `expiration_date`, `service_code`, `billing_class`, `modifier`, `setting` |
+| `rate_groups.parquet` | `network_id`, `group_set_id`, `provider_group_id`, unique together |
+| `rosters.parquet` | `network_id`, `provider_group_id`, `npi`, `tin_type`, `tin_value` |
+
+The columns keep CMS's Transparency in Coverage names, as `data/anthem/` has them.
+A rate's `group_set_id` lists the provider groups it covers in `rate_groups`, and each group's roster lists its doctors (`npi`) and its billing ID (`tin_value`, an NPI or EIN by `tin_type`).
+`rosters` runs to hundreds of millions of rows, every doctor in every group a network's rates use, so it's written as streamed, in no order.
 
 ## Parquet — `data/serving/` (the build step's output — [build/build.md](../build/build.md), read straight by the API)
 

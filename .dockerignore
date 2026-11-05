@@ -25,6 +25,7 @@ derby.log
 venv/
 # The tests: the dev stack and CI mount the repo, and no image needs them.
 build/tests/
+ingestion/tests/
 reference/tests/
 serving/tests/
 tests/

@@ -23,7 +23,8 @@ plan's real name, such as Anthem Silver Blue Value HMO 4000.
 
 `etl parse` reads `exchange_plans_ga.parquet` to turn the exchange networks in
 [`etl/targets.yaml`](../etl/targets.yaml) into plan IDs and parse the files that price
-them ([etl/parse.md](../etl/parse.md#target-selection)), and `make build` reads all four for the
+them ([etl/parse.md](../etl/parse.md#target-selection)), and to check that the index links every plan on a network to the file that prices it when
+parse publishes the rates by network; `make build` reads all four for the
 find-care plans, networks, premiums and cost sharing ([build/build.md](../build/build.md#the-find-care-tables)).
 
 ## What is kept

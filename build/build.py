@@ -1,4 +1,4 @@
-"""`make build`: raw + reference Parquet -> the find-care serving tables
+"""`make build`: what ingestion wrote -> the find-care serving tables
 (build/tables/, build/build.md), and a manifest of when and what was built.
 
 Reads the shared corpus read-only and writes only the serving dir: SERVING_DIR,
@@ -12,14 +12,13 @@ import os
 
 from build import tables
 from build.inputs.service_list import SERVICES_PATH
-from build.inputs.targets import TARGETS_PATH
 from reference._common import serving_dir as _serving_dir
 
 
-def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVICES_PATH):
+def build(data_dir, serving_dir, services_path=SERVICES_PATH):
     """Write the find-care tables and manifest.json under `serving_dir`; returns
     {table: rows}. A failed check writes nothing (build/tables/__init__.py)."""
-    rows = tables.build(data_dir, serving_dir, targets_path, services_path)
+    rows = tables.build(data_dir, serving_dir, services_path)
     manifest = {
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "rows": rows,

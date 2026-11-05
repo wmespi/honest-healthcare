@@ -3,7 +3,7 @@
 *Read this when working on the monthly read of Anthem's master index: the file list and the plan → file link.*
 
 Reads this month's Anthem master index and writes two Parquet files under `data/anthem/`: the files it lists (`index_files.parquet`) and the plans each one prices (`index_file_plans.parquet`).
-Parse picks the files [`targets.yaml`](targets.yaml) names from them ([parse.md](parse.md#target-selection)), and the build reads the link ([build.md](../build/build.md#the-find-care-tables)).
+Parse picks the files [`targets.yaml`](targets.yaml) names from them ([parse.md](parse.md#target-selection)), and parse's last step reads the link to tell which parsed file prices a network ([parse.md](parse.md#publishing-the-rates-by-network)).
 Safe to re-run.
 `make discover` → `etl discover` (package `etl/discovery`).
 

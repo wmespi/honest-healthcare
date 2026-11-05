@@ -21,7 +21,7 @@ def test_places_are_every_hospital_and_every_practice_with_a_price_on_the_map(co
 
 def biller(corpus, npi, name, address, city, postal_code, **fields):
     """Price a lower-back MRI at `npi`, which Medicare shows doing it in an office."""
-    corpus.roster(21057, 1, npi - 1000000000, str(npi), npi + 1000000000)
+    corpus.roster("45334-GAN001", 1, npi - 1000000000, str(npi), npi + 1000000000)
     corpus.billed(npi + 1000000000, "72148", "O")
     corpus.npi(npi, name, address, city, postal_code, **fields)
 

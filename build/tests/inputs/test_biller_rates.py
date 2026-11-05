@@ -2,7 +2,7 @@
 each service, and whether they do it or only read it."""
 import pytest
 
-BV = "GA Blue Value HIX Individual Network"
+BV = "45334-GAN001"
 
 
 def billers(corpus):
@@ -28,19 +28,19 @@ def rates(corpus, service_id):
 
 
 def test_a_service_with_office_lines_keeps_only_those_and_drops_placeholders(corpus):
-    corpus.scan_price(21057, BV, 1, "72148", all_in=900, service_code="22")  # hospitals only
-    corpus.scan_price(21057, BV, 1, "72148", all_in=0.01)
+    corpus.scan_price(BV, 1, "72148", all_in=900, service_code="22")  # hospitals only
+    corpus.scan_price(BV, 1, "72148", all_in=0.01)
     assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0)]
 
 
 def test_a_service_priced_only_for_hospitals_keeps_those_lines(corpus):
-    corpus.scan_price(21057, BV, 1, "77067", all_in=150, service_code="22")
+    corpus.scan_price(BV, 1, "77067", all_in=150, service_code="22")
     corpus.billed(2000000001, "77067", "O")
     assert rates(corpus, "mammogram-screening") == [("all_in", 150.0)]
 
 
 def test_a_billing_id_that_is_not_an_npi_stops_the_build(corpus):
-    corpus.roster(21057, 9, 9, "581234567", 2000000009, tin_type="ein")
+    corpus.roster(BV, 9, 9, "581234567", 2000000009, tin_type="ein")
     with pytest.raises(SystemExit, match="1 roster rows bill under a 'ein' ID, not an NPI"):
         corpus.build()
 
@@ -52,9 +52,9 @@ def test_a_registered_center_does_its_kind_of_scan_without_a_medicare_record(cor
     for biller, doctor, taxonomy in [(1000000010, 2000000010, "261QM1200X"),
                                      (1000000011, 2000000011, "261QR0206X")]:
         group = biller - 1000000000
-        corpus.roster(21057, group, group, str(biller), doctor)
-        corpus.scan_price(21057, BV, group, "72148", all_in=500)
-        corpus.scan_price(21057, BV, group, "77067", all_in=150)
+        corpus.roster(BV, group, group, str(biller), doctor)
+        corpus.scan_price(BV, group, "72148", all_in=500)
+        corpus.scan_price(BV, group, "77067", all_in=150)
         corpus.npi(biller, f"CENTER {group}", f"{group} MAIN ST", "ATLANTA", "303082233", taxonomy=taxonomy)
     corpus.billed(2000000011, "72148", "F")
     rows = corpus.inputs().execute("""
