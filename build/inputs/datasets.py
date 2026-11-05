@@ -62,5 +62,16 @@ HOSPITALS = Dataset("reference/hospitals_ga.parquet", "make reference STEP=hospi
 # Every address sent to Census, with its standardized match and coordinates
 # (reference/geocode.md).
 GEOCODES = Dataset("reference/geocode_addresses.parquet", "make reference STEP=geocode")
+# Georgia's bounding box, with a margin. Census now and then matches an address to a
+# same-named town in another state (LaFayette GA to Tennessee, Riverdale GA to
+# Maryland), so a match outside it is wrong, and counts as no match.
+GEORGIA_LAT, GEORGIA_LON = (30.3, 35.1), (-85.7, -80.7)
+
+
+def georgia_matches(data_dir):
+    """GEOCODES without Census's matches outside Georgia."""
+    return (f"(SELECT * FROM {GEOCODES.read(data_dir)} "
+            f"WHERE latitude BETWEEN {GEORGIA_LAT[0]} AND {GEORGIA_LAT[1]} "
+            f"AND longitude BETWEEN {GEORGIA_LON[0]} AND {GEORGIA_LON[1]})")
 # Each ZIP's Census centroid: zip, lat, lon (reference/zip-centroids.md).
 ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids")

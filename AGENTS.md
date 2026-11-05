@@ -52,7 +52,7 @@ in C++.
 
 The dividing line is *"hand-rolled streaming parser vs. SQL-shaped transform"*, not
 extract-vs-serve. NPPES stays in Go even though it writes a dimension table,
-because the work is the stream. RBCS/NUCC/CMS-utilization are Python even though
+because the work is the stream. NUCC/CMS-utilization are Python even though
 they're "extraction", because the work is a filter/join over a CSV that DuckDB's
 parallel C++ reader handles, not a hand-rolled streaming parse.
 
@@ -99,14 +99,14 @@ make up / make down / make logs
 
 make discover               # Phase 1 — rebuild the queue (index_files + index_file_plans) from this month's index, then backfill sizes
 make discover SCHEMA=1      #   stream only, write index_schema.json, no DB
-make reference              # Phase 3 — NPPES, RBCS/NUCC labels, CMS utilization + profiles, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals (skips what exists)
+make reference              # Phase 3 — NPPES, NUCC labels, CMS utilization, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
 make parse                  # Phase 2 — stream the pending files etl/targets.yaml names → Parquet (needs the NPPES and exchange-plans references first)
 make parse ID=21057         #   one file by index_files.id (bypasses target selection)
 make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
 make parse TEST=1           #   test isolation (test schema + data-test/)
 make build                  # Phase 4 — raw + reference parquet → the find-care tables in data/serving/, for the plans etl/targets.yaml names
-make refresh                # the monthly job: discover → reference → parse → code-labels → geocode → build
+make refresh                # the monthly job: discover → reference → parse → geocode → build
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
 make check LOCAL=1          #   same gate on host toolchains, NO Docker
@@ -158,8 +158,8 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | The services the find-care screen offers, and what it says about each | [build/services.yaml](build/services.yaml) |
 | Queue selection, ordering, recovering stuck rows | [etl/queue.md](etl/queue.md) |
 | NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
-| RBCS procedure labels / NUCC specialty labels | [reference/code-labels.md](reference/code-labels.md) · [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
-| Provider↔procedure evidence (CMS utilization; specialty profiles) | [reference/cms-utilization.md](reference/cms-utilization.md) · [reference/specialty-profiles.md](reference/specialty-profiles.md) |
+| NUCC specialty labels | [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
+| Provider↔procedure evidence (CMS utilization) | [reference/cms-utilization.md](reference/cms-utilization.md) |
 | Medicare Physician Fee Schedule rate (`services.medicare_rate`) | [reference/mpfs.md](reference/mpfs.md) |
 | Georgia's hospitals: CCN, name, address, phone and Medicare star rating | [reference/hospitals.md](reference/hospitals.md) |
 | Georgia's individual-market plans: real names, metal level, referral rule, network and premiums by HIOS plan ID | [reference/exchange-plans.md](reference/exchange-plans.md) |

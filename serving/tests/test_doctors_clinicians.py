@@ -1,9 +1,8 @@
 """Hermetic test for the Doctors & Clinicians builder (reference/doctors_clinicians.py).
 
 No network, no live API — runs the builder against a committed CSV fixture in
-test isolation (writes data-test/reference/, never data/reference/). The fixture
-carries the National file's wide ``hosp_afl_*`` columns, so ``--dac-file`` alone
-produces both outputs offline.
+test isolation (writes data-test/reference/, never data/reference/), so
+``--dac-file`` alone produces the output offline.
 """
 import os
 import subprocess
@@ -15,7 +14,6 @@ import pytest
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FIXTURE = os.path.join(REPO, "reference", "testdata", "dac_sample.csv")
 GA_OUT = os.path.join(REPO, "data-test", "reference", "dac_ga.parquet")
-AFFIL_OUT = os.path.join(REPO, "data-test", "reference", "dac_hospital_affiliations.parquet")
 NPI_LOOKUP = os.path.join(REPO, "data-test", "anthem", "npi_lookup.parquet")
 
 
@@ -40,7 +38,7 @@ def built():
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
     assert "State = 'GA'" in r.stdout, r.stdout
     yield duckdb.connect()
-    _rm(GA_OUT, AFFIL_OUT)
+    _rm(GA_OUT)
 
 
 def test_dac_ga_one_row_per_npi_georgia_only(built):
@@ -87,33 +85,6 @@ def test_dac_ga_keeps_solo_and_null_grad_year(built):
     assert gy is None
 
 
-def test_hospital_affiliations_bridge(built):
-    cols = {r[0] for r in built.execute(
-        f"DESCRIBE SELECT * FROM read_parquet('{AFFIL_OUT}')").fetchall()}
-    assert cols == {"npi", "ccn", "facility_name"}
-    # NPI ...01 has two hospitals across its rows; dedup keeps both
-    afl = built.execute(f"""
-        SELECT ccn, facility_name FROM read_parquet('{AFFIL_OUT}')
-        WHERE npi = 1000000001 ORDER BY ccn
-    """).fetchall()
-    assert afl == [("110001", "Emory University Hospital"),
-                   ("110002", "Grady Memorial Hospital")]
-
-
-def test_hospital_affiliations_scoped_to_dac_ga(built):
-    # the out-of-state clinician's Orlando affiliation must not leak in
-    leaked = built.execute(
-        f"SELECT count(*) FROM read_parquet('{AFFIL_OUT}') WHERE npi = 2000000001"
-    ).fetchone()[0]
-    assert leaked == 0
-    # every affiliation NPI is present in dac_ga
-    orphans = built.execute(f"""
-        SELECT count(*) FROM read_parquet('{AFFIL_OUT}') a
-        WHERE a.npi NOT IN (SELECT npi FROM read_parquet('{GA_OUT}'))
-    """).fetchone()[0]
-    assert orphans == 0
-
-
 @pytest.fixture(scope="module")
 def built_npi_scoped():
     """Exercise the `npi IN npi_lookup` geo branch — the production path, and
@@ -140,7 +111,7 @@ def built_npi_scoped():
         assert "NPIs in" in r.stdout, f"expected the npi_lookup geo branch:\n{r.stdout}"
         yield duckdb.connect()
     finally:
-        _rm(GA_OUT, AFFIL_OUT, NPI_LOOKUP)
+        _rm(GA_OUT, NPI_LOOKUP)
 
 
 def test_geo_scope_is_npi_lookup_not_state(built_npi_scoped):

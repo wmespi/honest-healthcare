@@ -72,7 +72,7 @@ def build(data_dir, serving_dir, targets_path=TARGETS_PATH, services_path=SERVIC
         rows[table.name] = table.write(con, serving_dir)
         print(f"  {table.name + '.parquet':<22} {rows[table.name]:>13,}")
     con.close()
-    if os.getenv("DUCKDB_TMP") is None:  # only a spill dir we own
+    if not os.getenv("DUCKDB_TMP"):  # only a spill dir we own (make build passes it empty)
         shutil.rmtree(spill, ignore_errors=True)
     return rows
 

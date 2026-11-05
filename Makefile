@@ -89,11 +89,10 @@ reference: ## Phase 3 — build every reference dataset (NPPES, labels, CMS, MPF
 build: ## Phase 4 — raw + reference parquet -> the find-care tables in data/serving/, for the plans etl/targets.yaml names. TEST=1
 	docker compose exec -T -w /app -e DUCKDB_TMP= serving python3 -m build.build --data-dir /app/data $(if $(filter 1,$(TEST)),--test,)
 
-refresh: ## The monthly job: discover → reference (what's missing; NPPES gates parse) → parse → code-labels (needs parsed codes) → geocode (new billing IDs) → build
+refresh: ## The monthly job: discover → reference (what's missing; NPPES gates parse) → parse → geocode (new billing IDs) → build
 	$(MAKE) discover
 	$(MAKE) reference
 	$(MAKE) parse
-	$(MAKE) reference STEP=code-labels
 	$(MAKE) reference STEP=geocode
 	$(MAKE) build
 

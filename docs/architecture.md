@@ -14,7 +14,7 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 |---|---|---|---|
 | Discovery | Go + Postgres | `etl/discovery/` | Monthly metadata sync of MRF URLs into the `index_files` queue; keeps the plan→file link (`index_file_plans`), and writes it to `data/anthem/index_file_plans.parquet` for the build |
 | Extraction | Go (streaming JSON) | `etl/extraction/` | Parses gzipped MRFs in one pass → raw Parquet; a provider probe aborts a download before `in_network` when no wanted provider is in it |
-| Reference | Go (NPPES) + Python/DuckDB (RBCS, NUCC, CMS utilization, MPFS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
+| Reference | Go (NPPES) + Python/DuckDB (NUCC, CMS utilization, MPFS, OPPS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
 | Build | Python + DuckDB | `build/` | Raw + reference Parquet → the find-care tables; every product decision (who is on a plan, what a price is, where a place is) lives here — [build/build.md](../build/build.md) |
 | Serving | Python + DuckDB | `serving/` | Reads the find-care tables in-process via FastAPI (`localhost:8000`) |
 | Frontend | React + Vite | `frontend/` | The find-care screen — `localhost:5173` |

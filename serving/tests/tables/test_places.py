@@ -92,3 +92,12 @@ def test_a_place_census_cant_put_on_the_map_is_left_off_and_saved(corpus):
         ("1000000003", "SOUTH GEORGIA RADIOLOGY PC", "practice", "2501 N PATTERSON ST", "VALDOSTA", "31602"),
         ("110038", "ARCHBOLD MEMORIAL HOSPITAL", "hospital", "915 GORDON AVENUE & MIMOSA DRIVE", "THOMASVILLE",
          "31792")]
+
+
+def test_a_census_match_outside_georgia_counts_as_no_match(corpus):
+    # Census put this LaFayette address in LaFayette, Tennessee.
+    biller(corpus, 1000000017, "LAFAYETTE IMAGING", "100 MAIN ST", "LAFAYETTE", "307281234")
+    corpus.geocode("100 MAIN ST", "LAFAYETTE", "307281234", "100 MAIN ST, LAFAYETTE, TN, 37083", 36.52, -86.03)
+    corpus.build()
+    assert ("1000000017", "LAFAYETTE IMAGING", "practice", "100 MAIN ST", "LAFAYETTE", "30728") in corpus.rows(
+        "unlocated_places")

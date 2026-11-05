@@ -7,7 +7,6 @@
 #   make reference STEP=mpfs ARGS="--year 2025"
 #   make reference FORCE=1
 #
-# code-labels reads the parsed codes under data/anthem/codes, so it always re-runs.
 # geocode always runs too: it sends Census only the addresses it hasn't before.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,10 +19,8 @@ ARGS="${ARGS:-}"
 STEPS=(
   "nppes|/app/data/nppes/ga_providers.parquet|etl"
   "taxonomy-labels|/app/data/reference/nucc_taxonomy.parquet|reference.taxonomy_labels"
-  "code-labels||reference.code_labels"
   "cms-utilization|/app/data/cms/ga_provider_service.parquet|reference.cms_utilization"
   "doctors-clinicians|/app/data/reference/dac_ga.parquet|reference.doctors_clinicians"
-  "specialty-profiles|/app/data/reference/specialty_procedure_profiles.parquet|reference.specialty_profiles"
   "mpfs|/app/data/reference/mpfs_ga.parquet|reference.mpfs"
   "opps|/app/data/reference/opps.parquet|reference.opps"
   "hospitals|/app/data/reference/hospitals_ga.parquet|reference.hospitals"

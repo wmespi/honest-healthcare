@@ -7,8 +7,8 @@ rest — for the tests in inputs/ and tables/, which build the find-care tables
 build`'s own build() into FIX_DIR/serving, and `api` binds a `TestClient` to
 the app reading it.
 
-The other test files here (test_cms_utilization, test_specialty_profiles,
-test_mpfs, test_doctors_clinicians and the like) run the reference/ builders
+The other test files here (test_cms_utilization, test_mpfs,
+test_doctors_clinicians and the like) run the reference/ builders
 against their own data-test/ paths (repo-root relative) and ignore these.
 """
 import os

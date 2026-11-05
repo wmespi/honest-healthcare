@@ -10,8 +10,8 @@ reshape, no streaming parser ([language principle](../AGENTS.md#the-language-pri
 `make reference STEP=taxonomy-labels` → `python3 -m reference.taxonomy_labels --data-dir /app/data`
 in the serving container (`reference/taxonomy_labels.py`). `NUCC_URL=` overrides
 the source; otherwise it tries the known `nucc_taxonomy_<version>.csv` names newest-first (NUCC
-re-stamps the version twice a year). Shares `reference/_common.py` with
-`code_labels`.
+re-stamps the version twice a year). Shares `reference/_common.py` with the other
+reference builders.
 
 ## Why
 
