@@ -49,7 +49,7 @@ roster per file. `prices ⨝ group_sets` reproduces every original
 own, so it doubles as a stable practice key: one real
 practice recurs across the MRF as many file-local `provider_group_id`s but keeps
 one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
-`/imaging/providers` collapses on it ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
+The find-care build calls it the biller ([build/build.md](../build/build.md#the-find-care-tables)).
 
 `index_file_plans.parquet` is the plan → file link in the index `make discover` last read whole: one row per `(file_id, plan_id)`, sorted, copied from the Postgres table of the same name below ([etl/discover.md](../etl/discover.md#the-monthly-rebuild)).
 The build reads it to tell which parsed file prices a network, so it reads no database.
@@ -88,8 +88,8 @@ table here is a `503` from `GET /`, never a fallback to raw `anthem/` / `nppes/`
 `rates` is the parser's **price grain** — one row per negotiated price, no group
 fan-out (`group_set_id` links to `group_sets` for the join a query needs at read
 time, after pruning on `net` + `billing_code`). Fanning out to one row per
-`(price × provider group)` would be orders of magnitude larger. `scope` (`outpatient_scope` in
-`serving/data_sources.py`), `is_sentinel` (a ceiling over the built networks) and the MPFS benchmark are added
+`(price × provider group)` would be orders of magnitude larger. `scope` (`OUTPATIENT_PROF` in
+`build/build.py`), `is_sentinel` (a ceiling over the built networks) and the MPFS benchmark are added
 at build time. The build keeps every row and doesn't combine prices across files
 (`provider_group_id` is file-local;
 [etl/mrf-model.md](../etl/mrf-model.md#one-plan-one-contract)).
@@ -119,8 +119,8 @@ The structured network label for a price — one member of the
 `provider_references[].network_name` array (e.g. `"GA Blue Value HIX Individual
 Network"`), one value per row, equal to its `net` partition. **The reliable filter
 for the target plan.** A provider group in two networks lands in both partitions.
-`rates` carries no `plan_name`; `/imaging/plans` serves the curated plan → network bridge in
-`serving/plan_networks.json`, and the friendly plan picker filters on its network.
+`rates` carries no `plan_name`; a plan's network comes from Georgia's exchange plan file
+([reference/exchange-plans.md](../reference/exchange-plans.md)).
 
 ---
 

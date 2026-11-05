@@ -1,7 +1,7 @@
 # `make reference STEP=opps` — Medicare hospital-outpatient rate (OPPS)
 
-*Read this when working on the hospital facility estimate on the imaging screen or the
-`facility_estimate` field on `/imaging/providers`.*
+*Read this when working on the Medicare hospital rate the find-care screen gives as a
+rough guide at a hospital (`services.medicare_facility_rate`).*
 
 **Builds** `data/reference/opps.parquet` from CMS's quarterly
 [Addendum B](https://www.cms.gov/medicare/payment/prospective-payment-systems/hospital-outpatient-pps/quarterly-addenda-updates):
@@ -26,9 +26,8 @@ be packaged into one payment. The estimate says so rather than implying a quote.
 
 `build` joins it onto `code_dim.opps_payment` (null when the file is absent, and
 `manifest.json` `inputs.opps` says which), and the find-care build onto
-`services.medicare_facility_rate`. `serving/benchmark.opps_payment()` reads it;
-`/imaging/providers` returns `facility_estimate` (`amount`, `source`, `kind`), null when
-the code has no rate. The words shown to the user live in `frontend/src/lib/explain.js`.
+`services.medicare_facility_rate`, empty when the code has no rate. The words shown to
+the user live in `frontend/src/findCare/ResultsTable.jsx`.
 
 ## Re-run when CMS publishes a new quarter
 

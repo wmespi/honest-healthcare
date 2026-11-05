@@ -3,19 +3,15 @@
 App wiring only. Table sources and the connection live in data_sources.py;
 the routes in routers/. See serving/serving.md.
 """
-import datetime as _dt
-import glob as _glob
-import os as _os
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .data_sources import (
-    CODE_DIM_SRC, GROUP_MEMBERS_SRC, GROUP_SETS_SRC, RATE_HIST_SRC, RATES_GLOB,
-    SERVING_DIR, db, manifest, missing_build,
+    NETWORKS_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, SERVING_DIR,
+    db, manifest, missing_build,
 )
-from .routers import find_care, imaging, reference
+from .routers import find_care
 
 app = FastAPI(title="Honest Healthcare API")
 
@@ -28,26 +24,18 @@ app.add_middleware(
 )
 
 app.include_router(find_care.router)
-app.include_router(imaging.router)
-app.include_router(reference.router)
 
-
-def _data_as_of():
-    """Newest rates Parquet mtime → the 'rates as of' date for the trust bar."""
-    try:
-        files = _glob.glob(RATES_GLOB, recursive=True)
-        if files:
-            return _dt.date.fromtimestamp(max(_os.path.getmtime(f) for f in files)).isoformat()
-    except Exception:
-        pass
-    return None
+# The tables GET / counts, so a glance says what the build holds.
+_COUNTED = {"plans": PLANS_SRC, "services": SERVICES_SRC, "places": PLACES_SRC,
+            "prices": PRICES_SRC, "providers": PROVIDERS_SRC}
 
 
 @app.get("/")
 def health():
-    """Health + the trust-bar context. A missing build is an error, not a
-    degraded mode: 503 with what's absent, so nobody mistakes an unbuilt
-    stack for an empty corpus."""
+    """Health: when the build ran, the networks it priced and how many rows
+    each find-care table holds. A missing build is an error, not a degraded
+    mode: 503 with what's absent, so nobody mistakes an unbuilt stack for an
+    empty corpus."""
     missing = missing_build()
     if missing:
         return JSONResponse(status_code=503, content={
@@ -56,32 +44,7 @@ def health():
             "missing": missing,
         })
     conn = db()
-    m = manifest()
-    try:
-        # Footer totals — scalar reads of the small tables, never a `rates` scan.
-        prices = conn.execute(f"SELECT COALESCE(SUM(n_rates), 0) FROM {RATE_HIST_SRC}").fetchone()[0]
-        edges = conn.execute(f"SELECT COUNT(*) FROM {GROUP_SETS_SRC}").fetchone()[0]
-        members, priceable_npis = conn.execute(
-            f"SELECT COUNT(*), COUNT(DISTINCT npi) FROM {GROUP_MEMBERS_SRC}").fetchone()
-        n_codes = conn.execute(f"SELECT COUNT(DISTINCT billing_code) FROM {CODE_DIM_SRC}").fetchone()[0]
-        networks = [r[0] for r in conn.execute(
-            f"SELECT DISTINCT network_name FROM {RATE_HIST_SRC} "
-            f"WHERE network_name IS NOT NULL AND network_name != '' ORDER BY 1"
-        ).fetchall()]
-
-        # Which optional reference datasets went INTO the build (the API never
-        # reads them directly any more). test_golden.py's skip guard and a
-        # future admin panel read these rather than inferring from response
-        # shape — "no NPPES" vs "NPPES loaded but this NPI has no rates".
-        inputs = m.get("inputs", {})
-        reference_loaded = {k: bool(inputs.get(k)) for k in
-                            ("nppes", "nucc", "cms_utilization", "mpfs", "dac")}
-
-        return {"status": "ok", "total_prices": int(prices),
-                "total_group_set_edges": edges, "total_providers": members,
-                "priceable_npis": priceable_npis, "networks": networks,
-                "n_codes": n_codes, "as_of": _data_as_of(),
-                "built_at": m.get("built_at"), "partial_build": bool(m.get("partial")),
-                "reference_loaded": reference_loaded}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "note": str(e)})
+    networks = [{"network_id": r[0], "name": r[1]} for r in conn.execute(
+        f"SELECT network_id, name FROM {NETWORKS_SRC} ORDER BY network_id").fetchall()]
+    rows = {name: conn.execute(f"SELECT count(*) FROM {src}").fetchone()[0] for name, src in _COUNTED.items()}
+    return {"status": "ok", "built_at": manifest().get("built_at"), "networks": networks, "rows": rows}

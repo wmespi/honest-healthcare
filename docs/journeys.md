@@ -5,28 +5,27 @@ is the sanity check a PR author walks before merge (`Journeys touched:` in the P
 body). Current pass/fail and latency come from `make test-live`
 (`tests/live/journeys.py`) — this file defines the journeys, it does not report on them.*
 
-Each journey starts at `/find-care/imaging`, which every other address redirects to;
-prefix it with your stack's host (`localhost:5173`). The page keeps your plan between
-visits but doesn't read one from the URL
-(coverage: `frontend/src/routes/*.test.jsx`).
+Each journey starts at `/find-care`, which every other address redirects to; prefix it
+with your stack's host (`localhost:5173`). The page keeps the search in its URL, so a
+journey can start from one (coverage: `frontend/src/findCare/*.test.jsx`).
 
 | Persona | Who | Plan |
 |---|---|---|
-| **Rosa** | 63, near retirement, individual HMO in Georgia — the primary use case ([AGENTS.md](../AGENTS.md)) | `GA Blue Value HIX Individual Network` |
-| **Dana** | Comparison shopper with no plan yet | none (all networks) |
+| **Rosa** | 63, near retirement, individual HMO in Georgia — the primary use case ([AGENTS.md](../AGENTS.md)) | Anthem Silver Blue Value HMO 4000 (`45334GA0020002`), on Blue Value |
+| **Dana** | Comparison shopper with no plan yet | none |
 
 ## Flow A — find imaging care
 
 | ID | Journey | Clickpath | Expected |
 |---|---|---|---|
-| J1 | Rosa: what does a brain MRI cost near me? | plan gate → Brain MRI → ZIP 30322 | Practices ranked by price and distance, each with its own name, a city and a distance; a practice with one contract shows one price, not a range; the hospital fee shows as a labelled estimate |
-| J2 | Rosa: a knee MRI | scan picker → results | Complete (technical + professional) prices first, part-prices after |
+| J1 | Rosa: what does a brain MRI cost near me? | Brain MRI → ZIP 30322 → her plan | Places on her plan ranked by the most she'd pay, each with its own name, a city and a distance; The Emory Clinic's whole price; her share of the rate; a hospital's own fee shown as missing, so it has no most you'd pay |
+| J2 | Rosa: a knee MRI | Knee MRI → within 10 miles | Places with a whole price first, places missing part of their bill after |
 
-## Browse — no plan
+## No plan
 
 | ID | Journey | Expected |
 |---|---|---|
-| J4 | Dana: just looking | A clear signal a plan is needed for real numbers; no price shown without one |
+| J4 | Dana: just looking | The screen asks for a plan, since prices depend on it, and the API refuses a search without one |
 
 ## Flow B — pick a plan (not built; needs multi-payer MRFs + CMS Exchange cost-sharing)
 

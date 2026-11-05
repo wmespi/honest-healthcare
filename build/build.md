@@ -20,7 +20,7 @@ table is a `503` from `GET /`, not a fallback to raw Parquet.
 | `rate_hist.parquet` | `(net, code, setting, scope, modifier, is_sentinel, bucket)` | a $25 roster-weighted histogram — `n` sums each price's `group_set` size, `n_rates` is the raw price-row count. `is_sentinel` is a dimension (not a filter) so the histogram can still show the placeholder rows; the rollup below excludes them. |
 | `cross_network_rollup.parquet` | `(code, network)` | `n_groups`, `min`/`p10`/`median`/`p90`/`max` off the `rate_hist` CDF (global modifier, outpatient-prof, non-sentinel). No route reads it today. |
 | `zip_centroids.parquet` | one row per ZIP | A copy of `reference/zip_centroids.parquet` so the API reads only `serving/`. |
-| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; `"all"` for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/opps/dac/geocode/mips/zip_centroids — were present), `rows` (per-table counts, including the find-care tables). `GET /`'s `built_at`, `partial_build` and `reference_loaded`, and `benchmark.py`'s OPPS check, read this instead of a raw file's existence. |
+| `manifest.json` | one object | `built_at`, `networks` built, `scope` (`targets` | `all` | `custom`), `partial` (`scope != all`), `target_patterns` (the `etl/targets.yaml` patterns a `targets` build used), `codes` (the billing codes priced; `"all"` for every code), `inputs` (which optional datasets — nppes/nucc/cms_utilization/mpfs/opps/dac/geocode/mips/zip_centroids — were present), `rows` (per-table counts, including the find-care tables). `GET /` reads its `built_at`. |
 
 ## The find-care tables
 
@@ -67,9 +67,8 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
 
 ## The product rules
 
-- **`scope`** — `outpatient_prof` mirrors `serving/data_sources.outpatient_scope`
-  (professional · FFS · outpatient/both · fee-schedule/negotiated); everything
-  else is `other`. `serving/tests/test_build.py` pins the two strings equal. The
+- **`scope`** — `outpatient_prof` is professional · FFS · outpatient/both ·
+  fee-schedule/negotiated; everything else is `other`. The
   column also drops a line whose place-of-service list leaves out office (`11`)
   when the same code has an office-applicable line; a code priced only for
   facility sites keeps what it has

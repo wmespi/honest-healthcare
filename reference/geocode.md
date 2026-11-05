@@ -18,7 +18,7 @@ geocoding all of GA NPPES isn't worth the run time or risk. The candidate set is
 `PCP_TAXONOMY_CODES` plus `IMAGING_TAXONOMY_CODES`, mirrors of the constants of the same
 name in `serving/service_lines.py` (`serving/tests/test_geocode.py` fails if they drift),
 plus every billing ID (`tin_value`) under `anthem/providers` with an NPPES record, because
-`/imaging/providers` measures distance from the practice's own address. Each hospital's
+a place's point is its own address's. Each hospital's
 address in `hospitals_ga.parquet` ([hospitals.md](hospitals.md)) is sent too, but lands only
 in the address file below, since a hospital is keyed by CCN, not NPI.
 The output keeps the name `pcp_geocode.parquet`.

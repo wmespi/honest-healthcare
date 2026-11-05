@@ -16,8 +16,9 @@ code.
 
 **Current focus** *(update as the active work changes)*: moving one owner-reviewed step at
 a time through the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135),
-which also holds the target data model, from the frontend-only mock at `/mock/find-care`
-(find the cheapest care nearby) to the real screen.
+which also holds the target data model. The find-care screen at `/find-care` (find the
+cheapest care nearby) is live, and step 11 removes the old serving tables and the code
+only they use.
 Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold. Product
 direction is in [docs/direction.md](docs/direction.md). Don't restructure `etl/`, `serving/`,
 or `frontend/` without a reason (rule 7).

@@ -75,7 +75,7 @@ const row = (name) => screen.getByRole('button', { name }).closest('tr');
 
 beforeEach(() => {
   vi.resetAllMocks();
-  api.getFindCarePlans.mockResolvedValue({ data: PLANS });
+  api.getPlans.mockResolvedValue({ data: PLANS });
   api.getServices.mockResolvedValue({ data: SERVICES });
   api.getFindCare.mockResolvedValue({ data: answer([EMORY, TRAUB, GRADY]) });
 });

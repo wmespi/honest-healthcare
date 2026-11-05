@@ -3,22 +3,17 @@
 Unlike serving/tests/test_api_contract.py (hermetic, a synthetic fixture via TestClient),
 this hits an actually-running server (`API_URL`, default
 http://localhost:8000) and checks its answers against dollar figures and
-counts captured from the real corpus (see #96). The store prices the imaging menu only
-(serving/service_lines.py PRICED_SERVICE_LINES). The
-point is regression, not correctness: if a later step in #95's epic changes
-one of these on purpose, recapture it and say why in that PR; if it moves by
-accident, this is what's supposed to catch it before a user does.
+counts captured from the real corpus. The point is regression, not
+correctness: if a later change moves one of these on purpose, recapture it and
+say why in that PR; if it moves by accident, this is what's supposed to catch
+it before a user does.
 
-Skips cleanly (not failing) when the target network isn't loaded, the wider
-reference-data build it depends on isn't (NPPES/NUCC, CMS utilization, MPFS,
-rate_hist — all "optional" per README.md steps 6-8/#10, the app runs without
-them, just differently — GET /'s `reference_loaded` says which are on disk),
-or the API isn't reachable at all. Only `make test-live` (run
-via docker compose exec, so it shares the container's live localhost:8000)
-exercises the real assertions below; a bare `pytest tests/live`
-with nothing listening skips all of them. `make test`
-never collects this file (it reads serving/tests): it is not hermetic and must never
-gate on which build steps happen to have been run.
+Skips cleanly (not failing) when Blue Value isn't loaded or the API isn't
+reachable at all. Only `make test-live` (run via docker compose exec, so it
+shares the container's live localhost:8000) exercises the real assertions
+below; a bare `pytest tests/live` with nothing listening skips all of them.
+`make test` never collects this file (it reads serving/tests): it is not
+hermetic and must never gate on which build steps happen to have been run.
 """
 import os
 
@@ -26,7 +21,9 @@ import httpx2
 import pytest
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
-NET = "GA Blue Value HIX Individual Network"
+BLUE_VALUE = "45334-GAN001"
+SILVER = "45334GA0020002"  # Anthem Silver Blue Value HMO 4000
+NEAR_EMORY = {"plan_id": SILVER, "zip": "30322"}
 
 
 @pytest.fixture(scope="module")
@@ -44,58 +41,47 @@ def _require_live_target_corpus(client):
     except (httpx2.HTTPError, ValueError) as e:
         pytest.skip(f"no API reachable at {API_URL}: {e}")
         return
-    if r.status_code != 200 or NET not in root.get("networks", []):
-        pytest.skip(f"{NET!r} not loaded at {API_URL} — golden values need the real corpus")
-
-    # The target network alone isn't enough — the pins below also depend on
-    # NPPES/NUCC (names, specialties), CMS utilization (the "billed" tier) and
-    # OPPS (the facility estimate). GET /'s reference_loaded is authoritative
-    # (main.py) — read that directly rather than inferring from an endpoint's
-    # shape, which would make a genuine regression skip instead of fail.
-    missing = [k for k, loaded in root.get("reference_loaded", {}).items() if not loaded]
-    if missing:
-        pytest.skip(f"reference data not loaded at {API_URL}: {', '.join(missing)}")
+    if r.status_code != 200 or BLUE_VALUE not in [n["network_id"] for n in root.get("networks", [])]:
+        pytest.skip(f"{BLUE_VALUE} not loaded at {API_URL} — golden values need the real corpus")
 
 
-def test_priced_corpus_size(client):
+def find_care(client, service_id, **params):
+    return client.get("/find-care", params={"service_id": service_id, **NEAR_EMORY, **params}).json()
+
+
+def test_the_build_holds(client):
     root = client.get("/").json()
-    assert sorted(root["networks"]) == [NET, "Pathway PCP Copay Choice"]
-    assert root["total_prices"] == 2738
+    assert [n["network_id"] for n in root["networks"]] == [BLUE_VALUE, "49046-GAN008"]
+    assert root["rows"] == {"plans": 11, "services": 26, "places": 992, "prices": 6313, "providers": 2090}
 
 
-def test_imaging_70551_emory_quotes_one_flat_price(client):
-    # Emory Medical Care Foundation sits in a single fee-schedule bucket for a
-    # brain MRI: one office line, so min = typical = max. The price lines that
-    # differ by place of service never join an office quote (#129).
-    body = client.get("/imaging/providers", params={
-        "billing_code": "70551", "network_name": NET, "zip": "30322", "limit": 200,
-    }).json()
-    emory = next(r for r in body["results"] if r["practice_id"] == "1306002829")
-    assert emory["global"] == {"min": 180.49, "typical": 180.49, "max": 180.49}
-    assert emory["technical"]["typical"] == 114.01
-    assert emory["professional"]["typical"] == 66.48
+def test_a_brain_mri_near_emory_on_silver_4000(client):
+    body = find_care(client, "mri-brain")
+    assert body["radius_mi"] == 5 and len(body["results"]) == 9
+    clinic = next(p for p in body["results"] if p["place_id"] == "1396798229")
+    assert clinic["name"] == "THE EMORY CLINIC INC"
+    assert clinic["parts"] == [{"part": "all_in", "max": 180.49}]
+    assert body["median_max_rate"] == 180.49
+    assert body["cost_sharing"] == {"copay": 300.0, "coinsurance": 50.0, "after_deductible": True}
 
 
-def test_imaging_70551_carries_a_medicare_facility_estimate(client):
-    body = client.get("/imaging/providers", params={"billing_code": "70551", "network_name": NET}).json()
-    assert body["facility_estimate"] == {"amount": 243.77, "source": "medicare_opps", "kind": "estimate"}
+def test_a_hospital_shows_its_readers_and_no_fee_of_its_own(client):
+    grady = next(p for p in find_care(client, "mri-brain")["results"] if p["place_id"] == "110079")
+    assert grady["parts"] == [{"part": "facility", "max": None}, {"part": "reading", "max": 66.48}]
+    assert grady["max_rate"] is None
+    assert grady["billers"] == ["EMORY MEDICAL CARE FOUNDATION INC"]
 
 
-def test_imaging_70551_practice_count(client):
-    body = client.get("/imaging/providers", params={
-        "billing_code": "70551", "network_name": NET, "limit": 200,
-    }).json()
-    assert body["n_practices"] == 81
+def test_a_brain_mri_carries_medicares_rates(client):
+    brain = next(s for s in client.get("/services").json() if s["service_id"] == "mri-brain")
+    assert brain["medicare_rate"] == 185.25 and brain["medicare_facility_rate"] == 243.77
 
 
-def test_every_imaging_menu_code_is_priced(client):
-    codes = client.get("/service_lines").json()["imaging"]["billing_codes"]
-    for code in codes:
-        body = client.get("/imaging/providers", params={
-            "billing_code": code, "network_name": NET, "limit": 5}).json()
-        assert body["n_practices"] > 0, code
+def test_every_service_has_a_price_on_blue_value_within_50_miles(client):
+    for service in client.get("/services").json():
+        body = find_care(client, service["service_id"], radius_mi=50)
+        assert body["results"], service["service_id"]
 
 
-def test_imaging_needs_a_plan(client):
-    r = client.get("/imaging/providers", params={"billing_code": "70551"})
-    assert r.status_code == 400
+def test_a_search_needs_a_plan(client):
+    assert client.get("/find-care", params={"service_id": "mri-brain", "zip": "30322"}).status_code == 422

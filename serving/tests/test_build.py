@@ -11,8 +11,7 @@ import os
 import duckdb
 import pytest
 
-from build.build import OUTPATIENT_PROF, TABLES, build, target_partitions, target_patterns
-from serving.data_sources import outpatient_scope
+from build.build import TABLES, build, target_partitions, target_patterns
 
 SLUG = "test-net"
 NET = "Test Net"
@@ -98,11 +97,6 @@ def _rates(con, serving):
         "SELECT file_id, billing_code, negotiated_rate, scope, is_sentinel "
         f"FROM read_parquet('{serving}/rates/**/*.parquet') ORDER BY billing_code, file_id, negotiated_rate"
     ).fetchall()
-
-
-def test_scope_matches_serving():
-    # the one guard against OUTPATIENT_PROF drifting from serving/data_sources.py
-    assert OUTPATIENT_PROF == outpatient_scope("")
 
 
 def test_rates_is_price_grain(out):

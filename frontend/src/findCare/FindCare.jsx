@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { MotionConfig, motion } from 'framer-motion';
 import { clsx } from 'clsx';
 import { Search, X } from 'lucide-react';
-import { getFindCare, getFindCarePlans, getServices } from '../api';
+import { getFindCare, getPlans, getServices } from '../api';
 import { AboutService } from './AboutService';
 import { PriceMap } from './PriceMap';
 import { ResultsTable } from './ResultsTable';
@@ -269,7 +269,7 @@ export default function FindCare() {
   const [filterText, setFilterText] = useState('');
 
   useEffect(() => {
-    Promise.all([getFindCarePlans(), getServices()])
+    Promise.all([getPlans(), getServices()])
       .then(([plans, services]) => setCatalog({ plans: plans.data, services: services.data }))
       .catch(() => setCatalog({ error: true }));
   }, []);

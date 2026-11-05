@@ -7,17 +7,11 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Attribution
 
-- **The imaging page doesn't use real plan names.** `index_file_plans` links every
-  published plan to its files, and `etl parse` selects the files that price the plans on
-  the target exchange networks, read from Georgia's exchange plan file
-  ([reference/exchange-plans.md](../reference/exchange-plans.md)). The find-care `/plans`
-  serves those real plans, but the imaging page's picker still reads
-  `serving/plan_networks.json`, a hand-curated bridge served by `/imaging/plans`.
 - **`network_name` is not uniform across files.** The target plan's clean source uses
   `"GA Blue Value HIX Individual Network"`; other `anthem/GA_*` files use
   config-style labels (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`) and are
-  different plans. The parser writes every network a file carries; nothing yet maps
-  a config-style label to a plan — same missing bridge as above.
+  different plans. The parser writes every network a file carries, and nothing maps a
+  config-style label to a plan, so a target names its labels by hand (below).
 - **A target's `network_patterns` are hand-written** in
   [`etl/targets.yaml`](../etl/targets.yaml). The provider probe skips a file whose
   `provider_references[].network_name` matches none of them, so a wrong guess skips
@@ -30,28 +24,25 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Data scope
 
-- **Only the priced service lines have prices.** The build keeps the billing codes of
-  `PRICED_SERVICE_LINES` (`serving/service_lines.py`); every other code (PCP visits,
-  for one) has no rate in the store. Add a line to the tuple, or `make build ALL_CODES=1`, to price more.
-- **`/imaging/providers` shows outpatient professional fee-for-service only.**
-  `outpatient_scope()` (`serving/data_sources.py`) defines the slice. Excluded but
-  still in the store: `negotiated_type` of
-  `percentage` (a percent of billed charges, not dollars), `per diem` and `derived`;
-  `billing_class='institutional'`; `setting='inpatient'`;
-  `negotiation_arrangement='bundle'`. A dedicated inpatient / facility view is not built.
+- **Only the services in `build/services.yaml` have prices.** The find-care tables
+  price the scans it lists, and every other code (PCP visits, for one) has none.
+  [#158](https://github.com/wmespi/honest-healthcare/issues/158) plans how the list grows.
+- **Prices are outpatient professional fee-for-service only.** `biller_rates`
+  ([build/build.md](../build/build.md#the-find-care-tables)) keeps fee-schedule or
+  negotiated dollar rates for an outpatient professional visit. Excluded but still in the
+  parsed files: `negotiated_type` of `percentage` (a percent of billed charges, not
+  dollars), `per diem` and `derived`; `billing_class='institutional'`;
+  `setting='inpatient'`; `negotiation_arrangement='bundle'`. An inpatient or facility view
+  is not built.
 - **Sentinel / placeholder rates have no discrete tell.** Anthem fills the required
   positive `negotiated_rate` with tiny values on not-separately-priced codes; they
-  share every field with real rates. `/imaging/providers` drops rows at or below
-  `GREATEST($1.00, 5% × the code's rate_hist median)` — deliberately loose, so a
-  genuinely cheap contract survives. `rate_hist` still counts them. Tighter cut:
+  share every field with real rates. `biller_rates` drops a rate of at most $1 or 5% of
+  the median for that service and part on the network, which is deliberately loose, so a
+  genuinely cheap contract survives. Tighter cut:
   [#51](https://github.com/wmespi/honest-healthcare/issues/51).
 - **A practice in `places` has no phone number.** The NPPES extract
   ([etl/nppes.md](../etl/nppes.md)) doesn't keep the practice location's phone, so only
   hospitals, from Hospital General Information, have one.
-- **`/networks` is not scoped** — it answers "what's priced in this network", not
-  "what does an outpatient visit cost".
-- **`00810` (anesthesia) has no CPT fee-schedule rate** — anesthesia is priced in
-  base units. Expected, not a bug.
 
 ## Provider ↔ procedure
 
@@ -65,22 +56,16 @@ Where the product is headed: [direction.md](direction.md) and epic
   are excluded, so `billed: False` is weak; ~2-year lag; single year, so "stopped
   doing it" looks like "never"; Georgia has no all-payer claims database to widen
   it ([#14](https://github.com/wmespi/honest-healthcare/issues/14)).
-- **`/imaging/providers` groups practices on Anthem's `tin_value`, not `org_pac_id`**,
-  and the two are not reconciled; the CMS directory covers Medicare-enrolled
-  clinicians only.
 
 ## Scale / performance
 
 - **`make build` is a full rebuild, not incremental**, and is not auto-triggered:
-  run it after each `make parse` batch or the browse tables go stale. A missing build
+  run it after each `make parse` batch or the find-care tables go stale. A missing build
   is a `503`, not a degraded path. Per-file partials → merge is a future refinement.
 - **`rate_hist.n` is a roster-weighted ranking hint, not a distinct count** — a
   group in several rosters counts per roster. Never render it as "N providers".
   A precomputed `(network, code)` NPI count would fan out to hundreds of
   millions of rows ([#48](https://github.com/wmespi/honest-healthcare/issues/48)).
-- **`/imaging/providers` requires a `network_name`**
-  (`400 {"code": "network_required"}`): the unpruned cross-network expansion spills
-  tens of GB and a precomputed `(code, network, tin) → rate` rollup is infeasible.
 - **`coverage_log.n_ga_hospital_npis` is never populated** (the NPPES join happens at
   query time).
 
@@ -97,19 +82,18 @@ Where the product is headed: [direction.md](direction.md) and epic
   eight, many of them rural, and some are hospitals whose number its street ranges don't cover,
   such as 5353 Reynolds Street in Savannah. `places` leaves them out, prices there included,
   and `make build` saves them to `unlocated_places.parquet` to try with another geocoder.
-  `/imaging/providers` measures their distance from the center of the ZIP code instead.
 - **A hospital's own billing ID can land as a practice** when its NPPES address is written
   differently from the hospital's beyond spelling, as "541 441 HISTORIC HWY N" is for "541
   HISTORIC HIGHWAY 441-NORTH", or when the hospital isn't in Hospital General Information.
   `make build` lists them.
 - **Practices registered outside Georgia aren't listed.** The NPPES extract keeps an NPI only
-  when its primary location is in Georgia, and `/imaging/providers` needs a location to show,
-  so a billing ID registered elsewhere has no row. Most are teleradiology groups, which aren't
+  when its primary location is in Georgia, and `places` needs a location to show,
+  so a billing ID registered elsewhere has no place. Most are teleradiology groups, which aren't
   places a patient goes, but some are: groups registered elsewhere with Georgia sites (NPPES
   secondary practice locations, which the extract doesn't read), and in-network imaging
   centers just across the state line. A new NPI missing from the monthly NPPES snapshot drops
   out the same way. A reading group's fee can still be part of what a Georgia facility's scan
-  costs, and the find-care `prices` table leaves it out too.
+  costs, and `prices` leaves it out.
 - **A hospital on the find-care list may not be in network itself.** `prices` lists a hospital
   when the groups reading scans in its building have rates, but Anthem's professional file
   prices those doctors, not the hospital, and the build doesn't check the hospital's own NPIs.
@@ -121,34 +105,27 @@ Where the product is headed: [direction.md](direction.md) and epic
   utilization limits under Provider ↔ procedure apply.
 - **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
   group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
-  The row takes the name of the group the doctor bills Medicare with (CMS Doctors &
-  Clinicians), and a doctor with no group there has no row, even when they do run their own
-  office.
-- **Imaging prices exclude the facility fee.** Anthem's professional file carries the
+  The place takes the name of the group the doctor bills Medicare with (CMS Doctors &
+  Clinicians), and away from a hospital a doctor with no group there has no place, even when
+  they do run their own office.
+- **A hospital's own fee isn't on file.** Anthem's professional file carries the
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
-  hospital bills its own fee in a file we do not carry, so a hospital-based practice
-  shows a reading-only price and says so. The screen adds Medicare's hospital-outpatient
-  rate as a labelled estimate ([reference/opps.md](../reference/opps.md)); hospital
-  price-transparency files would be the real source, and mammography has no estimate.
-- **A practice can show a price range for one scan.** When a billing ID sits under more
+  hospital bills its own fee in a file we do not carry, so a hospital's row has the
+  reading and no most you'd pay, and says so. The screen gives Medicare's hospital
+  outpatient rate as a rough guide ([reference/opps.md](../reference/opps.md)); hospital
+  price-transparency files would be the real source, and mammography has no Medicare rate.
+- **A place can have several rates for one scan.** When a billing ID sits under more
   than one fee schedule for the same scan, the file does not say which applies to a
   given patient ([price lines](../etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
-  The row shows the typical price and the range; ask the practice which contract applies.
-- **Imaging practice lists carry some non-imaging practices.** A group's price is
+  The row shows the highest and says to ask which applies.
+- **The find-care list carries some non-imaging practices.** A group's price is
   attached to every clinician on its roster, so a practice with one Medicare-billing
-  imaging clinician (an orthopedic or anesthesia group, say) can appear beside the
+  imaging clinician (an orthopedic or primary care group, say) can appear beside the
   radiology groups.
-- **Plan cost sharing covers a few plan versions.** `serving/plan_cost_sharing.json` is
-  copied by hand from Anthem summaries of benefits for the imaging page. The find-care
-  `cost_sharing` table reads every plan's from Georgia's benefits file instead
-  ([reference/exchange-plans.md](../reference/exchange-plans.md)). Cost-sharing-reduction variants, Bronze, and
-  Pathway Silver are not carried; a member on one of those picks "Not sure" and sees the
-  price without a share. Refresh the file each plan year.
 - **Find-care cost sharing is the standard plan's.** `plans.deductible` and `cost_sharing`
   hold each plan's standard version (`-01`), in network. Someone with a cost-sharing
   reduction, on a version from `-02` to `-06`, has a lower deductible and pays less
   ([#152](https://github.com/wmespi/honest-healthcare/issues/152)).
-- **Some imaging cost shares are not estimated.** A structure such as "$300 a day, then
-  50% coinsurance" is shown as the plan's own words, not turned into a dollar figure. A
-  screening mammogram is shown as preventive. Every estimate assumes the deductible
-  progress the member typed in and no other care this year.
+- **The screen says what the member pays in words, not dollars.** It doesn't know how much
+  of their deductible they've met, so a place shows their share as a sentence, such as "a
+  $300 copay and then 50% of the rest", after the deductible, and no dollar figure.

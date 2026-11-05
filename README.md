@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/wmespi/honest-healthcare/actions/workflows/ci.yml/badge.svg)](https://github.com/wmespi/honest-healthcare/actions/workflows/ci.yml)
 
-A rate explorer for Anthem's price-transparency data. It streams Anthem's
-multi-GB Machine-Readable Files (MRFs), stores the negotiated rates as Parquet,
-and serves a consumer UI that answers four questions: what a procedure costs at a
-given provider, how that compares across plans, how it compares across providers,
-and the full "menu" of what a provider has rates for.
+Find the cheapest care near you on your plan, from Anthem's price-transparency data.
+It streams Anthem's multi-GB Machine-Readable Files (MRFs), stores the negotiated rates
+as Parquet, and serves a screen that takes a scan, a ZIP code and a plan and shows
+every place on the plan nearby: the most you'd pay there, your share of it on the
+plan, and who does the scan.
 
 **Primary use case:** the `BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM` plan — an
 individual HMO on Anthem's Blue Value network in Georgia.
