@@ -47,6 +47,7 @@ The project has no organization, so these steps are console-only:
 1. Cloud Run → `honest-healthcare` → Security: Require authentication, with IAP.
 2. Google Auth Platform: Branding (app name, support and developer emails), and Audience External, in Testing, with the testers as test users.
 3. Google Auth Platform → Clients: a Web application client whose redirect URI is `https://iap.googleapis.com/v1/oauth/clientIds/<its client ID>:handleRedirect`.
-   Download its JSON (Add secret makes a new one once the creation dialog has closed), then run `bash infra/iap-client.sh <that file>`.
+   Download its JSON (Add secret makes a new one once the creation dialog has closed), then run `bash infra/iap-client.sh <that file>` in your own terminal and delete the file.
+   IAP keeps the secret and nothing else needs it, so it never has to pass through an agent or sit near the repo, which ignores `client_secret_*.json` anyway.
    Until IAP has the client, the service answers everyone with a 502 and nobody can sign in.
 4. Billing → Budgets & alerts: the Cloud Run budget and its spend cap, above.
