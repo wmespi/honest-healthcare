@@ -26,7 +26,7 @@ be packaged into one payment. The estimate says so rather than implying a quote.
 
 The find-care build puts it on `services.medicare_facility_rate`, empty when the code
 has no rate. The words shown to
-the user live in `frontend/src/findCare/ResultsTable.jsx`.
+the user live in `application/frontend/src/findCare/ResultsTable.jsx`.
 
 ## Re-run when CMS publishes a new quarter
 

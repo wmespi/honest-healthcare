@@ -3,8 +3,8 @@
 # `mise` is one static binary; it installs these into ~/.local/share/mise and
 # shims them for this repo only — your system Python / Node / Go are untouched.
 # Versions match the container images so host tests behave like CI:
-#   python -> deploy/Dockerfile.serving (python:3.14-slim)
-#   node   -> deploy/Dockerfile.frontend (node:20-slim)
+#   python -> application/Dockerfile (python:3.14-slim)
+#   node   -> application/Dockerfile (node:20-slim)
 #   go     -> ingestion/etl/go.mod `toolchain go1.24.13` / golang:1.24.13-alpine
 #
 # Setup:  brew install mise  (then add `mise activate` to your shell — see

@@ -1,0 +1,14 @@
+# Nothing here is needed in an image: the dev stack mounts the code, and the
+# prod image holds only the code and its deps.
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/*.md
+tests/
+reference/tests/
+**/testdata/
+etl/etl
+**/.DS_Store
+Dockerfile
+.dockerignore
+**/*_test.go

@@ -20,8 +20,8 @@ which also holds the target data model. The find-care screen at `/find-care` (fi
 cheapest care nearby) is live, and step 12 finishes the three-layer layout below and the
 audit's last actions.
 Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold. Product
-direction is in [docs/direction.md](docs/direction.md). Don't restructure `ingestion/`, `integration/`,
-`serving/` or `frontend/` without a reason (rule 7).
+direction is in [docs/direction.md](docs/direction.md). Don't restructure `ingestion/`, `integration/`
+or `application/` without a reason (rule 7).
 
 ---
 
@@ -38,12 +38,12 @@ it delivers:
    `data/raw/` and delivers what integration reads to `data/ingestion/`.
 2. **Integration** (`integration/`, Python/DuckDB, `make build`) turns that into the find-care
    tables in `data/serving/`, and is where every product decision lives.
-3. **Application**: **serving** (FastAPI + DuckDB, `localhost:8000`) queries those tables
-   in-process for the **frontend** (React, `localhost:5173`).
+3. **Application** (`application/`): **serving** (FastAPI + DuckDB, `localhost:8000`) queries
+   those tables in-process for the **frontend** (React, `localhost:5173`).
 
 Storage is Parquet+ZSTD under `data/`, with no database. Layer table and diagrams:
 **[docs/architecture.md](docs/architecture.md)**; on-disk layout:
-**[docs/schema.md](docs/schema.md)**; images and ports: [deploy/](deploy/README.md).
+**[docs/schema.md](docs/schema.md)**; where it runs (images, ports, tester access): [infra/](infra/README.md).
 
 ---
 
@@ -120,7 +120,7 @@ make check                  # pre-commit gate (container): fmt + vet + build + G
 make check LOCAL=1          #   same gate on host toolchains, NO Docker
 make test                   # every hermetic suite: check + each layer's pytest in its own container + vitest (+ ETL e2e)
 make test LOCAL=1           #   host toolchains, no Docker; works in any checkout but fails with
-                             #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until scripts/dev-setup.sh has been run
+                             #   "no host 'go'" / "no .venv" / "no application/frontend/node_modules" until scripts/dev-setup.sh has been run
 make test-live              # golden answers + user journeys against the live API + real corpus (docs/journeys.md)
 
 make worktree TOPIC=x       # only for parallel work: new sibling worktree + branch off main, set up (GH #59)
@@ -144,7 +144,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
   Remove it with `make worktree-rm TOPIC=x` once its PR merges, because a lingering worktree is hundreds of MB.
   After a manual `rm -rf`, run `git worktree prune`.
 - Any ad-hoc `duckdb.connect()` must `SET temp_directory` (or go through `db()` in
-  `serving/data_sources.py`), or a spilling query fills the repo's `.tmp/`.
+  `application/serving/data_sources.py`), or a spilling query fills the repo's `.tmp/`.
   `make footprint` reports disk use; `make clean` reclaims regenerable artifacts
   (`DOCKER=1` also prunes Docker).
 - Gitignored files (`.env`, `.venv/`, `data/`) are normal files, so read them by path; repo-wide search skips them.
@@ -172,9 +172,9 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Real practice identity + hospital-affiliation (CCN↔NPI) bridge - CMS Doctors & Clinicians | [ingestion/reference/doctors-clinicians.md](ingestion/reference/doctors-clinicians.md) |
 | The build step: payer rates + reference → the find-care tables, and the checks on its inputs | [integration/build.md](integration/build.md) |
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
-| API routes, query-layer notes | [serving/serving.md](serving/serving.md) |
+| API routes, query-layer notes | [application/serving/serving.md](application/serving/serving.md) |
 | On-disk schema (Parquet) | [docs/schema.md](docs/schema.md) |
-| Container images, ports, parallel stacks, sending a tester the Tailscale link | [deploy/README.md](deploy/README.md) |
+| Container images, ports, parallel stacks, sending a tester the Tailscale link | [infra/README.md](infra/README.md) |
 | The three test suites, isolation, fixtures, CI jobs | [docs/testing.md](docs/testing.md) |
 | User journeys — the persona clickpaths `make test-live` asserts | [docs/journeys.md](docs/journeys.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |

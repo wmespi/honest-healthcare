@@ -16,9 +16,9 @@ eggs/
 lib/
 lib64/
 # ...but `lib/` is a Python-packaging rule — don't let it swallow the frontend's
-# source helpers (frontend/src/lib/).
-!frontend/src/lib/
-!frontend/src/lib/**
+# source helpers (application/frontend/src/lib/).
+!application/frontend/src/lib/
+!application/frontend/src/lib/**
 parts/
 sdist/
 var/
@@ -226,9 +226,9 @@ ingestion/etl/etl
 ingestion/etl/etl-parser
 ingestion/etl/go-parser
 
-# node_modules anywhere in the tree (frontend/.gitignore already covers its
+# node_modules anywhere in the tree (application/frontend/.gitignore already covers its
 # own; this catches a root-level `node_modules/` too, e.g. a stray `npm ci`
-# run outside the frontend/ dir)
+# run outside the application/frontend/ dir)
 node_modules/
 
 docker-compose.override.yml
@@ -239,5 +239,5 @@ docker-compose.override.yml
 !ingestion/etl/nppes/testdata/
 !ingestion/etl/nppes/testdata/**
 
-# DuckDB spill dir if a query runs without temp_directory set (should not happen — see serving/data_sources.py db())
+# DuckDB spill dir if a query runs without temp_directory set (should not happen - see application/serving/data_sources.py db())
 .tmp/

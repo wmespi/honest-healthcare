@@ -1,40 +1,36 @@
-# deploy/ — images, ports, tester access
+# infra/ - where the app runs: images, ports, tester access
 
 *Read this before touching a Dockerfile, a port, or sharing the app with someone.*
 
-One Dockerfile per layer, plus the frontend's, and one container each ([architecture.md](../docs/architecture.md#layers)).
-Each has a **`prod`** target (the deployable artifact, holding only its own layer's code) and a
-**`dev`** target (the toolchains and test deps). `docker-compose.yml` runs the dev target and
-layers on the dev conveniences (the layer's own code bind-mounted, `--reload`, loopback ports,
-build caches). CI builds all four prod images and smokes each (`images` job in
-`.github/workflows/ci.yml`); `docker images` gives their sizes.
+This folder is about where the app runs: the local stack below, and the cloud deploy for invited testers as [#17](https://github.com/wmespi/honest-healthcare/issues/17) lands.
 
-| File | `dev` target | `prod` target |
+Each layer's Dockerfile sits in its layer's folder and builds from that folder alone, so no image can hold another layer's code ([architecture.md](../docs/architecture.md#layers)).
+Each has a dev target (the toolchains and test deps) and a prod target (the deployable artifact).
+`docker-compose.yml` runs the dev targets and layers on the dev conveniences (the layer's own code bind-mounted, `--reload`, loopback ports, build caches).
+CI builds all four prod images and smokes each (`images` job in `.github/workflows/ci.yml`); `docker images` gives their sizes.
+
+| Dockerfile | Dev target | Prod target |
 |---|---|---|
-| `Dockerfile.ingestion` | `python:3.14-slim` + the Go toolchain (tag matches `go.mod`'s `toolchain`); `ingestion/` mounted, `go run .` and `python3 -m` on demand | static `CGO_ENABLED=0` `etl` binary beside the Python steps |
-| `Dockerfile.integration` | `python:3.14-slim` + pinned wheels + pytest; `integration/` mounted | the build, run once (`python3 -m integration.build`) |
-| `Dockerfile.serving` | `python:3.14-slim` + pinned wheels + test deps; `serving/` mounted, `uvicorn --reload` | `uvicorn`, no reload |
-| `Dockerfile.frontend` | `node:20-slim` vite dev server | `nginx:alpine` serving the built `dist/` |
+| `ingestion/Dockerfile` | `dev`: `python:3.14-slim` + the Go toolchain (tag matches `go.mod`'s `toolchain`); `ingestion/` mounted, `go run .` and `python3 -m` on demand | `prod`: static `CGO_ENABLED=0` `etl` binary beside the Python steps |
+| `integration/Dockerfile` | `dev`: `python:3.14-slim` + pinned wheels + pytest; `integration/` mounted | `prod`: the build, run once (`python3 -m integration.build`) |
+| `application/Dockerfile` | `serving-dev`: `python:3.14-slim` + pinned wheels + test deps; `application/serving/` mounted, `uvicorn --reload`. `frontend-dev`: `node:20-slim` vite dev server | `serving-prod`: `uvicorn`, no reload. `frontend-prod`: `nginx:alpine` serving the built `dist/` |
 
 Each container mounts only the data folders its layer reads and writes, the layer before it read-only ([architecture.md](../docs/architecture.md#layers)), as in the `docker run` lines below.
 
 ```bash
-docker build -f deploy/Dockerfile.ingestion   --target prod -t hh-ingestion .
-docker build -f deploy/Dockerfile.integration --target prod -t hh-integration .
-docker build -f deploy/Dockerfile.serving     --target prod -t hh-serving .
-docker build -f deploy/Dockerfile.frontend    --target prod -t hh-frontend .
+docker build --target prod          -t hh-ingestion   ingestion
+docker build --target prod          -t hh-integration integration
+docker build --target serving-prod  -t hh-serving     application
+docker build --target frontend-prod -t hh-frontend    application
 docker run --rm -v "$PWD/data/raw:/app/data/raw" -v "$PWD/data/ingestion:/app/data/ingestion" hh-ingestion etl discover
 docker run --rm -v "$PWD/data/ingestion:/app/data/ingestion:ro" -v "$PWD/data/serving:/app/data/serving" hh-integration
 docker run -p 8000:8000 -v "$PWD/data/serving:/app/data/serving:ro" hh-serving
 ```
 
 The frontend container keeps `node_modules` in a volume filled when its image was built,
-so a dependency added to `frontend/package.json` isn't there until the image and the volume
+so a dependency added to `application/frontend/package.json` isn't there until the image and the volume
 are rebuilt: `docker compose up -d --build --renew-anon-volumes frontend`. Until then Vite
 says it can't resolve the new package.
-
-A deployable `compose.prod.yml` (no bind mounts, resource limits) is
-[#17](https://github.com/wmespi/honest-healthcare/issues/17).
 
 ## Ports and multiple stacks
 

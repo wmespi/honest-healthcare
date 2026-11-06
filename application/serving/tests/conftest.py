@@ -14,7 +14,7 @@ import pytest
 # loaded before any test module. Repo-root relative (not "/app/…") so this
 # also runs on the host under `make test LOCAL=1` — in the container the root
 # resolves to /app. GH #59.
-_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 SERVING_DIR = os.path.join(_REPO, "data-test", "serving")
 os.environ["DATA_DIR"] = os.path.join(_REPO, "data-test")
 os.environ["SERVING_DIR"] = SERVING_DIR
@@ -24,8 +24,8 @@ os.environ["SERVING_DIR"] = SERVING_DIR
 def api():
     """A TestClient bound to the app, reading the app's test tables in-process."""
     from fastapi.testclient import TestClient
-    from serving.data_sources import missing_build
-    from serving.main import app
+    from application.serving.data_sources import missing_build
+    from application.serving.main import app
     missing = missing_build()
     if missing:
         pytest.fail(f"{SERVING_DIR} is missing {missing}: run `make test`, which builds the app's "

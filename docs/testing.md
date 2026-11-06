@@ -7,10 +7,10 @@ Three suites, each a `make` target (`make help` is the target list):
 | Command | Covers | Stack? |
 |---|---|---|
 | `make check` | docs drift (`scripts/check_docs.py`) + gofmt + vet + build + Go unit tests | ingestion up |
-| `make test` | `check` + `tests/e2e` + each layer's pytest in its own container (`ingestion/`, `integration/`, `serving/`) + vitest | full stack |
+| `make test` | `check` + `tests/e2e` + each layer's pytest in its own container (`ingestion/`, `integration/`, `application/serving/`) + vitest | full stack |
 | `make test-live` | `tests/live`: golden answers (`test_golden.py`) + the named persona journeys ([journeys.md](journeys.md)) against the live API and real corpus | serving up, **real corpus** |
 
-Unit tests live with their code: Go's `_test.go` files beside their package, the frontend's `*.test.js` and `*.test.jsx` files beside their code, and each Python layer's in its own `tests/` folder: `ingestion/tests/`, `ingestion/reference/tests/`, `integration/tests/` and `serving/tests/`.
+Unit tests live with their code: Go's `_test.go` files beside their package, the frontend's `*.test.js` and `*.test.jsx` files beside their code, and each Python layer's in its own `tests/` folder: `ingestion/tests/`, `ingestion/reference/tests/`, `integration/tests/` and `application/serving/tests/`.
 `pytest.ini` at the root lists them, so `python -m pytest` from the root runs them all, which is how `LOCAL=1` runs them.
 In the stack each container mounts only its own layer's code, so `make test` runs each layer's tests in that layer's container, and a test that reached into another layer would fail there.
 Each layer also has a test that importing it loads nothing from the other two.
@@ -27,7 +27,7 @@ the target network isn't loaded or the API isn't reachable.
 ## Test isolation (`TEST=1` / `-test`)
 
 Swaps the **Parquet root**: every path the ETL reads and writes moves from `data/` to `data-test/` (`core.ApplyTestMode`).
-`data-test/` has the same layer folders as `data/` (`raw/`, `ingestion/`, `serving/`), mounted into the containers the same way.
+`data-test/` has the same layer folders as `data/` (`raw/`, `ingestion/`, `application/serving/`), mounted into the containers the same way.
 `data-test/` is safe to delete at any time, and a test run never writes `data/` (Critical Rule 4).
 Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIMIT=` overrides).
 
@@ -46,7 +46,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
 - `integration/tests/app_tables.py` builds the build's default test corpus with the real
   `integration.build.build()` into `data-test/serving/`, and `make test` runs it before the
   app's tests, so they read tables integration wrote, handed over the way the real ones
-  are. `serving/tests/conftest.py` (`api` fixture) binds a FastAPI `TestClient` to them,
+  are. `application/serving/tests/conftest.py` (`api` fixture) binds a FastAPI `TestClient` to them,
   and fails, naming the command, if they're missing. `test_api_contract.py` covers every
   route this way, with no live server. Schemas track [schema.md](schema.md).
 - `integration/tests/corpus.py` (the `corpus` fixture in `integration/tests/conftest.py`) writes a tiny copy of every dataset the find-care build reads in a temp folder, each with its declared columns, with methods to add or remove rows: payer rates and rosters by network, Georgia's networks, plans, premiums and hospitals, NPPES records, Census matches, Medicare's billing and rates, CMS groups and a services file.
@@ -55,8 +55,8 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
   `integration/tests/inputs/` and `integration/tests/tables/` run the real find-care build (`integration.tables.build`) on it and read what it wrote, as `make build` does, rather than calling one table's class.
   So each test also checks that its table is in the build order after the tables it reads, and that every shared check runs.
   A test imports a table's class only to change it, as `test_tables.py` does to check column drift.
-- `serving/tests/test_contract.py` (**no fixture**) checks the find-care contract's own rules
-  (`serving/contract.py`) on sample rows, and that FastAPI publishes it.
+- `application/serving/tests/test_contract.py` (**no fixture**) checks the find-care contract's own rules
+  (`application/serving/contract.py`) on sample rows, and that FastAPI publishes it.
 - `tests/live/test_golden.py` — **no fixture**: real answers (a quote, a rollup, a
   provider ranking, counts) pinned against the live API (`API_URL`, default
   `http://localhost:8000`).

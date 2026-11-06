@@ -105,7 +105,7 @@ lists every workflow. To reach the UI from another device, open
 `http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on
 port 8000 of whatever host you loaded it from. `scripts/tailscale-up.sh` sets up
 private off-network access; to send that link to someone who isn't a
-developer, see [deploy/README.md](deploy/README.md#sharing-the-app-with-a-tester).
+developer, see [infra/README.md](infra/README.md#sharing-the-app-with-a-tester).
 
 ---
 

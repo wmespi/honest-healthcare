@@ -1,7 +1,7 @@
 """Honest Healthcare API — FastAPI over DuckDB / the serving Parquet tables.
 
 App wiring only. Table sources and the connection live in data_sources.py;
-the routes in routers/. See serving/serving.md.
+the routes in routers/. See application/serving/serving.md.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

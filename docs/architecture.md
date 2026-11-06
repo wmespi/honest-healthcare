@@ -17,7 +17,7 @@ A layer can change freely as long as what it delivers keeps its contract, so ano
 |---|---|---|---|---|
 | Ingestion | `ingestion`: Go + Python/DuckDB | `ingestion/` | Anthem, NPPES, Georgia Access, CMS, NUCC, Census | `data/raw/`, its own files, and `data/ingestion/`, the contract integration reads |
 | Integration | `integration`: Python/DuckDB | `integration/` | `data/ingestion/`, read-only | `data/serving/`, the find-care tables |
-| Application | `serving`: FastAPI + DuckDB, `localhost:8000`; `frontend`: React + Vite, `localhost:5173` | `serving/`, `frontend/` | `data/serving/`, read-only | nothing |
+| Application | `serving`: FastAPI + DuckDB, `localhost:8000`; `frontend`: React + Vite, `localhost:5173` | `application/serving/`, `application/frontend/` | `data/serving/`, read-only | nothing |
 
 The contract between ingestion and integration is the datasets in `integration/inputs/datasets.py`, each with its columns and key, which the build checks before it reads them; between integration and the app it's the find-care tables below.
 The on-disk layout is in [docs/schema.md](schema.md).
@@ -34,7 +34,7 @@ Inside ingestion:
 The Go CLI (`ingestion/etl/`, one module) dispatches from `main.go` to the `discovery` /
 `extraction` / `nppes` / `fixture` packages; shared structs, config, and the
 progress reader live in `ingestion/etl/core/`.
-Every container builds from a multi-stage Dockerfile in [deploy/](../deploy/README.md) (`prod` target = deployable artifact; compose runs the `dev` target).
+Every container builds from its layer's Dockerfile, in that layer's folder and from that folder alone, so no image can hold another layer's code; [infra/](../infra/README.md) has the images and targets.
 
 ## Data flow
 

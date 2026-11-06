@@ -1,7 +1,8 @@
-# Dev stack: one container per layer (docs/architecture.md). Every service builds
-# from a multi-stage Dockerfile in deploy/ whose default target is the production
-# artifact; here we select the `dev` target and layer on the dev-loop conveniences
-# (bind-mounted source, exposed ports, --reload, persistent build caches).
+# Dev stack: one container per layer (docs/architecture.md), and two for the
+# application, its API and its screen. Every service builds from its layer's
+# Dockerfile, in that layer's folder and from that folder alone; here we select a
+# dev target and layer on the dev-loop conveniences (bind-mounted source, exposed
+# ports, --reload, persistent build caches).
 #
 # Each layer mounts only its own code, and the data it reads and writes:
 #   ingestion    writes data/raw/ (its own files) and data/ingestion/ (what integration reads)
@@ -12,14 +13,13 @@
 # Multi-stack (GH #59): container names are unset so the project name
 # (COMPOSE_PROJECT_NAME, default = directory name) scopes everything, and the
 # host ports + data root are env-driven. Copy .env.example → .env in a worktree
-# to run a second stack alongside the canonical one; see deploy/README.md.
+# to run a second stack alongside the canonical one; see infra/README.md.
 # With no .env this behaves exactly as before (project `honest-healthcare`,
 # ports 8000/5173, ./data).
 services:
   ingestion:
     build:
-      context: .
-      dockerfile: deploy/Dockerfile.ingestion
+      context: ./ingestion
       target: dev
     init: true
     mem_limit: 6g
@@ -40,8 +40,7 @@ services:
 
   integration:
     build:
-      context: .
-      dockerfile: deploy/Dockerfile.integration
+      context: ./integration
       target: dev
     init: true
     working_dir: /app
@@ -59,11 +58,11 @@ services:
 
   serving:
     build:
-      context: .
-      dockerfile: deploy/Dockerfile.serving
-      target: dev
+      context: ./application
+      target: serving-dev
     volumes:
-      - ./serving:/app/serving
+      - ./application/__init__.py:/app/application/__init__.py:ro
+      - ./application/serving:/app/application/serving
       - ./pytest.ini:/app/pytest.ini:ro
       - ./tests/live:/app/tests/live:ro
       - ${HH_SERVING_DIR:-${HH_DATA_ROOT:-./data}/serving}:/app/data/serving:ro
@@ -81,11 +80,10 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: deploy/Dockerfile.frontend
-      target: dev
+      context: ./application
+      target: frontend-dev
     volumes:
-      - ./frontend:/app
+      - ./application/frontend:/app
       - /app/node_modules
     ports:
       # loopback by default — see the serving note; BIND_HOST=0.0.0.0 for LAN preview

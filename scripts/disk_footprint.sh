@@ -22,7 +22,7 @@ echo '```'
 
 # ── this worktree ────────────────────────────────────────────────────────────
 printf '%-26s %8s\n' "this worktree ($(basename "$HERE"))" "$(one "$HERE")"
-for d in .venv frontend/node_modules data-test data-local .tmp .pytest_cache; do
+for d in .venv application/frontend/node_modules data-test data-local .tmp .pytest_cache; do
   [ -e "$d" ] && printf '  %-24s %8s\n' "$d" "$(one "$d")"
 done
 

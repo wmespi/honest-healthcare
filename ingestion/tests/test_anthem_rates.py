@@ -129,7 +129,7 @@ def test_ingestion_imports_nothing_from_the_layers_after_it():
                         "import importlib, pkgutil, sys, ingestion.anthem_rates, ingestion.reference; "
                         "[importlib.import_module(f'ingestion.reference.{m.name}') "
                         " for m in pkgutil.iter_modules(ingestion.reference.__path__) if m.name != 'tests']; "
-                        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('integration', 'serving')))"],
+                        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('integration', 'application')))"],
                        cwd=REPO, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "[]"

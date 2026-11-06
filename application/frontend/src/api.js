@@ -13,7 +13,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || runtimeApiUrl;
 
 const api = axios.create({ baseURL: API_BASE_URL });
 
-// The find-care screen's routes, in serving/contract.py's shape: every plan, every
+// The find-care screen's routes, in application/serving/contract.py's shape: every plan, every
 // service, and one service on one plan near one ZIP code.
 export const getPlans = () => api.get('/plans');
 export const getServices = () => api.get('/services');

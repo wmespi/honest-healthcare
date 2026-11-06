@@ -1,4 +1,4 @@
-"""The routes the real find-care screen calls, in the shape serving/contract.py
+"""The routes the real find-care screen calls, in the shape application/serving/contract.py
 sets, over the find-care serving tables (#135):
 
   /plans       every plan a person can pick

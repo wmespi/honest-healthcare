@@ -60,7 +60,7 @@ fi
 # ── 2. python venv + dev deps ───────────────────────────────────────────────
 # Every layer's deps in one venv, so `make test LOCAL=1` runs every suite; a
 # layer that pins a shared dep differently fails the install here.
-REQS=(-r ingestion/requirements-dev.txt -r integration/requirements-dev.txt -r serving/requirements-dev.txt)
+REQS=(-r ingestion/requirements-dev.txt -r integration/requirements-dev.txt -r application/serving/requirements-dev.txt)
 say "python venv: .venv  (each layer's requirements-dev.txt)"
 # Rebuilt every run, so a Python bump in .mise.toml replaces the old interpreter.
 if [ -n "$UV" ]; then
@@ -74,7 +74,7 @@ fi
 
 # ── 3. frontend deps ───────────────────────────────────────────────────────
 say "frontend: npm ci"
-( cd frontend && npm ci --silent )
+( cd application/frontend && npm ci --silent )
 
 # ── 4. per-worktree .env (feature worktrees only) ──────────────────────────
 free_port() {  # first free TCP port at or above $1

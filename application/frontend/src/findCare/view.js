@@ -1,4 +1,4 @@
-// What the screen shows for a /find-care answer (serving/contract.py), worked out
+// What the screen shows for a /find-care answer (application/serving/contract.py), worked out
 // once here so the components only lay it out.
 import { displayName, money } from './format';
 

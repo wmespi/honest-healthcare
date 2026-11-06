@@ -7,7 +7,7 @@ body). Current pass/fail and latency come from `make test-live`
 
 Each journey starts at `/find-care`, which every other address redirects to; prefix it
 with your stack's host (`localhost:5173`). The page keeps the search in its URL, so a
-journey can start from one (coverage: `frontend/src/findCare/*.test.jsx`).
+journey can start from one (coverage: `application/frontend/src/findCare/*.test.jsx`).
 
 | Persona | Who | Plan |
 |---|---|---|
