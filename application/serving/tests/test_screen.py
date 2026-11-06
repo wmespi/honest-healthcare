@@ -3,7 +3,9 @@ from the stand-in build conftest.py makes, and fails without saying how.
 """
 import os
 
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from starlette.routing import Mount, Route
 
 INDEX_HTML = open(os.path.join(os.environ["SCREEN_DIR"], "index.html")).read()
 SCRIPT = "/assets/index-abc123.js"
@@ -24,7 +26,7 @@ def test_a_screen_address_gets_the_screen(api):
 def test_a_built_asset_is_cached_for_good_and_compressed(api):
     r = api.get(SCRIPT, headers={"Accept-Encoding": "gzip"})
     assert r.status_code == 200 and r.text.startswith("console.log")
-    assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert r.headers["cache-control"] == "private, max-age=31536000, immutable"
     assert r.headers["content-encoding"] == "gzip"
 
 
@@ -42,6 +44,27 @@ def test_an_unknown_api_path_is_a_json_404(api):
     for path in ("/api", "/api/nope", "/api/find-care/extra"):
         r = api.get(path)
         assert r.status_code == 404 and r.headers["content-type"] == "application/json", path
+
+
+def _routes(routes, prefix=""):
+    for r in routes:
+        inner = getattr(r, "original_router", None)
+        if inner is not None:  # include_router keeps the router whole, with its prefix
+            yield from _routes(inner.routes, prefix + r.include_context.prefix)
+        else:
+            yield prefix, r
+
+
+def test_every_route_is_under_api_and_the_screen_has_the_rest():
+    from application.serving.main import app
+    paths = []
+    for prefix, r in _routes(app.routes):
+        if isinstance(r, (APIRoute, Route)):
+            paths.append(prefix + r.path)
+        else:
+            assert isinstance(r, Mount) and r.name == "screen", f"a route this test doesn't know: {r!r}"
+    assert {"/api/health", "/api/plans", "/api/services", "/api/find-care", "/api/docs"} <= set(paths)
+    assert [p for p in paths if not p.startswith("/api/")] == []
 
 
 def test_the_api_describes_itself_under_api(api):

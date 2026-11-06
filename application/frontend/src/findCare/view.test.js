@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { displayName, money } from './format';
-import { filterResults, shareText } from './view';
+import { filterResults, pinStack, shareText } from './view';
 
 describe('find care wording', () => {
   it('spells names in capitals as words, keeping endings, credentials and directions', () => {
@@ -39,5 +39,16 @@ describe('find care wording', () => {
     expect(match.matchedProvider).toBe('Pat Prescott');
     expect(match.providers.map((p) => p.name)).toEqual(['Pat Prescott', 'Lee Kim']);
     expect(filterResults(results, 'nobody')).toEqual([]);
+  });
+
+  it('stacks pins on the map cheapest on top, with the cheapest result on top of a tie', () => {
+    const results = [
+      { id: 'practice', maxRate: 180.49, isCheapest: true },
+      { id: 'hospital', maxRate: null, isCheapest: false },
+      { id: 'clinic', maxRate: 180.49, isCheapest: false },
+      { id: 'imaging', maxRate: 447.2, isCheapest: false },
+    ];
+    expect(pinStack(results).map((r) => r.id)).toEqual(['hospital', 'imaging', 'clinic', 'practice']);
+    expect(results.map((r) => r.id)).toEqual(['practice', 'hospital', 'clinic', 'imaging']);
   });
 });
