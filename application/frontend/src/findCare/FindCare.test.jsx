@@ -13,9 +13,9 @@ vi.mock('./PriceMap', () => ({ PriceMap: () => null }));
 const SILVER = '45334GA0020002';
 const PLANS = [
   { plan_id: SILVER, name: 'Anthem Silver Blue Value HMO 4000', carrier: 'Anthem Blue Cross and Blue Shield',
-    needs_referral: false, deductible: 4000 },
+    metal_level: 'Silver', needs_referral: false, deductible: 4000, tier: 'Silver', detail: 'Blue Value HMO' },
   { plan_id: '49046GA0700053', name: 'Anthem Bronze Pathway HMO 6000', carrier: 'Anthem Blue Cross and Blue Shield',
-    needs_referral: true, deductible: 6000 },
+    metal_level: 'Expanded Bronze', needs_referral: true, deductible: 6000, tier: 'Bronze', detail: 'Pathway HMO' },
 ];
 const SERVICES = [
   { service_id: 'mri-lower-back', name: 'Lower-back MRI', keywords: 'lumbar spine', about: 'Magnets and radio waves.',
@@ -94,7 +94,7 @@ describe('find care', () => {
     await user.click(screen.getByRole('option', { name: 'Lower-back MRI' }));
     await user.type(screen.getByLabelText('What\'s your ZIP code?'), '30322');
     await user.click(screen.getByLabelText('What plan do you have?'));
-    await user.click(screen.getByRole('option', { name: /Silver Blue Value/ }));
+    await user.click(screen.getByRole('option', { name: /\$4,000 deductible/ }));
     await user.click(screen.getByRole('button', { name: 'See prices' }));
     expect(await screen.findByText(/is the most you’d pay at/)).toBeInTheDocument();
     expect(headline()).toBe('$177.21 is the most you’d pay at The Emory Clinic Inc');
@@ -104,21 +104,39 @@ describe('find care', () => {
     expect(screen.getAllByText(/Your plan has a \$4,000 deductible/)).toHaveLength(2);
   });
 
-  it('lists each plan by its whole name, and its carrier only when the plans have more than one', async () => {
-    const user = userEvent.setup();
+  it('asks for the insurance company first, filled in when there is only one', async () => {
     open();
-    await user.click(await screen.findByLabelText('What plan do you have?'));
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(PLANS.map((p) => p.name));
+    expect(await screen.findByLabelText('Who\'s your insurance company?')).toHaveValue('Anthem Blue Cross and Blue Shield');
+    expect(screen.getByText('We have prices for Anthem Blue Cross and Blue Shield plans so far.')).toBeInTheDocument();
   });
 
-  it('names the carrier of each plan when the plans come from more than one', async () => {
+  it('lists the plans by tier and deductible, with what tells them apart', async () => {
     const user = userEvent.setup();
-    const other = { ...PLANS[1], plan_id: '58081GA0010001', name: 'Ambetter Bronze HMO', carrier: 'Ambetter from Peach State' };
-    api.getPlans.mockResolvedValue({ data: [...PLANS, other] });
     open();
     await user.click(await screen.findByLabelText('What plan do you have?'));
-    expect(screen.getByRole('option', { name: /Ambetter Bronze HMO/ })).toHaveTextContent('Ambetter from Peach State');
-    expect(screen.getByRole('option', { name: /Silver Blue Value/ })).toHaveTextContent('Anthem Blue Cross and Blue Shield');
+    const options = screen.getAllByRole('option');
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent('Silver$4,000 deductibleBlue Value HMO');
+    expect(options[1]).toHaveTextContent('Bronze$6,000 deductiblePathway HMO');
+    await user.click(options[0]);
+    expect(screen.getByLabelText('What plan do you have?')).toHaveValue('Silver · $4,000 deductible · Blue Value HMO');
+  });
+
+  it('offers only the chosen company\'s plans when there are several companies', async () => {
+    const user = userEvent.setup();
+    const other = { ...PLANS[1], plan_id: '58081GA0010001', name: 'Ambetter Bronze HMO 7500', carrier: 'Ambetter from Peach State',
+      deductible: 7500, detail: 'HMO' };
+    api.getPlans.mockResolvedValue({ data: [...PLANS, other] });
+    open();
+    const company = await screen.findByLabelText('Who\'s your insurance company?');
+    expect(company).toHaveValue('');
+    expect(screen.getByText('We have prices for Anthem Blue Cross and Blue Shield and Ambetter from Peach State plans so far.'))
+      .toBeInTheDocument();
+    await user.click(company);
+    await user.click(screen.getByRole('option', { name: 'Ambetter from Peach State' }));
+    await user.click(screen.getByLabelText('What plan do you have?'));
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    expect(screen.getByRole('option')).toHaveTextContent('$7,500 deductible');
   });
 
   it('asks for a five-digit ZIP code and a plan before searching', async () => {

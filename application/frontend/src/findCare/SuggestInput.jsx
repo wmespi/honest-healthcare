@@ -20,7 +20,7 @@ export function SuggestInput({
   useLayoutEffect(() => {
     if (!showList) return;
     const below = (window.visualViewport?.height ?? window.innerHeight) - inputRef.current.getBoundingClientRect().bottom;
-    listRef.current.style.maxHeight = `${Math.max(160, Math.min(288, below - 16))}px`;
+    listRef.current.style.maxHeight = `${Math.max(160, Math.min(384, below - 16))}px`;
   }, [showList]);
 
   const close = () => {
@@ -87,7 +87,9 @@ export function SuggestInput({
             setActive(-1);
           }}
           onFocus={(event) => {
+            // Selected, so typing replaces it, but showing its start, which says the most.
             event.target.select();
+            event.target.scrollLeft = 0;
             setOpen(true);
           }}
           onBlur={() => {
@@ -123,13 +125,25 @@ export function SuggestInput({
               onClick={() => pick(option)}
               onMouseEnter={() => setActive(index)}
               className={clsx(
-                'cursor-pointer px-3.5 py-2 text-[15px] leading-snug text-slate-900',
+                'flex cursor-pointer items-start gap-3 px-3.5 py-2.5 text-[15px] leading-snug text-slate-900',
                 index === active && 'bg-slate-100',
               )}
             >
-              {/* Whole, however long: plan names differ only near their end. */}
-              <span className="block break-words">{option.label}</span>
-              {option.hint && <span className="mt-0.5 block text-xs text-slate-500">{option.hint}</span>}
+              {option.badge && (
+                <span className={clsx(
+                  'mt-px min-w-16 shrink-0 rounded-md px-1.5 py-0.5 text-center text-xs font-semibold ring-1 ring-inset',
+                  option.badge.className,
+                )}
+                >
+                  {option.badge.text}
+                </span>
+              )}
+              {/* Whole, however long. */}
+              <span className="min-w-0 flex-1 break-words">
+                <span className={clsx('block', option.detail && 'font-medium')}>{option.label}</span>
+                {option.detail && <span className="block text-sm text-slate-600">{option.detail}</span>}
+                {option.hint && <span className="mt-0.5 block text-xs text-slate-500">{option.hint}</span>}
+              </span>
             </li>
           ))}
         </ul>

@@ -383,7 +383,7 @@ export default function FindCare() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl shadow-slate-900/15 ring-1 ring-slate-900/5 sm:p-8"
+                className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl shadow-slate-900/15 ring-1 ring-slate-900/5 sm:p-8"
               >
                 <h1 className="text-balance text-[28px] font-bold leading-tight tracking-tight text-slate-900 sm:text-3xl">
                   Know the most you could pay before you go
