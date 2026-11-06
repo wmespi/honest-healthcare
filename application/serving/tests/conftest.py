@@ -5,7 +5,10 @@ test corpus into data-test/serving/ (integration/tests/app_tables.py), which
 `make test` runs first, so they read tables the real build wrote, handed over
 the way the real ones are. `api` binds a `TestClient` to the app reading them.
 """
+import atexit
 import os
+import shutil
+import tempfile
 
 import pytest
 
@@ -18,6 +21,18 @@ _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."
 SERVING_DIR = os.path.join(_REPO, "data-test", "serving")
 os.environ["DATA_DIR"] = os.path.join(_REPO, "data-test")
 os.environ["SERVING_DIR"] = SERVING_DIR
+
+# A stand-in for the screen's build, so the tests of how the app serves it
+# (test_screen.py) need no `npm run build`. It sits outside the repo and goes
+# when the run ends. SCREEN_DIR is frozen at import time too (screen.py).
+SCREEN_DIR = tempfile.mkdtemp(prefix="hh-screen-")
+atexit.register(shutil.rmtree, SCREEN_DIR, True)
+os.makedirs(os.path.join(SCREEN_DIR, "assets"))
+with open(os.path.join(SCREEN_DIR, "index.html"), "w") as f:
+    f.write('<!doctype html><div id="root"></div><script type="module" src="/assets/index-abc123.js"></script>')
+with open(os.path.join(SCREEN_DIR, "assets", "index-abc123.js"), "w") as f:
+    f.write("console.log('the screen');\n" * 100)
+os.environ["SCREEN_DIR"] = SCREEN_DIR
 
 
 @pytest.fixture(scope="session")

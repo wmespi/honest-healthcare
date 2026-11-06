@@ -73,9 +73,9 @@ make start     # macOS — launches Docker Desktop if needed, then all container
 **4 - Verify it's up** - no external data needed:
 
 ```bash
-curl localhost:8000/        # → 503 {"missing": [...]}: the API is up, with no find-care tables yet
-open http://localhost:5173  # the UI loads (empty until step 6)
-make test                   # full suite against committed fixtures
+curl localhost:8000/api/health  # → 503 {"missing": [...]}: the API is up, with no find-care tables yet
+open http://localhost:8000      # the UI loads (empty until step 6)
+make test                       # full suite against committed fixtures
 ```
 
 **5 - Load the data.** These pull large files from Anthem, CMS and Census and take a
@@ -100,12 +100,10 @@ make build          # what ingestion delivered (data/ingestion/) → data/servin
 
 After the first load, `make refresh` is the whole monthly job.
 
-After `make build`, the API picks up the new tables automatically — just refresh the UI. `make help`
-lists every workflow. To reach the UI from another device, open
-`http://<this-machine's-ip-or-hostname>:5173` — the frontend finds the API on
-port 8000 of whatever host you loaded it from. `scripts/tailscale-up.sh` sets up
-private off-network access; to send that link to someone who isn't a
-developer, see [infra/README.md](infra/README.md#sharing-the-app-with-a-tester).
+After `make build`, the API picks up the new tables automatically, so just refresh the UI.
+`make help` lists every workflow.
+The UI and the API share one address, so another device reaches both at `http://<this-machine's-ip-or-hostname>:8000`.
+`scripts/tailscale-up.sh` sets up private off-network access; to send that link to someone who isn't a developer, see [infra/README.md](infra/README.md#sharing-the-app-with-a-tester).
 
 ---
 

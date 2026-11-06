@@ -7,7 +7,7 @@ Three suites, each a `make` target (`make help` is the target list):
 | Command | Covers | Stack? |
 |---|---|---|
 | `make check` | docs drift (`scripts/check_docs.py`) + gofmt + vet + build + Go unit tests | ingestion up |
-| `make test` | `check` + `tests/e2e` + each layer's pytest in its own container (`ingestion/`, `integration/`, `application/serving/`) + vitest | full stack |
+| `make test` | `check` + `tests/e2e` + each layer's pytest in its own container (`ingestion/`, `integration/`, `application/serving/`) + the screen's lint and vitest | full stack |
 | `make test-live` | `tests/live`: golden answers (`test_golden.py`) + the named persona journeys ([journeys.md](journeys.md)) against the live API and real corpus | serving up, **real corpus** |
 
 Unit tests live with their code: Go's `_test.go` files beside their package, the frontend's `*.test.js` and `*.test.jsx` files beside their code, and each Python layer's in its own `tests/` folder: `ingestion/tests/`, `ingestion/reference/tests/`, `integration/tests/` and `application/serving/tests/`.
@@ -59,7 +59,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
   (`application/serving/contract.py`) on sample rows, and that FastAPI publishes it.
 - `tests/live/test_golden.py` — **no fixture**: real answers (a quote, a rollup, a
   provider ranking, counts) pinned against the live API (`API_URL`, default
-  `http://localhost:8000`).
+  `http://localhost:8000/api`).
 
 ## E2E tests (with teardown)
 
@@ -84,9 +84,8 @@ status check**: it passes only when every job succeeded or was legitimately skip
 |---|---|
 | `changes` | docs drift check; diffs the PR → `run` |
 | `go` | gofmt + vet + build + `go test ./...` (native `setup-go`, no stack) |
-| `web` | `npx vitest run` |
-| `layers` | `docker compose up ingestion integration serving`; `tests/e2e` and each layer's pytest in its own container, as `make test` runs them (`make _test-layers`), then `tests/live` (skips: no corpus) |
-| `images` | builds the four `prod` Dockerfile targets and smokes each |
+| `web` | `npm run lint` + `npx vitest run` |
+| `layers` | `docker compose up ingestion integration application`; `tests/e2e` and each layer's pytest in its own container, as `make test` runs them (`make _test-layers`), then `tests/live` (skips: no corpus) |
+| `images` | builds the three `prod` Dockerfile targets, the application's on the app's test tables, and smokes each (`infra/smoke.py` for the application) |
 | `gate` | no upstream job failed or was cancelled |
 
-JS lint (`npm run lint`) has pre-existing errors and is not gated.

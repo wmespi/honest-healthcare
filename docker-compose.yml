@@ -1,13 +1,13 @@
-# Dev stack: one container per layer (docs/architecture.md), and two for the
-# application, its API and its screen. Every service builds from its layer's
-# Dockerfile, in that layer's folder and from that folder alone; here we select a
-# dev target and layer on the dev-loop conveniences (bind-mounted source, exposed
-# ports, --reload, persistent build caches).
+# Dev stack: one container per layer (docs/architecture.md). Every service
+# builds from its layer's Dockerfile, in that layer's folder and from that
+# folder alone; here we select a dev target and layer on the dev-loop
+# conveniences (bind-mounted source, exposed ports, --reload, persistent build
+# caches).
 #
 # Each layer mounts only its own code, and the data it reads and writes:
 #   ingestion    writes data/raw/ (its own files) and data/ingestion/ (what integration reads)
 #   integration  reads data/ingestion/ read-only, writes data/serving/
-#   serving      reads data/serving/ read-only
+#   application  reads data/serving/ read-only
 # data-test/ is split the same way, so a test run stays inside its layer too.
 #
 # Multi-stack (GH #59): container names are unset so the project name
@@ -15,7 +15,7 @@
 # host ports + data root are env-driven. Copy .env.example → .env in a worktree
 # to run a second stack alongside the canonical one; see infra/README.md.
 # With no .env this behaves exactly as before (project `honest-healthcare`,
-# ports 8000/5173, ./data).
+# port 8000, ./data).
 services:
   ingestion:
     build:
@@ -56,46 +56,32 @@ services:
     environment:
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
 
-  serving:
+  application:
     build:
       context: ./application
-      target: serving-dev
+      target: dev
+    init: true
+    working_dir: /app
     volumes:
-      - ./application/__init__.py:/app/application/__init__.py:ro
-      - ./application/serving:/app/application/serving
+      - ./application:/app/application
+      # The image's own node_modules (Linux builds, not the host's), and the
+      # screen each start builds, both kept off the host's checkout.
+      - /app/application/frontend/node_modules
+      - /app/application/frontend/dist
       - ./pytest.ini:/app/pytest.ini:ro
       - ./tests/live:/app/tests/live:ro
       - ${HH_SERVING_DIR:-${HH_DATA_ROOT:-./data}/serving}:/app/data/serving:ro
       - ./data-test/serving:/app/data-test/serving:ro
     ports:
-      # loopback by default — remote access is via `tailscale serve`
-      # (scripts/tailscale-up.sh), which proxies 127.0.0.1:$API_PORT, and a 0.0.0.0
+      # loopback by default - remote access is via `tailscale serve`
+      # (scripts/tailscale-up.sh), which proxies 127.0.0.1:$APP_PORT, and a 0.0.0.0
       # bind would clash with tailscaled. BIND_HOST=0.0.0.0 opts a non-tailnet
       # stack into plain-LAN access.
-      - "${BIND_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${APP_PORT:-8000}:8000"
     environment:
       - DATA_DIR=/app/data
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
       - DUCKDB_TMP=${DUCKDB_TMP:-/tmp/duckdb_spill}
-
-  frontend:
-    build:
-      context: ./application
-      target: frontend-dev
-    volumes:
-      - ./application/frontend:/app
-      - /app/node_modules
-    ports:
-      # loopback by default — see the serving note; BIND_HOST=0.0.0.0 for LAN preview
-      - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-5173}:5173"
-    environment:
-      # By default the frontend derives the API URL from window.location at
-      # runtime (src/api.js), so http://<any-host>:5173 just works — LAN IP,
-      # Tailscale name, localhost. Set VITE_API_URL for a split deployment, or
-      # when this stack's API_PORT isn't 8000 (a second stack — see .env.example).
-      - VITE_API_URL=${VITE_API_URL:-}
-    depends_on:
-      - serving
 
 volumes:
   go-mod-cache:

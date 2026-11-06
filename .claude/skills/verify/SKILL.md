@@ -17,11 +17,11 @@ description: >
 | Go (`ingestion/etl/**`) | `make check` (or `make check LOCAL=1`, no Docker) | `ingestion` container up |
 | Go parser behaviour / MRF handling, NPPES extraction | `make test` (runs the ETL e2e + NPPES fixtures) | full stack |
 | Ingestion's Python (`ingestion/reference/**`, `ingestion/anthem_rates.py`) or the build (`integration/**`) | `make test` (or `make test LOCAL=1`) | full stack |
-| Serving layer (`application/serving/**`) | `make test` (or `make test LOCAL=1`) | serving container running the new code (see restart note) |
-| Frontend (`application/frontend/src/**`) | `make test` (or `make test LOCAL=1`) | `frontend` container up |
+| Serving layer (`application/serving/**`) | `make test` (or `make test LOCAL=1`) | application container running the new code (see restart note) |
+| Frontend (`application/frontend/src/**`) | `make test` (or `make test LOCAL=1`); `docker compose restart application` rebuilds the screen it serves | `application` container up |
 | Docs / Makefile / scripts only | `make check` is enough | `ingestion` up |
 | Anything non-trivial before a PR | `make test` | full stack |
-| A change to a real answer (rates, rankings, labels) | `make test-live` | serving up, **real corpus** |
+| A change to a real answer (rates, rankings, labels) | `make test-live` | application up, **real corpus** |
 
 `make check` = docs drift check + the Go gate; it's the pre-commit gate. `make help` lists every target.
 
@@ -29,7 +29,7 @@ description: >
 
 - **Backend module changes need the container to reload.** `uvicorn --reload`
   usually picks up edits, but after adding/moving a module run
-  `docker compose restart serving` before `make test`, and clear stale
+  `docker compose restart application` before `make test`, and clear stale
   `application/serving/__pycache__` if imports act strange.
 - **Ad-hoc DuckDB queries spill into the repo.** A one-off `duckdb.connect()` (not
   through `application/serving/data_sources.py:db()`, which sets `DUCKDB_TMP`) must
@@ -37,7 +37,7 @@ description: >
   and breaks `git add`. Read one `net=<slug>` partition of `data/raw/anthem/prices/`,
   not the whole store.
 - **`make reference STEP=nppes` is not atomic** — mid-run the output file is 0
-  bytes and queries that touch it 500. Let it finish, then restart `serving`.
+  bytes and queries that touch it 500. Let it finish, then restart `application`.
 - **`make test` and `make test-live` hit different data.** `test` is hermetic:
   fixtures, `data-test/`, mocked `./api` in vitest. A green `test` does not
   prove a serving-layer change works on real volume — run `test-live` too.

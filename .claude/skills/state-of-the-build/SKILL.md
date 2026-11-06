@@ -46,7 +46,7 @@ Then **verify the product still answers correctly** — hit the live API for the
 canary and 2–3 journey endpoints (`application/serving/` must be running):
 
 ```bash
-curl -s "http://localhost:8000/find-care?service_id=mri-brain&plan_id=45334GA0020002&zip=30322" | python3 -m json.tool
+curl -s "http://localhost:8000/api/find-care?service_id=mri-brain&plan_id=45334GA0020002&zip=30322" | python3 -m json.tool
 # expect: place_id 1396798229 (The Emory Clinic) with an all_in part of 180.49, and the plan's cost_sharing
 ```
 
@@ -58,7 +58,7 @@ Six sections, in this order (front-load the synthesis):
 
 1. **Where things stand** — one paragraph on what the product *is* right now
    (Flow A / Flow B state), then: a "shipped recently" table (area · what landed ·
-   PRs), the corpus numbers (`GET /` — priceable NPIs, codes, networks, as-of),
+   PRs), the corpus numbers (`GET /api/health` - networks, row counts, as-of),
    the canary result, and an open-issues table with a "reads as" column
    (real bug / small fix / planning / epic).
 2. **Agentic-dev health** — the practice scorecard (plan-first, fast gate, small
