@@ -21,6 +21,9 @@ PlaceKind = Literal["hospital", "imaging_center", "practice"]
 Sort = Literal["price", "distance"]
 RadiusMi = Literal[5, 10, 25, 50]
 RADIUS_OPTIONS_MI = (5, 10, 25, 50)
+# The exchange's metal tiers, the richest coverage first: the order a plan list runs in.
+MetalTier = Literal["Platinum", "Gold", "Silver", "Bronze", "Catastrophic"]
+METAL_TIERS = ("Platinum", "Gold", "Silver", "Bronze", "Catastrophic")
 
 
 class Problem(BaseModel):
@@ -31,12 +34,35 @@ class Problem(BaseModel):
 
 
 class Plan(BaseModel):
-    """One thing a person can pick, priced by one contract."""
+    """One thing a person can pick, priced by one contract. A person picks their
+    carrier, then their plan by its tier and deductible, which they're likeliest
+    to know, with the detail that tells two such plans apart."""
     plan_id: str
     name: str
     carrier: str
+    metal_level: str = Field(description="The exchange's metal level, such as Gold or Expanded Bronze.")
     needs_referral: bool
     deductible: float = Field(ge=0, description="The in-network deductible for one person.")
+
+    @computed_field(description="The metal level's tier: an Expanded Bronze plan is a Bronze plan.")
+    @property
+    def tier(self) -> MetalTier:
+        return self.metal_level.split()[-1]
+
+    @computed_field(description="The name without the carrier, the tier and the deductible, which are shown "
+                                "on their own; what's left tells plans apart, such as their network and copays.")
+    @property
+    def detail(self) -> str:
+        words = self.name.split()
+        for word in (self.carrier.split()[0], self.tier, f"{self.deductible:.0f}"):
+            if word in words:
+                words.remove(word)
+        return " ".join(words)
+
+
+def plan_order(plan: Plan):
+    """Plans by tier, the richest first, then the lowest deductible."""
+    return (METAL_TIERS.index(plan.tier) if plan.tier in METAL_TIERS else len(METAL_TIERS), plan.deductible, plan.name)
 
 
 class CostSharing(BaseModel):

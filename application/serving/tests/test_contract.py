@@ -8,7 +8,7 @@ from fastapi import FastAPI, Query
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from application.serving.contract import FindCare, FindCareQuery, Place, Plan, Service
+from application.serving.contract import FindCare, FindCareQuery, Place, Plan, Service, plan_order
 
 
 def part(name, hi=None):
@@ -91,13 +91,28 @@ def test_a_search_breaking_a_rule_is_rejected(extra, why):
         FindCare.model_validate(search([COMPLETE, HOSPITAL], **extra))
 
 
+def _plan(plan_id, name, metal_level, deductible, carrier="Anthem Blue Cross and Blue Shield"):
+    return Plan(plan_id=plan_id, name=name, carrier=carrier, metal_level=metal_level, needs_referral=False,
+                deductible=deductible)
+
+
+def test_a_plan_is_its_tier_and_deductible_and_what_tells_it_apart():
+    gold = _plan("gold", "Anthem Gold Pathway PCP Copay Choice HMO 1200 $5 $0 Virtual PCP $0 Select Drugs", "Gold", 1200)
+    hsa = _plan("hsa", "Anthem Bronze Blue Value HMO 6000 40% HSA", "Expanded Bronze", 6000)
+    other = _plan("other", "Individual Georgia HMO Silver", "Silver", 7500, carrier="Ambetter from Peach State")
+    assert (gold.tier, gold.detail) == ("Gold", "Pathway PCP Copay Choice HMO $5 $0 Virtual PCP $0 Select Drugs")
+    assert (hsa.tier, hsa.detail) == ("Bronze", "Blue Value HMO 40% HSA")
+    assert other.detail == "Individual Georgia HMO"
+    assert [p.plan_id for p in sorted([hsa, other, gold], key=plan_order)] == ["gold", "other", "hsa"]
+
+
 def test_fastapi_publishes_the_contract():
     app = FastAPI()
 
     @app.get("/plans", response_model=list[Plan])
     def plans():
-        return [{"plan_id": "blue-value", "name": "Blue Value HMO", "carrier": "Anthem", "needs_referral": True,
-                 "deductible": 4000.0}]
+        return [{"plan_id": "blue-value", "name": "Blue Value HMO", "carrier": "Anthem", "metal_level": "Silver",
+                 "needs_referral": True, "deductible": 4000.0}]
 
     @app.get("/services", response_model=list[Service])
     def services():

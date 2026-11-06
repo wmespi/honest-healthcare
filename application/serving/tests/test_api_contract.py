@@ -37,14 +37,18 @@ SILVER = "45334GA0020002"
 MRI = {"service_id": "mri-lower-back", "plan_id": SILVER, "zip": "30308"}
 
 
-def test_find_care_plans_are_georgias_plans_with_their_deductibles(api):
+def test_find_care_plans_run_by_tier_then_deductible_with_what_tells_them_apart(api):
+    anthem = "Anthem Blue Cross and Blue Shield"
     assert api.get("/api/plans").json() == [
-        {"plan_id": "45334GA0020008", "name": "Anthem Bronze Blue Value HMO 5000",
-         "carrier": "Anthem Blue Cross and Blue Shield", "needs_referral": False, "deductible": 5000.0},
-        {"plan_id": "49046GA0700053", "name": "Anthem Bronze Pathway PCP Copay Choice HMO 6000",
-         "carrier": "Anthem Blue Cross and Blue Shield", "needs_referral": False, "deductible": 6000.0},
-        {"plan_id": SILVER, "name": "Anthem Silver Blue Value HMO 4000",
-         "carrier": "Anthem Blue Cross and Blue Shield", "needs_referral": False, "deductible": 4000.0}]
+        {"plan_id": SILVER, "name": "Anthem Silver Blue Value HMO 4000", "carrier": anthem,
+         "metal_level": "Silver", "needs_referral": False, "deductible": 4000.0,
+         "tier": "Silver", "detail": "Blue Value HMO"},
+        {"plan_id": "45334GA0020008", "name": "Anthem Bronze Blue Value HMO 5000", "carrier": anthem,
+         "metal_level": "Expanded Bronze", "needs_referral": False, "deductible": 5000.0,
+         "tier": "Bronze", "detail": "Blue Value HMO"},
+        {"plan_id": "49046GA0700053", "name": "Anthem Bronze Pathway PCP Copay Choice HMO 6000", "carrier": anthem,
+         "metal_level": "Expanded Bronze", "needs_referral": False, "deductible": 6000.0,
+         "tier": "Bronze", "detail": "Pathway PCP Copay Choice HMO"}]
 
 
 def test_find_care_services_carry_what_the_screen_says(api):

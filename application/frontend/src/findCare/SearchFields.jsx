@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { MapPin, Search, ShieldCheck } from 'lucide-react';
+import { Building2, MapPin, Search, ShieldCheck } from 'lucide-react';
+import { money } from './format';
 import { SuggestInput } from './SuggestInput';
 
 const ZIP = /^\d{5}$/;
@@ -10,6 +11,18 @@ const suggest = (items, text, haystack, option) => {
   return items.filter((item) => normalize(haystack(item)).includes(query)).map(option);
 };
 
+// A plan by what people know it by, its tier and deductible, then what tells it apart.
+const planLabel = (p) => `${p.tier} · ${money(p.deductible)} deductible · ${p.detail}`;
+const TIER_BADGE = {
+  Platinum: 'bg-indigo-50 text-indigo-800 ring-indigo-200',
+  Gold: 'bg-amber-50 text-amber-800 ring-amber-200',
+  Silver: 'bg-slate-100 text-slate-700 ring-slate-300',
+  Bronze: 'bg-orange-50 text-orange-800 ring-orange-200',
+  Catastrophic: 'bg-rose-50 text-rose-800 ring-rose-200',
+};
+const andList = (items) => (items.length < 2 ? items.join('')
+  : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
+
 // `compact` is the results header: choices apply as soon as they're made. Otherwise
 // this is the start card, and nothing happens until the button is pressed.
 export function SearchFields({ services, plans, serviceId, zip, planId, compact, onSearch }) {
@@ -19,10 +32,15 @@ export function SearchFields({ services, plans, serviceId, zip, planId, compact,
   const [serviceText, setServiceText] = useState(initialService?.name ?? '');
   const [zipText, setZipText] = useState(zip ?? '');
   const [plan, setPlan] = useState(initialPlan);
-  const [planText, setPlanText] = useState(initialPlan?.name ?? '');
+  const [planText, setPlanText] = useState(initialPlan ? planLabel(initialPlan) : '');
   const [error, setError] = useState(null);
-  // A plan's carrier says something only when the plans don't all share one.
-  const oneCarrier = new Set(plans.map((p) => p.carrier)).size <= 1;
+  // The start card asks for the insurance company first, filled in when there's only one,
+  // and offers that company's plans. The header has no room for it, so its plan list names
+  // a plan's carrier when the plans don't all share one.
+  const carriers = [...new Set(plans.map((p) => p.carrier))];
+  const [carrier, setCarrier] = useState(initialPlan?.carrier ?? (carriers.length === 1 ? carriers[0] : null));
+  const [carrierText, setCarrierText] = useState(carrier ?? '');
+  const planChoices = compact || !carrier ? plans : plans.filter((p) => p.carrier === carrier);
 
   const submit = (nextService, nextZip, nextPlan) => {
     if (!nextService) {
@@ -83,25 +101,55 @@ export function SearchFields({ services, plans, serviceId, zip, planId, compact,
           }
         }}
       />
+      {!compact && (
+        <div>
+          <SuggestInput
+            label="Who's your insurance company?"
+            icon={Building2}
+            placeholder="Your insurance company"
+            text={carrierText}
+            options={suggest(carriers, carrierText === carrier ? '' : carrierText, (c) => c, (c) => ({ id: c, label: c }))}
+            onTextChange={setCarrierText}
+            onPick={(option) => {
+              setCarrier(option.id);
+              setCarrierText(option.id);
+              if (plan && plan.carrier !== option.id) {
+                setPlan(null);
+                setPlanText('');
+              }
+              setError(null);
+            }}
+            onBlur={() => setCarrierText(carrier ?? '')}
+          />
+          <p className="mt-1.5 text-[13px] text-slate-500">We have prices for {andList(carriers)} plans so far.</p>
+        </div>
+      )}
       <SuggestInput
         label="What plan do you have?"
         hideLabel={compact}
         icon={ShieldCheck}
-        placeholder="Your insurance plan"
+        placeholder={compact || carrier ? 'Your insurance plan' : 'Choose your insurance company first'}
         text={planText}
-        options={suggest(plans, planText === plan?.name ? '' : planText,
-          (p) => `${p.name} ${p.carrier}`, (p) => ({ id: p.plan_id, label: p.name, hint: oneCarrier ? undefined : p.carrier }))}
+        options={suggest(planChoices, plan && planText === planLabel(plan) ? '' : planText,
+          (p) => `${p.name} ${planLabel(p)} ${p.deductible}`,
+          (p) => ({
+            id: p.plan_id,
+            badge: { text: p.tier, className: TIER_BADGE[p.tier] },
+            label: `${money(p.deductible)} deductible`,
+            detail: p.detail,
+            hint: compact && carriers.length > 1 ? p.carrier : undefined,
+          }))}
         invalid={error?.field === 'plan'}
-        listClassName={compact ? 'left-auto w-[calc(100vw-2rem)] sm:w-96' : undefined}
+        listClassName={compact ? 'left-auto w-[calc(100vw-2rem)] sm:w-[28rem]' : undefined}
         onTextChange={setPlanText}
         onPick={(option) => {
           const picked = plans.find((p) => p.plan_id === option.id);
           setPlan(picked);
-          setPlanText(picked.name);
+          setPlanText(planLabel(picked));
           setError(null);
           if (compact) submit(service, zipText, picked);
         }}
-        onBlur={() => setPlanText(plan?.name ?? '')}
+        onBlur={() => setPlanText(plan ? planLabel(plan) : '')}
         onEnter={() => submit(service, zipText, plan)}
       />
     </>

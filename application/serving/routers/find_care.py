@@ -13,7 +13,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..contract import RADIUS_OPTIONS_MI, FindCare, FindCareQuery, Plan, Problem, Service
+from ..contract import RADIUS_OPTIONS_MI, FindCare, FindCareQuery, Plan, Problem, Service, plan_order
 from ..data_sources import (
     COST_SHARING_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, ZIPS_SRC, db,
 )
@@ -49,8 +49,9 @@ def _not_found(code, message):
 
 @router.get("/plans", response_model=list[Plan])
 def get_plans():
-    return _rows(db().execute(
-        f"SELECT plan_id, name, carrier, needs_referral, deductible FROM {PLANS_SRC} ORDER BY name"))
+    plans = [Plan(**row) for row in _rows(db().execute(
+        f"SELECT plan_id, name, carrier, metal_level, needs_referral, deductible FROM {PLANS_SRC}"))]
+    return sorted(plans, key=plan_order)
 
 
 @router.get("/services", response_model=list[Service])
