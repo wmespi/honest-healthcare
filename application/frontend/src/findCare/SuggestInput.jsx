@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 
 // A text field with a pick list, used for the service, the location and the plan.
@@ -11,7 +11,17 @@ export function SuggestInput({
   const listId = `${id}-list`;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  const inputRef = useRef(null);
+  const listRef = useRef(null);
   const showList = open && options.length > 0;
+
+  // The list stops above the bottom of what's visible, a phone's keyboard included,
+  // and scrolls within that.
+  useLayoutEffect(() => {
+    if (!showList) return;
+    const below = (window.visualViewport?.height ?? window.innerHeight) - inputRef.current.getBoundingClientRect().bottom;
+    listRef.current.style.maxHeight = `${Math.max(160, Math.min(288, below - 16))}px`;
+  }, [showList]);
 
   const close = () => {
     setOpen(false);
@@ -58,6 +68,7 @@ export function SuggestInput({
       <div className="relative">
         <Icon size={16} aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
         <input
+          ref={inputRef}
           id={id}
           role="combobox"
           aria-expanded={showList}
@@ -69,6 +80,7 @@ export function SuggestInput({
           inputMode={inputMode}
           placeholder={placeholder}
           value={text}
+          title={text || undefined}
           onChange={(event) => {
             onTextChange(event.target.value);
             setOpen(true);
@@ -92,6 +104,7 @@ export function SuggestInput({
       </div>
       {showList && (
         <ul
+          ref={listRef}
           id={listId}
           role="listbox"
           aria-label={label}
@@ -110,12 +123,13 @@ export function SuggestInput({
               onClick={() => pick(option)}
               onMouseEnter={() => setActive(index)}
               className={clsx(
-                'flex cursor-pointer items-baseline justify-between gap-3 px-3.5 py-2 text-[15px] text-slate-900',
+                'cursor-pointer px-3.5 py-2 text-[15px] leading-snug text-slate-900',
                 index === active && 'bg-slate-100',
               )}
             >
-              <span className="min-w-0 truncate">{option.label}</span>
-              {option.hint && <span className="shrink-0 text-xs text-slate-500">{option.hint}</span>}
+              {/* Whole, however long: plan names differ only near their end. */}
+              <span className="block break-words">{option.label}</span>
+              {option.hint && <span className="mt-0.5 block text-xs text-slate-500">{option.hint}</span>}
             </li>
           ))}
         </ul>

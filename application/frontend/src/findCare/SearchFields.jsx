@@ -21,6 +21,8 @@ export function SearchFields({ services, plans, serviceId, zip, planId, compact,
   const [plan, setPlan] = useState(initialPlan);
   const [planText, setPlanText] = useState(initialPlan?.name ?? '');
   const [error, setError] = useState(null);
+  // A plan's carrier says something only when the plans don't all share one.
+  const oneCarrier = new Set(plans.map((p) => p.carrier)).size <= 1;
 
   const submit = (nextService, nextZip, nextPlan) => {
     if (!nextService) {
@@ -88,7 +90,7 @@ export function SearchFields({ services, plans, serviceId, zip, planId, compact,
         placeholder="Your insurance plan"
         text={planText}
         options={suggest(plans, planText === plan?.name ? '' : planText,
-          (p) => `${p.name} ${p.carrier}`, (p) => ({ id: p.plan_id, label: p.name, hint: p.carrier }))}
+          (p) => `${p.name} ${p.carrier}`, (p) => ({ id: p.plan_id, label: p.name, hint: oneCarrier ? undefined : p.carrier }))}
         invalid={error?.field === 'plan'}
         listClassName={compact ? 'left-auto w-[calc(100vw-2rem)] sm:w-96' : undefined}
         onTextChange={setPlanText}
