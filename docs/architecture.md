@@ -17,7 +17,7 @@ A layer can change freely as long as what it delivers keeps its contract, so ano
 |---|---|---|---|---|
 | Ingestion | `ingestion`: Go + Python/DuckDB | `ingestion/` | Anthem, NPPES, Georgia Access, CMS, NUCC, Census | `data/raw/`, its own files, and `data/ingestion/`, the contract integration reads |
 | Integration | `integration`: Python/DuckDB | `integration/` | `data/ingestion/`, read-only | `data/serving/`, the find-care tables |
-| Application | `serving`: FastAPI + DuckDB, `localhost:8000`; `frontend`: React + Vite, `localhost:5173` | `application/serving/`, `application/frontend/` | `data/serving/`, read-only | nothing |
+| Application | `serving`: FastAPI + DuckDB under `/api`, serving the built `frontend` (React + Vite) at every other path, `localhost:8000` | `application/serving/`, `application/frontend/` | `data/serving/`, read-only | nothing |
 
 The contract between ingestion and integration is the datasets in `integration/inputs/datasets.py`, each with its columns and key, which the build checks before it reads them; between integration and the app it's the find-care tables below.
 The on-disk layout is in [docs/schema.md](schema.md).
@@ -174,8 +174,7 @@ flowchart TB
   subgraph host [one machine today, one VM later]
     ING[ingestion container: Go + Python - make discover, parse, reference]
     INT[integration container: Python + DuckDB - make build]
-    API[serving container: FastAPI + DuckDB]
-    WEB[frontend container]
+    APP[application container: FastAPI + DuckDB, the API and the screen]
     RAWD[(data/raw: ingestion's own files)]
     CON[(data/ingestion: the contract)]
     SRV[(data/serving: the find-care tables)]
@@ -183,11 +182,9 @@ flowchart TB
     ING -->|writes| CON
     CON -->|read-only| INT
     INT -->|writes| SRV
-    SRV -->|read-only| API
-    WEB --> API
+    SRV -->|read-only| APP
   end
-  TS[Tailscale serve] --> WEB
-  TS --> API
+  TS[Tailscale serve] --> APP
 ```
 
 Each container mounts only its own code folder and the data folders above, so integration can't read Anthem's raw files and the app can't read anything but its tables; `data-test/` is split the same way.

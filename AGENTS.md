@@ -38,8 +38,8 @@ it delivers:
    `data/raw/` and delivers what integration reads to `data/ingestion/`.
 2. **Integration** (`integration/`, Python/DuckDB, `make build`) turns that into the find-care
    tables in `data/serving/`, and is where every product decision lives.
-3. **Application** (`application/`): **serving** (FastAPI + DuckDB, `localhost:8000`) queries
-   those tables in-process for the **frontend** (React, `localhost:5173`).
+3. **Application** (`application/`, `localhost:8000`): **serving** (FastAPI + DuckDB) queries
+   those tables in-process under `/api`, and serves the built **frontend** (React) at every other path.
 
 Storage is Parquet+ZSTD under `data/`, with no database. Layer table and diagrams:
 **[docs/architecture.md](docs/architecture.md)**; on-disk layout:
@@ -127,7 +127,7 @@ make worktree TOPIC=x       # only for parallel work: new sibling worktree + bra
 make worktree-rm TOPIC=x    # remove it once its PR merges
 make footprint / make clean # disk report / reclaim regenerable artifacts
 make fixture FILE=<name>    # truncated *.json.gz fixture from a file in this month's index
-make sh S=integration       # shell into a container: ingestion, integration, serving or frontend
+make sh S=integration       # shell into a container: ingestion, integration or application
 ```
 
 **Branches and worktrees** (GH #59).

@@ -91,7 +91,7 @@ jobs:
       - run: go test ./...
 
   web:
-    name: Frontend — vitest
+    name: Frontend - lint, vitest
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
@@ -106,6 +106,7 @@ jobs:
           cache: npm
           cache-dependency-path: application/frontend/package-lock.json
       - run: npm ci
+      - run: npm run lint
       - run: npx vitest run
 
   layers:

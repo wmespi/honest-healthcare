@@ -12,7 +12,7 @@ Journeys, Verification.
 <!-- The docs/journeys.md IDs this change affects, and whether they still hold.
      Paste the journey's Link (from docs/journeys.md) so a reviewer can click
      straight to it — that's the fastest sanity check there is.
-     e.g. "J1, J5 — re-ran `make test-live`, 5/5 pass — https://…ts.net:5173/?plan=…"
+     e.g. "J1, J5 - re-ran `make test-live`, 5/5 pass - https://…ts.net:8000/find-care?plan=…"
         · "none — ETL-only" -->
 
 ## Verification

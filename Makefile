@@ -113,16 +113,16 @@ check: ## Gate - docs drift + Go fmt/vet/build/unit tests (ingestion container).
 	  docker compose exec ingestion go test ./...; \
 	fi
 
-test: check ## Every hermetic suite - check + each layer's pytest in its container (the app's on tables integration builds) + vitest (+ ETL e2e when not LOCAL). LOCAL=1: host toolchains, no Docker
+test: check ## Every hermetic suite - check + each layer's pytest in its container (the app's on tables integration builds) + the screen's lint and vitest (+ ETL e2e when not LOCAL). LOCAL=1: host toolchains, no Docker
 	@if [ "$(LOCAL)" = 1 ]; then \
 	  test -x .venv/bin/python || { echo "no .venv — run scripts/dev-setup.sh"; exit 1; }; \
 	  test -d application/frontend/node_modules || { echo "no application/frontend/node_modules - run scripts/dev-setup.sh"; exit 1; }; \
 	  .venv/bin/python -m integration.tests.app_tables && \
 	  .venv/bin/python -m pytest -q && \
-	  cd application/frontend && npx vitest run; \
+	  cd application/frontend && npm run lint && npx vitest run; \
 	else \
 	  $(MAKE) --no-print-directory _test-layers && \
-	  docker compose exec -T -w /app/application/frontend application npx vitest run; \
+	  docker compose exec -T -w /app/application/frontend application sh -c "npm run lint && npx vitest run"; \
 	fi
 
 test-live: ## Golden answers + user journeys against the live API + real corpus (docs/journeys.md). API_URL=<origin>/api targets a host-run API instead of the stack

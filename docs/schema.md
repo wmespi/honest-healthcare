@@ -101,7 +101,7 @@ A rate's `group_set_id` lists the provider groups it covers in `rate_groups`, an
 ## Parquet - `data/serving/` (the build step's output - [integration/build.md](../integration/build.md), read straight by the API)
 
 `make build` (`integration/build.py`) writes the **only** thing `application/serving/` reads - a missing
-table here is a `503` from `GET /`, never a fallback to what ingestion wrote.
+table here is a `503` from `GET /api/health`, never a fallback to what ingestion wrote.
 
 | Table | Columns |
 |---|---|
@@ -115,7 +115,7 @@ table here is a `503` from `GET /`, never a fallback to what ingestion wrote.
 | `prices.parquet` | `network_id`, `service_id`, `place_id`, `parts` (`part`, `max`), `several_rates`, `billers`, `providers`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `providers.parquet` | `npi`, `name`, `specialty`, `score`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `unlocated_places.parquet` | `place_id`, `name`, `kind`, `address`, `city`, `zip`: the places Census can't put on the map, which nothing serves ([build.md](../integration/build.md#the-find-care-tables)) |
-| `manifest.json` | `built_at`, `rows`: when the build ran and each table's row count, which `GET /` reads |
+| `manifest.json` | `built_at`, `rows`: when the build ran and each table's row count, which `GET /api/health` reads |
 
 The entity model: [architecture.md](architecture.md#serving-entity-model).
 

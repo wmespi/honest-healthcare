@@ -3,7 +3,7 @@
 *Read this when changing what the serving layer reads, or a product rule.*
 `make build` (→ `integration/build.py`) is the one cheap, re-runnable step between
 the streaming ETL and the API, and the **only** thing the API reads — a missing
-table is a `503` from `GET /`, not a fallback to raw Parquet.
+table is a `503` from `GET /api/health`, not a fallback to raw Parquet.
 
 ## The find-care tables
 
@@ -14,7 +14,7 @@ Each table has its own file, named after it, with a class that names its key and
 `make build` makes and checks them all before writing anything, so a failed check leaves the last build's files as they were.
 Two builds from the same inputs write the same bytes, which `integration/tests/tables/` checks.
 They cover the networks the payer rates in `data/ingestion/payer_rates/` price, which `make parse` publishes for the targets in [`ingestion/etl/targets.yaml`](../ingestion/etl/targets.yaml) ([ingestion/etl/parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)); the build reads neither that file nor Anthem's own.
-`manifest.json` beside them says when the build ran (`built_at`) and how many rows each table has (`rows`), and `GET /` reads it.
+`manifest.json` beside them says when the build ran (`built_at`) and how many rows each table has (`rows`), and `GET /api/health` reads it.
 
 | Table | Grain | Notes |
 |---|---|---|
