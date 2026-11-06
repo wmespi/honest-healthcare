@@ -11,8 +11,8 @@ set -euo pipefail
 
 PROJECT="${HH_GCP_PROJECT:-honest-healthcare}"
 REGION="${HH_GCP_REGION:-us-east1}"
-SERVICE="${HH_GCP_SERVICE:-honest-healthcare}"
-REPO=honest-healthcare
+SERVICE="${HH_GCP_SERVICE:-application}"
+REPO=containers
 TABLES="${HH_SERVING_DIR:-data/serving}"
 SMOKE_SA="deploy-smoke@${PROJECT}.iam.gserviceaccount.com"
 
@@ -56,6 +56,10 @@ gcloud run deploy "$SERVICE" "${where[@]}" --image "$IMAGE" --no-allow-unauthent
   --port 8000 --cpu 1 --memory 512Mi --cpu-boost --concurrency 80 --timeout 30 \
   --min-instances 0 --max-instances 1 --set-env-vars DUCKDB_MEMORY_LIMIT=256MB,DUCKDB_THREADS=1 \
   --labels "commit=$(git rev-parse --short=12 HEAD)" --quiet
+# IAP reaches the service as its own service agent, which the console grants and gcloud doesn't.
+number="$(gcloud projects describe "$PROJECT" --format 'value(projectNumber)')"
+gcloud run services add-iam-policy-binding "$SERVICE" "${where[@]}" \
+  --member "serviceAccount:service-$number@gcp-sa-iap.iam.gserviceaccount.com" --role roles/run.invoker >/dev/null
 gcloud iap web add-iam-policy-binding "${where[@]}" --resource-type cloud-run --service "$SERVICE" \
   --member "serviceAccount:$SMOKE_SA" --role roles/iap.httpsResourceAccessor >/dev/null
 
