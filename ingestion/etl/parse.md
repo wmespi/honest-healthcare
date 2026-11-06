@@ -51,7 +51,7 @@ docker compose exec ingestion python3 -c "import duckdb; duckdb.sql(\"FROM '/app
 make parse FILE=GA_JBNKMED0001.json.gz              # retry a failed file, or re-parse one now
 ```
 
-`short read` and `stream truncated` in a `failed` reason are worth retrying; `corrupt gzip` and `malformed MRF` mean a bad file.
+`short read` and `stream truncated` in a `failed` reason are worth retrying; `corrupt gzip` and `malformed MRF` mean a bad file; a `write` or `finish the Parquet files` error is this machine's, such as no space left on device, so fix it and retry.
 To stream a file the probe skips, run `docker compose exec ingestion go run . parse -files <name> -min-groups 0 -targets ""`.
 
 ## Publishing the rates by network
@@ -63,17 +63,17 @@ The three files move into place together, so a failed check leaves the last ones
 
 ## Per-file steps
 
-1. GET the file (or read `FIXTURE`), noting its `Last-Modified` and `Content-Length`, and stream it once via `streamMRF` (`provider_references` must precede `in_network`).
+1. GET the file (or read `FIXTURE`), noting its `Last-Modified` and `Content-Length`, and stream it once via `streamMRF` (`provider_references` must precede `in_network`, or the file fails).
 2. **Probe** at the close of `provider_references` - cancel the request and record the file `skipped` if it isn't worth the rest of the download ([below](#the-provider-probe)).
 3. Build `provider_group_id → network_name` from `provider_references[].network_name` and stamp it on every provider and price row - structured attribution, no string matching.
 4. **GA NPI filter** (on when `data/ingestion/nppes/ga_providers.parquet` exists; `-all-npis` disables): keep a provider row only if its NPI is a Georgia NPPES NPI; a group with no GA NPI is dropped, and every price whose whole roster it was goes too. The parse record counts the dropped rows.
 5. For each `negotiated_rate` block: bucket references by network, fingerprint each network-scoped roster (`hashGroupSet`, FNV-64a of sorted reference ids), write a roster's edges to `group_sets` the first time it is seen, and emit one `prices` row per `(network × price)` pointing at the `group_set_id`. Each code goes to `codes/`.
 6. Move the Parquet into place and record the file `parsed`, or `failed` with the reason.
-7. After the run, write `npi_lookup.parquet` (NPI → TIN across files parsed).
 
 **Completeness gate (before step 6).** The JSON decoder stops at the closing brace, so it can't tell a whole file from one cut short.
 The rest of the body is drained so gzip verifies CRC-32 + ISIZE and the HTTP layer surfaces a short body, and bytes read are reconciled against `Content-Length`.
 A truncated stream, a malformed entry, a document that never closes, or one with neither section (an error page served 200) is `failed`, not `parsed`.
+So is a file whose Parquet can't be written or finished, such as on a full disk, so nothing short is moved into place.
 
 While a parse runs the file is written under `anthem/.inflight/<name>/` and promoted by atomic rename only on a clean stream, so the build never reads a half-written file.
 A failed parse deletes the folder, so one left behind means a parse stopped part way: parse stops on it until someone looks at why and deletes it (Critical Rule 2).

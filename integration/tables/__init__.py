@@ -49,8 +49,11 @@ def build(data_dir, serving_dir, services_path=SERVICES_PATH):
 
     Every dataset is checked first (integration/inputs/datasets.py), then the inputs
     and the tables are made and checked in this order, and each one's SQL may
-    read the ones above it. None is written until all of them
-    pass, so a failed check leaves the last build's files as they were."""
+    read the ones above it. None is written until all of them pass, and none is
+    moved into place until all of them are written, so a failed check or a
+    failed write leaves the last build's files as they were. The app reads the
+    files as they are, so it can see two builds' tables side by side only in the
+    moment the renames take, not while the tables are written."""
     tables = [
         Networks(),
         Plans(),
@@ -65,16 +68,28 @@ def build(data_dir, serving_dir, services_path=SERVICES_PATH):
     ]
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)
-    check_inputs(con, data_dir)
-    for table in inputs(services_path) + tables:
-        table.make(con, data_dir)
-    rows = {}
-    for table in tables:
-        rows[table.name] = table.write(con, serving_dir)
-        print(f"  {table.name + '.parquet':<22} {rows[table.name]:>13,}")
-    con.close()
-    if not os.getenv("DUCKDB_TMP"):  # only a spill dir we own (make build passes it empty)
-        shutil.rmtree(spill, ignore_errors=True)
+    try:
+        check_inputs(con, data_dir)
+        for table in inputs(services_path) + tables:
+            table.make(con, data_dir)
+        rows = {}
+        try:
+            for table in tables:
+                rows[table.name] = table.stage(con, serving_dir)
+        except BaseException:
+            for table in tables:
+                if os.path.exists(table.staged_path(serving_dir)):
+                    os.remove(table.staged_path(serving_dir))
+            raise
+        for table in tables:
+            os.replace(table.staged_path(serving_dir), table.path(serving_dir))
+        width = max(len(f"{table.name}.parquet") for table in tables)
+        for table in tables:
+            print(f"  {table.name + '.parquet':<{width}} {rows[table.name]:>13,}")
+    finally:
+        con.close()
+        if not os.getenv("DUCKDB_TMP"):  # only a spill dir we own (make build passes it empty)
+            shutil.rmtree(spill, ignore_errors=True)
     return rows
 
 

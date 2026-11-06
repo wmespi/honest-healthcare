@@ -3,6 +3,7 @@ package extraction
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -16,13 +17,20 @@ import (
 // mrfWriters are the side-effecting sinks for a streamed MRF. The production
 // caller wires these to Parquet writers; tests
 // wire them to in-memory slices. Every field may be nil (dry run / counting only).
+// The stream stops at the first error a sink returns, so a full disk fails the
+// file instead of leaving a short one to be promoted.
 type mrfWriters struct {
-	prices          func([]core.PriceRow)
-	groupSetMembers func([]core.GroupSetMemberRow)
-	providers       func([]core.ProviderRow)
-	// code is called exactly once per billing code not already in seenBillingCodes.
-	code func(core.BillingCodeRow)
+	prices          func([]core.PriceRow) error
+	groupSetMembers func([]core.GroupSetMemberRow) error
+	providers       func([]core.ProviderRow) error
+	// code is called exactly once per billing code in the file.
+	code func(core.BillingCodeRow) error
 }
+
+// errInNetworkFirst is a file whose in_network comes before its
+// provider_references. A single pass learns each provider group's network from
+// provider_references, so it can't attribute rates it has already streamed.
+var errInNetworkFirst = errors.New("malformed MRF: in_network comes before provider_references, so its rates can't be given a network in one pass")
 
 // hashGroupSet fingerprints a sorted provider-group roster. FNV-64a over the
 // little-endian id bytes — deterministic across runs and machines. Paired with
@@ -43,8 +51,7 @@ type mrfResult struct {
 	PriceRows          int64
 	GroupSetMemberRows int64
 	GroupSets          int
-	NewBillingCodes    int
-	NewNPIs            int
+	BillingCodes       int
 	NetworkNames       map[string]struct{}
 	SchemaExample      map[string]interface{}
 
@@ -210,16 +217,15 @@ func buildProviderRows(ref core.ProviderReference, fileID int64) ([]core.Provide
 }
 
 // streamMRF does the single-pass token-level scan of one MRF document (already
-// gzip-decompressed). It never buffers the whole file. provider_references is
-// expected before in_network so network_name attribution is available for rates
-// — and so the probe can abandon a file at the end of that first section,
-// before a byte of in_network is read (probe.go).
+// gzip-decompressed). It never buffers the whole file. provider_references has
+// to come before in_network, so network_name attribution is available for rates
+// and the probe can abandon a file at the end of that first section, before a
+// byte of in_network is read (probe.go); a file in the other order fails
+// (errInNetworkFirst).
 func streamMRF(
 	r io.Reader,
 	fileID int64,
 	wantSchema bool,
-	seenBillingCodes map[string]bool,
-	seenNPIs map[int64]string,
 	gaNPIs map[int64]struct{}, // nil = keep everything; non-nil = drop providers/rates with no GA NPI
 	pb providerProbe, // the pre-in_network gate; the zero value never aborts
 	w mrfWriters,
@@ -246,15 +252,14 @@ func streamMRF(
 	// reading is what the probe judges the file on, filled in as
 	// provider_references streams past.
 	var reading probeReading
-	// New NPIs and TINs are staged, not written straight into the run-level sets,
-	// because the probe can still abandon this file — and a file the probe
-	// abandons must leave nothing behind, npi_lookup.parquet included. Both are
-	// merged the moment the probe passes and dropped if it doesn't. Bounded by
-	// the file's own new NPIs, which the run-level set would have held anyway.
-	stagedNPIs := map[int64]string{}
+	// seenProviderRefs says provider_references has started, which in_network
+	// needs (errInNetworkFirst).
+	seenProviderRefs := false
 	// seenSets dedupes provider-group rosters across the whole file so each
 	// distinct roster's membership edges are written to group_sets exactly once.
 	seenSets := make(map[int64]struct{})
+	// seenBillingCodes dedupes the file's codes, so codes/ lists each once.
+	seenBillingCodes := make(map[string]bool)
 
 	t, err := decoder.Token()
 	if err != nil {
@@ -270,38 +275,50 @@ func streamMRF(
 	providerBatches, priceBatches := 0, 0
 	const logEveryNBatches = 10
 
-	flushProv := func() {
+	flushProv := func() error {
 		if len(providerBuf) == 0 {
-			return
+			return nil
 		}
 		if w.providers != nil {
-			w.providers(providerBuf)
+			if err := w.providers(providerBuf); err != nil {
+				return fmt.Errorf("write providers: %w", err)
+			}
 		}
 		res.ProviderRows += int64(len(providerBuf))
 		providerBuf = providerBuf[:0]
+		return nil
 	}
-	flushMembers := func() {
+	flushMembers := func() error {
 		if len(memberBuf) == 0 {
-			return
+			return nil
 		}
 		if w.groupSetMembers != nil {
-			w.groupSetMembers(memberBuf)
+			if err := w.groupSetMembers(memberBuf); err != nil {
+				return fmt.Errorf("write group_sets: %w", err)
+			}
 		}
 		res.GroupSetMemberRows += int64(len(memberBuf))
 		memberBuf = memberBuf[:0]
+		return nil
 	}
-	flushPrice := func() {
+	flushPrice := func() error {
 		if len(priceBuf) == 0 {
-			return
+			return nil
 		}
 		if w.prices != nil {
-			w.prices(priceBuf)
+			if err := w.prices(priceBuf); err != nil {
+				return fmt.Errorf("write prices: %w", err)
+			}
 		}
 		res.PriceRows += int64(len(priceBuf))
 		priceBuf = priceBuf[:0]
+		return nil
 	}
 	// emitMembers is handed to buildPriceRows; it appends one edge per roster
 	// member and is called at most once per distinct roster (seenSets dedupe).
+	// A failed flush is kept in memberErr, which the in_network loop checks after
+	// each item.
+	var memberErr error
 	emitMembers := func(fileID, groupSetID int64, groupIDs []int64) {
 		res.GroupSets++
 		for _, gid := range groupIDs {
@@ -311,8 +328,8 @@ func streamMRF(
 				ProviderGroupID: gid,
 			})
 		}
-		if len(memberBuf) >= copyBatchSize {
-			flushMembers()
+		if len(memberBuf) >= copyBatchSize && memberErr == nil {
+			memberErr = flushMembers()
 		}
 	}
 
@@ -329,6 +346,7 @@ func streamMRF(
 		switch key {
 		case "provider_references":
 			log.Println("    🎯 Found 'provider_references'. Streaming...")
+			seenProviderRefs = true
 			if _, err := decoder.Token(); err != nil { // '['
 				return nil, fmt.Errorf("malformed MRF: provider_references opening: %w", err)
 			}
@@ -390,17 +408,11 @@ func streamMRF(
 						res.NetworkNames[n] = struct{}{}
 					}
 				}
-				for _, row := range rows {
-					if _, seen := seenNPIs[row.NPI]; !seen {
-						if _, staged := stagedNPIs[row.NPI]; !staged {
-							stagedNPIs[row.NPI] = row.TINValue
-							res.NewNPIs++
-						}
-					}
-				}
 				providerBuf = append(providerBuf, rows...)
 				if len(providerBuf) >= copyBatchSize {
-					flushProv()
+					if err := flushProv(); err != nil {
+						return nil, err
+					}
 					if providerBatches++; providerBatches%logEveryNBatches == 0 {
 						log.Printf("    ⚙️  %d provider rows... | %s", res.ProviderRows, progress())
 					}
@@ -409,7 +421,9 @@ func streamMRF(
 			if _, err := decoder.Token(); err != nil { // ']'
 				return nil, fmt.Errorf("malformed MRF: provider_references not closed: %w", err)
 			}
-			flushProv()
+			if err := flushProv(); err != nil {
+				return nil, err
+			}
 			res.GroupsKept = len(keptGroups)
 			log.Printf("    ✅ Streamed %d provider rows. %s", res.ProviderRows, progress())
 
@@ -427,13 +441,10 @@ func streamMRF(
 					reading.KeptGroups, reading.Refs)
 			}
 
-			// Past the probe - this file is ours, so its NPIs join the run.
-			for npi, tin := range stagedNPIs {
-				seenNPIs[npi] = tin
-			}
-			stagedNPIs = map[int64]string{}
-
 		case "in_network":
+			if !seenProviderRefs {
+				return nil, errInNetworkFirst
+			}
 			log.Println("    🎯 Found 'in_network'. Streaming...")
 			if _, err := decoder.Token(); err != nil { // '['
 				return nil, fmt.Errorf("malformed MRF: in_network opening: %w", err)
@@ -457,14 +468,16 @@ func streamMRF(
 
 				if !seenBillingCodes[item.BillingCode] {
 					seenBillingCodes[item.BillingCode] = true
-					res.NewBillingCodes++
+					res.BillingCodes++
 					if w.code != nil {
-						w.code(core.BillingCodeRow{
+						if err := w.code(core.BillingCodeRow{
 							BillingCodeType: item.BillingCodeType,
 							BillingCode:     item.BillingCode,
 							Name:            item.Name,
 							Description:     item.Description,
-						})
+						}); err != nil {
+							return nil, fmt.Errorf("write codes: %w", err)
+						}
 					}
 				}
 
@@ -477,9 +490,14 @@ func streamMRF(
 				}
 				rows := buildPriceRows(item, fileID, networkByGroup, keptFilter,
 					seenSets, emitMembers, &res.PriceRowsDropped)
+				if memberErr != nil {
+					return nil, memberErr
+				}
 				priceBuf = append(priceBuf, rows...)
 				if len(priceBuf) >= copyBatchSize {
-					flushPrice()
+					if err := flushPrice(); err != nil {
+						return nil, err
+					}
 					if priceBatches++; priceBatches%logEveryNBatches == 0 {
 						log.Printf("    ⚙️  %d price rows... | %s", res.PriceRows, progress())
 					}
@@ -488,8 +506,12 @@ func streamMRF(
 			if _, err := decoder.Token(); err != nil { // ']'
 				return nil, fmt.Errorf("malformed MRF: in_network not closed: %w", err)
 			}
-			flushPrice()
-			flushMembers()
+			if err := flushPrice(); err != nil {
+				return nil, err
+			}
+			if err := flushMembers(); err != nil {
+				return nil, err
+			}
 			log.Printf("    ✅ Streamed %d price rows, %d group-set edges (%d sets). %s",
 				res.PriceRows, res.GroupSetMemberRows, res.GroupSets, progress())
 

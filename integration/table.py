@@ -8,8 +8,9 @@ unless
 3. its key never repeats;
 4. its own `check`, if it has one, passes.
 
-`Table.write` saves a serving table in key order, so the same rows always make
-the same bytes.
+`Table.stage` writes a serving table in key order beside where it goes, so the
+same rows always make the same bytes, and the build moves every table into
+place only once all of them are written (integration/tables/__init__.py).
 """
 import os
 
@@ -50,14 +51,18 @@ class Table:
             raise SystemExit(f"{self.name}: the key ({cols}) repeats, for example {dup}")
         self.check(con, data_dir)
 
-    def write(self, con, out_dir):
-        """Write the table to `<out_dir>/<name>.parquet` in key order, through a
-        temp file moved into place, so the app never reads half a table. Returns
-        its row count."""
+    def path(self, out_dir):
+        """Where the table goes: `<out_dir>/<name>.parquet`."""
+        return f"{out_dir}/{self.name}.parquet"
+
+    def staged_path(self, out_dir):
+        """The temp file `stage` writes beside `path`."""
+        return f"{self.path(out_dir)}.tmp.{os.getpid()}.parquet"
+
+    def stage(self, con, out_dir):
+        """Write the table in key order to `staged_path`, for the build to move
+        into place once every table is written. Returns its row count."""
         os.makedirs(out_dir, exist_ok=True)
-        path = f"{out_dir}/{self.name}.parquet"
-        tmp = f"{path}.tmp.{os.getpid()}.parquet"
         con.execute(f"COPY (SELECT * FROM {self.name} ORDER BY {', '.join(self.key)}) "
-                    f"TO '{tmp}' (FORMAT parquet, COMPRESSION zstd)")
-        os.replace(tmp, path)
+                    f"TO '{self.staged_path(out_dir)}' (FORMAT parquet, COMPRESSION zstd)")
         return con.execute(f"SELECT count(*) FROM {self.name}").fetchone()[0]

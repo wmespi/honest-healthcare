@@ -35,9 +35,7 @@ func TestFixtures_Parse(t *testing.T) {
 			}
 			defer gz.Close()
 
-			res, err := streamMRF(gz, 1, true,
-				map[string]bool{}, map[int64]string{}, nil, providerProbe{},
-				mrfWriters{}, nil)
+			res, err := streamMRF(gz, 1, true, nil, providerProbe{}, mrfWriters{}, nil)
 			if err != nil {
 				t.Fatalf("streamMRF: %v", err)
 			}
@@ -50,7 +48,7 @@ func TestFixtures_Parse(t *testing.T) {
 			}
 			t.Logf("%d provider rows, %d price rows, %d group-set edges (%d sets), %d codes, networks=%v",
 				res.ProviderRows, res.PriceRows, res.GroupSetMemberRows, res.GroupSets,
-				res.NewBillingCodes, sortedKeys(res.NetworkNames))
+				res.BillingCodes, sortedKeys(res.NetworkNames))
 		})
 	}
 }
@@ -112,14 +110,13 @@ func streamDoc(t *testing.T, doc string, gaNPIs map[int64]struct{}, pb providerP
 func streamCollect(r io.Reader, gaNPIs map[int64]struct{}, pb providerProbe) (collected, error) {
 	var c collected
 	w := mrfWriters{
-		prices:          func(r []core.PriceRow) { c.prices = append(c.prices, r...) },
-		groupSetMembers: func(r []core.GroupSetMemberRow) { c.members = append(c.members, r...) },
-		providers:       func(p []core.ProviderRow) { c.provs = append(c.provs, p...) },
-		code:            func(bc core.BillingCodeRow) { c.codes = append(c.codes, bc) },
+		prices:          func(r []core.PriceRow) error { c.prices = append(c.prices, r...); return nil },
+		groupSetMembers: func(r []core.GroupSetMemberRow) error { c.members = append(c.members, r...); return nil },
+		providers:       func(p []core.ProviderRow) error { c.provs = append(c.provs, p...); return nil },
+		code:            func(bc core.BillingCodeRow) error { c.codes = append(c.codes, bc); return nil },
 	}
 
-	res, err := streamMRF(r, testFileID, true,
-		map[string]bool{}, map[int64]string{}, gaNPIs, pb, w, nil)
+	res, err := streamMRF(r, testFileID, true, gaNPIs, pb, w, nil)
 	c.res = res
 	return c, err
 }
@@ -159,11 +156,8 @@ func TestStreamMRF_Counts(t *testing.T) {
 	if got := len(c.codes); got != 2 {
 		t.Errorf("billing code rows = %d, want 2", got)
 	}
-	if res.NewBillingCodes != 2 {
-		t.Errorf("res.NewBillingCodes = %d, want 2", res.NewBillingCodes)
-	}
-	if res.NewNPIs != 5 {
-		t.Errorf("res.NewNPIs = %d, want 5", res.NewNPIs)
+	if res.BillingCodes != 2 {
+		t.Errorf("res.BillingCodes = %d, want 2", res.BillingCodes)
 	}
 }
 
@@ -411,39 +405,6 @@ func TestProbe_AbortsBlueCardShardDespiteGANPIs(t *testing.T) {
 	// exactly why the network signal exists.
 	if _, err := streamDoc(t, shard, gaNPIs, providerProbe{minGroups: 1}); err != nil {
 		t.Fatalf("overlap-only probe rejected a shard full of GA NPIs: %v", err)
-	}
-}
-
-// An abandoned file must leave nothing behind — including in the run-level NPI
-// and TIN sets that npi_lookup.parquet is written from at the end of a run.
-func TestProbe_AbortLeavesNoNPIsInTheRun(t *testing.T) {
-	seenNPIs := map[int64]string{}
-	f, err := os.Open("testdata/synthetic_mrf.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	_, err = streamMRF(f, testFileID, false,
-		map[string]bool{}, seenNPIs, nil,
-		probeMatcher(t, "CO Blue Priority*"), mrfWriters{}, nil)
-	if !errors.Is(err, errNoWantedProviders) {
-		t.Fatalf("error = %v, want errNoWantedProviders", err)
-	}
-	if len(seenNPIs) != 0 {
-		t.Errorf("a skipped file left %d NPIs in the run", len(seenNPIs))
-	}
-
-	// The same file, probe passed: the NPIs land as before.
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := streamMRF(f, testFileID, false,
-		map[string]bool{}, seenNPIs, nil,
-		probeMatcher(t, "GA Blue Value HIX*"), mrfWriters{}, nil); err != nil {
-		t.Fatalf("streamMRF: %v", err)
-	}
-	if len(seenNPIs) != 5 {
-		t.Errorf("after a passing parse: %d NPIs, want 5", len(seenNPIs))
 	}
 }
 

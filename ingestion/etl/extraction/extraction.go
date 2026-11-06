@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,36 +56,6 @@ func humanBytes(n int64) string {
 	default:
 		return fmt.Sprintf("%d B", n)
 	}
-}
-
-func writeNPILookup(seenNPIs map[int64]string) {
-	if len(seenNPIs) == 0 {
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(core.NPILookupPath), os.ModePerm); err != nil {
-		log.Printf("⚠️ Failed to create dir for npi_lookup: %v", err)
-		return
-	}
-	f, err := os.Create(core.NPILookupPath)
-	if err != nil {
-		log.Printf("⚠️ Failed to create npi_lookup.parquet: %v", err)
-		return
-	}
-	defer f.Close()
-	w := parquet.NewGenericWriter[core.NPILookupRow](f, parquet.Compression(&parquet.Zstd))
-	defer w.Close()
-
-	rows := make([]core.NPILookupRow, 0, len(seenNPIs))
-	for npi, tin := range seenNPIs {
-		rows = append(rows, core.NPILookupRow{NPI: npi, TINValue: tin})
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].NPI < rows[j].NPI })
-
-	if _, err := w.Write(rows); err != nil {
-		log.Printf("⚠️ Failed to write npi_lookup.parquet: %v", err)
-		return
-	}
-	log.Printf("✅ Wrote npi_lookup.parquet — %d unique NPIs", len(rows))
 }
 
 // openMRF returns a reader for the raw (still gzipped) MRF bytes, its size, when
@@ -241,8 +210,6 @@ func parseRates(
 	f core.IndexFile,
 	fixturePath string,
 	isFirstFile bool,
-	seenBillingCodes map[string]bool,
-	seenNPIs map[int64]string,
 	gaNPIs map[int64]struct{},
 	pb providerProbe,
 	dryRun bool,
@@ -346,25 +313,22 @@ func parseRates(
 		}
 		closers = []io.Closer{fanoutCloser{fanout}, gsW, gsC, provW, provC, codesW, codesC}
 		w = mrfWriters{
-			prices: func(rows []core.PriceRow) {
-				if err := fanout.write(rows); err != nil {
-					log.Printf("⚠️ write prices parquet: %v", err)
-				}
-			},
-			groupSetMembers: func(rows []core.GroupSetMemberRow) {
+			prices: fanout.write,
+			groupSetMembers: func(rows []core.GroupSetMemberRow) error {
 				if _, err := gsW.Write(rows); err != nil {
-					log.Printf("⚠️ write group_sets parquet: %v", err)
+					return err
 				}
-				gsW.Flush()
+				return gsW.Flush()
 			},
-			providers: func(rows []core.ProviderRow) {
+			providers: func(rows []core.ProviderRow) error {
 				if _, err := provW.Write(rows); err != nil {
-					log.Printf("⚠️ write providers parquet: %v", err)
+					return err
 				}
-				provW.Flush()
+				return provW.Flush()
 			},
-			code: func(row core.BillingCodeRow) {
-				codesW.Write([]core.BillingCodeRow{row})
+			code: func(row core.BillingCodeRow) error {
+				_, err := codesW.Write([]core.BillingCodeRow{row})
+				return err
 			},
 		}
 	}
@@ -377,7 +341,7 @@ func parseRates(
 	defer gz.Close()
 
 	log.Println("  🔄 Starting single-pass extract...")
-	res, err := streamMRF(gz, fileID, isFirstFile, seenBillingCodes, seenNPIs, gaNPIs, pb, w, pr)
+	res, err := streamMRF(gz, fileID, isFirstFile, gaNPIs, pb, w, pr)
 
 	// The probe rejected the file at the end of provider_references, before a
 	// byte of in_network. Kill the transfer now — that is the whole saving — and
@@ -413,9 +377,12 @@ func parseRates(
 	if err != nil && stalled() {
 		err = fmt.Errorf("download stalled — no data for %s, aborted", stallTimeout)
 	}
-	// Parquet writers must be closed (flushed) before we read the files back or
-	// write the record - close in LIFO order (writer before its file).
-	closeAll(closers)
+	// Close the Parquet writers (each before its file) before anything is
+	// promoted: a writer writes its last rows and its footer as it closes, so a
+	// full disk shows up here or in the writes above, and the file fails.
+	if cerr := closeAll(closers); err == nil && cerr != nil {
+		err = fmt.Errorf("finish the Parquet files: %w", cerr)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -461,9 +428,9 @@ func parseRates(
 			res.ProviderRowsDropped, res.PriceRowsDropped, res.GroupsDropped,
 			res.GroupsKept, res.PriceRows, res.PriceRows+res.PriceRowsDropped)
 	}
-	log.Printf("  ✅ Completed. %d provider rows | %d price rows | %d group-set edges (%d sets) | %d new codes | %d new NPIs | networks=%v",
+	log.Printf("  ✅ Completed. %d provider rows | %d price rows | %d group-set edges (%d sets) | %d codes | networks=%v",
 		res.ProviderRows, res.PriceRows, res.GroupSetMemberRows, res.GroupSets,
-		res.NewBillingCodes, res.NewNPIs, sortedKeys(res.NetworkNames))
+		res.BillingCodes, sortedKeys(res.NetworkNames))
 	return res, outcomeCompleted
 }
 
@@ -474,12 +441,18 @@ func orFixture(url, fixturePath string) string {
 	return url
 }
 
-func closeAll(closers []io.Closer) {
+// closeAll closes each in order and returns the first error.
+func closeAll(closers []io.Closer) error {
+	var first error
 	for _, c := range closers {
-		if c != nil {
-			c.Close()
+		if c == nil {
+			continue
+		}
+		if err := c.Close(); err != nil && first == nil {
+			first = err
 		}
 	}
+	return first
 }
 
 // newParquetWriter creates a ZSTD-compressed Parquet writer over a new file and
@@ -757,9 +730,6 @@ func Run(ctx context.Context, opts Options) error {
 		log.Println("🔍 Dry-run mode - streaming only, no writes.")
 	}
 
-	seenBillingCodes := make(map[string]bool)
-	seenNPIs := make(map[int64]string)
-
 	var gaNPIs map[int64]struct{}
 	if opts.AllNPIs {
 		log.Println("⚠️ -all-npis — keeping every NPI/rate (GA filter disabled)")
@@ -796,11 +766,8 @@ func Run(ctx context.Context, opts Options) error {
 
 	outcomes := make(map[parseOutcome]int, 4)
 	for i, f := range files {
-		_, outcome := parseRates(ctx, f, opts.Fixture, i == 0, seenBillingCodes, seenNPIs, gaNPIs, pb, opts.DryRun)
+		_, outcome := parseRates(ctx, f, opts.Fixture, i == 0, gaNPIs, pb, opts.DryRun)
 		outcomes[outcome]++
-	}
-	if !opts.DryRun {
-		writeNPILookup(seenNPIs)
 	}
 	return guardAgainstSilentSkip(opts, targets, named, outcomes)
 }
