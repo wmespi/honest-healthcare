@@ -17,7 +17,7 @@ One output under ``data/ingestion/reference/``:
 
 Why Python/DuckDB and not Go: the National file is ~1 GB / ~2.5M rows but the
 work is a filter + projection + a window function to pick one group per NPI —
-DuckDB's parallel C++ CSV reader pushes the GA / npi_lookup filter down and
+DuckDB's parallel C++ CSV reader pushes the GA / roster filter down and
 finishes in seconds. Not a hand-rolled streaming parse (cf. NPPES). See
 ../AGENTS.md#the-language-principle.
 
@@ -34,6 +34,7 @@ Usage:
       [--data-dir data] [--test]
 """
 import argparse
+import glob
 import json
 import sys
 import urllib.request
@@ -191,24 +192,23 @@ def main() -> None:
     ga_out = f"{rd}/dac_ga.parquet"
     cache_dir = raw_dir(args.data_dir, args.test, "downloads")
 
-    npi_lookup = f"{raw_dir(args.data_dir, args.test, 'anthem')}/npi_lookup.parquet"
+    rosters = f"{raw_dir(args.data_dir, args.test, 'anthem')}/providers/*.parquet"
 
     con = duckdb.connect()
     con.execute("SET preserve_insertion_order = false")
 
-    # GA scope: prefer the exact set of NPIs we hold Anthem rates for; fall back
-    # to the state column when npi_lookup hasn't been built yet.
-    try:
-        con.execute(f"SELECT 1 FROM read_parquet('{npi_lookup}') LIMIT 1")
-        # the National file is read all-varchar; npi_lookup.npi is BIGINT — cast.
+    # GA scope: the NPIs on the rosters of every file parse has written, whichever
+    # run parsed it; the state column before any file is parsed.
+    if glob.glob(rosters):
+        # the National file is read all-varchar; the rosters' npi is BIGINT — cast.
         geo_filter = (
             f"TRY_CAST({{npi}} AS BIGINT) IN "
-            f"(SELECT npi FROM read_parquet('{npi_lookup}', union_by_name=true))"
+            f"(SELECT npi FROM read_parquet('{rosters}', union_by_name=true))"
         )
-        print(f"  GA scope: NPIs in {npi_lookup}")
-    except (duckdb.IOException, duckdb.CatalogException):
+        print(f"  GA scope: NPIs on the rosters in {rosters}")
+    else:
         geo_filter = "UPPER({state}) = 'GA'"
-        print("  GA scope: State = 'GA' (npi_lookup not built)")
+        print("  GA scope: State = 'GA' (no file parsed yet)")
 
     # ── National Downloadable File → dac_ga.parquet ─────────────────────────
     dac_url = _resolve(args.dac_url, args.dac_file, DAC_TITLE,

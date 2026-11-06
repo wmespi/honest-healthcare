@@ -1,8 +1,8 @@
 """Hermetic test for the Doctors & Clinicians builder (ingestion/reference/doctors_clinicians.py).
 
-No network, no live API — runs the builder against a committed CSV fixture in
-test isolation (writes data-test/ingestion/reference/, never data/ingestion/reference/), so
-``--dac-file`` alone produces the output offline.
+No network, no live API — runs the builder against a committed CSV fixture with
+its own temporary data dir, so ``--dac-file`` alone produces the output offline
+and nothing under data/ or data-test/ is read or written.
 """
 import os
 import subprocess
@@ -13,47 +13,44 @@ import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 FIXTURE = os.path.join(REPO, "ingestion", "reference", "testdata", "dac_sample.csv")
-GA_OUT = os.path.join(REPO, "data-test", "ingestion", "reference", "dac_ga.parquet")
-NPI_LOOKUP = os.path.join(REPO, "data-test", "raw", "anthem", "npi_lookup.parquet")
 
 
-def _rm(*paths):
-    for p in paths:
-        try:
-            os.remove(p)
-        except FileNotFoundError:
-            pass
-
-
-@pytest.fixture(scope="module")
-def built():
-    # no npi_lookup → the builder's State='GA' geo branch (see built_npi_scoped
-    # for the other one). Clear any leftover so this is hermetic.
-    _rm(NPI_LOOKUP)
+def _build(data_dir):
+    """Run the builder over the fixture into `data_dir`; returns its stdout and
+    the path of dac_ga.parquet."""
     r = subprocess.run(
         [sys.executable, "-m", "ingestion.reference.doctors_clinicians",
-         "--dac-file", FIXTURE, "--test"],
+         "--dac-file", FIXTURE, "--data-dir", str(data_dir)],
         cwd=REPO, capture_output=True, text=True,
     )
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
-    assert "State = 'GA'" in r.stdout, r.stdout
-    yield duckdb.connect()
-    _rm(GA_OUT)
+    return r.stdout, os.path.join(data_dir, "ingestion", "reference", "dac_ga.parquet")
+
+
+@pytest.fixture(scope="module")
+def built(tmp_path_factory):
+    # No parsed rosters, so the builder's State='GA' geo branch (see
+    # built_roster_scoped for the other one).
+    stdout, out = _build(tmp_path_factory.mktemp("data"))
+    assert "State = 'GA'" in stdout, stdout
+    return duckdb.connect(), out
 
 
 def test_dac_ga_one_row_per_npi_georgia_only(built):
+    con, out = built
     # fixture: 9 valid GA clinicians + 2 out-of-state + 1 corrupt NPI
-    rows = built.execute(f"SELECT count(*), count(DISTINCT npi) FROM read_parquet('{GA_OUT}')").fetchone()
+    rows = con.execute(f"SELECT count(*), count(DISTINCT npi) FROM read_parquet('{out}')").fetchone()
     assert rows == (9, 9)
-    states = built.execute(
-        f"SELECT count(*) FROM read_parquet('{GA_OUT}') WHERE npi IN (2000000001, 2000000002)"
+    states = con.execute(
+        f"SELECT count(*) FROM read_parquet('{out}') WHERE npi IN (2000000001, 2000000002)"
     ).fetchone()[0]
     assert states == 0
 
 
 def test_dac_ga_schema(built):
-    cols = {r[0]: r[1] for r in built.execute(
-        f"DESCRIBE SELECT * FROM read_parquet('{GA_OUT}')").fetchall()}
+    con, out = built
+    cols = {r[0]: r[1] for r in con.execute(
+        f"DESCRIBE SELECT * FROM read_parquet('{out}')").fetchall()}
     assert set(cols) == {
         "npi", "last_name", "first_name", "credential", "primary_specialty",
         "org_pac_id", "org_name", "grad_year", "med_school", "gender",
@@ -63,61 +60,58 @@ def test_dac_ga_schema(built):
 
 
 def test_dac_ga_picks_primary_group(built):
+    con, out = built
     # NPI ...01 appears twice under group 1111111111 and once under 2222222222 —
     # the more-frequent group wins.
-    row = built.execute(f"""
+    row = con.execute(f"""
         SELECT org_pac_id, org_name, grad_year, gender, credential
-        FROM read_parquet('{GA_OUT}') WHERE npi = 1000000001
+        FROM read_parquet('{out}') WHERE npi = 1000000001
     """).fetchone()
     assert row == ("1111111111", "Peachtree Internal Medicine LLC", 2005, "F", "M.D.")
 
 
 def test_dac_ga_keeps_solo_and_null_grad_year(built):
+    con, out = built
     # solo clinician (blank org_pac_id) is still kept
-    solo = built.execute(
-        f"SELECT org_pac_id, org_name FROM read_parquet('{GA_OUT}') WHERE npi = 1000000006"
+    solo = con.execute(
+        f"SELECT org_pac_id, org_name FROM read_parquet('{out}') WHERE npi = 1000000006"
     ).fetchone()
     assert solo == (None, None)
     # blank Grd_yr → NULL, not 0
-    gy = built.execute(
-        f"SELECT grad_year FROM read_parquet('{GA_OUT}') WHERE npi = 3000000001"
+    gy = con.execute(
+        f"SELECT grad_year FROM read_parquet('{out}') WHERE npi = 3000000001"
     ).fetchone()[0]
     assert gy is None
 
 
 @pytest.fixture(scope="module")
-def built_npi_scoped():
-    """Exercise the `npi IN npi_lookup` geo branch — the production path, and
-    where the National file's all-varchar NPI vs npi_lookup's BIGINT bit us
-    (a real-data-only BinderException the State='GA' fixture path never hit)."""
-    os.makedirs(os.path.dirname(NPI_LOOKUP), exist_ok=True)
-    try:
-        con = duckdb.connect()
-        # 3 GA fixture NPIs + one OUT of state but contracted (must be kept —
-        # the scope is npi_lookup, not State).
+def built_roster_scoped(tmp_path_factory):
+    """Exercise the parsed-rosters geo branch, the production path, with two
+    parsed files, as two runs of parse may leave them. The National file's
+    all-varchar NPI against the rosters' BIGINT once raised a real-data-only
+    BinderException that the State='GA' path never hit."""
+    data_dir = tmp_path_factory.mktemp("data")
+    rosters = data_dir / "raw" / "anthem" / "providers"
+    rosters.mkdir(parents=True)
+    con = duckdb.connect()
+    # Two GA fixture NPIs in one file; one more, and one out of state but
+    # contracted, in the other. Every one must be kept: the scope is the parsed
+    # rosters, not the State column, and not only the file parsed last.
+    for name, npis in [("GA_A", [1000000001, 1000000002]), ("GA_B", [1000000003, 2000000001])]:
+        values = ", ".join(f"(1, {npi}, '1000000010')" for npi in npis)
         con.execute(f"""
-            COPY (SELECT * FROM (VALUES
-                (1000000001, '1000000010'), (1000000002, '1000000010'),
-                (1000000003, '1000000010'), (2000000001, '9000000001')
-            ) AS t(npi, tin_value)) TO '{NPI_LOOKUP}' (FORMAT parquet)
+            COPY (SELECT * FROM (VALUES {values}) AS t(provider_group_id, npi, tin_value))
+            TO '{rosters / name}.parquet' (FORMAT parquet)
         """)
-        con.close()
-        r = subprocess.run(
-            [sys.executable, "-m", "ingestion.reference.doctors_clinicians",
-             "--dac-file", FIXTURE, "--test"],
-            cwd=REPO, capture_output=True, text=True,
-        )
-        assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
-        assert "NPIs in" in r.stdout, f"expected the npi_lookup geo branch:\n{r.stdout}"
-        yield duckdb.connect()
-    finally:
-        _rm(GA_OUT, NPI_LOOKUP)
+    stdout, out = _build(data_dir)
+    assert "NPIs on the rosters in" in stdout, f"expected the parsed-rosters geo branch:\n{stdout}"
+    return con, out
 
 
-def test_geo_scope_is_npi_lookup_not_state(built_npi_scoped):
-    npis = {r[0] for r in built_npi_scoped.execute(
-        f"SELECT npi FROM read_parquet('{GA_OUT}')").fetchall()}
+def test_geo_scope_is_every_parsed_roster_not_state(built_roster_scoped):
+    con, out = built_roster_scoped
+    npis = {r[0] for r in con.execute(f"SELECT npi FROM read_parquet('{out}')").fetchall()}
     assert npis == {1000000001, 1000000002, 1000000003, 2000000001}
-    # out-of-state NPI kept because it's in npi_lookup; a GA clinician NOT in
-    # npi_lookup is dropped
+    # the out-of-state NPI is kept because a parsed roster lists it, and a GA
+    # clinician on no roster is dropped
     assert 2000000001 in npis and 1000000004 not in npis

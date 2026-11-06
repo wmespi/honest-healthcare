@@ -80,6 +80,10 @@ def db():
     lightweight connection to that same database with its own transaction and
     temp-table namespace, which is what makes it safe to use from FastAPI's
     request threads concurrently. Never `duckdb.connect()` per request.
+
+    A setting DuckDB refuses, such as a mistyped DUCKDB_MEMORY_LIMIT, is raised
+    rather than run without, since DuckDB's own defaults are most of the
+    machine's memory and a spill dir in the working directory.
     """
     global _CONN
     if _CONN is None:
@@ -87,14 +91,11 @@ def db():
             if _CONN is None:
                 import duckdb
                 conn = duckdb.connect()
-                try:
-                    os.makedirs(_DUCK_TMP, exist_ok=True)
-                    conn.execute(f"SET memory_limit = '{_DUCK_MEM}'")
-                    conn.execute(f"SET temp_directory = '{_DUCK_TMP}'")
-                    if _DUCK_THREADS:
-                        conn.execute(f"SET threads = {int(_DUCK_THREADS)}")
-                    conn.execute("SET preserve_insertion_order = false")
-                except Exception:
-                    pass
+                os.makedirs(_DUCK_TMP, exist_ok=True)
+                conn.execute(f"SET memory_limit = '{_DUCK_MEM}'")
+                conn.execute(f"SET temp_directory = '{_DUCK_TMP}'")
+                if _DUCK_THREADS:
+                    conn.execute(f"SET threads = {int(_DUCK_THREADS)}")
+                conn.execute("SET preserve_insertion_order = false")
                 _CONN = conn
     return _CONN.cursor()

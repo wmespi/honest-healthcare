@@ -22,8 +22,11 @@ def build(data_dir, serving_dir, services_path=SERVICES_PATH):
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "rows": rows,
     }
-    with open(f"{serving_dir}/manifest.json", "w") as f:
+    # Through a temp file, so GET /api/health never reads half a manifest.
+    path = f"{serving_dir}/manifest.json"
+    with open(f"{path}.tmp", "w") as f:
         json.dump(manifest, f, indent=2)
+    os.replace(f"{path}.tmp", path)
     return rows
 
 
