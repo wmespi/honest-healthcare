@@ -1,4 +1,4 @@
-# `make discover` — Phase 1: index discovery
+# `make discover`: index discovery
 
 *Read this when working on the monthly read of Anthem's master index: the file list and the plan → file link.*
 

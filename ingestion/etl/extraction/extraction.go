@@ -710,9 +710,9 @@ func dueForParse(ctx context.Context, f core.IndexFile) (bool, error) {
 	return true, nil
 }
 
-// Run is Phase 2: stream the files targets.yaml names into Parquet.
+// Run is `etl parse`: stream the files targets.yaml names into Parquet.
 func Run(ctx context.Context, opts Options) error {
-	log.Println("🚀 Starting Anthem Bronze Layer: Rate Parsing (Go)...")
+	log.Println("🚀 Starting parse: Anthem rate files → Parquet...")
 
 	// Which plans are we pricing? Loaded even for a -files run so a broken
 	// targets.yaml fails loudly at the start rather than on the next run.

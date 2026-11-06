@@ -20,8 +20,8 @@ const usageText = `etl — Anthem MRF ingestion
 Usage: etl <command> [flags]
 
 Commands:
-  discover   Phase 1 - write this month's file list and plan links from the Anthem master index
-  parse      Phase 2 - stream the files ingestion/etl/targets.yaml names into Parquet
+  discover   Write this month's file list and plan links from the Anthem master index
+  parse      Stream the files ingestion/etl/targets.yaml names into Parquet
   nppes      Download the NPPES national file, write the GA subset Parquet
   fixture    Build a truncated *.json.gz fixture from a file name or URL
 
