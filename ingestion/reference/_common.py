@@ -1,10 +1,10 @@
 """Shared helpers for the reference-data builders.
 
-Small on purpose — a cached download and an atomic Parquet write. The real work
-(joins, reshaping) is DuckDB SQL in each builder. Per the AGENTS.md language
-principle, these builders are Python-over-DuckDB because they reshape CSVs
-against landed Parquet with DuckDB's parallel C++ readers — not a hand-rolled
-streaming parse.
+Small on purpose: where a builder reads and writes, a cached download and an
+atomic Parquet write. The real work (joins, reshaping) is DuckDB SQL in each
+builder. Per the AGENTS.md language principle, these builders are
+Python-over-DuckDB because they reshape CSVs against landed Parquet with
+DuckDB's parallel C++ readers, not a hand-rolled streaming parse.
 """
 import os
 import sys
@@ -25,69 +25,17 @@ def raw_dir(data_dir: str, test: bool, sub: str) -> str:
     return f"{'data-test' if test else data_dir}/raw/{sub}"
 
 
-def ref_dir(data_dir: str, test: bool) -> str:
-    """The reference-output directory."""
-    return store_dir(data_dir, test, "reference")
-
-
-def cms_dir(data_dir: str, test: bool) -> str:
-    """The CMS-output directory."""
-    return store_dir(data_dir, test, "cms")
-
-
-def nppes_dir(data_dir: str, test: bool) -> str:
-    """The NPPES directory (read)."""
-    return store_dir(data_dir, test, "nppes")
-
-
-def _atomic_write_bytes(path: str, data: bytes) -> None:
-    tmp = f"{path}.tmp.{os.getpid()}"
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.replace(tmp, path)
-
-
-def fetch_to_cache(cache_path, urls, local=None, *, header_check=None, timeout=120, headers=None):
+def fetch_to_cache(cache_path, urls, local=None, *, header_check=None, headers=None, timeout=120,
+                   progress_every=64 * 1024 * 1024):
     """Return a local path to the source file.
 
-    `local` short-circuits to that path; an existing `cache_path` is reused;
-    otherwise each URL in `urls` is tried until one succeeds and is cached.
-    `header_check` (bytes), when given, must appear in the first 200 bytes.
-    `headers` go on each request, for a server that refuses Python's default
-    User-Agent.
-    """
-    if local:
-        return local
-    if os.path.exists(cache_path):
-        print(f"  cache hit: {cache_path}")
-        return cache_path
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    last_err = None
-    for u in urls:
-        try:
-            print(f"  downloading: {u}")
-            with urllib.request.urlopen(urllib.request.Request(u, headers=headers or {}), timeout=timeout) as r:
-                data = r.read()
-            if header_check and header_check not in data[:200]:
-                raise ValueError("unexpected header")
-            _atomic_write_bytes(cache_path, data)
-            print(f"  wrote {cache_path} ({len(data):,} bytes)")
-            return cache_path
-        except Exception as e:  # noqa: BLE001
-            print(f"  ({u} failed: {e})", file=sys.stderr)
-            last_err = e
-    raise SystemExit(f"could not fetch source: {last_err}")
-
-
-def fetch_to_cache_streaming(cache_path, urls, local=None, *, timeout=120,
-                             progress_every=64 * 1024 * 1024):
-    """Like fetch_to_cache, but streams to disk in chunks and resumes a partial
-    download via an HTTP Range request — for sources too large to hold in memory
-    (the CMS utilization CSV is ~3 GB).
-
-    `local` short-circuits. An existing full `cache_path` is reused (size checked
-    against Content-Length when the server reports it). A partial `.part` file is
-    resumed. On success the `.part` is renamed onto `cache_path`.
+    `local` short-circuits to that path, and an existing `cache_path` is reused.
+    Otherwise each URL in `urls` is tried until one succeeds: the download streams
+    to `<cache_path>.part`, so a file of any size fits, resumes a partial `.part`
+    with an HTTP Range request, and is moved onto `cache_path` once complete.
+    `header_check` (bytes), when given, must appear in the file's first 200
+    bytes, or the download is dropped and the next URL tried. `headers` go on
+    each request, for a server that refuses Python's default User-Agent.
     """
     if local:
         return local
@@ -101,14 +49,14 @@ def fetch_to_cache_streaming(cache_path, urls, local=None, *, timeout=120,
     for u in urls:
         try:
             have = os.path.getsize(part) if os.path.exists(part) else 0
-            req = urllib.request.Request(u)
+            req = urllib.request.Request(u, headers=headers or {})
             if have:
                 req.add_header("Range", f"bytes={have}-")
                 print(f"  resuming {u} at {have:,} bytes")
             else:
                 print(f"  downloading: {u}")
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                # A 200 to a Range request means the server ignored it — start over.
+                # A 200 to a Range request means the server ignored it, so start over.
                 if have and r.status == 200:
                     have = 0
                 total = have + int(r.headers.get("Content-Length", 0) or 0)
@@ -126,6 +74,11 @@ def fetch_to_cache_streaming(cache_path, urls, local=None, *, timeout=120,
                             pct = f" ({100 * got / total:.0f}%)" if total else ""
                             print(f"  ...{got:,} bytes{pct}")
                             next_mark = got + progress_every
+            if header_check:
+                with open(part, "rb") as f:
+                    if header_check not in f.read(200):
+                        os.remove(part)
+                        raise ValueError("unexpected header")
             os.replace(part, cache_path)
             print(f"  wrote {cache_path} ({os.path.getsize(cache_path):,} bytes)")
             return cache_path

@@ -19,7 +19,7 @@ import re
 
 import duckdb
 
-from ._common import fetch_to_cache_streaming, nppes_dir, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 from .doctors_clinicians import PDC_METASTORE  # noqa: F401  (same catalog)
 
 TITLE_RE = re.compile(r"^PY (\d{4}) Clinician Public Reporting: Overall MIPS Performance$")
@@ -77,18 +77,18 @@ def main() -> None:
     ap.add_argument("--test", action="store_true")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     year, url = args.year, args.url
     if not args.file and not url:
         year, url = resolve_latest()
     if year is None:
         raise SystemExit("--year is required with --file / --url")
     print(f"→ CMS MIPS overall performance, PY {year}")
-    src = fetch_to_cache_streaming(f"{raw_dir(args.data_dir, args.test, 'downloads')}/mips_{year}.csv", [url] if url else [], args.file)
+    src = fetch_to_cache(f"{raw_dir(args.data_dir, args.test, 'downloads')}/mips_{year}.csv", [url] if url else [], args.file)
 
     out = f"{rd}/mips_ga.parquet"
     con = duckdb.connect()
-    build(con, src, out, f"{nppes_dir(args.data_dir, args.test)}/ga_providers.parquet", year)
+    build(con, src, out, f"{store_dir(args.data_dir, args.test, 'nppes')}/ga_providers.parquet", year)
     n, ind = con.execute(
         f"SELECT count(*), count(*) FILTER (WHERE mips_source='individual') FROM read_parquet('{out}')").fetchone()
     print(f"→ wrote {out}\n  {n:,} GA clinicians with a score ({ind:,} individual-level)")

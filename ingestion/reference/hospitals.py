@@ -22,7 +22,7 @@ import urllib.request
 
 import duckdb
 
-from ._common import fetch_to_cache, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 DATASET = "https://data.cms.gov/provider-data/api/1/metastore/schemas/dataset/items/xubh-q36u"
 
@@ -48,7 +48,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     if args.file:
         path = args.file
     else:

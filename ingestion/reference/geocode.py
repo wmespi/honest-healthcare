@@ -37,7 +37,7 @@ import uuid
 
 import duckdb
 
-from ._common import nppes_dir, raw_dir, ref_dir, write_parquet_atomic
+from ._common import raw_dir, store_dir, write_parquet_atomic
 
 CENSUS_URL = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
 BENCHMARK = "Public_AR_Current"
@@ -148,8 +148,8 @@ def main() -> None:
                           "meaningful with a candidate list that fits one batch)")
     args = ap.parse_args()
 
-    nd = nppes_dir(args.data_dir, args.test)
-    rd = ref_dir(args.data_dir, args.test)
+    nd = store_dir(args.data_dir, args.test, "nppes")
+    rd = store_dir(args.data_dir, args.test, "reference")
     ga_path = f"{nd}/ga_providers.parquet"
     seen_path = f"{rd}/geocode_addresses.parquet"
 

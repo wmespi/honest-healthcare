@@ -25,7 +25,7 @@ import argparse
 
 import duckdb
 
-from ._common import fetch_to_cache, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 # 26.1 is the current cut (Jul 2026). NUCC re-stamps the trailing version twice a
 # year; the download page is https://nucc.org/index.php/code-sets-mainmenu-41/
@@ -44,7 +44,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     cache = f"{raw_dir(args.data_dir, args.test, 'downloads')}/nucc_taxonomy.csv"
     out_path = f"{rd}/nucc_taxonomy.parquet"
 

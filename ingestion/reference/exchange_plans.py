@@ -33,7 +33,7 @@ import urllib.request
 
 import duckdb
 
-from ._common import fetch_to_cache, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 PAGE = "https://georgiaaccess.gov/public-use-files/"
 # The site refuses Python's default User-Agent.
@@ -81,7 +81,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     local = (args.plan_file, args.network_file, args.rate_file, args.benefits_file)
     if all(local):
         plan, network, rate, benefits = local

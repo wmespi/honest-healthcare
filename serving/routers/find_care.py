@@ -17,12 +17,20 @@ from ..contract import RADIUS_OPTIONS_MI, FindCare, FindCareQuery, Plan, Problem
 from ..data_sources import (
     COST_SHARING_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, ZIPS_SRC, db,
 )
-from ..ranking import haversine_sql
 
 router = APIRouter()
 
 # With no radius asked for, a search takes the tightest one with at least this many places.
 ENOUGH_PLACES = 5
+EARTH_RADIUS_MI = 3958.7613
+
+
+def haversine_sql(lat: str, lon: str, lat0: str, lon0: str) -> str:
+    """Great-circle distance in miles between two points, as SQL over the
+    columns or values named."""
+    return (f"{2 * EARTH_RADIUS_MI} * asin(sqrt("
+            f"pow(sin(radians({lat} - {lat0}) / 2), 2) + "
+            f"cos(radians({lat0})) * cos(radians({lat})) * pow(sin(radians({lon} - {lon0}) / 2), 2)))")
 
 
 def _rows(cursor):

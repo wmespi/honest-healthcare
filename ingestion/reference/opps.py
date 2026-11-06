@@ -25,7 +25,7 @@ import zipfile
 
 import duckdb
 
-from ._common import fetch_to_cache, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 # The quarterly release is re-stamped each quarter; pass --cms-url to override.
 CMS_ZIP_FALLBACK = "https://www.cms.gov/files/zip/October-2026-OPPS-Addendum-B.zip"
@@ -65,7 +65,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     downloads = raw_dir(args.data_dir, args.test, "downloads")
     url = args.cms_url or CMS_ZIP_FALLBACK
     if args.addendum_file:
