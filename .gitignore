@@ -241,3 +241,6 @@ docker-compose.override.yml
 
 # DuckDB spill dir if a query runs without temp_directory set (should not happen - see application/serving/data_sources.py db())
 .tmp/
+
+# An OAuth client's downloaded secret (infra/deploy.md) is never committed, wherever it lands.
+client_secret_*.json
