@@ -104,6 +104,23 @@ describe('find care', () => {
     expect(screen.getAllByText(/Your plan has a \$4,000 deductible/)).toHaveLength(2);
   });
 
+  it('lists each plan by its whole name, and its carrier only when the plans have more than one', async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByLabelText('What plan do you have?'));
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(PLANS.map((p) => p.name));
+  });
+
+  it('names the carrier of each plan when the plans come from more than one', async () => {
+    const user = userEvent.setup();
+    const other = { ...PLANS[1], plan_id: '58081GA0010001', name: 'Ambetter Bronze HMO', carrier: 'Ambetter from Peach State' };
+    api.getPlans.mockResolvedValue({ data: [...PLANS, other] });
+    open();
+    await user.click(await screen.findByLabelText('What plan do you have?'));
+    expect(screen.getByRole('option', { name: /Ambetter Bronze HMO/ })).toHaveTextContent('Ambetter from Peach State');
+    expect(screen.getByRole('option', { name: /Silver Blue Value/ })).toHaveTextContent('Anthem Blue Cross and Blue Shield');
+  });
+
   it('asks for a five-digit ZIP code and a plan before searching', async () => {
     const user = userEvent.setup();
     open();
