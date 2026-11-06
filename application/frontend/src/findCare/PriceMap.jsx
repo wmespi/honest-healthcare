@@ -4,6 +4,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { clsx } from 'clsx';
 import { money } from './format';
+import { pinStack } from './view';
 
 // MapLibre looks for its worker beside its own file, which Vite moves when bundling.
 maplibregl.setWorkerUrl(workerUrl);
@@ -101,7 +102,8 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
     const dot = document.createElement('div');
     dot.className = 'size-4 rounded-full border-[3px] border-white bg-blue-600 shadow-md';
     dot.setAttribute('aria-label', 'Your location');
-    dot.style.zIndex = 900;
+    // Under every pin, so it never covers a price; the ring's center still shows where it is.
+    dot.style.zIndex = 0;
     const marker = new maplibregl.Marker({ element: dot }).setLngLat([origin.lon, origin.lat]).addTo(map);
 
     const bounds = ring.reduce(
@@ -113,15 +115,14 @@ export function PriceMap({ origin, radiusMi, results, highlightId, selectedId, o
     return () => marker.remove();
   }, [map, origin, radiusMi]);
 
-  // One price pin per place. Cheaper pins sit on top where they overlap, and a place with no
-  // full price sits under them all with no amount to read as one. Places in one building
-  // stack their pins upward, so each stays readable.
+  // One price pin per place, stacked by pinStack where they overlap, with no amount on a
+  // place with no full price. Places in one building stack their pins upward, so each stays
+  // readable.
   useEffect(() => {
     if (!map) return undefined;
     const pins = pinsRef.current;
-    const byPrice = [...results].sort((a, b) => (b.maxRate ?? Infinity) - (a.maxRate ?? Infinity));
     const inBuilding = new Map();
-    byPrice.forEach((location, index) => {
+    pinStack(results).forEach((location, index) => {
       const point = `${location.lat},${location.lon}`;
       const level = inBuilding.get(point) ?? 0;
       inBuilding.set(point, level + 1);

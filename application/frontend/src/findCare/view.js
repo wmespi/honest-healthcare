@@ -100,3 +100,11 @@ export function filterResults(results, text) {
     return [{ ...result, matchedProvider: provider.name, providers: [provider, ...result.providers.filter((p) => p !== provider)] }];
   });
 }
+
+// The map's pins from the bottom of the stack to the top: a place with no full price under
+// them all, then the dearest up to the cheapest, and among places at one price the cheapest
+// result on top, so the pin the screen names is never covered.
+export function pinStack(results) {
+  return [...results].sort((a, b) => (b.maxRate ?? Infinity) - (a.maxRate ?? Infinity)
+    || Number(a.isCheapest) - Number(b.isCheapest));
+}

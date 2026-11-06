@@ -17,7 +17,9 @@ from .data_sources import (
 from .routers import find_care
 from .screen import SCREEN_DIR, Screen
 
-app = FastAPI(title="Honest Healthcare API", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
+# Every route is under /api, so the screen has every other path; the API uses no OAuth.
+app = FastAPI(title="Honest Healthcare API", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json",
+              swagger_ui_oauth2_redirect_url=None)
 
 # The screen's bundle and the find-care answers are text that shrinks several times over.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
