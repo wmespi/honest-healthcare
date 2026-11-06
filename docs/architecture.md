@@ -182,7 +182,7 @@ the build, not enforced by a database. Full column notes: [integration/build.md]
 
 ```mermaid
 flowchart TB
-  subgraph host [one machine today, one VM later]
+  subgraph host [this machine: docker compose]
     ING[ingestion container: Go + Python - make discover, parse, reference]
     INT[integration container: Python + DuckDB - make build]
     APP[application container: FastAPI + DuckDB, the API and the screen]
@@ -195,8 +195,18 @@ flowchart TB
     INT -->|writes| SRV
     SRV -->|read-only| APP
   end
-  TS[Tailscale serve] --> APP
+  TS[Tailscale serve: a tester on the tailnet] --> APP
+  SRV -->|"make deploy: built and pushed from this machine"| IMG
+  TESTERS[invited testers] --> IAP
+  subgraph gcp [Google Cloud]
+    IAP[Google sign-in, IAP]
+    IMG[(application image: the code and the find-care tables)]
+    RUN[Cloud Run service application, one instance at most]
+    IAP --> RUN
+    IMG --> RUN
+  end
 ```
 
 Each container mounts only its own code folder and the data folders above, so integration can't read Anthem's raw files and the app can't read anything but its tables; `data-test/` is split the same way.
 `make refresh` runs discover, reference, parse and geocode in the ingestion container, then the build in the integration container.
+Nothing in Google Cloud runs the pipeline: `make deploy` builds the application image on this machine with `data/serving/`'s tables inside it, so the deployed app serves what the last local `make build` made ([infra/deploy.md](../infra/deploy.md)).
