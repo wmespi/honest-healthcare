@@ -46,7 +46,9 @@ flowchart LR
     TGT[targets.yaml] --> PICK
     PICK --> PROBE{"probe: any wanted providers?"}
     PROBE -->|"no: abort early, record skipped"| REC[(parse record per file)]
-    PROBE -->|"yes: stream"| RAW[(rates as Anthem files them: prices, group_sets, providers, codes)]
+    PROBE -->|"yes: stream"| RAW[(rates as Anthem files them: prices, group_sets, providers, codes, npi_lookup)]
+    RAW -->|billing IDs to place| GEO[("geocodes, run again after parse")]
+    RAW -.->|"NPIs to keep once parsed: CMS groups"| REF[(reference: NUCC, MPFS, OPPS, CMS billing, CMS groups, MIPS, hospitals, ZIPs)]
     RAW --> REC
     REC --> PICK
     RAW --> PUB["publish each target network's rates: plan link, labels, one plan one contract"]
@@ -57,12 +59,17 @@ flowchart LR
     PUF[Georgia Access plan files] --> XNET[(exchange networks, plans, premiums and cost sharing)]
     XNET -->|plan IDs| PICK
     XNET -->|plan to network| PUB
-    PUBLIC[CMS, NUCC and Census datasets] --> REF[(reference: NUCC, MPFS, OPPS, CMS billing, CMS groups, MIPS, geocodes, hospitals, ZIPs)]
+    PUBLIC[CMS, NUCC and Census datasets] --> REF
+    GA -->|"NPIs to keep: MIPS"| REF
+    PUBLIC --> GEO
+    GA -->|addresses| GEO
+    REF -->|hospital addresses| GEO
     PUB --> PAYER[("payer rates by Georgia network: rates, rate groups, rosters")]
   end
   subgraph integration ["integration: Python and DuckDB, all product decisions"]
     PAYER --> FC["integration/tables/"]
     REF --> FC
+    GEO --> FC
     GA --> FC
     XNET --> FC
     SVC[integration/services.yaml] --> FC
@@ -73,6 +80,10 @@ flowchart LR
     API --> WEB[React: find-care screen]
   end
 ```
+
+Parse needs two reference datasets first, Georgia's providers and the exchange plans, and two reference datasets read what parse wrote.
+Geocode places the billing IDs parse found, so `make refresh` runs it again after parse.
+Doctors & Clinicians (CMS groups, the dotted arrow) keeps the NPIs in parse's `npi_lookup.parquet` when it exists, and Georgia's by state otherwise.
 
 Everything ingestion hands integration (payer rates, GA providers, the exchange and reference datasets) is in `data/ingestion/`; Anthem's index, parse records and rates as filed stay in `data/raw/`.
 
@@ -171,7 +182,7 @@ the build, not enforced by a database. Full column notes: [integration/build.md]
 
 ```mermaid
 flowchart TB
-  subgraph host [one machine today, one VM later]
+  subgraph host [this machine: docker compose]
     ING[ingestion container: Go + Python - make discover, parse, reference]
     INT[integration container: Python + DuckDB - make build]
     APP[application container: FastAPI + DuckDB, the API and the screen]
@@ -184,8 +195,18 @@ flowchart TB
     INT -->|writes| SRV
     SRV -->|read-only| APP
   end
-  TS[Tailscale serve] --> APP
+  TS[Tailscale serve: a tester on the tailnet] --> APP
+  SRV -->|"make deploy: built and pushed from this machine"| IMG
+  TESTERS[invited testers] --> IAP
+  subgraph gcp [Google Cloud]
+    IAP[Google sign-in, IAP]
+    IMG[(application image: the code and the find-care tables)]
+    RUN[Cloud Run service application, one instance at most]
+    IAP --> RUN
+    IMG --> RUN
+  end
 ```
 
 Each container mounts only its own code folder and the data folders above, so integration can't read Anthem's raw files and the app can't read anything but its tables; `data-test/` is split the same way.
 `make refresh` runs discover, reference, parse and geocode in the ingestion container, then the build in the integration container.
+Nothing in Google Cloud runs the pipeline: `make deploy` builds the application image on this machine with `data/serving/`'s tables inside it, so the deployed app serves what the last local `make build` made ([infra/deploy.md](../infra/deploy.md)).
