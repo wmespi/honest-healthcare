@@ -11,9 +11,8 @@ The `network_name` label in Anthem's file (`GA Blue Value HIX Individual Network
 This file is the charter: read it first, then follow the [doc map](#where-to-look) to the detail for whatever you're touching.
 Keep it thin; detail lives next to the code.
 
-**Current focus** *(update as the active work changes)*: one owner-reviewed step at a time through the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135), which also holds the target data model.
-Its last open item is a faster, clearer test feedback loop.
-Beside it is the Cloud Run deploy for invited testers ([#17](https://github.com/wmespi/honest-healthcare/issues/17)), with deploys from GitHub Actions next ([#180](https://github.com/wmespi/honest-healthcare/issues/180)).
+**Current focus** *(update as the active work changes)*: the Cloud Run deploy for invited testers ([#17](https://github.com/wmespi/honest-healthcare/issues/17)), with deploys from GitHub Actions next ([#180](https://github.com/wmespi/honest-healthcare/issues/180)).
+The find-care tables' data model is the ERD on [#135](https://github.com/wmespi/honest-healthcare/issues/135), whose order of work is done.
 Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold.
 Product direction is in [docs/direction.md](docs/direction.md).
 Don't restructure `ingestion/`, `integration/` or `application/` without a reason (rule 7).
