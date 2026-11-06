@@ -84,21 +84,19 @@ free_port() {  # first free TCP port at or above $1
 }
 
 if [ "$IS_CANONICAL" -eq 1 ]; then
-  say ".env: skipped - the canonical checkout uses the compose defaults (8000/5173, ./data)"
+  say ".env: skipped - the canonical checkout uses the compose defaults (port 8000, ./data)"
 elif [ -f .env ]; then
   say ".env: exists — leaving it"
 else
-  APIP="$(free_port 8011)"; WEBP="$(free_port $((5184 + (APIP - 8011))))"
+  APPP="$(free_port 8011)"
   NAME="hh-$(basename "$ROOT" | sed 's/^hh-//')"
   cat > .env <<EOF
 COMPOSE_PROJECT_NAME=$NAME
-API_PORT=$APIP
-WEB_PORT=$WEBP
-VITE_API_URL=http://localhost:$APIP
+APP_PORT=$APPP
 HH_DATA_ROOT=$CANONICAL/data
 DUCKDB_MEMORY_LIMIT=2GB
 EOF
-  say ".env: wrote $NAME  (api $APIP · web $WEBP · data ← $CANONICAL/data)"
+  say ".env: wrote $NAME  (port $APPP · data ← $CANONICAL/data)"
 fi
 
 cat <<EOF

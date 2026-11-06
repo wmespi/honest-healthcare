@@ -2,7 +2,7 @@
 
 Unlike application/serving/tests/test_api_contract.py (hermetic, a synthetic fixture via TestClient),
 this hits an actually-running server (`API_URL`, default
-http://localhost:8000) and checks its answers against dollar figures and
+http://localhost:8000/api) and checks its answers against dollar figures and
 counts captured from the real corpus. The point is regression, not
 correctness: if a later change moves one of these on purpose, recapture it and
 say why in that PR; if it moves by accident, this is what's supposed to catch
@@ -20,7 +20,7 @@ import os
 import httpx2
 import pytest
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000")
+API_URL = os.environ.get("API_URL", "http://localhost:8000/api")
 BLUE_VALUE = "45334-GAN001"
 SILVER = "45334GA0020002"  # Anthem Silver Blue Value HMO 4000
 NEAR_EMORY = {"plan_id": SILVER, "zip": "30322"}
@@ -36,7 +36,7 @@ def client():
 @pytest.fixture(scope="module", autouse=True)
 def _require_live_target_corpus(client):
     try:
-        r = client.get("/")
+        r = client.get("/health")
         root = r.json()
     except (httpx2.HTTPError, ValueError) as e:
         pytest.skip(f"no API reachable at {API_URL}: {e}")
@@ -50,7 +50,7 @@ def find_care(client, service_id, **params):
 
 
 def test_the_build_holds(client):
-    root = client.get("/").json()
+    root = client.get("/health").json()
     assert [n["network_id"] for n in root["networks"]] == [BLUE_VALUE, "49046-GAN008"]
     assert root["rows"] == {"plans": 11, "services": 26, "places": 992, "prices": 6313, "providers": 2090}
 

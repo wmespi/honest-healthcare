@@ -14,8 +14,8 @@ Also reports latency per journey — total wall time, call count, and the slowes
 single call (flagged over SLOW_CALL_MS). Latency is informational: a slow-but-
 correct answer doesn't fail the run.
 
-Usage:  python3 tests/live/journeys.py [--api http://localhost:8000] [--json]
---api defaults to $API_URL, then http://localhost:8000 -- always pass one
+Usage:  python3 tests/live/journeys.py [--api http://localhost:8000/api] [--json]
+--api defaults to $API_URL, then http://localhost:8000/api -- always pass one
 explicitly (or set API_URL) when testing a worktree's own stack; otherwise
 this silently tests whatever is on the canonical checkout's port instead.
 Exits 0 (skipping every journey, not failing them) if the target network
@@ -108,11 +108,11 @@ JOURNEYS = [
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--api", default=os.environ.get("API_URL", "http://localhost:8000"))
+    ap.add_argument("--api", default=os.environ.get("API_URL", "http://localhost:8000/api"))
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
-    health, hs = get(args.api, "/")
+    health, hs = get(args.api, "/health")
     if hs != 200 or BLUE_VALUE not in [n["network_id"] for n in (health or {}).get("networks") or []]:
         msg = f"{BLUE_VALUE} not loaded at {args.api} — journeys need the real corpus"
         if args.json:

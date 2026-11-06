@@ -17,7 +17,7 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 
 
 def test_health_says_when_the_build_ran_and_what_it_holds(api):
-    body = api.get("/").json()
+    body = api.get("/api/health").json()
     assert body["status"] == "ok" and body["built_at"] is not None
     assert body["networks"] == [{"network_id": "45334-GAN001", "name": "Blue Value Individual Network HMO"},
                                 {"network_id": "49046-GAN008", "name": "Pathway PCP Copay Choice"}]
@@ -27,7 +27,7 @@ def test_health_says_when_the_build_ran_and_what_it_holds(api):
 def test_health_says_what_is_missing_when_there_is_no_build(api, monkeypatch):
     from application.serving import main
     monkeypatch.setattr(main, "missing_build", lambda: ["prices"])
-    r = api.get("/")
+    r = api.get("/api/health")
     assert r.status_code == 503 and r.json()["missing"] == ["prices"]
 
 
@@ -38,7 +38,7 @@ MRI = {"service_id": "mri-lower-back", "plan_id": SILVER, "zip": "30308"}
 
 
 def test_find_care_plans_are_georgias_plans_with_their_deductibles(api):
-    assert api.get("/plans").json() == [
+    assert api.get("/api/plans").json() == [
         {"plan_id": "45334GA0020008", "name": "Anthem Bronze Blue Value HMO 5000",
          "carrier": "Anthem Blue Cross and Blue Shield", "needs_referral": False, "deductible": 5000.0},
         {"plan_id": "49046GA0700053", "name": "Anthem Bronze Pathway PCP Copay Choice HMO 6000",
@@ -48,14 +48,14 @@ def test_find_care_plans_are_georgias_plans_with_their_deductibles(api):
 
 
 def test_find_care_services_carry_what_the_screen_says(api):
-    body = api.get("/services").json()
+    body = api.get("/api/services").json()
     assert [s["service_id"] for s in body] == ["mri-lower-back", "mammogram-screening"]
     assert body[0]["medicare_rate"] == 180.0 and body[0]["medicare_facility_rate"] == 243.77
     assert body[1]["preventive_note"] == "Usually $0 in network as preventive care."
 
 
 def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
-    body = api.get("/find-care", params=MRI).json()
+    body = api.get("/api/find-care", params=MRI).json()
     # Fewer than 5 places within any radius, so the search takes the widest.
     assert body["radius_mi"] == 50 and body["origin"] == {"zip": "30308", "lat": 33.770959, "lon": -84.377736}
     assert body["cost_sharing"] == {"copay": None, "coinsurance": 40.0, "after_deductible": True}
@@ -73,21 +73,21 @@ def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
 
 
 def test_find_care_keeps_to_the_radius_and_sorts_by_distance(api):
-    body = api.get("/find-care", params={**MRI, "radius_mi": 5, "sort": "distance"}).json()
+    body = api.get("/api/find-care", params={**MRI, "radius_mi": 5, "sort": "distance"}).json()
     assert [p["place_id"] for p in body["results"]] == ["1000000001", "110079", "1000000005"]
     assert body["wider_radius_mi"] is None and body["closest_outside"] is None
 
 
 def test_find_care_with_no_place_near_points_to_the_closest_outside(api):
-    body = api.get("/find-care", params={**MRI, "zip": "30720", "radius_mi": 25}).json()
+    body = api.get("/api/find-care", params={**MRI, "zip": "30720", "radius_mi": 25}).json()
     assert body["results"] == [] and body["closest_outside"]["place_id"] == "1000000002"
     assert body["wider_radius_mi"] is None  # Hiram is beyond the widest radius from Dalton
-    pathway = api.get("/find-care", params={**MRI, "plan_id": "49046GA0700053"}).json()
+    pathway = api.get("/api/find-care", params={**MRI, "plan_id": "49046GA0700053"}).json()
     assert pathway["results"] == [] and pathway["closest_outside"] is None
 
 
 def test_find_care_charges_preventive_care_nothing(api):
-    body = api.get("/find-care", params={**MRI, "service_id": "mammogram-screening"}).json()
+    body = api.get("/api/find-care", params={**MRI, "service_id": "mammogram-screening"}).json()
     assert body["cost_sharing"] == {"copay": 0.0, "coinsurance": None, "after_deductible": False}
 
 
@@ -97,7 +97,7 @@ def test_find_care_charges_preventive_care_nothing(api):
     ({**MRI, "zip": "99999"}, "unknown_zip"),
 ])
 def test_find_care_says_what_it_doesnt_know(api, params, code):
-    r = api.get("/find-care", params=params)
+    r = api.get("/api/find-care", params=params)
     assert r.status_code == 404 and r.json()["detail"]["code"] == code
 
 

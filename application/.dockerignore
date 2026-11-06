@@ -1,5 +1,5 @@
 # Nothing here is needed in an image: the dev stack mounts the code, and the
-# prod images hold only the code, its deps and the built bundle.
+# prod image holds only the code, its deps, the built screen and the tables.
 **/__pycache__/
 **/*.py[cod]
 **/.pytest_cache/

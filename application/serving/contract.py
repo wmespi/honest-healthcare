@@ -1,10 +1,10 @@
 """The find-care API contract: the typed shape of every route the real screen calls.
 
-  GET /plans       every plan a person can pick
-  GET /services    every service, with what the screen says about it
-  GET /find-care   one service on one plan near one ZIP code, one row per place
+  GET /api/plans       every plan a person can pick
+  GET /api/services    every service, with what the screen says about it
+  GET /api/find-care   one service on one plan near one ZIP code, one row per place
 
-FastAPI publishes these models at /docs and /openapi.json and checks every
+FastAPI publishes these models at /api/docs and /api/openapi.json and checks every
 response against them. The routes read the serving tables on #135 as they are,
 so every rule (who is on the plan, what a price is, how places sort) lives in
 the build or here, never in the screen. Money is US dollars to the cent, and
@@ -24,8 +24,9 @@ RADIUS_OPTIONS_MI = (5, 10, 25, 50)
 
 
 class Problem(BaseModel):
-    """The body of every 4xx this API sends on purpose, as FastAPI's `detail`."""
-    code: Literal["unknown_service", "unknown_plan", "unknown_zip"]
+    """The body of every 4xx this API sends on purpose, and of a 500, as
+    FastAPI's `detail`."""
+    code: Literal["unknown_service", "unknown_plan", "unknown_zip", "internal_error"]
     message: str
 
 
@@ -143,7 +144,7 @@ def _whole_number(v):
 
 
 class FindCareQuery(BaseModel):
-    """GET /find-care's query string."""
+    """GET /api/find-care's query string."""
     service_id: str
     plan_id: str
     zip: str = Field(pattern=r"^\d{5}$")

@@ -122,15 +122,15 @@ test: check ## Every hermetic suite - check + each layer's pytest in its contain
 	  cd application/frontend && npx vitest run; \
 	else \
 	  $(MAKE) --no-print-directory _test-layers && \
-	  docker compose exec -T frontend sh -c "cd /app && npx vitest run"; \
+	  docker compose exec -T -w /app/application/frontend application npx vitest run; \
 	fi
 
-test-live: ## Golden answers + user journeys against the live API + real corpus (docs/journeys.md). API_URL= targets a host-run API instead of the stack
+test-live: ## Golden answers + user journeys against the live API + real corpus (docs/journeys.md). API_URL=<origin>/api targets a host-run API instead of the stack
 	@if [ -n "$(API_URL)" ]; then \
 	  .venv/bin/python -m pytest tests/live -v && python3 tests/live/journeys.py; \
 	else \
-	  docker compose exec -T serving python3 -m pytest tests/live -v && \
-	  API_URL="http://$$(docker compose port serving 8000)" python3 tests/live/journeys.py; \
+	  docker compose exec -T application python3 -m pytest tests/live -v && \
+	  API_URL="http://$$(docker compose port application 8000)/api" python3 tests/live/journeys.py; \
 	fi
 
 ## ── Housekeeping ─────────────────────────────────────────────────────────────
@@ -148,10 +148,10 @@ fixture: ## Build a truncated *.json.gz fixture from a file in this month's inde
 
 ## ── Shells ────────────────────────────────────────────────────────────────────
 
-sh: ## Open a shell inside a container - usage: make sh S=ingestion|integration|serving|frontend
+sh: ## Open a shell inside a container - usage: make sh S=ingestion|integration|application
 	@case "$(S)" in \
-	  ingestion|integration|serving|frontend) svc=$(S) ;; \
-	  *) echo "usage: make sh S=ingestion|integration|serving|frontend" && exit 1 ;; \
+	  ingestion|integration|application) svc=$(S) ;; \
+	  *) echo "usage: make sh S=ingestion|integration|application" && exit 1 ;; \
 	esac; \
 	echo "Entering $$svc shell — type 'exit' to quit"; \
 	docker compose exec $$svc sh
@@ -165,7 +165,7 @@ _test-layers:
 	docker compose exec -T -w /app ingestion python3 -m pytest -q ingestion
 	docker compose exec -T integration python3 -m pytest -q integration
 	docker compose exec -T integration python3 -m integration.tests.app_tables
-	docker compose exec -T serving python3 -m pytest -q application/serving
+	docker compose exec -T application python3 -m pytest -q application/serving
 
 _require-ingestion-running:
 	@docker compose ps ingestion | grep -q "Up" || \

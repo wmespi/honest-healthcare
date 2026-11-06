@@ -115,16 +115,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Build + start ingestion, integration, serving
+      - name: Build + start ingestion, integration, application
         run: |
           # Made by the runner's user, so the e2e tests can write into them from the host.
           mkdir -p data/raw data/ingestion data/serving data-test/raw data-test/ingestion data-test/serving
-          docker compose up -d --build ingestion integration serving
+          docker compose up -d --build ingestion integration application
       - name: ETL e2e, then each layer's tests in its own container, as make test runs them
         run: make _test-layers
       - name: Golden-answer tests (#96) — real API, empty data/ here, must skip not fail
         run: |
-          docker compose exec -T serving python3 -m pytest tests/live -v
+          docker compose exec -T application python3 -m pytest tests/live -v
       - name: Stack logs on failure
         if: failure()
         run: docker compose logs
@@ -138,10 +138,23 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build the prod image targets
         run: |
-          docker build --target prod          -t hh-ingestion:ci   ingestion
-          docker build --target prod          -t hh-integration:ci integration
-          docker build --target serving-prod  -t hh-serving:ci     application
-          docker build --target frontend-prod -t hh-frontend:ci    application
+          docker build --target prod -t hh-ingestion:ci   ingestion
+          docker build --target prod -t hh-integration:ci integration
+      - name: Build the application image on the app's test tables
+        run: |
+          # The image holds the find-care tables it serves, so it is built on the
+          # ones integration makes from its test corpus, as make test makes them.
+          docker build --target dev -t hh-integration-dev:ci integration
+          mkdir -p data-test/serving
+          docker run --rm -v "$PWD/integration:/app/integration:ro" -v "$PWD/data-test/serving:/app/data-test/serving" \
+            hh-integration-dev:ci python3 -m integration.tests.app_tables
+          docker build --target prod --build-context tables=data-test/serving -t hh-application:ci application
+      - name: Smoke - the application image won't build without its tables
+        run: |
+          if out=$(docker build --target prod application 2>&1); then
+            echo "the image built with no tables"; exit 1
+          fi
+          echo "$out" | grep -q "pass the find-care tables" || { echo "$out"; exit 1; }
       - name: Smoke - ingestion's etl binary and Python steps run
         run: |
           docker run --rm hh-ingestion:ci etl --help 2>&1 | grep -q "discover"
@@ -153,34 +166,10 @@ jobs:
             echo "the build ran with no inputs"; echo "$out"; exit 1
           fi
           echo "$out" | grep -q "no /app/data/ingestion/payer_rates/" || { echo "$out"; exit 1; }
-      - name: Smoke — serving answers /
+      - name: Smoke - the application serves the screen and answers a search
         run: |
-          # No data/ is mounted here, so there's no serving-table build for the
-          # app to read — GET / correctly answers 503 (#100: a missing build is
-          # an explicit error, not a silent fallback). The smoke check confirms
-          # the container starts and answers with a well-formed health payload,
-          # not that it has data; 200 (a build present) is also accepted so
-          # this doesn't need updating if that ever changes here.
-          docker run -d --name hh_serving_smoke -p 8000:8000 hh-serving:ci
-          for _ in $(seq 1 20); do
-            code=$(curl -s -o /tmp/smoke_body.json -w '%{http_code}' http://localhost:8000/ || true)
-            case "$code" in 200|503) break ;; esac
-            sleep 1
-          done
-          case "$code" in
-            200) ;;
-            503) grep -q '"missing"' /tmp/smoke_body.json || { echo "503 without a 'missing' field"; cat /tmp/smoke_body.json; docker logs hh_serving_smoke; exit 1; } ;;
-            *) echo "unexpected status $code"; cat /tmp/smoke_body.json 2>/dev/null; docker logs hh_serving_smoke; exit 1 ;;
-          esac
-      - name: Smoke — frontend serves index.html
-        run: |
-          docker run -d --name hh_frontend_smoke -p 8080:80 hh-frontend:ci
-          for _ in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ || true)
-            [ "$code" = "200" ] && break
-            sleep 1
-          done
-          [ "$code" = "200" ] || { docker logs hh_frontend_smoke; exit 1; }
+          docker run -d --name hh_application_smoke -p 8000:8000 hh-application:ci
+          python3 infra/smoke.py http://localhost:8000 || { docker logs hh_application_smoke; exit 1; }
 
   gate:
     name: CI Gate

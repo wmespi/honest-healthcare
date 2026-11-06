@@ -1,5 +1,5 @@
 """The routes the real find-care screen calls, in the shape application/serving/contract.py
-sets, over the find-care serving tables (#135):
+sets, over the find-care serving tables (#135), each under /api (main.py):
 
   /plans       every plan a person can pick
   /services    every service, with what the screen says about it
