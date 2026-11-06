@@ -29,12 +29,6 @@ They cover the networks the payer rates in `data/ingestion/payer_rates/` price, 
 | `providers.parquet` | one row per clinician a `prices` row lists | `npi`, and the `name` and `specialty` from the clinician's own NPPES record, the specialty as NUCC's name for its primary code, and `score`, Medicare's quality (MIPS) score, empty when there's none. Every clinician a price lists is here with a name and a specialty, or the build stops. |
 | `unlocated_places.parquet` | one row per hospital or practice Census can't put on the map | `place_id`, `name`, `kind`, `address`, `city` and `zip`, saved to try with another geocoder. It's left off the screen, so nothing serves it, and a price there isn't shown. |
 
-A file prices a network when the index links it to one of the network's plans and its rates carry one of the target's `network_patterns` labels.
-The plans on a network come from Georgia's exchange plan file, and the link comes from `data/raw/anthem/index_file_plans.parquet`, which `make discover` writes from the index it last read whole, so the build reads no database.
-Exactly one parsed file may price each network, or the build stops ([one plan, one contract](../ingestion/etl/mrf-model.md#one-plan-one-contract)).
-A parsed file the index doesn't link to the network's plans is left out, such as `GA_JBKEMED0001`, which carries Blue Value's label but prices a plan no longer sold.
-A target network with no file that prices it, or one that Georgia's exchange files don't list or list no plans on, also stops the build.
-
 Who prices a service where follows the rules on #135 ([reading groups versus places](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6639007442)):
 
 - [`biller_doctors`](inputs/biller_doctors.py) keeps, for each billing NPI with a rate for a service, the doctors Medicare shows billing that service: those on the rosters the rate covers, and the biller itself when it bills under a doctor's own NPI.

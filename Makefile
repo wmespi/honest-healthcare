@@ -62,9 +62,9 @@ worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override
 	@test -n "$(TOPIC)" || { echo "usage: make worktree-rm TOPIC=<name>"; exit 1; }
 	git worktree remove $(if $(filter 1,$(FORCE)),--force,) "$$(dirname "$$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -1)")/hh-$(TOPIC)"
 
-## ── Pipeline: discover → parse → reference → build ───────────────────────────
+## ── Pipeline, in run order: discover → reference → parse → build ─────────────
 
-discover: ## Phase 1 - write this month's file list and plan links (index_files + index_file_plans Parquet) from Anthem's index. TEST=1 · SCHEMA=1 (index_schema.json only) · KEEP_INDEX=1 (keep the multi-GB index download)
+discover: ## Write this month's file list and plan links (index_files + index_file_plans Parquet) from Anthem's index. TEST=1 · SCHEMA=1 (index_schema.json only) · KEEP_INDEX=1 (keep the multi-GB index download)
 	docker compose exec ingestion go run . discover \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
@@ -73,7 +73,7 @@ discover: ## Phase 1 - write this month's file list and plan links (index_files 
 	  $(if $(filter 1,$(KEEP_INDEX)),-keep-index,) \
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
-parse: ## Phase 2 - stream the files ingestion/etl/targets.yaml names into Parquet when they're new or Anthem updated them, then publish their rates by Georgia network. FILE=<name>[,<name>] · TARGETS=<path from the repo root> · TEST=1 · LIMIT=n
+parse: ## Stream the files ingestion/etl/targets.yaml names into Parquet when they're new or Anthem updated them, then publish their rates by Georgia network. FILE=<name>[,<name>] · TARGETS=<path from the repo root> · TEST=1 · LIMIT=n
 	docker compose exec ingestion go run . parse \
 	  $(if $(FILE),-files "$(FILE)",) \
 	  $(if $(TARGETS),-targets "$(TARGETS)",) \
@@ -84,10 +84,10 @@ parse: ## Phase 2 - stream the files ingestion/etl/targets.yaml names into Parqu
 	  $(if $(TARGETS),--targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),--test,)
 
-reference: ## Phase 3 — build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, ZIP centroids, exchange plans, hospitals), skipping what exists. STEP=<name> · FORCE=1 · ARGS="--flag v"
+reference: ## Build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, ZIP centroids, exchange plans, hospitals), skipping what exists except geocode, which looks up only new addresses. STEP=<name> · FORCE=1 · ARGS="--flag v"
 	@bash scripts/reference.sh
 
-build: ## Phase 4 - what ingestion delivered (data/ingestion/) -> the find-care tables in data/serving/. TEST=1
+build: ## What ingestion delivered (data/ingestion/) -> the find-care tables in data/serving/. TEST=1
 	docker compose exec -T -e DUCKDB_TMP= integration python3 -m integration.build --data-dir /app/data $(if $(filter 1,$(TEST)),--test,)
 
 refresh: ## The monthly job: discover → reference (what's missing; NPPES gates parse) → parse → geocode (new billing IDs) → build
@@ -151,7 +151,7 @@ clean: ## Reclaim disk in THIS worktree (stray .tmp, data-test, caches). DOCKER=
 fixture: ## Build a truncated *.json.gz fixture from a file in this month's index - usage: make fixture FILE=GA_JBNKMED0001.json.gz NAME=ga_small
 	docker compose exec ingestion go run . fixture -file "$(FILE)" $(if $(NAME),-name $(NAME),)
 
-## ── Shells ────────────────────────────────────────────────────────────────────
+## ── Shells ───────────────────────────────────────────────────────────────────
 
 sh: ## Open a shell inside a container - usage: make sh S=ingestion|integration|application
 	@case "$(S)" in \

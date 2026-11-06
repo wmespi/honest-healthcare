@@ -17,7 +17,7 @@ A layer can change freely as long as what it delivers keeps its contract, so ano
 |---|---|---|---|---|
 | Ingestion | `ingestion`: Go + Python/DuckDB | `ingestion/` | Anthem, NPPES, Georgia Access, CMS, NUCC, Census | `data/raw/`, its own files, and `data/ingestion/`, the contract integration reads |
 | Integration | `integration`: Python/DuckDB | `integration/` | `data/ingestion/`, read-only | `data/serving/`, the find-care tables |
-| Application | `serving`: FastAPI + DuckDB under `/api`, serving the built `frontend` (React + Vite) at every other path, `localhost:8000` | `application/serving/`, `application/frontend/` | `data/serving/`, read-only | nothing |
+| Application | `application`: `serving` (FastAPI + DuckDB) under `/api`, and the built `frontend` (React + Vite) at every other path, `localhost:8000` | `application/serving/`, `application/frontend/` | `data/serving/`, read-only | nothing |
 
 The contract between ingestion and integration is the datasets in `integration/inputs/datasets.py`, each with its columns and key, which the build checks before it reads them; between integration and the app it's the find-care tables below.
 The on-disk layout is in [docs/schema.md](schema.md).

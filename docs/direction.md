@@ -39,7 +39,7 @@ providers/facilities, blending **price on their plan**, **quality / volume**, an
 - Ends in a "Request this appointment" action (see *information tool → navigator*).
 - **Shipped:** the find-care screen at `/find-care`, for the scans in `integration/services.yaml`
   on Anthem's Georgia exchange plans, with each plan's deductible and cost sharing.
-- **Next:** the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135).
+- **Next:** invited testers on the deployed app ([#17](https://github.com/wmespi/honest-healthcare/issues/17)).
 
 ### Flow B — Pick a plan  *(open enrollment, once a year)*
 

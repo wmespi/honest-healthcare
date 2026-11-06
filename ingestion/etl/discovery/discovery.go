@@ -200,7 +200,7 @@ func downloadParallel(url, destPath string, workers int) error {
 	}
 }
 
-// Run is Phase 1: it reads this month's master index and writes the files it
+// Run is `etl discover`: it reads this month's master index and writes the files it
 // lists (index_files.parquet) and the Georgia individual-market plans each one
 // prices (index_file_plans.parquet).
 func Run(opts Options) {

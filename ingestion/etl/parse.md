@@ -1,4 +1,4 @@
-# `make parse` — Phase 2: MRF → Parquet
+# `make parse`: MRF → Parquet
 
 *Read this when working on the per-file stream transform - which files are downloaded, the parser, the Parquet writers, network attribution, the GA NPI filter, or the provider probe.*
 

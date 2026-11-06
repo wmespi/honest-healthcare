@@ -121,7 +121,4 @@ different plan IDs at different prices: `GA_JBKEMED0001` prices only `45334GA001
 an older plan that isn't on Georgia's exchange. The rest of the files linked to the
 plan are out-of-state BlueCard copies that don't carry its label. So `ingestion/etl/targets.yaml` names each plan's file, and `etl parse` stops unless the index links it to the plan IDs on the target exchange networks ([parse.md](parse.md#target-selection)).
 A label never selects a file.
-The build then prices each network with the rates under its target's label, from
-the parsed files the index links to the network's plans, and stops unless exactly
-one of them carries that label
-([build.md](../../integration/build.md#the-find-care-tables)).
+Parse's last step then publishes each network's rates under its target's labels, from the parsed files the index links to the network's plans, and stops unless exactly one of them carries those labels ([parse.md](parse.md#publishing-the-rates-by-network)).

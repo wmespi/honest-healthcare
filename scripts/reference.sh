@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Phase 3 — build the reference datasets, in dependency order, skipping any whose
-# output already exists (FORCE=1 rebuilds). STEP=<name> runs just that one, always.
+# make reference: build the reference datasets, in dependency order, skipping any whose
+# output already exists (FORCE=1 rebuilds), except geocode, which has no single output
+# and looks up only new addresses. STEP=<name> runs just that one, always.
 # ARGS="--year 2025" passes extra flags through to the STEP's builder.
 #
 #   make reference                      # everything missing
