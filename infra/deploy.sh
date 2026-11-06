@@ -14,7 +14,7 @@ REGION="${HH_GCP_REGION:-us-east1}"
 SERVICE="${HH_GCP_SERVICE:-honest-healthcare}"
 REPO=honest-healthcare
 TABLES="${HH_SERVING_DIR:-data/serving}"
-SMOKE_SA="smoke@${PROJECT}.iam.gserviceaccount.com"
+SMOKE_SA="deploy-smoke@${PROJECT}.iam.gserviceaccount.com"
 
 cd "$(dirname "$0")/.."
 step() { printf '\n==> %s\n' "$*"; }
@@ -39,7 +39,7 @@ gcloud artifacts repositories describe "$REPO" --project "$PROJECT" --location "
 gcloud artifacts repositories set-cleanup-policies "$REPO" --project "$PROJECT" --location "$REGION" \
   --policy infra/cleanup-policy.json --no-dry-run >/dev/null
 gcloud iam service-accounts describe "$SMOKE_SA" --project "$PROJECT" >/dev/null 2>&1 ||
-  gcloud iam service-accounts create smoke --project "$PROJECT" --display-name "make deploy's smoke check"
+  gcloud iam service-accounts create deploy-smoke --project "$PROJECT" --display-name "make deploy's smoke check"
 gcloud iam service-accounts add-iam-policy-binding "$SMOKE_SA" --project "$PROJECT" \
   --member "user:$(gcloud config get account 2>/dev/null)" --role roles/iam.serviceAccountTokenCreator >/dev/null
 

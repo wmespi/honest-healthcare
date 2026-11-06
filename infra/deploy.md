@@ -13,9 +13,9 @@ The image holds the code and the find-care tables ([README.md](README.md)), so a
 1. It builds the image on this machine for Cloud Run (`linux/amd64`), tagged with the commit and when the tables were built.
 2. It pushes the image to the Artifact Registry repository `honest-healthcare`, which keeps the last three (`infra/cleanup-policy.json`).
 3. It rolls it out at one instance at most, scaling to nothing when idle, with IAP on.
-4. It runs `infra/smoke.py` through IAP, signed in as the `smoke` service account.
+4. It runs `infra/smoke.py` through IAP, signed in as the `deploy-smoke` service account.
 
-The first run also does whatever setup is missing: the APIs, the repository and the `smoke` account, which is in IAP's policy and whose tokens the person deploying may make.
+The first run also does whatever setup is missing: the APIs, the repository and the `deploy-smoke` account, which is in IAP's policy and whose tokens the person deploying may make.
 A data refresh is `make refresh`, then `make deploy`.
 
 ## Who can sign in
