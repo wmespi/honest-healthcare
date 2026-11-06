@@ -13,7 +13,7 @@ import zipfile
 
 import duckdb
 
-from ._common import fetch_to_cache, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 URL = "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/2023_Gaz_zcta_national.zip"
 
@@ -25,7 +25,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     downloads = raw_dir(args.data_dir, args.test, "downloads")
     print("→ Census Gazetteer ZCTA centroids")
     path = fetch_to_cache(f"{downloads}/gaz_zcta.zip", [URL], args.file)

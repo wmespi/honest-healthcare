@@ -40,7 +40,7 @@ import urllib.request
 
 import duckdb
 
-from ._common import fetch_to_cache_streaming, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 PDC_METASTORE = (
     "https://data.cms.gov/provider-data/api/1/metastore/schemas/dataset/items"
@@ -86,7 +86,7 @@ def _resolve_pdc_url(title: str, filename: str) -> str | None:
 
 def _resolve(url_arg, file_arg, title, filename, fallback):
     if file_arg:
-        return None  # fetch_to_cache_streaming short-circuits on `local`
+        return None  # fetch_to_cache short-circuits on `local`
     if url_arg:
         return url_arg
     return _resolve_pdc_url(title, filename) or fallback
@@ -187,7 +187,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     ga_out = f"{rd}/dac_ga.parquet"
     cache_dir = raw_dir(args.data_dir, args.test, "downloads")
 
@@ -214,7 +214,7 @@ def main() -> None:
     dac_url = _resolve(args.dac_url, args.dac_file, DAC_TITLE,
                        "DAC_NationalDownloadableFile.csv", DAC_URL_FALLBACK)
     print("→ CMS Doctors & Clinicians — National Downloadable File")
-    dac_src = fetch_to_cache_streaming(
+    dac_src = fetch_to_cache(
         f"{cache_dir}/dac_national.csv", [dac_url] if dac_url else [], args.dac_file
     )
     build_national(con, dac_src, ga_out, geo_filter)

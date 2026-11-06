@@ -50,7 +50,7 @@ import zipfile
 
 import duckdb
 
-from ._common import fetch_to_cache, raw_dir, ref_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 # CMS re-stamps the RVU zip each quarter: rvu<YY><q>.zip (q = a/b/c/d). Pass
 # --cms-url to override. This fallback is the 2025 fourth-quarter release.
@@ -171,7 +171,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    rd = ref_dir(args.data_dir, args.test)
+    rd = store_dir(args.data_dir, args.test, "reference")
     cache_dir = raw_dir(args.data_dir, args.test, "downloads")
     out_path = f"{rd}/mpfs_ga.parquet"
 

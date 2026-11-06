@@ -41,7 +41,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
 - `ingestion/etl/nppes/testdata/nppes_sample.csv` - NPPES GA extractor sample.
 - `ingestion/reference/testdata/*` - small CMS / MPFS / DAC / geocode samples; each
   `ingestion/reference/tests/test_<builder>.py` runs its `ingestion/reference/` builder against them in test
-  isolation.
+  isolation. `test_common.py` runs the builders' download against a local HTTP server.
 - `ingestion/tests/conftest.py` (`anthem` fixture) writes Anthem's files as parse and discover write them, with Georgia's networks and plans and a targets file, and `test_anthem_rates.py` publishes the rates by network from them.
 - `integration/tests/app_tables.py` builds the build's default test corpus with the real
   `integration.build.build()` into `data-test/serving/`, and `make test` runs it before the

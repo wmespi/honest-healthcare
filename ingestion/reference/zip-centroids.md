@@ -23,7 +23,5 @@ single-building have no ZCTA and no row. An unknown ZIP is a 404 from the API
 
 ## Downstream
 
-`integration/build.py` copies it to `serving/zip_centroids.parquet`; the API reads only
-that copy. The find-care build writes `serving/zips.parquet` from it
-([build.md](../../integration/build.md#the-find-care-tables)), which `/find-care` measures from to
-each place's point with a haversine in `serving/ranking.py`.
+The find-care build writes `data/serving/zips.parquet` from it ([build.md](../../integration/build.md#the-find-care-tables)), and the API reads only that table.
+`/find-care` measures from a ZIP's point to each place's with a haversine in `serving/routers/find_care.py`.

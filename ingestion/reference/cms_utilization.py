@@ -45,7 +45,7 @@ import urllib.request
 
 import duckdb
 
-from ._common import cms_dir, fetch_to_cache_streaming, raw_dir, write_parquet_atomic
+from ._common import fetch_to_cache, raw_dir, store_dir, write_parquet_atomic
 
 CMS_DATA_JSON = "https://data.cms.gov/data.json"
 CMS_TITLE = "Medicare Physician & Other Practitioners - by Provider and Service"
@@ -97,7 +97,7 @@ def main() -> None:
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
 
-    out_path = f"{cms_dir(args.data_dir, args.test)}/ga_provider_service.parquet"
+    out_path = f"{store_dir(args.data_dir, args.test, 'cms')}/ga_provider_service.parquet"
 
     url = args.cms_url or (None if args.cms_file else resolve_cms_url())
     year = args.year or _year_from_url(url or args.cms_file or "") or 0
@@ -106,7 +106,7 @@ def main() -> None:
 
     print(f"→ CMS Physician & Other Practitioners — by Provider and Service"
           f"{f' (service year {year})' if year else ''}")
-    src = fetch_to_cache_streaming(cache, [url] if url else [], args.cms_file)
+    src = fetch_to_cache(cache, [url] if url else [], args.cms_file)
 
     con = duckdb.connect()
     con.execute("SET preserve_insertion_order = false")
