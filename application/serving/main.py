@@ -3,7 +3,8 @@ tables, and the screen, from one process at one origin.
 
 App wiring only. The API is under /api: table sources and the connection live
 in data_sources.py, the routes in routers/. Every other path is the built
-screen (screen.py). See application/serving/serving.md.
+screen (screen.py). Every request passes the invite gate first (gate.py).
+See application/serving/serving.md.
 """
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
@@ -14,13 +15,18 @@ from .data_sources import (
     NETWORKS_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, SERVING_DIR,
     db, manifest, missing_build,
 )
+from .gate import INVITES, ON, Gate
 from .routers import find_care
 from .screen import SCREEN_DIR, Screen
 
-app = FastAPI(title="Honest Healthcare API", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
+# Every route is under /api, so the screen has every other path; the API uses no OAuth.
+app = FastAPI(title="Honest Healthcare API", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json",
+              swagger_ui_oauth2_redirect_url=None)
 
 # The screen's bundle and the find-care answers are text that shrinks several times over.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+# Added last, so it runs first: nothing below answers a request without an invite.
+app.add_middleware(Gate, invites=INVITES, on=ON)
 
 app.include_router(find_care.router, prefix="/api")
 

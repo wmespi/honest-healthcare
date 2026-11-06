@@ -24,7 +24,7 @@
         discover parse reference build refresh \
         check test test-live \
         footprint clean \
-        fixture \
+        fixture invite \
         sh \
         _require-ingestion-running _test-layers
 
@@ -145,6 +145,10 @@ clean: ## Reclaim disk in THIS worktree (stray .tmp, data-test, caches). DOCKER=
 
 fixture: ## Build a truncated *.json.gz fixture from a file in this month's index - usage: make fixture FILE=GA_JBNKMED0001.json.gz NAME=ga_small
 	docker compose exec ingestion go run . fixture -file "$(FILE)" $(if $(NAME),-name $(NAME),)
+
+invite: ## Make an invite for one tester - the INVITES entry and the link to send (application/serving/gate.py). NAME=<label>
+	@test -n "$(NAME)" || { echo "usage: make invite NAME=<label>"; exit 1; }
+	@docker compose exec -T application python3 -m application.serving.gate "$(NAME)"
 
 ## ── Shells ────────────────────────────────────────────────────────────────────
 

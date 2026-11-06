@@ -26,7 +26,7 @@ RADIUS_OPTIONS_MI = (5, 10, 25, 50)
 class Problem(BaseModel):
     """The body of every 4xx this API sends on purpose, and of a 500, as
     FastAPI's `detail`."""
-    code: Literal["unknown_service", "unknown_plan", "unknown_zip", "internal_error"]
+    code: Literal["unknown_service", "unknown_plan", "unknown_zip", "no_invite", "internal_error"]
     message: str
 
 

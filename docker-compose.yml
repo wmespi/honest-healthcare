@@ -82,6 +82,9 @@ services:
       - DATA_DIR=/app/data
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-4GB}
       - DUCKDB_TMP=${DUCKDB_TMP:-/tmp/duckdb_spill}
+      # The invite gate (application/serving/gate.py) is off here: the stack is
+      # on loopback, and its testers reach it over the private tailnet.
+      - GATE=off
 
 volumes:
   go-mod-cache:

@@ -24,7 +24,7 @@ def test_a_screen_address_gets_the_screen(api):
 def test_a_built_asset_is_cached_for_good_and_compressed(api):
     r = api.get(SCRIPT, headers={"Accept-Encoding": "gzip"})
     assert r.status_code == 200 and r.text.startswith("console.log")
-    assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert r.headers["cache-control"] == "private, max-age=31536000, immutable"
     assert r.headers["content-encoding"] == "gzip"
 
 
@@ -49,22 +49,20 @@ def test_the_api_describes_itself_under_api(api):
     assert api.get("/api/docs").status_code == 200
 
 
-def test_a_screen_that_isnt_built_says_so(api, monkeypatch):
-    from application.serving.main import app
+def test_a_screen_that_isnt_built_says_so(api, app, monkeypatch):
     screen = next(r.app for r in app.routes if getattr(r, "name", None) == "screen")
     monkeypatch.setattr(screen, "all_directories", [os.path.join(os.environ["SCREEN_DIR"], "gone")])
     r = api.get("/find-care")
     assert r.status_code == 503 and "npm run build" in r.json()["detail"]
 
 
-def test_a_failure_says_only_that_it_happened(api, monkeypatch):
-    from application.serving.main import app
+def test_a_failure_says_only_that_it_happened(api, app, monkeypatch):
     from application.serving.routers import find_care
 
     def broken():
         raise RuntimeError("IO Error: /app/data/serving/plans.parquet is unreadable")
     monkeypatch.setattr(find_care, "db", broken)
-    with TestClient(app, raise_server_exceptions=False) as client:
+    with TestClient(app, raise_server_exceptions=False, cookies=api.cookies) as client:
         r = client.get("/api/plans")
     assert r.status_code == 500
     assert r.json() == {"detail": {"code": "internal_error", "message": "Something went wrong on our side."}}

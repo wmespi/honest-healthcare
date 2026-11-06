@@ -3,9 +3,11 @@
 The app's tests read the find-care tables integration builds from its default
 test corpus into data-test/serving/ (integration/tests/app_tables.py), which
 `make test` runs first, so they read tables the real build wrote, handed over
-the way the real ones are. `api` binds a `TestClient` to the app reading them.
+the way the real ones are. `api` binds a `TestClient` to the app reading them,
+as an invited tester, and `stranger` binds one with no invite.
 """
 import atexit
+import hashlib
 import os
 import shutil
 import tempfile
@@ -34,16 +36,38 @@ with open(os.path.join(SCREEN_DIR, "assets", "index-abc123.js"), "w") as f:
     f.write("console.log('the screen');\n" * 100)
 os.environ["SCREEN_DIR"] = SCREEN_DIR
 
+# The invite gate on, as deployed, whatever the dev stack sets (gate.py), with
+# one tester invited. Frozen at import time too.
+INVITE = "test-invite-token"
+os.environ["GATE"] = "on"
+os.environ["INVITES"] = f"tester:{hashlib.sha256(INVITE.encode()).hexdigest()}"
+
 
 @pytest.fixture(scope="session")
-def api():
-    """A TestClient bound to the app, reading the app's test tables in-process."""
-    from fastapi.testclient import TestClient
+def app():
     from application.serving.data_sources import missing_build
     from application.serving.main import app
     missing = missing_build()
     if missing:
         pytest.fail(f"{SERVING_DIR} is missing {missing}: run `make test`, which builds the app's "
                     "test tables first (python -m integration.tests.app_tables)")
-    with TestClient(app) as c:
+    return app
+
+
+@pytest.fixture(scope="session")
+def api(app):
+    """A TestClient bound to the app, reading the app's test tables in-process,
+    with the invited tester's cookie."""
+    from fastapi.testclient import TestClient
+    from application.serving.gate import COOKIE
+    with TestClient(app, cookies={COOKIE: INVITE}) as c:
+        yield c
+
+
+@pytest.fixture()
+def stranger(app):
+    """A TestClient with no invite, which follows no redirect. Over https, as
+    deployed, so it sends back the gate's `Secure` cookie."""
+    from fastapi.testclient import TestClient
+    with TestClient(app, follow_redirects=False, base_url="https://testserver") as c:
         yield c

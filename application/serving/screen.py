@@ -6,7 +6,8 @@ any other path, such as /find-care, is an address the screen's router knows, so
 it gets index.html; a missing asset is a 404. Vite names each file under
 assets/ by its content hash, so
 those are cached for good, and everything else is checked on every load, so a
-new deploy shows on the next one.
+new deploy shows on the next one. Each is `private`, so only the browser
+keeps it, and no shared cache hands one out past the invite gate (gate.py).
 """
 import os
 
@@ -16,7 +17,7 @@ from starlette.staticfiles import StaticFiles
 # The build's output (`npm run build`); the app's tests point it at their own.
 SCREEN_DIR = os.getenv("SCREEN_DIR") or os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
-_HASHED = "public, max-age=31536000, immutable"
+_HASHED = "private, max-age=31536000, immutable"
 
 
 class Screen(StaticFiles):
