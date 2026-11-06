@@ -15,39 +15,39 @@ source tests/e2e/lib.sh
 
 FIXTURE="extraction/testdata/fixtures/synthetic.json.gz"
 PORT=8765
-HOST="http://serving:$PORT"
+HOST="http://127.0.0.1:$PORT"
 
 cleanup() {
   echo "→ teardown"
   serve_stop "$PORT"
-  # Delete through the etl container — it wrote these files as root, so a host-side
+  # Delete through the ingestion container - it wrote these files as root, so a host-side
   # rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
-  docker compose exec -T etl rm -rf /app/data-test/anthem /app/data-test/reference/exchange_plans_ga.parquet \
-    /app/data-test/e2e_targets.yaml /app/data-test/e2e_http 2>/dev/null \
-    || rm -rf data-test/anthem data-test/e2e_targets.yaml data-test/e2e_http
+  docker compose exec -T ingestion rm -rf /app/data-test/raw/anthem /app/data-test/ingestion/reference/exchange_plans_ga.parquet \
+    /app/data-test/raw/e2e_targets.yaml /app/data-test/raw/e2e_http 2>/dev/null \
+    || rm -rf data-test/raw/anthem data-test/raw/e2e_targets.yaml data-test/raw/e2e_http
 }
 trap cleanup EXIT
 
 echo "→ unit tests"
-docker compose exec -T etl go test ./...
+docker compose exec -T ingestion go test ./...
 
 cleanup  # start from a clean slate
 store_mark
 
 echo "→ parse fixture (test isolation)"
-docker compose exec -T etl go run . parse -test -fixture "$FIXTURE"
+docker compose exec -T ingestion go run . parse -test -fixture "$FIXTURE"
 
-echo "→ verify parquet output (via serving duckdb)"
-RATE_ROWS=$(docker compose exec -T serving python3 -c "
+echo "→ verify parquet output (via DuckDB)"
+RATE_ROWS=$(docker compose exec -T ingestion python3 -c "
 import duckdb, glob
-prices = glob.glob('/app/data-test/anthem/prices/**/*.parquet', recursive=True)
-gsets  = glob.glob('/app/data-test/anthem/group_sets/*.parquet')
+prices = glob.glob('/app/data-test/raw/anthem/prices/**/*.parquet', recursive=True)
+gsets  = glob.glob('/app/data-test/raw/anthem/group_sets/*.parquet')
 assert prices, 'no prices parquet written'
 assert gsets, 'no group_sets parquet written'
 assert any('/net=' in f for f in prices), f'prices not partitioned by net: {prices}'
 con = duckdb.connect()
-P = \"read_parquet('/app/data-test/anthem/prices/**/*.parquet', hive_partitioning=1)\"
-G = \"read_parquet('/app/data-test/anthem/group_sets/*.parquet')\"
+P = \"read_parquet('/app/data-test/raw/anthem/prices/**/*.parquet', hive_partitioning=1)\"
+G = \"read_parquet('/app/data-test/raw/anthem/group_sets/*.parquet')\"
 pcols = [c[0] for c in con.execute(f'DESCRIBE SELECT * FROM {P}').fetchall()]
 assert {'network_name', 'net', 'file_id', 'group_set_id'} <= set(pcols), f'price cols: {pcols}'
 # every price row's group_set_id must resolve to >=1 membership edge
@@ -65,16 +65,16 @@ echo "   price rows=$N  attributed to GA Blue Value Individual=$GA"
 [ "$GA" -ge 1 ] || { echo "FAIL: no price rows attributed to the target network"; exit 1; }
 
 record() {  # record <file name> <column>: that column of the file's parse record, or ""
-  docker compose exec -T serving python3 -c "
+  docker compose exec -T ingestion python3 -c "
 import duckdb
-r = duckdb.connect().execute(\"SELECT $2::VARCHAR FROM read_parquet('/app/data-test/anthem/parses/*.parquet') WHERE name = '$1'\").fetchall()
+r = duckdb.connect().execute(\"SELECT $2::VARCHAR FROM read_parquet('/app/data-test/raw/anthem/parses/*.parquet') WHERE name = '$1'\").fetchall()
 print(r[0][0] if r and r[0][0] is not None else '')"
 }
 
 echo "→ verify the parse record, saved under the file's name"
-docker compose exec -T etl test -f /app/data-test/anthem/parses/synthetic.parquet \
+docker compose exec -T ingestion test -f /app/data-test/raw/anthem/parses/synthetic.parquet \
   || { echo "FAIL: the fixture's record isn't parses/synthetic.parquet"; exit 1; }
-docker compose exec -T etl test -f /app/data-test/anthem/codes/synthetic.parquet \
+docker compose exec -T ingestion test -f /app/data-test/raw/anthem/codes/synthetic.parquet \
   || { echo "FAIL: the fixture's codes aren't codes/synthetic.parquet"; exit 1; }
 [ "$(record synthetic.json.gz status)" = "parsed" ] || { echo "FAIL: the fixture's record says '$(record synthetic.json.gz status)', want parsed"; exit 1; }
 [ "$(record synthetic.json.gz price_rows)" = "$N" ] || { echo "FAIL: the record counts $(record synthetic.json.gz price_rows) price rows, the Parquet $N"; exit 1; }
@@ -84,25 +84,25 @@ echo "→ parse downloads only the files a targets file names"
 # to out-of-state shards. Only the named one is downloaded, from a file server
 # whose Last-Modified stands in for Anthem's; the other is never touched.
 SHARD_NAME="2026-10_301_71B0_in-network-rates_01_of_02.json.gz"
-mkdir -p data-test/e2e_http  # host-made, so the host can copy into it under a Linux bind mount
-docker compose exec -T serving python3 - "$HOST" "$SHARD_NAME" <<'EOF'
+mkdir -p data-test/raw/e2e_http  # host-made, so the host can copy into it under a Linux bind mount
+docker compose exec -T ingestion python3 - "$HOST" "$SHARD_NAME" <<'EOF'
 import gzip, json, os, sys, duckdb
 host, shard = sys.argv[1], sys.argv[2]
-os.makedirs('/app/data-test/reference', exist_ok=True)
-duckdb.connect().execute("COPY (SELECT '45334GA0020008' AS plan_id, '45334-GAN001' AS network_id) TO '/app/data-test/reference/exchange_plans_ga.parquet' (FORMAT parquet)")
-os.makedirs('/app/data-test/e2e_http', exist_ok=True)
+os.makedirs('/app/data-test/ingestion/reference', exist_ok=True)
+duckdb.connect().execute("COPY (SELECT '45334GA0020008' AS plan_id, '45334-GAN001' AS network_id) TO '/app/data-test/ingestion/reference/exchange_plans_ga.parquet' (FORMAT parquet)")
+os.makedirs('/app/data-test/raw/e2e_http', exist_ok=True)
 plan = {"plan_name": "BLUE VALUE", "plan_id_type": "HIOS", "plan_id": "45334GA0020008", "plan_market_type": "individual"}
 files = [{"description": "test", "location": f"{host}/GA_NAMED.json.gz"},
          {"description": "test", "location": f"{host}/{shard}?Expires=1"}]
-with gzip.open('/app/data-test/e2e_http/index.json.gz', 'wt') as f:
+with gzip.open('/app/data-test/raw/e2e_http/index.json.gz', 'wt') as f:
     json.dump({"reporting_structure": [{"reporting_plans": [plan], "in_network_files": files}]}, f)
 EOF
-cp "etl/$FIXTURE" data-test/e2e_http/GA_NAMED.json.gz
-touch -t 202610170400 data-test/e2e_http/GA_NAMED.json.gz
+cp "ingestion/etl/$FIXTURE" data-test/raw/e2e_http/GA_NAMED.json.gz
+touch -t 202610170400 data-test/raw/e2e_http/GA_NAMED.json.gz
 serve_start e2e_http "$PORT"
-docker compose exec -T etl go run . discover -test -index-url "$HOST/index.json.gz"
-printf 'targets:\n  - name: Blue Value\n    exchange_networks: ["45334-GAN001"]\n    files: ["GA_NAMED.json.gz"]\n' > data-test/e2e_targets.yaml
-parse_named() { docker compose exec -T etl go run . parse -test -targets ../data-test/e2e_targets.yaml; }
+docker compose exec -T ingestion go run . discover -test -index-url "$HOST/index.json.gz"
+printf 'targets:\n  - name: Blue Value\n    exchange_networks: ["45334-GAN001"]\n    files: ["GA_NAMED.json.gz"]\n' > data-test/raw/e2e_targets.yaml
+parse_named() { docker compose exec -T ingestion go run . parse -test -targets data-test/raw/e2e_targets.yaml; }
 
 parse_named
 echo "   named file: $(record GA_NAMED.json.gz status)  unnamed file: '$(record "$SHARD_NAME" status)'"
@@ -115,7 +115,7 @@ DONE=$(record GA_NAMED.json.gz finished_at)
 echo "→ a parsed file isn't downloaded again until it's updated"
 parse_named
 [ "$(record GA_NAMED.json.gz finished_at)" = "$DONE" ] || { echo "FAIL: parse downloaded an unchanged file again"; exit 1; }
-touch -t 202610310400 data-test/e2e_http/GA_NAMED.json.gz
+touch -t 202610310400 data-test/raw/e2e_http/GA_NAMED.json.gz
 parse_named
 echo "   read the update from $READ, then $(record GA_NAMED.json.gz anthem_updated_at)"
 [ "$(record GA_NAMED.json.gz finished_at)" != "$DONE" ] || { echo "FAIL: parse didn't download the updated file"; exit 1; }
@@ -124,20 +124,20 @@ echo "   read the update from $READ, then $(record GA_NAMED.json.gz anthem_updat
 
 echo "→ a failed file waits until someone names it"
 # Half the file fails the completeness check.
-head -c $(( $(wc -c < "etl/$FIXTURE") / 2 )) "etl/$FIXTURE" > data-test/e2e_http/GA_NAMED.json.gz
-touch -t 202611010400 data-test/e2e_http/GA_NAMED.json.gz
+head -c $(( $(wc -c < "ingestion/etl/$FIXTURE") / 2 )) "ingestion/etl/$FIXTURE" > data-test/raw/e2e_http/GA_NAMED.json.gz
+touch -t 202611010400 data-test/raw/e2e_http/GA_NAMED.json.gz
 parse_named
 [ "$(record GA_NAMED.json.gz status)" = "failed" ] || { echo "FAIL: a truncated download wasn't recorded as failed"; exit 1; }
 FAILED=$(record GA_NAMED.json.gz finished_at)
-cp "etl/$FIXTURE" data-test/e2e_http/GA_NAMED.json.gz
-touch -t 202611020400 data-test/e2e_http/GA_NAMED.json.gz
+cp "ingestion/etl/$FIXTURE" data-test/raw/e2e_http/GA_NAMED.json.gz
+touch -t 202611020400 data-test/raw/e2e_http/GA_NAMED.json.gz
 parse_named
 [ "$(record GA_NAMED.json.gz finished_at)" = "$FAILED" ] || { echo "FAIL: parse retried a failed file nobody named"; exit 1; }
-docker compose exec -T etl go run . parse -test -files GA_NAMED.json.gz
+docker compose exec -T ingestion go run . parse -test -files GA_NAMED.json.gz
 [ "$(record GA_NAMED.json.gz status)" = "parsed" ] || { echo "FAIL: naming the failed file didn't parse it"; exit 1; }
 
 echo "→ a parse that stopped part way stops parse"
-docker compose exec -T etl mkdir -p /app/data-test/anthem/.inflight/GA_NAMED
+docker compose exec -T ingestion mkdir -p /app/data-test/raw/anthem/.inflight/GA_NAMED
 if OUT=$(parse_named 2>&1); then
   echo "FAIL: parse ran over a file whose last parse stopped part way"; exit 1
 fi

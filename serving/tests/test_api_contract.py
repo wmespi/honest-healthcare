@@ -1,12 +1,19 @@
-"""API contract tests — every route answered against the synthetic fixture in
-conftest.py (`api` fixture). Hermetic: no live server, no data/ mount.
+"""API contract tests - every route answered against the app's test tables,
+which integration builds from its test corpus (conftest.py, `api` fixture).
+Hermetic: no live server, no data/ mount.
 
 Checks response shape and the invariants a consumer relies on. Real-data
 assertions live in tests/live/test_golden.py.
 """
+import os
+import subprocess
+import sys
+
 import pytest
 
 from serving.routers.find_care import radius_for, wider_radius
+
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def test_health_says_when_the_build_ran_and_what_it_holds(api):
@@ -112,3 +119,12 @@ def test_a_search_with_no_full_price_points_to_the_nearest_one():
     assert wider_radius(places[:2], places[:2]) is None
     assert wider_radius([place(70, 100)], []) is None
     assert wider_radius(places, places[:3]) is None
+
+
+def test_the_app_imports_nothing_from_ingestion_or_integration():
+    r = subprocess.run([sys.executable, "-c",
+                        "import sys, serving.main; "
+                        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('ingestion', 'integration')))"],
+                       cwd=REPO, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "[]"

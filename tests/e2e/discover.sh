@@ -13,15 +13,15 @@ cd "$(dirname "$0")/../.."
 source tests/e2e/lib.sh
 
 PORT=8766
-HOST="http://serving:$PORT"
+HOST="http://127.0.0.1:$PORT"
 
 cleanup() {
   echo "→ teardown"
   serve_stop "$PORT"
-  # Delete through the etl container — it wrote these files as root, so a host-side
+  # Delete through the ingestion container - it wrote these files as root, so a host-side
   # rm fails under a bind mount on Linux (CI). Falls back to a host rm if needed.
-  docker compose exec -T etl rm -rf /app/data-test/anthem /app/data-test/e2e_discover 2>/dev/null \
-    || rm -rf data-test/anthem data-test/e2e_discover
+  docker compose exec -T ingestion rm -rf /app/data-test/raw/anthem /app/data-test/raw/e2e_discover 2>/dev/null \
+    || rm -rf data-test/raw/anthem data-test/raw/e2e_discover
 }
 trap cleanup EXIT
 cleanup
@@ -30,9 +30,9 @@ store_mark
 echo "→ write two months of index"
 # October lists GA_KEEP unsigned. November signs it, links it to a different
 # plan, drops GA_GONE, and adds GA_NEW.
-docker compose exec -T serving python3 - <<'EOF'
+docker compose exec -T ingestion python3 - <<'EOF'
 import gzip, json, os
-os.makedirs("/app/data-test/e2e_discover", exist_ok=True)
+os.makedirs("/app/data-test/raw/e2e_discover", exist_ok=True)
 def plan(plan_id):
     return {"plan_name": "TEST PLAN " + plan_id, "plan_id_type": "HIOS", "plan_id": plan_id, "plan_market_type": "individual"}
 def files(*locations):
@@ -52,7 +52,7 @@ months = {
     ],
 }
 for name, structures in months.items():
-    with gzip.open(f"/app/data-test/e2e_discover/{name}", "wt") as f:
+    with gzip.open(f"/app/data-test/raw/e2e_discover/{name}", "wt") as f:
         json.dump({"reporting_entity_name": "Test", "reporting_entity_type": "test",
                    "reporting_structure": structures}, f)
 EOF
@@ -61,17 +61,17 @@ serve_start e2e_discover "$PORT"
 discover() {  # discover <index file> [more flags]
   local index=$1
   shift
-  docker compose exec -T etl go run . discover -test -index-url "$HOST/$index" "$@"
+  docker compose exec -T ingestion go run . discover -test -index-url "$HOST/$index" "$@"
 }
 has_index() {  # whether the downloaded index is still on disk
-  docker compose exec -T etl test -f /app/data-test/anthem/index_cache.json.gz
+  docker compose exec -T ingestion test -f /app/data-test/raw/anthem/index_cache.json.gz
 }
 query() {  # query <SQL over the views files and links>: its one value
-  docker compose exec -T serving python3 -c "
+  docker compose exec -T ingestion python3 -c "
 import duckdb
 con = duckdb.connect()
-con.execute(\"CREATE VIEW files AS FROM '/app/data-test/anthem/index_files.parquet'\")
-con.execute(\"CREATE VIEW links AS FROM '/app/data-test/anthem/index_file_plans.parquet'\")
+con.execute(\"CREATE VIEW files AS FROM '/app/data-test/raw/anthem/index_files.parquet'\")
+con.execute(\"CREATE VIEW links AS FROM '/app/data-test/raw/anthem/index_file_plans.parquet'\")
 v = con.execute(\"\"\"$1\"\"\").fetchone()[0]
 print('' if v is None else v)"
 }
@@ -82,7 +82,7 @@ links() {  # every (file, plan) link, as name:plan
   query "SELECT string_agg(f.name || ':' || l.plan_id, ' ' ORDER BY f.name, l.plan_id) FROM links l JOIN files f USING (file_id)"
 }
 checksum() {
-  docker compose exec -T etl sh -c 'cat /app/data-test/anthem/index_files.parquet /app/data-test/anthem/index_file_plans.parquet | md5sum'
+  docker compose exec -T ingestion sh -c 'cat /app/data-test/raw/anthem/index_files.parquet /app/data-test/raw/anthem/index_file_plans.parquet | md5sum'
 }
 
 echo "→ discover October"

@@ -1,5 +1,5 @@
-# Test-only deps (pytest + the TestClient's HTTP layer). Not in the runtime image.
-#   docker compose exec serving pip install -r serving/requirements-dev.txt
+# Test-only deps (pytest + the TestClient's HTTP layer), in the dev image and the
+# host .venv. Not in the prod image.
 -r requirements.txt
 pytest==9.1.1
 httpx2==2.16.0

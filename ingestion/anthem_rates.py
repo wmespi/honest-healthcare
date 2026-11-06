@@ -1,12 +1,12 @@
 """Anthem's rates by Georgia network: the last step of `make parse`, which turns
-the files parse streamed (data/anthem/) into the payer rates integration reads
-(data/payer_rates/anthem/, docs/schema.md).
+the files parse streamed (data/raw/anthem/) into the payer rates integration reads
+(data/ingestion/payer_rates/anthem/, docs/schema.md).
 
-A target in etl/targets.yaml names Georgia exchange networks, the files that
+A target in ingestion/etl/targets.yaml names Georgia exchange networks, the files that
 price them and the labels those files give them. A network's rates are the
 ones under one of its labels in the one parsed file the index links to the
 network's plans, and every plan on the network has to be linked to that file
-(etl/mrf-model.md, "One plan, one contract"). Anything else stops the step, so
+(ingestion/etl/mrf-model.md, "One plan, one contract"). Anything else stops the step, so
 integration never sees Anthem's labels, files or index.
 """
 import argparse
@@ -17,21 +17,20 @@ import shutil
 import duckdb
 import yaml
 
-from reference._common import store_dir
+from ingestion.reference._common import store_dir
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TARGETS_PATH = os.path.join(REPO, "etl", "targets.yaml")
+TARGETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "etl", "targets.yaml")
 
 # What parse and discover wrote, and Georgia's plan file: (path under the data
 # dir, the command that makes it, read_parquet options).
-_RAW_RATES = ("anthem/prices/*/*.parquet", "make parse", ", hive_partitioning=1, union_by_name=true")
-_RAW_GROUPS = ("anthem/group_sets/*.parquet", "make parse", "")
-_RAW_ROSTERS = ("anthem/providers/*.parquet", "make parse", "")
-_INDEX_LINKS = ("anthem/index_file_plans.parquet", "make discover", "")
-_EXCHANGE_NETWORKS = ("reference/exchange_networks_ga.parquet", "make reference STEP=exchange-plans", "")
-_EXCHANGE_PLANS = ("reference/exchange_plans_ga.parquet", "make reference STEP=exchange-plans", "")
+_RAW_RATES = ("raw/anthem/prices/*/*.parquet", "make parse", ", hive_partitioning=1, union_by_name=true")
+_RAW_GROUPS = ("raw/anthem/group_sets/*.parquet", "make parse", "")
+_RAW_ROSTERS = ("raw/anthem/providers/*.parquet", "make parse", "")
+_INDEX_LINKS = ("raw/anthem/index_file_plans.parquet", "make discover", "")
+_EXCHANGE_NETWORKS = ("ingestion/reference/exchange_networks_ga.parquet", "make reference STEP=exchange-plans", "")
+_EXCHANGE_PLANS = ("ingestion/reference/exchange_plans_ga.parquet", "make reference STEP=exchange-plans", "")
 
-# The payer rates, as integration reads them (build/inputs/datasets.py). Each
+# The payer rates, as integration reads them (integration/inputs/datasets.py). Each
 # SELECT reads the `network_files` table publish() makes. Rates and rate groups
 # are written in full row order, so the same files make the same bytes; a
 # network's rosters can run to hundreds of millions of rows (every doctor in
@@ -144,7 +143,7 @@ def _targets(con, data_dir, targets_path):
 def _network_files(con, data_dir):
     """`network_files`: (network_id, file_id, network_name) for the parsed file
     that prices each target network and the labels its rates carry there.
-    Labels match the way the parse probe matches them (etl/extraction/targets.go):
+    Labels match the way the parse probe matches them (ingestion/etl/extraction/targets.go):
     trimmed, case-insensitive, and `*` is the only wildcard."""
     labelled = f"""
         SELECT DISTINCT k.network_id, l.file_id, l.network_name
@@ -174,14 +173,14 @@ def _network_files(con, data_dir):
     if files:
         raise SystemExit(f"{target}: the index links files {files} to plans on {net}, and each "
                          f"carries a label matching {patterns}, but one file prices {net} "
-                         f"(etl/mrf-model.md#one-plan-one-contract). Delete the Parquet under "
-                         f"data/anthem/ of any that don't, whether an older copy or another contract")
+                         f"(ingestion/etl/mrf-model.md#one-plan-one-contract). Delete the Parquet under "
+                         f"data/raw/anthem/ of any that don't, whether an older copy or another contract")
     unlinked = con.execute(f"SELECT list(DISTINCT l.file_id ORDER BY l.file_id) FROM ({labelled}) l "
                            f"WHERE l.network_id = ?", [net]).fetchone()[0]
     if unlinked:
         raise SystemExit(f"{target}: files {unlinked} carry a label matching {patterns}, but the "
                          f"index doesn't link them to a plan on {net}, so nothing prices it. Name "
-                         f"the file it links in etl/targets.yaml and run `make parse`")
+                         f"the file it links in ingestion/etl/targets.yaml and run `make parse`")
     raise SystemExit(f"{target}: no parsed insurer file carries a label matching "
                      f"{patterns}, so nothing prices {net}; run `make parse`")
 
@@ -200,7 +199,7 @@ def _check_plans(con, data_dir):
         plan, net, file_id = unlinked
         raise SystemExit(f"the index doesn't link {plan} to file {file_id}, which prices its "
                          f"network {net}, so that file's rates aren't its contract "
-                         f"(etl/mrf-model.md#one-plan-one-contract)")
+                         f"(ingestion/etl/mrf-model.md#one-plan-one-contract)")
 
 
 def _swap(staged, out_dir):
@@ -215,7 +214,7 @@ def _swap(staged, out_dir):
 
 
 def read_targets(path=TARGETS_PATH):
-    """[(name, exchange_networks, network_patterns)] for each target in etl/targets.yaml."""
+    """[(name, exchange_networks, network_patterns)] for each target in ingestion/etl/targets.yaml."""
     with open(path) as f:
         targets = (yaml.safe_load(f) or {}).get("targets") or []
     return [(t.get("name"), t.get("exchange_networks") or [], t.get("network_patterns") or [])
@@ -233,7 +232,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-dir", default=os.getenv("DATA_DIR", "/app/data"))
     ap.add_argument("--test", action="store_true", help="read and write under data-test/")
-    ap.add_argument("--targets", default=TARGETS_PATH, help="the target-plan list (default etl/targets.yaml)")
+    ap.add_argument("--targets", default=TARGETS_PATH, help="the target-plan list (default ingestion/etl/targets.yaml)")
     args = ap.parse_args()
     data_dir = "data-test" if args.test else args.data_dir
     rows = publish(data_dir, store_dir(data_dir, args.test, "payer_rates/anthem"), args.targets)

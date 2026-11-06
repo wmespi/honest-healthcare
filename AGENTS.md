@@ -17,24 +17,31 @@ code.
 **Current focus** *(update as the active work changes)*: moving one owner-reviewed step at
 a time through the [order of work on #135](https://github.com/wmespi/honest-healthcare/issues/135),
 which also holds the target data model. The find-care screen at `/find-care` (find the
-cheapest care nearby) is live, and step 11 removes the old serving tables and the code
-only they use.
+cheapest care nearby) is live, and step 12 finishes the three-layer layout below and the
+audit's last actions.
 Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold. Product
-direction is in [docs/direction.md](docs/direction.md). Don't restructure `etl/`, `serving/`,
-or `frontend/` without a reason (rule 7).
+direction is in [docs/direction.md](docs/direction.md). Don't restructure `ingestion/`, `integration/`,
+`serving/` or `frontend/` without a reason (rule 7).
 
 ---
 
 ## Architecture
 
-Five stages, one direction: **discovery** (Go) lists this month's MRF URLs and keeps
-the plan→file link → **extraction** (Go) streams the files `etl/targets.yaml` names to
-raw Parquet, a provider probe aborting empty downloads before `in_network` → **reference** (Go +
-Python/DuckDB) lands the public datasets → **build** (Python/DuckDB, `build/`) turns
-the payer rates + reference into the serving tables and is where every product decision lives →
-**serving** (Python/DuckDB + FastAPI, `localhost:8000`) queries the Parquet in-process
-for the **frontend** (React, `localhost:5173`). Storage is Parquet+ZSTD under `data/`,
-with no database. Layer table and diagrams:
+Three layers, one direction, each in its own container and reading only what the layer before
+it delivers:
+
+1. **Ingestion** (`ingestion/`) reads each source and keeps what matters.
+   **Discovery** (Go) lists this month's MRF URLs and the plan→file link, **extraction** (Go)
+   streams the files `ingestion/etl/targets.yaml` names to raw Parquet, a provider probe aborting
+   empty downloads before `in_network`, then publishes each target network's rates, and
+   **reference** (Go + Python/DuckDB) lands the public datasets. It keeps its own files in
+   `data/raw/` and delivers what integration reads to `data/ingestion/`.
+2. **Integration** (`integration/`, Python/DuckDB, `make build`) turns that into the find-care
+   tables in `data/serving/`, and is where every product decision lives.
+3. **Application**: **serving** (FastAPI + DuckDB, `localhost:8000`) queries those tables
+   in-process for the **frontend** (React, `localhost:5173`).
+
+Storage is Parquet+ZSTD under `data/`, with no database. Layer table and diagrams:
 **[docs/architecture.md](docs/architecture.md)**; on-disk layout:
 **[docs/schema.md](docs/schema.md)**; images and ports: [deploy/](deploy/README.md).
 
@@ -63,17 +70,17 @@ parallel C++ reader handles, not a hand-rolled streaming parse.
 1. **`exec` not `run --rm`** — always `docker compose exec <service>` so output
    streams to Docker Desktop logs. The `make` targets already do this.
 2. **Look at a stopped or failed parse before retrying it** - a `failed` parse
-   record or a leftover `data/anthem/.inflight/<name>/` means investigate first.
+   record or a leftover `data/raw/anthem/.inflight/<name>/` means investigate first.
    Repeated failures on one file mean a bad file, not a transient error.
 3. **No full-file buffering in extraction** — the Go parser must stream; MRFs can
    exceed 10 GB.
 4. **Test mode writes only `data-test/`** - it's safe to delete at any time, and a
    test run must never touch `data/`.
 5. **One plan, one contract** — a plan a person can pick is priced by one file, so
-   nothing combines or overrides prices across files. `etl/targets.yaml` names
+   nothing combines or overrides prices across files. `ingestion/etl/targets.yaml` names
    the files to parse, and parse stops unless the index links each one to a plan on
    Georgia's exchange networks, which keeps out `GA_JBKEMED0001`: it carries Blue
-   Value's network label but prices an older plan that isn't sold any more. [etl/mrf-model.md](etl/mrf-model.md#one-plan-one-contract).
+   Value's network label but prices an older plan that isn't sold any more. [ingestion/etl/mrf-model.md](ingestion/etl/mrf-model.md#one-plan-one-contract).
 6. **Give regular status updates — the most-missed rule here.** On any multi-step
    task, post a short progress note *as each step lands* — what's done, what's
    next, anything that changed — not just a summary at the end. If you've run
@@ -102,16 +109,16 @@ make discover               # Phase 1 - this month's file list + plan→file lin
 make discover SCHEMA=1      #   stream only, write index_schema.json and nothing else
 make reference              # Phase 3 — NPPES, NUCC labels, CMS utilization, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals (skips what exists)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
-make parse                  # Phase 2 - stream the files etl/targets.yaml names → Parquet when new or updated, then publish their rates by Georgia network (needs the NPPES and exchange-plans references first)
+make parse                  # Phase 2 - stream the files ingestion/etl/targets.yaml names → Parquet when new or updated, then publish their rates by Georgia network (needs the NPPES and exchange-plans references first)
 make parse FILE=GA_JBNKMED0001.json.gz  #   one file by name, now (bypasses target selection and its parse record)
-make parse TARGETS=<path>   #   a different target-plan list (default etl/targets.yaml)
+make parse TARGETS=<path>   #   a different target-plan list (default ingestion/etl/targets.yaml)
 make parse TEST=1           #   test isolation (data-test/)
-make build                  # Phase 4 - payer rates + reference parquet → the find-care tables in data/serving/
+make build                  # Phase 4 - what ingestion delivered (data/ingestion/) → the find-care tables in data/serving/
 make refresh                # the monthly job: discover → reference → parse → geocode → build
 
 make check                  # pre-commit gate (container): fmt + vet + build + Go unit tests
 make check LOCAL=1          #   same gate on host toolchains, NO Docker
-make test                   # every hermetic suite: check + pytest (ingestion, reference, build, serving) + vitest (+ ETL e2e)
+make test                   # every hermetic suite: check + each layer's pytest in its own container + vitest (+ ETL e2e)
 make test LOCAL=1           #   host toolchains, no Docker; works in any checkout but fails with
                              #   "no host 'go'" / "no .venv" / "no frontend/node_modules" until scripts/dev-setup.sh has been run
 make test-live              # golden answers + user journeys against the live API + real corpus (docs/journeys.md)
@@ -120,7 +127,7 @@ make worktree TOPIC=x       # only for parallel work: new sibling worktree + bra
 make worktree-rm TOPIC=x    # remove it once its PR merges
 make footprint / make clean # disk report / reclaim regenerable artifacts
 make fixture FILE=<name>    # truncated *.json.gz fixture from a file in this month's index
-make sh S=serving           # shell into a container
+make sh S=integration       # shell into a container: ingestion, integration, serving or frontend
 ```
 
 **Branches and worktrees** (GH #59).
@@ -130,7 +137,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 
 - The Docker stack mounts this checkout's code, so a running stack serves whichever branch is checked out.
 - A branch writes `data/` only when that is its purpose.
-  Otherwise use `TEST=1`, or `SERVING_DIR=/app/data-local/serving` to rebuild serving tables locally.
+  Otherwise use `TEST=1`, or set `HH_SERVING_DIR=./data-local/serving` in `.env` to build and serve the find-care tables locally.
 - Use a worktree only when two things must run at once, such as a second session or a stack that has to stay on `main`.
   `make worktree TOPIC=x [TYPE=feat]` creates `../hh-<topic>` and runs `scripts/dev-setup.sh` (`.venv`, `npm ci`, a gitignored `.env` with its own ports and `HH_DATA_ROOT`).
   Each session gets its own worktree, which **reads** the shared Parquet store, must never write it, and runs its own stack (`make start`) only for a live check.
@@ -148,22 +155,22 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 
 | Working on… | Read |
 |---|---|
-| The source-file shape, plan/network/file/provider model, conflict resolution | [etl/mrf-model.md](etl/mrf-model.md) |
-| Discovery - the monthly file list, the plan→file link, a file's ID, monthly churn | [etl/discover.md](etl/discover.md) |
-| Extraction - target selection, when a file is downloaded again, recovering a failed or stopped parse, the parser, network attribution, GA NPI filter, Parquet writers, publishing the rates by network | [etl/parse.md](etl/parse.md) |
-| Which plans we parse files for | [etl/targets.yaml](etl/targets.yaml) |
-| The services the find-care screen offers, and what it says about each | [build/services.yaml](build/services.yaml) |
-| NPPES Georgia provider subset | [etl/nppes.md](etl/nppes.md) |
-| NUCC specialty labels | [reference/taxonomy-labels.md](reference/taxonomy-labels.md) |
-| Provider↔procedure evidence (CMS utilization) | [reference/cms-utilization.md](reference/cms-utilization.md) |
-| Medicare Physician Fee Schedule rate (`services.medicare_rate`) | [reference/mpfs.md](reference/mpfs.md) |
-| Georgia's hospitals: CCN, name, address, phone and Medicare star rating | [reference/hospitals.md](reference/hospitals.md) |
-| Georgia's individual-market plans: real names, metal level, referral rule, network and premiums by HIOS plan ID | [reference/exchange-plans.md](reference/exchange-plans.md) |
-| Medicare hospital-outpatient (OPPS) rate — the labelled facility estimate on the imaging screen | [reference/opps.md](reference/opps.md) |
-| Provider lat/long for distance ranking (Flow A build sequence step 1) | [reference/geocode.md](reference/geocode.md) |
-| CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [reference/mips.md](reference/mips.md) · [reference/zip-centroids.md](reference/zip-centroids.md) |
-| Real practice identity + hospital-affiliation (CCN↔NPI) bridge — CMS Doctors & Clinicians | [reference/doctors-clinicians.md](reference/doctors-clinicians.md) |
-| The build step: payer rates + reference → the find-care tables, and the checks on its inputs | [build/build.md](build/build.md) |
+| The source-file shape, plan/network/file/provider model, conflict resolution | [ingestion/etl/mrf-model.md](ingestion/etl/mrf-model.md) |
+| Discovery - the monthly file list, the plan→file link, a file's ID, monthly churn | [ingestion/etl/discover.md](ingestion/etl/discover.md) |
+| Extraction - target selection, when a file is downloaded again, recovering a failed or stopped parse, the parser, network attribution, GA NPI filter, Parquet writers, publishing the rates by network | [ingestion/etl/parse.md](ingestion/etl/parse.md) |
+| Which plans we parse files for | [ingestion/etl/targets.yaml](ingestion/etl/targets.yaml) |
+| The services the find-care screen offers, and what it says about each | [integration/services.yaml](integration/services.yaml) |
+| NPPES Georgia provider subset | [ingestion/etl/nppes.md](ingestion/etl/nppes.md) |
+| NUCC specialty labels | [ingestion/reference/taxonomy-labels.md](ingestion/reference/taxonomy-labels.md) |
+| Provider↔procedure evidence (CMS utilization) | [ingestion/reference/cms-utilization.md](ingestion/reference/cms-utilization.md) |
+| Medicare Physician Fee Schedule rate (`services.medicare_rate`) | [ingestion/reference/mpfs.md](ingestion/reference/mpfs.md) |
+| Georgia's hospitals: CCN, name, address, phone and Medicare star rating | [ingestion/reference/hospitals.md](ingestion/reference/hospitals.md) |
+| Georgia's individual-market plans: real names, metal level, referral rule, network and premiums by HIOS plan ID | [ingestion/reference/exchange-plans.md](ingestion/reference/exchange-plans.md) |
+| Medicare hospital-outpatient (OPPS) rate - the labelled facility estimate on the imaging screen | [ingestion/reference/opps.md](ingestion/reference/opps.md) |
+| Provider lat/long for distance ranking (Flow A build sequence step 1) | [ingestion/reference/geocode.md](ingestion/reference/geocode.md) |
+| CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [ingestion/reference/mips.md](ingestion/reference/mips.md) · [ingestion/reference/zip-centroids.md](ingestion/reference/zip-centroids.md) |
+| Real practice identity + hospital-affiliation (CCN↔NPI) bridge - CMS Doctors & Clinicians | [ingestion/reference/doctors-clinicians.md](ingestion/reference/doctors-clinicians.md) |
+| The build step: payer rates + reference → the find-care tables, and the checks on its inputs | [integration/build.md](integration/build.md) |
 | The three standing architecture diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
 | API routes, query-layer notes | [serving/serving.md](serving/serving.md) |
 | On-disk schema (Parquet) | [docs/schema.md](docs/schema.md) |

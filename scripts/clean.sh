@@ -25,22 +25,22 @@ find . -type d -name __pycache__ -not -path './.venv/*' -not -path './frontend/n
   -exec rm -rf {} + 2>/dev/null || true
 say "cleared __pycache__"
 
-# data-local/ holds a worktree-local SERVING_DIR build — keep unless asked
+# data-local/ holds a worktree-local HH_SERVING_DIR build - keep unless asked
 if [ -d data-local ] && [ "${DATA_LOCAL:-}" = "1" ]; then
   say "rm data-local/  ($(du -sh data-local | cut -f1))"; rm -rf data-local
 elif [ -d data-local ]; then
   say "data-local/ kept ($(du -sh data-local | cut -f1)) — DATA_LOCAL=1 to drop it"
 fi
 
-# reference-builder download caches (data*/{cms,reference}/.cache) — the raw
-# CMS/NPPES source files. The built .parquet doesn't need them; a rebuild
-# re-downloads. Opt-in (CACHE=1).
+# reference-builder downloads (data*/raw/downloads) - the public datasets'
+# source files. The built .parquet doesn't need them; a rebuild re-downloads.
+# Opt-in (CACHE=1).
 if [ "${CACHE:-}" = "1" ]; then
-  for cd in data*/*/.cache data*/.cache; do
+  for cd in data*/raw/downloads; do
     [ -d "$cd" ] && { say "rm $cd/  ($(du -sh "$cd" | cut -f1))"; rm -rf "$cd"; }
   done
 else
-  found=$(du -shc data*/*/.cache 2>/dev/null | tail -1 | cut -f1) || found=""
+  found=$(du -shc data*/raw/downloads 2>/dev/null | tail -1 | cut -f1) || found=""
   # a bare `A && B && C` here would trip `set -e` when the middle test is
   # false (no caches found) — an `if` makes "nothing to report" not an error.
   if [ -n "$found" ] && [ "$found" != "0B" ]; then

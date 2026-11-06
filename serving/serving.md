@@ -1,7 +1,7 @@
 # Serving layer — FastAPI + DuckDB
 
 *Read this when adding or changing an API route.* The API reads **only**
-`data/serving/` — the build step's output (`make build`, [build/build.md](../build/build.md)).
+`data/serving/` - the build step's output (`make build`, [integration/build.md](../integration/build.md)).
 There is no fallback to raw Parquet: a missing build is a `503` from `GET /`,
 not a slower degraded mode. Tests: `test_api_contract.py` (every route,
 hermetic — the `api` fixture in `conftest.py` builds the find-care tables from the
@@ -20,7 +20,7 @@ tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
 | `contract.py` | The typed contract for the find-care screen ([#135](https://github.com/wmespi/honest-healthcare/issues/135)): the Pydantic models for `GET /plans`, `GET /services` and `GET /find-care`, which FastAPI publishes at `/docs`. A place's most you'd pay and a search's cheapest, closest, median and order are computed in the models, so a response can't contradict itself. |
 | `data_sources.py` | the find-care table sources (`*_SRC`), `db()` (one process-wide DuckDB database, `cursor()` per call), `missing_build()` and `manifest()` |
 | `ranking.py` | `haversine_sql()` — distance in SQL. |
-| `routers/find_care.py` | The find-care screen's routes, in `contract.py`'s shape, over the find-care tables in [build/build.md](../build/build.md#the-find-care-tables): `/plans`, `/services`, and `/find-care?service_id&plan_id&zip`, every place on the plan's network with a price for the service within `radius_mi` of the ZIP's center, with the plan's cost sharing for it and each place's providers. With no `radius_mi`, the tightest radius with at least 5 places. An unknown service, plan or ZIP is a `404` whose `detail` is a `Problem` (`unknown_service`, `unknown_plan`, `unknown_zip`). |
+| `routers/find_care.py` | The find-care screen's routes, in `contract.py`'s shape, over the find-care tables in [integration/build.md](../integration/build.md#the-find-care-tables): `/plans`, `/services`, and `/find-care?service_id&plan_id&zip`, every place on the plan's network with a price for the service within `radius_mi` of the ZIP's center, with the plan's cost sharing for it and each place's providers. With no `radius_mi`, the tightest radius with at least 5 places. An unknown service, plan or ZIP is a `404` whose `detail` is a `Problem` (`unknown_service`, `unknown_plan`, `unknown_zip`). |
 
 SQL lives inline in the route handlers.
 `main.py` is wiring only — don't add routes there; a genuinely new area gets
@@ -29,7 +29,7 @@ SQL lives inline in the route handlers.
 ## What a price is
 
 Every rule about who is on a plan and what a price is lives in the build
-([build/build.md](../build/build.md#the-find-care-tables)), so a route reads the tables as
+([integration/build.md](../integration/build.md#the-find-care-tables)), so a route reads the tables as
 they are and never re-derives a price. A route that needs a new fact gets a column in
 the build, not SQL that works it out per request.
 

@@ -1,7 +1,7 @@
 # Known gaps
 
 *What is wrong, missing, or deferred — current state only; a fixed gap is deleted,
-not struck through. Parser-internal scale issues: [../etl/parse.md](../etl/parse.md).
+not struck through. Parser-internal scale issues: [../etl/parse.md](../ingestion/etl/parse.md).
 Where the product is headed: [direction.md](direction.md) and epic
 [#95](https://github.com/wmespi/honest-healthcare/issues/95).*
 
@@ -13,22 +13,22 @@ Where the product is headed: [direction.md](direction.md) and epic
   different plans. The parser writes every network a file carries, and nothing maps a
   config-style label to a plan, so a target names its labels by hand (below).
 - **A target's `network_patterns` are hand-written** in
-  [`etl/targets.yaml`](../etl/targets.yaml). The provider probe skips a file whose
+  [`ingestion/etl/targets.yaml`](../ingestion/etl/targets.yaml). The provider probe skips a file whose
   `provider_references[].network_name` matches none of them, so a wrong guess skips
   every file for that plan. It fails loudly (the parse record's `reason` lists the
   labels the file carried; the end-of-run guard exits non-zero when every target file
   is skipped and none has Parquet on disk). Deriving the patterns is the same open
   problem.
 - **Coverage is verified for the target network, not quantified in a doc.** Read
-  the parse records ([etl/parse.md](../etl/parse.md#when-parse-downloads-a-file)) and run `make test-live`.
+  the parse records ([ingestion/etl/parse.md](../ingestion/etl/parse.md#when-parse-downloads-a-file)) and run `make test-live`.
 
 ## Data scope
 
-- **Only the services in `build/services.yaml` have prices.** The find-care tables
+- **Only the services in `integration/services.yaml` have prices.** The find-care tables
   price the scans it lists, and every other code (PCP visits, for one) has none.
   [#158](https://github.com/wmespi/honest-healthcare/issues/158) plans how the list grows.
 - **Prices are outpatient professional fee-for-service only.** `biller_rates`
-  ([build/build.md](../build/build.md#the-find-care-tables)) keeps fee-schedule or
+  ([integration/build.md](../integration/build.md#the-find-care-tables)) keeps fee-schedule or
   negotiated dollar rates for an outpatient professional visit. Excluded but still in the
   parsed files: `negotiated_type` of `percentage` (a percent of billed charges, not
   dollars), `per diem` and `derived`; `billing_class='institutional'`;
@@ -41,7 +41,7 @@ Where the product is headed: [direction.md](direction.md) and epic
   genuinely cheap contract survives. Tighter cut:
   [#51](https://github.com/wmespi/honest-healthcare/issues/51).
 - **A practice in `places` has no phone number.** The NPPES extract
-  ([etl/nppes.md](../etl/nppes.md)) doesn't keep the practice location's phone, so only
+  ([ingestion/etl/nppes.md](../ingestion/etl/nppes.md)) doesn't keep the practice location's phone, so only
   hospitals, from Hospital General Information, have one.
 
 ## Provider ↔ procedure
@@ -49,8 +49,8 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **CMS utilization is the evidence, with limits.** Anthem's
   `provider_references` are network-administration buckets, not practices, so a
   rollup group "has" every code. Evidence: who billed a code
-  ([cms-utilization](../reference/cms-utilization.md)), and real practice
-  identity ([doctors-clinicians](../reference/doctors-clinicians.md)). Limits:
+  ([cms-utilization](../ingestion/reference/cms-utilization.md)), and real practice
+  identity ([doctors-clinicians](../ingestion/reference/doctors-clinicians.md)). Limits:
   Part B only (no pediatric / pure-commercial / cash); rows with ≤10 beneficiaries
   are excluded, so `billed: False` is weak; ~2-year lag; single year, so "stopped
   doing it" looks like "never"; Georgia has no all-payer claims database to widen
@@ -105,11 +105,11 @@ Where the product is headed: [direction.md](direction.md) and epic
   doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
   hospital bills its own fee in a file we do not carry, so a hospital's row has the
   reading and no most you'd pay, and says so. The screen gives Medicare's hospital
-  outpatient rate as a rough guide ([reference/opps.md](../reference/opps.md)); hospital
+  outpatient rate as a rough guide ([ingestion/reference/opps.md](../ingestion/reference/opps.md)); hospital
   price-transparency files would be the real source, and mammography has no Medicare rate.
 - **A place can have several rates for one scan.** When a billing ID sits under more
   than one fee schedule for the same scan, the file does not say which applies to a
-  given patient ([price lines](../etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
+  given patient ([price lines](../ingestion/etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
   The row shows the highest and says to ask which applies.
 - **The find-care list carries some non-imaging practices.** A group's price is
   attached to every clinician on its roster, so a practice with one Medicare-billing

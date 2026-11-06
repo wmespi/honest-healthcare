@@ -54,56 +54,48 @@ are **not** installed on your machine. You need four host tools:
 
 ## From zero to a running app
 
-**1 — Install** the four tools in the table above.
+**1 - Install** the four tools in the table above.
 
-**2 — Clone.**
+**2 - Clone.**
 
 ```bash
 git clone https://github.com/wmespi/honest-healthcare.git
 cd honest-healthcare
 ```
 
-**3 — Start the stack.** First run builds the service images (a few minutes).
+**3 - Start the stack.** First run builds the service images (a few minutes).
 
 ```bash
 make start     # macOS — launches Docker Desktop if needed, then all containers
 # Linux: start Docker yourself, then:  make up
 ```
 
-**4 — Verify it's up** — no external data needed:
+**4 - Verify it's up** - no external data needed:
 
 ```bash
-curl localhost:8000/        # → {"status":"ok", ...}
-open http://localhost:5173  # the UI loads (empty until step 5)
+curl localhost:8000/        # → 503 {"missing": [...]}: the API is up, with no find-care tables yet
+open http://localhost:5173  # the UI loads (empty until step 6)
 make test                   # full suite against committed fixtures
 ```
 
-**5 — Load real rate data.** These pull large files from CMS / Anthem and take a
-while; run them in order, stop any time — the UI shows whatever has parsed.
+**5 - Load the data.** These pull large files from Anthem, CMS and Census and take a
+while the first time; run them in order.
 
 ```bash
 make discover       # large download - Anthem's master index → this month's file list
-make reference STEP=nppes
-                    # Georgia provider registry (names, specialties, and
-                    #   the GA filter that keeps parse output small) — before parse
-make parse          # streams the rate files etl/targets.yaml names
-                    #   into Parquet
+make reference      # the public datasets: Georgia's providers (NPPES) and plan files, Medicare's
+                    #   rates and billing, CMS groups, hospitals, MIPS scores, ZIPs and geocodes;
+                    #   builds whatever is missing, STEP=<name> runs one, FORCE=1 rebuilds all
+make parse          # streams the rate files ingestion/etl/targets.yaml names into Parquet,
+                    #   then publishes their rates by Georgia network
+make reference STEP=geocode
+                    # places the billing IDs parse found
 ```
 
-**6 — Reference data** — consumer labels (without them procedures show as
-"Medical"/"Surgery" and specialties are blank), provider↔procedure evidence
-(`billed to Medicare`, plausible-vs-group tiering), the Medicare benchmark
-(`vs_medicare`), real practice identity (CMS Doctors & Clinicians), and geocodes:
+**6 - Build the find-care tables:**
 
 ```bash
-make reference      # builds whatever is missing, in dependency order (several GB of
-                    #   downloads the first time); STEP=<name> runs one, FORCE=1 rebuilds all
-```
-
-**7 — Build the serving tables:**
-
-```bash
-make build          # payer rates + reference parquet → data/serving/
+make build          # what ingestion delivered (data/ingestion/) → data/serving/
 ```
 
 After the first load, `make refresh` is the whole monthly job.

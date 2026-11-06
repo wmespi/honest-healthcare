@@ -1,21 +1,25 @@
-# FastAPI + DuckDB over the Parquet globs. Dependencies are pure-Python wheels
-# (fastapi, uvicorn, duckdb, pydantic) — no build toolchain needed.
-#
-# The image default is a production server (no --reload, single worker).
-# docker-compose adds `--reload` and bind-mounts the source for the dev loop.
-FROM python:3.14-slim
+# The app's API (serving/): FastAPI + DuckDB over the find-care tables in
+# data/serving/. Dependencies are pure-Python wheels (fastapi, uvicorn, duckdb,
+# pydantic), so no build toolchain is needed. Two targets:
+#   dev  - the deps and the test deps; docker-compose bind-mounts serving/ and
+#          runs uvicorn with --reload.
+#   prod - the code, served by uvicorn without reload, single worker.
 
-# The container is the isolation, so pip installing as root (here, and the test
-# deps `make test` adds) is intended and needs no warning.
+FROM python:3.14-slim AS base
+# The container is the isolation, so pip installing as root is intended.
 ENV PIP_ROOT_USER_ACTION=ignore
-
 WORKDIR /app
-
-COPY serving/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY serving/ ./serving/
-
+COPY serving/requirements.txt serving/
+RUN pip install --no-cache-dir -r serving/requirements.txt
 EXPOSE 8000
 
+# ── dev: source mounted at runtime ────────────────────────────────────────
+FROM base AS dev
+COPY serving/requirements-dev.txt serving/
+RUN pip install --no-cache-dir -r serving/requirements-dev.txt
+CMD ["uvicorn", "serving.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# ── prod: the code; data/serving/ is a runtime mount ──────────────────────
+FROM base AS prod
+COPY serving/ serving/
 CMD ["uvicorn", "serving.main:app", "--host", "0.0.0.0", "--port", "8000"]

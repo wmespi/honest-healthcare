@@ -10,57 +10,71 @@ instead. Labels are plain text so every Markdown renderer has a chance.
 
 ## Layers
 
-| Layer | Tech | Dir | Purpose |
-|---|---|---|---|
-| Discovery | Go | `etl/discovery/` | Monthly read of Anthem's index: the files it lists (`data/anthem/index_files.parquet`) and the plan→file link (`index_file_plans.parquet`) |
-| Extraction | Go (streaming JSON) | `etl/extraction/` | Parses the gzipped MRFs `etl/targets.yaml` names in one pass → raw Parquet, with a parse record per file; a provider probe aborts a download before `in_network` when no wanted provider is in it |
-| Reference | Go (NPPES) + Python/DuckDB (NUCC, CMS utilization, MPFS, OPPS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `etl/nppes/`, `reference/` | External public datasets → dimension Parquet |
-| Publish | Python + DuckDB | `ingestion/` | The last step of `make parse`: each target network's rates from the parsed files, keyed on Georgia's network ID (`data/payer_rates/`), the contract the build reads |
-| Build | Python + DuckDB | `build/` | Payer rates + reference Parquet → the find-care tables, checking each input's columns and key first; every product decision (who is on a plan, what a price is, where a place is) lives here - [build/build.md](../build/build.md) |
-| Serving | Python + DuckDB | `serving/` | Reads the find-care tables in-process via FastAPI (`localhost:8000`) |
-| Frontend | React + Vite | `frontend/` | The find-care screen — `localhost:5173` |
-| Storage | Parquet + ZSTD | `data/` | `data/anthem/`, `data/nppes/`, `data/reference/`, `data/cms/`, `data/serving/` — [docs/schema.md](schema.md) |
+The pipeline is three layers, each in its own container, and each reads only what the layer before it delivers ([decided on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6669410856)).
+A layer can change freely as long as what it delivers keeps its contract, so another payer's ingestion can differ from Anthem's while integration and the app read the same tables.
 
-The Go CLI (`etl/`, one module) dispatches from `main.go` to the `discovery` /
+| Layer | Container | Code | Reads | Writes |
+|---|---|---|---|---|
+| Ingestion | `ingestion`: Go + Python/DuckDB | `ingestion/` | Anthem, NPPES, Georgia Access, CMS, NUCC, Census | `data/raw/`, its own files, and `data/ingestion/`, the contract integration reads |
+| Integration | `integration`: Python/DuckDB | `integration/` | `data/ingestion/`, read-only | `data/serving/`, the find-care tables |
+| Application | `serving`: FastAPI + DuckDB, `localhost:8000`; `frontend`: React + Vite, `localhost:5173` | `serving/`, `frontend/` | `data/serving/`, read-only | nothing |
+
+The contract between ingestion and integration is the datasets in `integration/inputs/datasets.py`, each with its columns and key, which the build checks before it reads them; between integration and the app it's the find-care tables below.
+The on-disk layout is in [docs/schema.md](schema.md).
+
+Inside ingestion:
+
+| Step | Tech | Dir | Purpose |
+|---|---|---|---|
+| Discovery | Go | `ingestion/etl/discovery/` | Monthly read of Anthem's index: the files it lists (`data/raw/anthem/index_files.parquet`) and the plan→file link (`index_file_plans.parquet`) |
+| Extraction | Go (streaming JSON) | `ingestion/etl/extraction/` | Parses the gzipped MRFs `ingestion/etl/targets.yaml` names in one pass → raw Parquet, with a parse record per file; a provider probe aborts a download before `in_network` when no wanted provider is in it |
+| Reference | Go (NPPES) + Python/DuckDB (NUCC, CMS utilization, MPFS, OPPS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `ingestion/etl/nppes/`, `ingestion/reference/` | External public datasets → dimension Parquet |
+| Publish | Python + DuckDB | `ingestion/anthem_rates.py` | The last step of `make parse`: each target network's rates from the parsed files, keyed on Georgia's network ID (`data/ingestion/payer_rates/`) |
+
+The Go CLI (`ingestion/etl/`, one module) dispatches from `main.go` to the `discovery` /
 `extraction` / `nppes` / `fixture` packages; shared structs, config, and the
-progress reader live in `etl/core/`. Docker services: `etl`, `serving`,
-`frontend` — each from a multi-stage Dockerfile in
-[deploy/](../deploy/README.md) (`prod` target = deployable artifact; compose
-runs the `dev` target).
+progress reader live in `ingestion/etl/core/`.
+Every container builds from a multi-stage Dockerfile in [deploy/](../deploy/README.md) (`prod` target = deployable artifact; compose runs the `dev` target).
 
 ## Data flow
 
 ```mermaid
 flowchart LR
-  subgraph fetch [fetch - Go, streaming, dumb, stable]
-    IDX[Anthem index] -->|"this month's files and the plans each prices"| LIST[(file list and plan link parquet)]
+  subgraph ingestion ["ingestion: Go streams, Python and DuckDB reshape"]
+    IDX[Anthem index] -->|"this month's files and the plans each prices"| LIST[(file list and plan link)]
     LIST --> PICK["the files targets.yaml names, new or updated since their parse record"]
     TGT[targets.yaml] --> PICK
     PICK --> PROBE{"probe: any wanted providers?"}
     PROBE -->|"no: abort early, record skipped"| REC[(parse record per file)]
-    PROBE -->|"yes: stream"| RAW[(raw parquet per file: prices, group_sets, providers, codes)]
+    PROBE -->|"yes: stream"| RAW[(rates as Anthem files them: prices, group_sets, providers, codes)]
     RAW --> REC
     REC --> PICK
     RAW --> PUB["publish each target network's rates: plan link, labels, one plan one contract"]
     LIST --> PUB
     TGT --> PUB
-    PUB --> PAYER[("payer rates by Georgia network: rates, rate groups, rosters")]
     NPPES[NPPES national CSV] --> GA[(GA providers)]
     GA --> PROBE
+    PUF[Georgia Access plan files] --> XNET[(exchange networks, plans, premiums and cost sharing)]
+    XNET -->|plan IDs| PICK
+    XNET -->|plan to network| PUB
+    PUBLIC[CMS, NUCC and Census datasets] --> REF[(reference: NUCC, MPFS, OPPS, CMS billing, CMS groups, MIPS, geocodes, hospitals, ZIPs)]
+    PUB --> PAYER[("payer rates by Georgia network: rates, rate groups, rosters")]
   end
-  subgraph build [build - Python and DuckDB, all product decisions, minutes]
-    PAYER --> FC["build/tables/"]
-    REF[(reference: NUCC, MPFS, OPPS, CMS billing, CMS groups, MIPS, geocodes, hospitals, ZIPs)] --> FC
+  subgraph integration ["integration: Python and DuckDB, all product decisions"]
+    PAYER --> FC["integration/tables/"]
+    REF --> FC
     GA --> FC
-    SVC[build/services.yaml] --> FC
-    XNET[(reference: exchange networks, plans, premiums and cost sharing)] --> FC
+    XNET --> FC
+    SVC[integration/services.yaml] --> FC
     FC --> FCT[("find-care tables: networks, plans, premiums, zips, services, cost_sharing, places, prices, providers")]
   end
-  subgraph serve [serve]
+  subgraph app [application]
     FCT --> API[FastAPI, one persistent DuckDB connection]
     API --> WEB[React: find-care screen]
   end
 ```
+
+Everything ingestion hands integration (payer rates, GA providers, the exchange and reference datasets) is in `data/ingestion/`; Anthem's index, parse records and rates as filed stay in `data/raw/`.
 
 ## Serving entity model
 
@@ -151,23 +165,30 @@ erDiagram
 The find-care tables, the same model as the ERD on
 [#135](https://github.com/wmespi/honest-healthcare/issues/135), which holds the decisions behind
 it. Each box reads column, type, then key, and `[]` means a list; a list of keys is checked by
-the build, not enforced by a database. Full column notes: [build/build.md](../build/build.md#the-find-care-tables).
+the build, not enforced by a database. Full column notes: [integration/build.md](../integration/build.md#the-find-care-tables).
 
 ## Runtime
 
 ```mermaid
 flowchart TB
   subgraph host [one machine today, one VM later]
-    C1[serving container: FastAPI + DuckDB; also runs make reference + make build - Python]
-    C2[frontend container]
-    C3[etl container: Go - make discover + make parse]
-    D[(data on disk: raw, reference, serving)]
-    C1 --> D
-    C3 --> D
+    ING[ingestion container: Go + Python - make discover, parse, reference]
+    INT[integration container: Python + DuckDB - make build]
+    API[serving container: FastAPI + DuckDB]
+    WEB[frontend container]
+    RAWD[(data/raw: ingestion's own files)]
+    CON[(data/ingestion: the contract)]
+    SRV[(data/serving: the find-care tables)]
+    ING -->|writes| RAWD
+    ING -->|writes| CON
+    CON -->|read-only| INT
+    INT -->|writes| SRV
+    SRV -->|read-only| API
+    WEB --> API
   end
-  TS[Tailscale serve] --> C2
-  TS --> C1
+  TS[Tailscale serve] --> WEB
+  TS --> API
 ```
 
-The `discover → parse → reference → build` chain runs across the etl (Go) and serving
-(Python) containers; `make refresh` runs all of it.
+Each container mounts only its own code folder and the data folders above, so integration can't read Anthem's raw files and the app can't read anything but its tables; `data-test/` is split the same way.
+`make refresh` runs discover, reference, parse and geocode in the ingestion container, then the build in the integration container.

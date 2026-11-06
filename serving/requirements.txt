@@ -1,8 +1,7 @@
-# Runtime deps — pinned. Bump deliberately (Go is pinned, the frontend has a
-# lockfile; this file is the third leg). Regenerate a floor with:
-#   docker compose exec serving pip freeze
+# Runtime deps for the app's API (serving/) - pinned. Bump deliberately, and keep
+# a dep another layer shares on the same version (scripts/dev-setup.sh installs
+# every layer's into one .venv).
 fastapi==0.139.2
 uvicorn[standard]==0.51.0
 duckdb==1.5.5
 pydantic==2.13.4
-PyYAML==6.0.3

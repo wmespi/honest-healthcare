@@ -1,5 +1,5 @@
 """The `anthem` fixture: Anthem's files as parse and discover write them
-(data/anthem/), Georgia's exchange networks and plans, and a targets file, in a
+(data/raw/anthem/), Georgia's exchange networks and plans, and a targets file, in a
 tmp dir, for ingestion/anthem_rates.py to publish."""
 import os
 
@@ -36,7 +36,7 @@ class Anthem:
     def __init__(self, root):
         self.root = root
         self.targets = f"{root}/targets.yaml"
-        self.out = f"{root}/payer_rates/anthem"
+        self.out = f"{root}/ingestion/payer_rates/anthem"
         self.rates = {}   # (file_id, label) -> rows
         self.groups = {}  # file_id -> rows
         self.rosters = {}  # file_id -> rows
@@ -44,7 +44,7 @@ class Anthem:
         self.plans = []
         with open(self.targets, "w") as f:
             f.write(TARGETS)
-        _write(f"{root}/reference/exchange_networks_ga.parquet",
+        _write(f"{root}/ingestion/reference/exchange_networks_ga.parquet",
                {"network_id": "VARCHAR", "issuer_id": "VARCHAR", "name": "VARCHAR"},
                [("45334-GAN001", "45334", "Blue Value"), ("49046-GAN008", "49046", "Pathway"),
                 ("58081-GAN001", "58081", "Individual Georgia HMO")])
@@ -62,7 +62,7 @@ class Anthem:
 
     def _rates_path(self, file_id, label):
         slug = "".join(ch if ch.isalnum() else "-" for ch in label.strip().lower())
-        return f"{self.root}/anthem/prices/net={slug}/{file_id}.parquet"
+        return f"{self.root}/raw/anthem/prices/net={slug}/{file_id}.parquet"
 
     def _write_rates(self, file_id, label):
         _write(self._rates_path(file_id, label), {
@@ -77,10 +77,10 @@ class Anthem:
         `group_set` of file `file_id`. A group's label can list several networks."""
         self.groups.setdefault(file_id, []).append((file_id, group_set, group))
         self.rosters.setdefault(file_id, []).extend((file_id, group, label, npi, "npi", tin) for npi in npis)
-        _write(f"{self.root}/anthem/group_sets/{file_id}.parquet",
+        _write(f"{self.root}/raw/anthem/group_sets/{file_id}.parquet",
                {"file_id": "BIGINT", "group_set_id": "BIGINT", "provider_group_id": "BIGINT"},
                self.groups[file_id])
-        _write(f"{self.root}/anthem/providers/{file_id}.parquet",
+        _write(f"{self.root}/raw/anthem/providers/{file_id}.parquet",
                {"file_id": "BIGINT", "provider_group_id": "BIGINT", "network_name": "VARCHAR", "npi": "BIGINT",
                 "tin_type": "VARCHAR", "tin_value": "VARCHAR"}, self.rosters[file_id])
 
@@ -94,7 +94,7 @@ class Anthem:
         self._write_links()
 
     def _write_links(self):
-        _write(f"{self.root}/anthem/index_file_plans.parquet", {"file_id": "BIGINT", "plan_id": "VARCHAR"},
+        _write(f"{self.root}/raw/anthem/index_file_plans.parquet", {"file_id": "BIGINT", "plan_id": "VARCHAR"},
                self.links)
 
     def plan(self, plan_id, network_id):
@@ -107,7 +107,7 @@ class Anthem:
         self._write_plans()
 
     def _write_plans(self):
-        _write(f"{self.root}/reference/exchange_plans_ga.parquet", {"plan_id": "VARCHAR", "network_id": "VARCHAR"},
+        _write(f"{self.root}/ingestion/reference/exchange_plans_ga.parquet", {"plan_id": "VARCHAR", "network_id": "VARCHAR"},
                self.plans)
 
     def add_target(self, text):
