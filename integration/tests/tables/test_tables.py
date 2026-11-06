@@ -38,7 +38,7 @@ def test_a_table_whose_columns_drift_from_its_definition_stops_the_build(corpus,
 def test_the_build_imports_nothing_from_ingestion_or_the_app():
     r = subprocess.run([sys.executable, "-c",
                         "import sys, integration.build; "
-                        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('serving', 'ingestion')))"],
+                        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('application', 'ingestion')))"],
                        cwd=REPO, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "[]"

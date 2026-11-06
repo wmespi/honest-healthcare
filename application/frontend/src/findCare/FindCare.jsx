@@ -11,7 +11,7 @@ import { SearchFields } from './SearchFields';
 import { miles, money } from './format';
 import { filterResults, searchView } from './view';
 
-// The radii the contract offers (serving/contract.py RADIUS_OPTIONS_MI).
+// The radii the contract offers (application/serving/contract.py RADIUS_OPTIONS_MI).
 const RADIUS_OPTIONS = [5, 10, 25, 50];
 const ZIP = /^\d{5}$/;
 

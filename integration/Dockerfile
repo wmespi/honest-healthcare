@@ -1,5 +1,6 @@
 # Integration (integration/): reads what ingestion delivered (data/ingestion/)
-# and writes the find-care tables the app reads (data/serving/). Two targets:
+# and writes the find-care tables the app reads (data/serving/). Built from this
+# folder alone, so no image can hold another layer's code. Two targets:
 #   dev  - the deps and the test deps; docker-compose bind-mounts integration/
 #          and runs `python3 -m integration.build` on demand (see the Makefile).
 #   prod - the code, running the build once; the scheduled-refresh artifact.
@@ -8,16 +9,16 @@ FROM python:3.14-slim AS base
 # The container is the isolation, so pip installing as root is intended.
 ENV PIP_ROOT_USER_ACTION=ignore
 WORKDIR /app
-COPY integration/requirements.txt integration/
+COPY requirements.txt integration/
 RUN pip install --no-cache-dir -r integration/requirements.txt
 
 # ── dev: source mounted at runtime ────────────────────────────────────────
 FROM base AS dev
-COPY integration/requirements-dev.txt integration/
+COPY requirements-dev.txt integration/
 RUN pip install --no-cache-dir -r integration/requirements-dev.txt
 CMD ["tail", "-f", "/dev/null"]
 
 # ── prod: the code; data/ is a runtime mount ──────────────────────────────
 FROM base AS prod
-COPY integration/ integration/
+COPY . integration/
 CMD ["python3", "-m", "integration.build", "--data-dir", "/app/data"]

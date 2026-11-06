@@ -1,4 +1,4 @@
-"""The find-care contract's own rules (serving/contract.py), on the three kinds of
+"""The find-care contract's own rules (application/serving/contract.py), on the three kinds of
 row the mock shows: a complete price, a hospital missing its fee, and a group
 whose doctors only read scans done elsewhere."""
 from typing import Annotated
@@ -8,7 +8,7 @@ from fastapi import FastAPI, Query
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from serving.contract import FindCare, FindCareQuery, Place, Plan, Service
+from application.serving.contract import FindCare, FindCareQuery, Place, Plan, Service
 
 
 def part(name, hi=None):

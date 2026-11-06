@@ -2,7 +2,7 @@
 writes, in a folder (payer rates and rosters by network, Georgia's plans,
 NPPES, Census, Medicare and the rest), with methods to add and remove rows.
 Each file has its dataset's columns (integration/inputs/datasets.py). The build's
-tests (inputs/, tables/) run the real find-care build on it, and serving/tests
+tests (inputs/, tables/) run the real find-care build on it, and application/serving/tests
 builds the app's fixture tables from `default_corpus`.
 """
 import os

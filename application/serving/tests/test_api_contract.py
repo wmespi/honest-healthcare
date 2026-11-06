@@ -11,9 +11,9 @@ import sys
 
 import pytest
 
-from serving.routers.find_care import radius_for, wider_radius
+from application.serving.routers.find_care import radius_for, wider_radius
 
-REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
 def test_health_says_when_the_build_ran_and_what_it_holds(api):
@@ -25,13 +25,13 @@ def test_health_says_when_the_build_ran_and_what_it_holds(api):
 
 
 def test_health_says_what_is_missing_when_there_is_no_build(api, monkeypatch):
-    from serving import main
+    from application.serving import main
     monkeypatch.setattr(main, "missing_build", lambda: ["prices"])
     r = api.get("/")
     assert r.status_code == 503 and r.json()["missing"] == ["prices"]
 
 
-# ── the find-care routes (serving/routers/find_care.py), over the default corpus ──
+# ── the find-care routes (application/serving/routers/find_care.py), over the default corpus ──
 
 SILVER = "45334GA0020002"
 MRI = {"service_id": "mri-lower-back", "plan_id": SILVER, "zip": "30308"}
@@ -123,7 +123,7 @@ def test_a_search_with_no_full_price_points_to_the_nearest_one():
 
 def test_the_app_imports_nothing_from_ingestion_or_integration():
     r = subprocess.run([sys.executable, "-c",
-                        "import sys, serving.main; "
+                        "import sys, application.serving.main; "
                         "print(sorted(m for m in sys.modules if m.split('.')[0] in ('ingestion', 'integration')))"],
                        cwd=REPO, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr

@@ -21,7 +21,7 @@ done
 for d in data-test .pytest_cache .ruff_cache; do
   [ -d "$d" ] && { say "rm $d/  ($(du -sh "$d" | cut -f1))"; rm -rf "$d"; }
 done
-find . -type d -name __pycache__ -not -path './.venv/*' -not -path './frontend/node_modules/*' \
+find . -type d -name __pycache__ -not -path './.venv/*' -not -path './application/frontend/node_modules/*' \
   -exec rm -rf {} + 2>/dev/null || true
 say "cleared __pycache__"
 

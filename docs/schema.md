@@ -100,7 +100,7 @@ A rate's `group_set_id` lists the provider groups it covers in `rate_groups`, an
 
 ## Parquet - `data/serving/` (the build step's output - [integration/build.md](../integration/build.md), read straight by the API)
 
-`make build` (`integration/build.py`) writes the **only** thing `serving/` reads - a missing
+`make build` (`integration/build.py`) writes the **only** thing `application/serving/` reads - a missing
 table here is a `503` from `GET /`, never a fallback to what ingestion wrote.
 
 | Table | Columns |

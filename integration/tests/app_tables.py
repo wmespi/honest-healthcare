@@ -1,6 +1,6 @@
 """The app's test tables: the build's default test corpus (corpus.py), built by
 `make build`'s own build() into data-test/serving/, which the app's tests read
-(serving/tests/conftest.py). `make test` runs this before them, so the app's
+(application/serving/tests/conftest.py). `make test` runs this before them, so the app's
 tests read tables integration wrote, handed over the way the real ones are.
 
   python -m integration.tests.app_tables

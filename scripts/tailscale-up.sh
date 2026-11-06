@@ -8,7 +8,7 @@
 #   3. serve the frontend + API ports on the tailnet
 #
 # The frontend derives its API URL from window.location at runtime
-# (frontend/src/api.js), so no rebuild or .env change is needed — opening
+# (application/frontend/src/api.js), so no rebuild or .env change is needed - opening
 # http://<this-machine>.<tailnet>.ts.net:5173 just works.
 #
 # Requires: `brew install tailscale`, Docker stack up (`make up`).

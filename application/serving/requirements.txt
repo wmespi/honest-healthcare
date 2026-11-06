@@ -1,4 +1,4 @@
-# Runtime deps for the app's API (serving/) - pinned. Bump deliberately, and keep
+# Runtime deps for the app's API (application/serving/) - pinned. Bump deliberately, and keep
 # a dep another layer shares on the same version (scripts/dev-setup.sh installs
 # every layer's into one .venv).
 fastapi==0.139.2

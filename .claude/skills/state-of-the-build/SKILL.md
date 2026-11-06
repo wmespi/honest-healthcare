@@ -43,7 +43,7 @@ make test-live                # golden answers + journey pass/fail table
 ```
 
 Then **verify the product still answers correctly** — hit the live API for the
-canary and 2–3 journey endpoints (`serving/` must be running):
+canary and 2–3 journey endpoints (`application/serving/` must be running):
 
 ```bash
 curl -s "http://localhost:8000/find-care?service_id=mri-brain&plan_id=45334GA0020002&zip=30322" | python3 -m json.tool

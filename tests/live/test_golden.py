@@ -1,6 +1,6 @@
 """Golden-answer tests — pin the product's real answers against the LIVE API.
 
-Unlike serving/tests/test_api_contract.py (hermetic, a synthetic fixture via TestClient),
+Unlike application/serving/tests/test_api_contract.py (hermetic, a synthetic fixture via TestClient),
 this hits an actually-running server (`API_URL`, default
 http://localhost:8000) and checks its answers against dollar figures and
 counts captured from the real corpus. The point is regression, not

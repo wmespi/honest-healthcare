@@ -6,7 +6,7 @@ A table's SQL reads the build-only tables in integration/inputs/ by name, so
 `FROM service_list` is integration/inputs/service_list.py, and reads the datasets
 ingestion writes through integration/inputs/datasets.py, which checks them first.
 integration/table.py holds the checks and the write every table gets. Nothing here
-imports from serving/ or ingestion/.
+imports from application/serving/ or ingestion/.
 """
 import os
 import shutil

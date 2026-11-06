@@ -116,10 +116,10 @@ check: ## Gate - docs drift + Go fmt/vet/build/unit tests (ingestion container).
 test: check ## Every hermetic suite - check + each layer's pytest in its container (the app's on tables integration builds) + vitest (+ ETL e2e when not LOCAL). LOCAL=1: host toolchains, no Docker
 	@if [ "$(LOCAL)" = 1 ]; then \
 	  test -x .venv/bin/python || { echo "no .venv — run scripts/dev-setup.sh"; exit 1; }; \
-	  test -d frontend/node_modules || { echo "no frontend/node_modules — run scripts/dev-setup.sh"; exit 1; }; \
+	  test -d application/frontend/node_modules || { echo "no application/frontend/node_modules - run scripts/dev-setup.sh"; exit 1; }; \
 	  .venv/bin/python -m integration.tests.app_tables && \
 	  .venv/bin/python -m pytest -q && \
-	  cd frontend && npx vitest run; \
+	  cd application/frontend && npx vitest run; \
 	else \
 	  $(MAKE) --no-print-directory _test-layers && \
 	  docker compose exec -T frontend sh -c "cd /app && npx vitest run"; \
@@ -165,7 +165,7 @@ _test-layers:
 	docker compose exec -T -w /app ingestion python3 -m pytest -q ingestion
 	docker compose exec -T integration python3 -m pytest -q integration
 	docker compose exec -T integration python3 -m integration.tests.app_tables
-	docker compose exec -T serving python3 -m pytest -q serving
+	docker compose exec -T serving python3 -m pytest -q application/serving
 
 _require-ingestion-running:
 	@docker compose ps ingestion | grep -q "Up" || \

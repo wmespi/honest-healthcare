@@ -17,5 +17,5 @@ Journeys, Verification.
 
 ## Verification
 
-<!-- REQUIRED for serving/ or frontend/ changes: the actual proof, not "tested locally".
+<!-- REQUIRED for application/serving/ or application/frontend/ changes: the actual proof, not "tested locally".
      A curl + its output, `make test` result, a screenshot, `make test-live` table. -->

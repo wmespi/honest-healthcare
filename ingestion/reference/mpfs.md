@@ -72,4 +72,4 @@ needed. The cache key includes the year.
 Tested by `ingestion/reference/tests/test_mpfs.py` (formula, fac/non-fac split, status handling,
 GA filter) against `ingestion/reference/testdata/mpfs_*sample.csv`, by
 `integration/tests/tables/test_services.py` for `services.medicare_rate`, and by
-`serving/tests/test_api_contract.py` for the rate `/services` returns.
+`application/serving/tests/test_api_contract.py` for the rate `/services` returns.
