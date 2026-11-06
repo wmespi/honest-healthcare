@@ -25,11 +25,28 @@ docker build --target prod -t hh-integration integration
 docker build --target prod --build-context tables=data/serving -t hh-application application
 docker run --rm -v "$PWD/data/raw:/app/data/raw" -v "$PWD/data/ingestion:/app/data/ingestion" hh-ingestion etl discover
 docker run --rm -v "$PWD/data/ingestion:/app/data/ingestion:ro" -v "$PWD/data/serving:/app/data/serving" hh-integration
-docker run -p 8000:8000 hh-application
-python3 infra/smoke.py http://localhost:8000
+docker run -p 8000:8000 -e INVITES="<entries>" hh-application
+python3 infra/smoke.py http://localhost:8000 --invite <token>
 ```
 
-`infra/smoke.py` checks a running application image: the screen loads, its assets are cached, and the API answers a search.
+`infra/smoke.py` checks a running application image: it turns away a request without an invite, the screen loads, its assets are cached, and the API answers a search.
+
+## The invite gate
+
+The app answers only invited testers (`application/serving/gate.py`), because the deployed service is open to the internet.
+Each tester's link is any screen address with `?invite=<token>`.
+The first visit keeps the token in a cookie and sends the browser on without it, and every request after needs that cookie, the API's included.
+A request without one gets a 401: a page that says the app is open to invited testers, or a `Problem` under `/api`.
+
+- **Invite someone:** `make invite NAME=<label>` prints an `INVITES` entry and the link to send.
+  Add the entry to the app's `INVITES`, comma-separated.
+  The token is kept nowhere else, so a lost link means a new invite.
+- **Shut someone out:** remove their entry from `INVITES`.
+  The app holds only the tokens' hashes, so their cookie stops working at once.
+- **Off for the dev stack:** compose sets `GATE=off`, because the stack is on loopback and its testers come over the tailnet.
+  Anywhere else the gate is on, and with no `INVITES` it lets nobody in and says so in its log.
+
+The token is in the first request's address, so it shows in the request log, which only the app's owner can read.
 
 ## Working on the screen
 

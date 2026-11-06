@@ -86,6 +86,6 @@ status check**: it passes only when every job succeeded or was legitimately skip
 | `go` | gofmt + vet + build + `go test ./...` (native `setup-go`, no stack) |
 | `web` | `npm run lint` + `npx vitest run` |
 | `layers` | `docker compose up ingestion integration application`; `tests/e2e` and each layer's pytest in its own container, as `make test` runs them (`make _test-layers`), then `tests/live` (skips: no corpus) |
-| `images` | builds the three `prod` Dockerfile targets, the application's on the app's test tables, and smokes each (`infra/smoke.py` for the application) |
+| `images` | builds the three `prod` Dockerfile targets, the application's on the app's test tables, and smokes each (`infra/smoke.py` for the application, with an invite the image makes) |
 | `gate` | no upstream job failed or was cancelled |
 

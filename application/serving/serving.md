@@ -5,10 +5,11 @@
 There is no fallback to raw Parquet: a missing build is a `503` from `GET /api/health`,
 not a slower degraded mode.
 Every route is under `/api`, because the same process serves the built screen at every other path (`screen.py`), so the two share one origin.
+Every request passes the invite gate first (`gate.py`, [infra/README.md](../../infra/README.md#the-invite-gate)), so a route needs nothing of its own to be private.
 Tests: `test_api_contract.py` (every route,
 hermetic — the `api` fixture in `conftest.py` builds the find-care tables from the
 default test corpus, then binds a `TestClient`) and `test_contract.py` (the
-contract's own rules) and `test_screen.py` (how the screen is served, and that a failure says nothing about how); `make test-live` runs the golden answers and journeys against
+contract's own rules) `test_screen.py` (how the screen is served, and that a failure says nothing about how) and `test_gate.py` (nothing answers without an invite, every route found by walking the app's routes, and every one under `/api`); `make test-live` runs the golden answers and journeys against
 the live API ([docs/journeys.md](../../docs/journeys.md)). Add a route → add a contract test.
 
 Every route runs raw DuckDB SQL against `read_parquet(...)` on the serving
@@ -18,7 +19,8 @@ tables — no ORM, `?` placeholders, one process-wide connection (`db()`).
 
 | File | Holds |
 |---|---|
-| `main.py` | app + gzip + `include_router` under `/api` + `GET /api/health`: when the build ran (`built_at`, from the build's `manifest.json`), the networks it priced and each find-care table's row count, or `503` with what's missing; a failure is a `500` whose `detail` is a `Problem` (`internal_error`), with the traceback only in the log; the screen mounted last |
+| `main.py` | app + the invite gate (outermost) + gzip + `include_router` under `/api` + `GET /api/health`: when the build ran (`built_at`, from the build's `manifest.json`), the networks it priced and each find-care table's row count, or `503` with what's missing; a failure is a `500` whose `detail` is a `Problem` (`internal_error`), with the traceback only in the log; the screen mounted last |
+| `gate.py` | the invite gate: ASGI middleware that admits a request only with an invite's cookie, turns an invite link into that cookie, and refuses the rest with a `401`; `python3 -m application.serving.gate <label>` (`make invite`) makes an invite |
 | `screen.py` | the built screen (`application/frontend/dist/`) at every path outside `/api`: a built file as it is, any other path `index.html`, so the screen's router takes it; a missing asset is a `404`; `assets/` cached for good (Vite names them by content hash), everything else checked on every load |
 | `contract.py` | The typed contract for the find-care screen ([#135](https://github.com/wmespi/honest-healthcare/issues/135)): the Pydantic models for `GET /api/plans`, `GET /api/services` and `GET /api/find-care`, which FastAPI publishes at `/api/docs`. A place's most you'd pay and a search's cheapest, closest, median and order are computed in the models, so a response can't contradict itself. |
 | `data_sources.py` | the find-care table sources (`*_SRC`), `db()` (one process-wide DuckDB database, `cursor()` per call), `missing_build()` and `manifest()` |
@@ -48,7 +50,7 @@ the build, not SQL that works it out per request.
 
 Add the contract test (`test_api_contract.py`: 200 + shape, and the intended error
 codes); update `application/frontend/src/api.js` and add a vitest case if the frontend calls it;
-`docker compose restart application`, `make test`, then hit the route against live data.
+`docker compose restart application`, `make test`, then hit the route against live data (the dev stack runs with `GATE=off`).
 
 ## Known limits
 
