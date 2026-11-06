@@ -10,8 +10,9 @@ deployed one on the real tables alike.
 With --token, the app sits behind Google sign-in (IAP, infra/deploy.md): a
 request without the token must be turned away, and every other check signs in
 with it. make deploy makes the token. Waits up to 30 seconds for the app to
-answer, then exits 1 at the first check that fails. Standard library only, so
-it runs anywhere Python does.
+answer, and up to 5 minutes for IAP to admit the token, since a new grant takes
+a while to apply; then exits 1 at the first check that fails. Standard library
+only, so it runs anywhere Python does.
 """
 import argparse
 import json
@@ -55,14 +56,17 @@ def main(base, token):
     def get(path, **params):
         return fetch(base, path, token=token, **params)
 
-    for _ in range(30):
+    deadline = time.time() + (300 if token else 30)
+    while True:
         try:
             status, _, body = get("/api/health")
-            break
         except OSError:
-            time.sleep(1)
-    else:
-        check(False, f"the app answers at {base}", "nothing answered in 30 seconds")
+            status, body = None, "nothing answered"
+        if status is not None and not (token and status == 403):
+            break
+        if time.time() > deadline:
+            check(False, f"the app at {base} answers{' the token' if token else ''}", f"{status} {body[:200]}")
+        time.sleep(5)
     if token:
         stranger, _, page = fetch(base, "/", follow=False)
         check(stranger in (302, 401, 403) and '<div id="root">' not in page,

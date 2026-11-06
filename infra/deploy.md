@@ -32,7 +32,7 @@ A tester needs a Google account, on two lists:
 ## Cost
 
 - One instance at most bounds what the service can spend in a month, and it costs nothing while idle.
-- A budget on the project's Cloud Run, `honest-healthcare-cloud-run-cap`, carries a **spend cap** of $10 a month: Google pauses the service when its estimated spend reaches it, until the next month or until the cap is lifted under Billing → Budgets & alerts.
+- A budget on the project's Cloud Run, `honest-healthcare-budget`, carries a **spend cap** of $10 a month: Google pauses the service when its estimated spend reaches it, until the next month or until the cap is lifted under Billing → Budgets & alerts.
   The cap reacts quickly to estimated costs, but not instantly.
 - The rest stays in free tiers: the image is built here rather than in Cloud Build, Artifact Registry keeps three images, and IAP is free.
 
