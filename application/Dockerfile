@@ -21,8 +21,9 @@ EXPOSE 8000
 
 FROM node:20-slim AS node
 
-# ── screen: the production bundle ─────────────────────────────────────────
-FROM node AS screen
+# ── screen: the production bundle, built on the build machine's platform,
+# since the bundle is the same on every one (make deploy builds for x86) ────
+FROM --platform=$BUILDPLATFORM node:20-slim AS screen
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci

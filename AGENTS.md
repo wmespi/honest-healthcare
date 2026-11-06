@@ -175,6 +175,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | API routes, query-layer notes | [application/serving/serving.md](application/serving/serving.md) |
 | On-disk schema (Parquet) | [docs/schema.md](docs/schema.md) |
 | Container images, ports, parallel stacks, sending a tester the Tailscale link | [infra/README.md](infra/README.md) |
+| Deploying to Cloud Run, who can sign in, the spend cap, rolling back | [infra/deploy.md](infra/deploy.md) |
 | The three test suites, isolation, fixtures, CI jobs | [docs/testing.md](docs/testing.md) |
 | User journeys — the persona clickpaths `make test-live` asserts | [docs/journeys.md](docs/journeys.md) |
 | What's wrong / missing / deferred | [docs/known-gaps.md](docs/known-gaps.md) |
