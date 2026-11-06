@@ -21,7 +21,7 @@
 .PHONY: help \
         start up down logs \
         worktree worktree-rm \
-        discover parse reference build refresh \
+        discover parse reference build refresh deploy \
         check test test-live \
         footprint clean \
         fixture \
@@ -96,6 +96,11 @@ refresh: ## The monthly job: discover → reference (what's missing; NPPES gates
 	$(MAKE) parse
 	$(MAKE) reference STEP=geocode
 	$(MAKE) build
+
+## ── Deploy ───────────────────────────────────────────────────────────────────
+
+deploy: ## Build the application image with data/serving's tables, roll it out to Cloud Run behind Google sign-in, and smoke-check it there (infra/deploy.md). Ships only committed code
+	@bash infra/deploy.sh
 
 ## ── Quality gates ────────────────────────────────────────────────────────────
 

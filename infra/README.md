@@ -2,7 +2,7 @@
 
 *Read this before touching a Dockerfile, a port, or sharing the app with someone.*
 
-This folder is about where the app runs: the local stack below, and the cloud deploy for invited testers as [#17](https://github.com/wmespi/honest-healthcare/issues/17) lands.
+This folder is about where the app runs: the local stack below, and the deployed app invited testers use, on Cloud Run behind Google sign-in ([deploy.md](deploy.md)).
 
 Each layer's Dockerfile sits in its layer's folder and builds from that folder alone, so no image can hold another layer's code ([architecture.md](../docs/architecture.md#layers)).
 Each has a dev target (the toolchains and test deps) and a prod target (the deployable artifact).
@@ -47,9 +47,10 @@ The app binds to **`${BIND_HOST:-127.0.0.1}:${APP_PORT:-8000}`**, loopback by de
 `container_name:` is unset, so `COMPOSE_PROJECT_NAME` (default: directory name) scopes every container, network and volume.
 `APP_PORT`, `HH_DATA_ROOT` and `HH_SERVING_DIR` are env-driven: copy `.env.example` → `.env` in a worktree to run a second stack beside the canonical one (`make worktree` does this).
 
-## Sharing the app with a tester
+## Sharing the local stack with a tester
 
-There is no public site: the app runs on this machine and is reached over
+Testers use the deployed app ([deploy.md](deploy.md#who-can-sign-in)).
+To show someone this machine's stack instead, such as a branch before it's deployed, share it over
 [Tailscale](https://tailscale.com), a private network only invited people can join.
 `scripts/tailscale-up.sh` sets up serving and prints the link.
 

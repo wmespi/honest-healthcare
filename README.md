@@ -103,7 +103,7 @@ After the first load, `make refresh` is the whole monthly job.
 After `make build`, the API picks up the new tables automatically, so just refresh the UI.
 `make help` lists every workflow.
 The UI and the API share one address, so another device reaches both at `http://<this-machine's-ip-or-hostname>:8000`.
-`scripts/tailscale-up.sh` sets up private off-network access; to send that link to someone who isn't a developer, see [infra/README.md](infra/README.md#sharing-the-app-with-a-tester).
+`scripts/tailscale-up.sh` sets up private off-network access; to send that link to someone who isn't a developer, see [infra/README.md](infra/README.md#sharing-the-local-stack-with-a-tester). Invited testers use the deployed app ([infra/deploy.md](infra/deploy.md)).
 
 ---
 
