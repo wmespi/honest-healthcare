@@ -111,11 +111,6 @@ type BillingCodeRow struct {
 	Description     string `parquet:"description"`
 }
 
-type NPILookupRow struct {
-	NPI      int64  `parquet:"npi"`
-	TINValue string `parquet:"tin_value"`
-}
-
 // NPPESRow is one Georgia provider from the NPPES national dissemination file,
 // filtered to practice-location state == "GA".
 type NPPESRow struct {

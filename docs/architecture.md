@@ -46,7 +46,7 @@ flowchart LR
     TGT[targets.yaml] --> PICK
     PICK --> PROBE{"probe: any wanted providers?"}
     PROBE -->|"no: abort early, record skipped"| REC[(parse record per file)]
-    PROBE -->|"yes: stream"| RAW[(rates as Anthem files them: prices, group_sets, providers, codes, npi_lookup)]
+    PROBE -->|"yes: stream"| RAW[(rates as Anthem files them: prices, group_sets, providers, codes)]
     RAW -->|billing IDs to place| GEO[("geocodes, run again after parse")]
     RAW -.->|"NPIs to keep once parsed: CMS groups"| REF[(reference: NUCC, MPFS, OPPS, CMS billing, CMS groups, MIPS, hospitals, ZIPs)]
     RAW --> REC
@@ -83,7 +83,7 @@ flowchart LR
 
 Parse needs two reference datasets first, Georgia's providers and the exchange plans, and two reference datasets read what parse wrote.
 Geocode places the billing IDs parse found, so `make refresh` runs it again after parse.
-Doctors & Clinicians (CMS groups, the dotted arrow) keeps the NPIs in parse's `npi_lookup.parquet` when it exists, and Georgia's by state otherwise.
+Doctors & Clinicians (CMS groups, the dotted arrow) keeps the NPIs on the rosters parse wrote once there are any, and Georgia's by state before that.
 
 Everything ingestion hands integration (payer rates, GA providers, the exchange and reference datasets) is in `data/ingestion/`; Anthem's index, parse records and rates as filed stay in `data/raw/`.
 

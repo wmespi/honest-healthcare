@@ -20,7 +20,6 @@ var (
 	ProvidersOutputDir string
 	CodesOutputDir     string
 	ParsesDir          string
-	NPILookupPath      string
 	IndexFilesPath     string
 	IndexFilePlansPath string
 	GAProvidersPath    string
@@ -42,7 +41,6 @@ func usePaths(root string) {
 	ProvidersOutputDir = anthem + "/providers"
 	CodesOutputDir = anthem + "/codes"
 	ParsesDir = anthem + "/parses"
-	NPILookupPath = anthem + "/npi_lookup.parquet"
 	IndexFilesPath = anthem + "/index_files.parquet"
 	IndexFilePlansPath = anthem + "/index_file_plans.parquet"
 	GAProvidersPath = root + "/ingestion/nppes/ga_providers.parquet"

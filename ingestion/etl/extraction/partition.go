@@ -88,17 +88,27 @@ func (f *priceFanout) write(rows []core.PriceRow) error {
 		if _, err := part.writer.Write(batch); err != nil {
 			return err
 		}
-		part.writer.Flush()
+		if err := part.writer.Flush(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// close flushes and closes every partition writer (writer before its file).
-func (f *priceFanout) close() {
+// close flushes and closes every partition writer (writer before its file), and
+// returns the first error, since a writer writes its last rows and its footer
+// as it closes.
+func (f *priceFanout) close() error {
+	var first error
 	for _, p := range f.parts {
-		p.writer.Close()
-		p.file.Close()
+		if err := p.writer.Close(); err != nil && first == nil {
+			first = err
+		}
+		if err := p.file.Close(); err != nil && first == nil {
+			first = err
+		}
 	}
+	return first
 }
 
 // fanoutCloser adapts *priceFanout to io.Closer so it can sit in the same close
@@ -106,10 +116,10 @@ func (f *priceFanout) close() {
 type fanoutCloser struct{ f *priceFanout }
 
 func (c fanoutCloser) Close() error {
-	if c.f != nil {
-		c.f.close()
+	if c.f == nil {
+		return nil
 	}
-	return nil
+	return c.f.close()
 }
 
 // promote moves each scratch partition file to

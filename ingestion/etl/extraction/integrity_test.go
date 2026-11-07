@@ -3,6 +3,7 @@ package extraction
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -24,9 +25,7 @@ func synthetic(t *testing.T) string {
 
 // streamString runs streamMRF over s with the schema path on (first-file mode).
 func streamString(s string) (*mrfResult, error) {
-	return streamMRF(strings.NewReader(s), 1, true,
-		map[string]bool{}, map[int64]string{}, nil, providerProbe{},
-		mrfWriters{}, nil)
+	return streamMRF(strings.NewReader(s), 1, true, nil, providerProbe{}, mrfWriters{}, nil)
 }
 
 // A clean document parses and reports its raw section counts.
@@ -81,9 +80,39 @@ func TestStreamMRF_EmptyDocument(t *testing.T) {
 
 // A structurally invalid in_network entry is a failure, not a skipped item.
 func TestStreamMRF_MalformedInNetworkItem(t *testing.T) {
-	_, err := streamString(`{"in_network":[{"billing_code": 123}]}`)
-	if err == nil || !strings.Contains(err.Error(), "malformed MRF: in_network") {
-		t.Fatalf("error = %v, want 'malformed MRF: in_network'", err)
+	_, err := streamString(`{"provider_references":[],"in_network":[{"billing_code": 123}]}`)
+	if err == nil || !strings.Contains(err.Error(), "malformed MRF: in_network[0]") {
+		t.Fatalf("error = %v, want 'malformed MRF: in_network[0]'", err)
+	}
+}
+
+// in_network before provider_references can't be attributed to networks in one
+// pass, so the file fails instead of landing every rate under no network.
+func TestStreamMRF_InNetworkBeforeProviderReferences(t *testing.T) {
+	for _, doc := range []string{
+		`{"in_network":[],"provider_references":[]}`,
+		`{"in_network":[]}`, // no provider_references at all, such as inline provider_groups
+	} {
+		if _, err := streamString(doc); !errors.Is(err, errInNetworkFirst) {
+			t.Errorf("doc %s: error = %v, want errInNetworkFirst", doc, err)
+		}
+	}
+}
+
+// A sink that can't write stops the stream with that error, so the file fails
+// instead of being promoted short. Each sink is checked on its own.
+func TestStreamMRF_WriteErrorStopsTheStream(t *testing.T) {
+	diskFull := errors.New("no space left on device")
+	for name, w := range map[string]mrfWriters{
+		"providers":  {providers: func([]core.ProviderRow) error { return diskFull }},
+		"prices":     {prices: func([]core.PriceRow) error { return diskFull }},
+		"group_sets": {groupSetMembers: func([]core.GroupSetMemberRow) error { return diskFull }},
+		"codes":      {code: func(core.BillingCodeRow) error { return diskFull }},
+	} {
+		_, err := streamMRF(strings.NewReader(synthetic(t)), 1, false, nil, providerProbe{}, w, nil)
+		if !errors.Is(err, diskFull) || !strings.Contains(err.Error(), "write "+name) {
+			t.Errorf("%s sink failing: error = %v, want 'write %s: %v'", name, err, name, diskFull)
+		}
 	}
 }
 

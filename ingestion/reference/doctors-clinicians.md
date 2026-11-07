@@ -35,9 +35,10 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
 - **One group per NPI**: the group the clinician appears under most often, ties
   broken by larger `num_org_mem`, then `org_pac_id`. A solo clinician keeps
   `org_pac_id` / `org_name` NULL.
-- **GA scope**: the NPIs in `data/raw/anthem/npi_lookup.parquet` (providers we hold
-  Anthem rates for, including GA contractors practising out of state), falling back to
-  `State = 'GA'` when it isn't built.
+- **GA scope**: the NPIs on the rosters of every file parse has written,
+  `data/raw/anthem/providers/*.parquet` (providers we hold Anthem rates for, including
+  GA contractors practising out of state), falling back to `State = 'GA'` before any
+  file is parsed.
 
 ## How it reaches serving
 
@@ -55,6 +56,7 @@ The find-care build names a doctor's own billing NPI after its CMS group
 
 Tested by `ingestion/reference/tests/test_doctors_clinicians.py` against
 `ingestion/reference/testdata/dac_sample.csv`, covering both geo branches (`State='GA'` and
-`npi IN npi_lookup` — the production path, where the file's all-varchar NPI vs
-`npi_lookup`'s BIGINT once raised a real-data-only `BinderException`), and by
+the parsed rosters, with two files as two runs of parse leave them — the production
+path, where the file's all-varchar NPI vs the rosters' BIGINT once raised a
+real-data-only `BinderException`), and by
 `integration/tests/tables/test_places.py` for a doctor's own NPI named after its CMS group.

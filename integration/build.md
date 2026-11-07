@@ -11,7 +11,7 @@ table is a `503` from `GET /api/health`, not a fallback to raw Parquet.
 Each table has its own file, named after it, with a class that names its key and columns and selects its rows.
 [`integration/inputs/`](inputs/__init__.py) holds what they read: each dataset ingestion writes, with the command that makes it and the columns and key the build checks before reading any of them ([docs/schema.md](../docs/schema.md)), and build-only tables such as each biller's rates.
 [`integration/table.py`](table.py) checks every table's columns and key, plus any rule of the table's own, inputs included.
-`make build` makes and checks them all before writing anything, so a failed check leaves the last build's files as they were.
+`make build` makes and checks them all before writing anything, and writes them all before moving any into place, so a failed check or a failed write leaves the last build's files as they were, and the API sees two builds' tables side by side only in the moment the renames take.
 Two builds from the same inputs write the same bytes, which `integration/tests/tables/` checks.
 They cover the networks the payer rates in `data/ingestion/payer_rates/` price, which `make parse` publishes for the targets in [`ingestion/etl/targets.yaml`](../ingestion/etl/targets.yaml) ([ingestion/etl/parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)); the build reads neither that file nor Anthem's own.
 `manifest.json` beside them says when the build ran (`built_at`) and how many rows each table has (`rows`), and `GET /api/health` reads it.

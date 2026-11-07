@@ -206,9 +206,9 @@ func downloadParallel(url, destPath string, workers int) error {
 func Run(opts Options) {
 	limit, schemaOnly := opts.Limit, opts.SchemaOnly
 	if schemaOnly {
-		log.Println("🚀 Starting Anthem Bronze Layer: Index Schema Capture (Go)...")
+		log.Println("🚀 Starting discover: Anthem's index schema only...")
 	} else {
-		log.Println("🚀 Starting Anthem Bronze Layer: Index Discovery (Go)...")
+		log.Println("🚀 Starting discover: Anthem's index → this month's file list...")
 	}
 
 	cachePath := ensureIndexCached(opts.NoCache)

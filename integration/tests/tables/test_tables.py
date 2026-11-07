@@ -8,6 +8,7 @@ import sys
 import pytest
 
 from integration.tables.networks import Networks
+from integration.tables.providers import Providers
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -27,6 +28,22 @@ def test_a_failed_check_leaves_the_last_build_as_it_was(corpus):
     with pytest.raises(SystemExit):
         corpus.build()
     assert open(f"{corpus.root}/serving/networks.parquet", "rb").read() == before
+
+
+def test_a_failed_write_leaves_every_table_of_the_last_build_as_it_was(corpus, monkeypatch):
+    corpus.build()
+    serving = f"{corpus.root}/serving"
+    before = {name: open(f"{serving}/{name}", "rb").read() for name in os.listdir(serving)}
+    corpus.zip("30399", 33.75, -84.39)  # a change to zips, which is written before providers
+
+    def disk_full(self, con, out_dir):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(Providers, "stage", disk_full)  # the last table written
+    with pytest.raises(OSError, match="No space left"):
+        corpus.build()
+    assert sorted(os.listdir(serving)) == sorted(before), "a temp file or the spill dir was left behind"
+    for name, data in before.items():
+        assert open(f"{serving}/{name}", "rb").read() == data, f"{name} was replaced"
 
 
 def test_a_table_whose_columns_drift_from_its_definition_stops_the_build(corpus, monkeypatch):
