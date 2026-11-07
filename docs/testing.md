@@ -42,7 +42,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
 - `ingestion/reference/testdata/*` - small CMS / MPFS / DAC / geocode samples; each
   `ingestion/reference/tests/test_<builder>.py` runs its `ingestion/reference/` builder against them in test
   isolation. `test_common.py` runs the builders' download against a local HTTP server.
-- `ingestion/tests/conftest.py` (`anthem` fixture) writes Anthem's files as parse and discover write them, with Georgia's networks and plans and a targets file, and `test_anthem_rates.py` publishes the rates by network from them.
+- `ingestion/tests/conftest.py` (`anthem` fixture) writes Anthem's files and parse records as parse and discover write them, with Georgia's networks and plans and a targets file, and `test_anthem_rates.py` publishes the rates by network from them.
 - `integration/tests/app_tables.py` builds the build's default test corpus with the real
   `integration.build.build()` into `data-test/serving/`, and `make test` runs it before the
   app's tests, so they read tables integration wrote, handed over the way the real ones
@@ -67,6 +67,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
 `tests/e2e/parse.sh` parses `synthetic.json.gz` in test mode and asserts row counts, `network_name` and the parse record.
 It then discovers a small served index and checks that parse downloads only the file a targets file names, never another file the index links to the same plan, and downloads it again only once its `Last-Modified` changes.
 It also checks that a failed file waits until it's named with `-files`, and that a parse that stopped part way stops the next one ([parse.md](../ingestion/etl/parse.md#when-parse-downloads-a-file)).
+With a second target network whose file fails, it checks that parse exits 0 and names the file and its network, and that the publish step prices the other network and marks the failed one's rates `missing`, then `stale` once an earlier copy parsed ([parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
 `tests/e2e/nppes.sh` does the same for the NPPES extractor.
 Each removes what it wrote under `data-test/`, and `discover.sh` and `parse.sh` also check that nothing under `data/` changed during the run.
 `tests/e2e/lib.sh` holds their helpers, including the file server that stands in for Anthem: a Python server in the `ingestion` container, serving a folder under `data-test/raw/`, which `etl` reaches at `http://127.0.0.1:<port>/`.

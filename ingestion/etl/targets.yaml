@@ -30,9 +30,10 @@
 #                      written, and parse publishes only these labels' rates.
 #                      Omit it and that file is streamed in full.
 #                      Parse's last step prices each exchange network with the
-#                      rates under these labels, and stops unless exactly one
-#                      parsed file the index links to the network's plans
-#                      carries them (ingestion/etl/parse.md).
+#                      rates under these labels in the one parsed file of
+#                      `files` the index links to the network's plans, and
+#                      leaves out, with a warning, a network none of them
+#                      prices yet (ingestion/etl/parse.md).
 #
 # See ingestion/etl/discover.md (how the plan→file link is captured) and ingestion/etl/parse.md (how
 # parse selects and checks the named files).

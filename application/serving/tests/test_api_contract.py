@@ -19,9 +19,24 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 def test_health_says_when_the_build_ran_and_what_it_holds(api):
     body = api.get("/api/health").json()
     assert body["status"] == "ok" and body["built_at"] is not None
-    assert body["networks"] == [{"network_id": "45334-GAN001", "name": "Blue Value Individual Network HMO"},
-                                {"network_id": "49046-GAN008", "name": "Pathway PCP Copay Choice"}]
+    current = {"prices_status": "current", "prices_as_of": "2026-10-31", "prices_reason": None}
+    assert body["networks"] == [
+        {"network_id": "45334-GAN001", "name": "Blue Value Individual Network HMO", **current},
+        {"network_id": "49046-GAN008", "name": "Pathway PCP Copay Choice", **current}]
     assert body["rows"] == {"plans": 3, "services": 2, "places": 5, "prices": 4, "providers": 1}
+
+
+def test_health_says_which_networks_have_stale_or_no_prices_and_why(api, monkeypatch):
+    from application.serving import main
+    monkeypatch.setattr(main, "NETWORKS_SRC", """(FROM (VALUES
+        ('45334-GAN001', 'Blue Value', 'stale', DATE '2026-10-31', 'the latest parse of GA_BV.json.gz failed'),
+        ('49046-GAN008', 'Pathway', 'missing', NULL, 'GA_PW.json.gz hasn''t been parsed'))
+        t(network_id, name, prices_status, prices_as_of, prices_reason))""")
+    assert api.get("/api/health").json()["networks"] == [
+        {"network_id": "45334-GAN001", "name": "Blue Value", "prices_status": "stale",
+         "prices_as_of": "2026-10-31", "prices_reason": "the latest parse of GA_BV.json.gz failed"},
+        {"network_id": "49046-GAN008", "name": "Pathway", "prices_status": "missing", "prices_as_of": None,
+         "prices_reason": "GA_PW.json.gz hasn't been parsed"}]
 
 
 def test_health_says_what_is_missing_when_there_is_no_build(api, monkeypatch):

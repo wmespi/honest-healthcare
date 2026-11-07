@@ -259,7 +259,7 @@ def _networks(con):
     files = con.execute("""
         SELECT n.network_id, t.patterns, n.file_id, n.name, n.file_id IN (SELECT file_id FROM network_files
                                                                          WHERE network_id = n.network_id),
-               r.status, r.reason, strftime(r.finished_at, '%Y-%m-%d %H:%M'),
+               r.status, r.reason, strftime(r.finished_at, '%Y-%m-%d %H:%M:%S'),
                (SELECT list(DISTINCT network_name ORDER BY network_name) FROM labels l WHERE l.file_id = n.file_id)
         FROM named_files n JOIN targets t USING (network_id) LEFT JOIN records r USING (file_id)
         ORDER BY n.network_id, n.name

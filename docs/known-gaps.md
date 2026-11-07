@@ -64,6 +64,12 @@ Where the product is headed: [direction.md](direction.md) and epic
 
 ## Operational
 
+- **A failed file stales only its own networks, but discover is one step for every
+  insurer.** Anthem's index unreadable stops `make refresh` for every network; scoping
+  discover per insurer waits for a second one
+  ([#187](https://github.com/wmespi/honest-healthcare/issues/187)).
+- **Only `GET /api/health` says how fresh a network's prices are.** The screen doesn't
+  show `prices_as_of` or a `stale` network yet ([build.md](../integration/build.md#the-find-care-tables)).
 - **`make reference STEP=nppes` is not atomic** — `ga_providers.parquet` is briefly
   empty during a re-extract and queries touching it 500. Run it when the API is idle.
 - **Large GA files** (multi-GB) are tractable thanks to the price/roster split; still

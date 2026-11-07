@@ -64,6 +64,13 @@ PAYER_RATE_GROUPS = Dataset("payer_rates/*/rate_groups.parquet", "make parse", {
     key=["network_id", "group_set_id", "provider_group_id"])
 PAYER_ROSTERS = Dataset("payer_rates/*/rosters.parquet", "make parse", {
     "network_id": V, "provider_group_id": B, "npi": B, "tin_type": V, "tin_value": V})
+# Each target network the payer's rates are for, with or without rates: `status` says
+# they're from the payer's latest copy of `file` (`current`), from an earlier copy
+# (`stale`), or that it has none (`missing`), `file_updated_at` when the payer updated
+# the copy they're from, and `reason` why they aren't current.
+PAYER_NETWORKS = Dataset("payer_rates/*/networks.parquet", "make parse", {
+    "network_id": V, "status": V, "file": V, "file_updated_at": "TIMESTAMP WITH TIME ZONE", "reason": V},
+    key=["network_id"])
 # Georgia's exchange networks (ingestion/reference/exchange-plans.md).
 EXCHANGE_NETWORKS = Dataset("reference/exchange_networks_ga.parquet", "make reference STEP=exchange-plans", {
     "network_id": V, "issuer_id": V, "name": V}, key=["network_id"])
@@ -126,7 +133,7 @@ GEOCODES = Dataset("reference/geocode_addresses.parquet", "make reference STEP=g
 ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids", {
     "zip": V, "lat": D, "lon": D}, key=["zip"])
 
-DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
+DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, PAYER_NETWORKS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
             EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, MEDICARE_BILLING, NUCC_TAXONOMY,
             DOCTORS_CLINICIANS, MIPS, HOSPITALS, GEOCODES, ZIP_CENTROIDS]
 

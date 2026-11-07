@@ -46,7 +46,7 @@ def test_a_network_whose_file_failed_its_first_parse_is_left_out_and_says_why(an
     assert {r[0] for r in anthem.rows("rates")} == {"45334-GAN001"}
     assert anthem.networks() == [BLUE_VALUE_CURRENT, (
         "49046-GAN008", "missing", None, None,
-        "the latest parse of GA_PW.json.gz, on 2026-11-07 18:14, failed: malformed MRF: in_network[0]: unexpected EOF")]
+        "the latest parse of GA_PW.json.gz, on 2026-11-07 18:14:12, failed: malformed MRF: in_network[0]: unexpected EOF")]
     assert "49046-GAN008 has no rates, so nothing is published for it: the latest parse of GA_PW" in warning(anthem.out)
 
 
@@ -55,7 +55,7 @@ def test_a_network_whose_newer_copy_failed_keeps_its_rates_and_says_they_are_sta
     assert anthem.publish()["rates"] == 2
     assert anthem.networks()[1] == (
         "49046-GAN008", "stale", "GA_PW.json.gz", "2026-10-31",
-        "the latest parse of GA_PW.json.gz, on 2026-11-07 18:14, failed: short read: got 10 of 20 compressed bytes")
+        "the latest parse of GA_PW.json.gz, on 2026-11-07 18:14:12, failed: short read: got 10 of 20 compressed bytes")
     assert ("49046-GAN008's rates are from the copy of GA_PW.json.gz Anthem updated on 2026-10-31: "
             "the latest parse") in warning(anthem.out)
 
@@ -66,7 +66,7 @@ def test_a_network_whose_newer_copy_the_probe_skipped_is_stale(anthem):
     anthem.publish()
     assert anthem.networks()[0] == (
         "45334-GAN001", "stale", "GA_BV.json.gz", "2026-10-31",
-        "the latest parse of GA_BV.json.gz, on 2026-11-07 18:14, skipped it: probe: no wanted providers - "
+        "the latest parse of GA_BV.json.gz, on 2026-11-07 18:14:12, skipped it: probe: no wanted providers - "
         "file carries {GA Blue Value Renamed}")
 
 
