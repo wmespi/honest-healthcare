@@ -2,6 +2,7 @@ package extraction
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,13 +14,147 @@ import (
 	"github.com/wmespi/honest-healthcare/ingestion/etl/core"
 )
 
-// useStore points the parse records and the scratch folder at a temp dir.
+// useStore points the parse records, the Parquet parse writes and the scratch
+// folder at a temp dir.
 func useStore(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	parses, prices := core.ParsesDir, core.PricesOutputDir
-	core.ParsesDir, core.PricesOutputDir = filepath.Join(dir, "parses"), filepath.Join(dir, "prices")
-	t.Cleanup(func() { core.ParsesDir, core.PricesOutputDir = parses, prices })
+	paths := []*string{&core.ParsesDir, &core.PricesOutputDir, &core.GroupSetsOutputDir,
+		&core.ProvidersOutputDir, &core.CodesOutputDir}
+	saved := make([]string, len(paths))
+	for i, p := range paths {
+		saved[i] = *p
+		*p = filepath.Join(dir, filepath.Base(*p))
+	}
+	t.Cleanup(func() {
+		for i, p := range paths {
+			*p = saved[i]
+		}
+	})
+}
+
+// anthemServer serves one file the way Anthem does, with a Last-Modified, and
+// returns its index entry and a func that replaces the file.
+func anthemServer(t *testing.T) (core.IndexFile, func(body []byte, modified time.Time)) {
+	t.Helper()
+	var body []byte
+	var modified time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Last-Modified", modified.UTC().Format(http.TimeFormat))
+		w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	loc := srv.URL + "/GA_X.json.gz"
+	return core.IndexFile{FileID: 7, Name: "GA_X.json.gz", Address: loc, Location: loc},
+		func(b []byte, m time.Time) { body, modified = b, m }
+}
+
+// A failed or skipped parse writes no Parquet, so its record keeps the date of
+// the copy whose rates are still on disk.
+func TestParseRecord_KeepsTheCopyOnDisk(t *testing.T) {
+	useStore(t)
+	fixture, err := os.ReadFile("testdata/fixtures/synthetic.json.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, serve := anthemServer(t)
+	parse := func() *parseRecord {
+		t.Helper()
+		parseRates(context.Background(), f, "", false, nil, providerProbe{}, false)
+		rec, err := readRecord(f)
+		if err != nil || rec == nil {
+			t.Fatalf("readRecord = %v, %v", rec, err)
+		}
+		return rec
+	}
+	is := func(got *time.Time, want time.Time) bool { return got != nil && got.Equal(want) }
+	oct17, nov1 := time.Date(2026, 10, 17, 4, 0, 0, 0, time.UTC), time.Date(2026, 11, 1, 4, 0, 0, 0, time.UTC)
+
+	if err := writeRecord(parseRecord{FileID: f.FileID, Name: f.Name, Address: f.Address, Status: statusFailed}); err != nil {
+		t.Fatal(err)
+	}
+	serve(fixture[:len(fixture)/2], oct17)
+	if rec := parse(); rec.Status != statusFailed || rec.RatesUpdatedAt != nil {
+		t.Errorf("a first parse that failed: %s, rates from %v; want failed and none", rec.Status, rec.RatesUpdatedAt)
+	}
+	serve(fixture, oct17)
+	if rec := parse(); rec.Status != statusParsed || !is(rec.RatesUpdatedAt, oct17) {
+		t.Errorf("a parse: %s, rates from %v; want parsed, from %v", rec.Status, rec.RatesUpdatedAt, oct17)
+	}
+	serve(fixture[:len(fixture)/2], nov1)
+	for range 2 {
+		if rec := parse(); rec.Status != statusFailed || !is(rec.AnthemUpdatedAt, nov1) || !is(rec.RatesUpdatedAt, oct17) {
+			t.Errorf("a failed parse of a newer copy: %s, read %v, rates from %v; want failed, %v, %v",
+				rec.Status, rec.AnthemUpdatedAt, rec.RatesUpdatedAt, nov1, oct17)
+		}
+	}
+
+	// A parsed record with no rates_updated_at: its rates are the copy it read.
+	if err := writeRecord(parseRecord{FileID: f.FileID, Name: f.Name, Address: f.Address, Status: statusParsed,
+		AnthemUpdatedAt: &oct17}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := parse(); !is(rec.RatesUpdatedAt, oct17) {
+		t.Errorf("a failure after a parsed record with no rates_updated_at keeps rates from %v, want %v", rec.RatesUpdatedAt, oct17)
+	}
+}
+
+// The end of a target-selected run lists every named file whose latest parse
+// failed or was skipped, with the networks it prices and the rates it left.
+func TestReportUnparsed(t *testing.T) {
+	useStore(t)
+	var out strings.Builder
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	oct17 := time.Date(2026, 10, 17, 4, 0, 0, 0, time.UTC)
+	file := func(name, status, reason string, rates *time.Time, onDisk bool) namedFile {
+		t.Helper()
+		f := core.IndexFile{FileID: int64(len(name)), Name: name, Address: "https://x/" + name}
+		if status != "" {
+			if err := writeRecord(parseRecord{FileID: f.FileID, Name: name, Address: f.Address, Status: status,
+				Reason: reason, RatesUpdatedAt: rates, FinishedAt: oct17}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if onDisk {
+			if err := os.MkdirAll(core.CodesOutputDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(core.CodesOutputDir, f.Stem()+".parquet"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return namedFile{f, []string{"45334-GAN001"}}
+	}
+	parsed := file("GA_OK.json.gz", statusParsed, "", &oct17, true)
+	reportUnparsed(Options{}, []namedFile{parsed, file("GA_NEW.json.gz", "", "", nil, false)})
+	if out.Len() != 0 {
+		t.Errorf("a parsed file and one never parsed are reported:\n%s", out.String())
+	}
+
+	named := []namedFile{parsed,
+		file("GA_STALE.json.gz", statusFailed, "malformed MRF: unexpected EOF", &oct17, true),
+		file("GA_NONE.json.gz", statusFailed, "HTTP 503", nil, false),
+		file("GA_RENAMED.json.gz", statusSkipped, "probe: no wanted providers", &oct17, true)}
+	named[2].Networks = []string{"49046-GAN008"}
+	reportUnparsed(Options{}, named)
+	got := out.String()
+	for _, want := range []string{
+		"GA_STALE.json.gz (45334-GAN001) failed on 2026-10-17 04:00:00: malformed MRF: unexpected EOF",
+		"its rates on disk are the copy Anthem updated on 2026-10-17 04:00:00",
+		"runs `make parse FILE=GA_STALE.json.gz`",
+		"GA_NONE.json.gz (49046-GAN008) failed on 2026-10-17 04:00:00: HTTP 503",
+		"no earlier parse left its rates on disk, so its networks have none",
+		"GA_RENAMED.json.gz (45334-GAN001) skipped on 2026-10-17 04:00:00: probe: no wanted providers",
+		"the probe stopped it (ingestion/etl/parse.md#the-provider-probe), and it's downloaded again once Anthem updates it",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the report doesn't say %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "GA_OK") {
+		t.Errorf("the report lists a parsed file:\n%s", got)
+	}
 }
 
 func TestParseRecord_RoundTrip(t *testing.T) {

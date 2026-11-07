@@ -35,7 +35,13 @@ type parseRecord struct {
 	// file is downloaded again once Anthem's differs. Empty for a fixture, or a
 	// failure before the download started.
 	AnthemUpdatedAt *time.Time `parquet:"anthem_updated_at,optional,timestamp(millisecond)"`
-	FinishedAt      time.Time  `parquet:"finished_at,timestamp(millisecond)"`
+	// RatesUpdatedAt is the Last-Modified of the copy whose Parquet is on disk,
+	// the rates the publish step reads: this parse's copy when it parsed, and
+	// otherwise the one before it left, since a failed or skipped parse writes
+	// none. Empty when no parse has written the file's Parquet, or its copy
+	// had no Last-Modified.
+	RatesUpdatedAt *time.Time `parquet:"rates_updated_at,optional,timestamp(millisecond)"`
+	FinishedAt     time.Time  `parquet:"finished_at,timestamp(millisecond)"`
 	// CompressedBytes is the download's Content-Length, 0 when unknown.
 	CompressedBytes int64 `parquet:"compressed_bytes"`
 	// The rows written, and the rows the Georgia NPI filter dropped.
@@ -63,6 +69,18 @@ func readRecord(f core.IndexFile) (*parseRecord, error) {
 		return nil, fmt.Errorf("%s holds %d rows, not 1", recordPath(f.Stem()), len(rows))
 	}
 	return &rows[0], nil
+}
+
+// ratesCopy is the Last-Modified of the copy whose Parquet a record leaves on
+// disk. A parsed record's rates are the copy it read.
+func (r *parseRecord) ratesCopy() *time.Time {
+	if r == nil {
+		return nil
+	}
+	if r.Status == statusParsed && r.RatesUpdatedAt == nil {
+		return r.AnthemUpdatedAt
+	}
+	return r.RatesUpdatedAt
 }
 
 func writeRecord(r parseRecord) error {

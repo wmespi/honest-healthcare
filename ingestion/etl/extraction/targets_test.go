@@ -228,14 +228,35 @@ targets:
 	if err != nil {
 		t.Fatalf("PlanIDs: %v", err)
 	}
-	if want := []string{"45334GA0020002", "45334GA0020008"}; !slices.Equal(got["Blue Value"], want) {
-		t.Errorf("PlanIDs[Blue Value] = %v, want %v", got["Blue Value"], want)
+	if len(got) != 2 {
+		t.Errorf("PlanIDs = %v, want the two target networks only", got)
 	}
-	if want := []string{"49046GA0700053"}; !slices.Equal(got["Pathway PCP Copay Choice"], want) {
-		t.Errorf("PlanIDs[Pathway PCP Copay Choice] = %v, want %v", got["Pathway PCP Copay Choice"], want)
+	if want := []string{"45334GA0020002", "45334GA0020008"}; !slices.Equal(got["45334-GAN001"], want) {
+		t.Errorf("PlanIDs[45334-GAN001] = %v, want %v", got["45334-GAN001"], want)
+	}
+	if want := []string{"49046GA0700053"}; !slices.Equal(ts.Targets[1].planIDs(got), want) {
+		t.Errorf("Pathway's plans = %v, want %v", ts.Targets[1].planIDs(got), want)
 	}
 	if all := allPlanIDs(got); !slices.Equal(all, []string{"45334GA0020002", "45334GA0020008", "49046GA0700053"}) {
 		t.Errorf("allPlanIDs = %v", all)
+	}
+}
+
+// A file prices the networks of its target's that the index links it to a plan on.
+func TestNetworksOf(t *testing.T) {
+	both := Target{Name: "Both", ExchangeNetworks: []string{"45334-GAN001", " 49046-GAN008 "}}
+	byNetwork := map[string][]string{"45334-GAN001": {"45334GA0020002"}, "49046-GAN008": {"49046GA0700053"}}
+	for _, c := range []struct {
+		plans []string
+		want  []string
+	}{
+		{[]string{"45334GA0020002"}, []string{"45334-GAN001"}},
+		{[]string{"49046GA0700053", "45334GA0020002"}, []string{"45334-GAN001", "49046-GAN008"}},
+		{[]string{"45334GA0010112"}, nil},
+	} {
+		if got := both.networksOf(c.plans, byNetwork); !slices.Equal(got, c.want) {
+			t.Errorf("networksOf(%v) = %v, want %v", c.plans, got, c.want)
+		}
 	}
 }
 
