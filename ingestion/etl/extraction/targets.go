@@ -215,39 +215,60 @@ type exchangePlan struct {
 	NetworkID string `parquet:"network_id"`
 }
 
-// PlanIDs reads Georgia's exchange plan file and returns, for each target by
-// name, every plan ID on its networks, sorted. A missing file, or a target
-// network with no plans in it, is an error: checking a file against an empty
-// list would reject every file for the wrong reason.
+// PlanIDs reads Georgia's exchange plan file and returns every plan ID on each
+// target network, by network ID, sorted. A missing file, or a target network
+// with no plans in it, is an error: checking a file against an empty list
+// would reject every file for the wrong reason.
 func (ts *TargetSet) PlanIDs(plansPath string) (map[string][]string, error) {
 	rows, err := parquet.ReadFile[exchangePlan](plansPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s (run `make reference STEP=exchange-plans`): %w", plansPath, err)
 	}
-	byNetwork := map[string][]string{}
+	all := map[string][]string{}
 	for _, r := range rows {
-		byNetwork[r.NetworkID] = append(byNetwork[r.NetworkID], r.PlanID)
+		all[r.NetworkID] = append(all[r.NetworkID], r.PlanID)
 	}
-	byTarget := map[string][]string{}
+	byNetwork := map[string][]string{}
 	for _, t := range ts.Targets {
-		var ids []string
 		for _, n := range t.ExchangeNetworks {
-			plans, ok := byNetwork[strings.TrimSpace(n)]
+			n = strings.TrimSpace(n)
+			plans, ok := all[n]
 			if !ok {
 				return nil, fmt.Errorf("%s: target %q names exchange network %q, which has no plans in %s", ts.Path, t.Name, n, plansPath)
 			}
-			ids = append(ids, plans...)
+			sort.Strings(plans)
+			byNetwork[n] = plans
 		}
-		sort.Strings(ids)
-		byTarget[t.Name] = ids
 	}
-	return byTarget, nil
+	return byNetwork, nil
 }
 
-// allPlanIDs is every target's plan IDs in one sorted list, or nil for none.
-func allPlanIDs(byTarget map[string][]string) []string {
+// planIDs is every plan on t's networks, sorted, from PlanIDs.
+func (t Target) planIDs(byNetwork map[string][]string) []string {
 	var ids []string
-	for _, plans := range byTarget {
+	for _, n := range t.ExchangeNetworks {
+		ids = append(ids, byNetwork[strings.TrimSpace(n)]...)
+	}
+	sort.Strings(ids)
+	return slices.Compact(ids)
+}
+
+// networksOf is the networks of t's that the index links a file to a plan on,
+// from its plan IDs and PlanIDs.
+func (t Target) networksOf(filePlans []string, byNetwork map[string][]string) []string {
+	var nets []string
+	for _, n := range t.ExchangeNetworks {
+		if linksOneOf(filePlans, byNetwork[strings.TrimSpace(n)]) {
+			nets = append(nets, strings.TrimSpace(n))
+		}
+	}
+	return nets
+}
+
+// allPlanIDs is every plan ID in one sorted list, or nil for none.
+func allPlanIDs(byNetwork map[string][]string) []string {
+	var ids []string
+	for _, plans := range byNetwork {
 		ids = append(ids, plans...)
 	}
 	sort.Strings(ids)

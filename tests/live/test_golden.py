@@ -41,7 +41,8 @@ def _require_live_target_corpus(client):
     except (httpx2.HTTPError, ValueError) as e:
         pytest.skip(f"no API reachable at {API_URL}: {e}")
         return
-    if r.status_code != 200 or BLUE_VALUE not in [n["network_id"] for n in root.get("networks", [])]:
+    priced = [n["network_id"] for n in root.get("networks", []) if n["prices_status"] != "missing"]
+    if r.status_code != 200 or BLUE_VALUE not in priced:
         pytest.skip(f"{BLUE_VALUE} not loaded at {API_URL} — golden values need the real corpus")
 
 
@@ -51,7 +52,8 @@ def find_care(client, service_id, **params):
 
 def test_the_build_holds(client):
     root = client.get("/health").json()
-    assert [n["network_id"] for n in root["networks"]] == [BLUE_VALUE, "49046-GAN008"]
+    assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
+        (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
     assert root["rows"] == {"plans": 11, "services": 26, "places": 992, "prices": 6313, "providers": 2090}
 
 

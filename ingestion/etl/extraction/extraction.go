@@ -218,6 +218,12 @@ func parseRates(
 	log.Printf("⚙️ Processing Rate File %s: %s", f.Name, orFixture(f.Location, fixturePath))
 
 	rec := parseRecord{FileID: fileID, Name: f.Name, Address: f.Address}
+	// A parse that doesn't finish leaves the Parquet the last one wrote, so its
+	// record keeps that copy's date.
+	prev, err := readRecord(f)
+	if err != nil && !dryRun {
+		log.Printf("⚠️ %v, so the record of this parse can't say which copy's rates are on disk", err)
+	}
 	finish := func(status string, reason error) {
 		if dryRun {
 			return
@@ -225,6 +231,10 @@ func parseRates(
 		rec.Status = status
 		if reason != nil {
 			rec.Reason = reason.Error()
+		}
+		rec.RatesUpdatedAt = prev.ratesCopy()
+		if status == statusParsed {
+			rec.RatesUpdatedAt = rec.AnthemUpdatedAt
 		}
 		rec.FinishedAt = time.Now().UTC()
 		if err := writeRecord(rec); err != nil {
@@ -580,10 +590,17 @@ func linksOneOf(plans, planIDs []string) bool {
 	return false
 }
 
+// namedFile is a file a target names, with the target networks the index links
+// it to a plan on: the networks it prices.
+type namedFile struct {
+	core.IndexFile
+	Networks []string
+}
+
 // selectFiles is the files this run reads: the fixture, the -files, or the files
 // the targets name. For targets, it also returns named, every file they name
-// whether due or not, for the end-of-run guard.
-func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs map[string][]string) (files, named []core.IndexFile, err error) {
+// whether due or not, for the end of the run. planIDs is PlanIDs.
+func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs map[string][]string) (files []core.IndexFile, named []namedFile, err error) {
 	if opts.Fixture != "" {
 		if len(opts.Files) > 0 {
 			return nil, nil, fmt.Errorf("-fixture parses a local file, so it takes no -files")
@@ -613,18 +630,20 @@ func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs 
 	if err != nil {
 		return nil, nil, err
 	}
-	seen := map[int64]bool{}
+	seen := map[int64]int{} // file ID -> its index in named
 	for _, t := range targets.Targets {
-		picked, err := pickNamed(targets.Path, t, byName, plansOf, planIDs[t.Name])
+		picked, err := pickNamed(targets.Path, t, byName, plansOf, t.planIDs(planIDs))
 		if err != nil {
 			return nil, nil, err
 		}
 		for _, f := range picked {
-			if seen[f.FileID] {
+			nets := t.networksOf(plansOf[f.FileID], planIDs)
+			if i, ok := seen[f.FileID]; ok {
+				named[i].Networks = append(named[i].Networks, nets...)
 				continue
 			}
-			seen[f.FileID] = true
-			named = append(named, f)
+			seen[f.FileID] = len(named)
+			named = append(named, namedFile{f, nets})
 			if err := stopIfStopped(f); err != nil {
 				return nil, nil, err
 			}
@@ -721,7 +740,8 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("select files: %w", err)
 	}
 	if len(files) == 0 {
-		log.Printf("✅ Nothing to download: every file %s names is parsed and current, or failed and waiting to be looked at.", targets.Path)
+		log.Printf("Nothing to download: every file %s names is current, or failed and waiting to be looked at.", targets.Path)
+		reportUnparsed(opts, named)
 		return nil
 	}
 	log.Printf("Found %d file(s) to download. Processing...", len(files))
@@ -769,7 +789,56 @@ func Run(ctx context.Context, opts Options) error {
 		_, outcome := parseRates(ctx, f, opts.Fixture, i == 0, gaNPIs, pb, opts.DryRun)
 		outcomes[outcome]++
 	}
-	return guardAgainstSilentSkip(opts, targets, named, outcomes)
+	err = guardAgainstSilentSkip(opts, targets, named, outcomes)
+	reportUnparsed(opts, named)
+	return err
+}
+
+// reportUnparsed ends a target-selected run with every file the targets name
+// whose latest parse failed or was skipped, this run or an earlier one, with
+// why and the networks it prices: rates on disk from an earlier copy, or none,
+// that the next run won't fix by itself. The run still exits 0 for them, so
+// the publish step prices every other network (ingestion/etl/parse.md).
+func reportUnparsed(opts Options, named []namedFile) {
+	if opts.DryRun {
+		return
+	}
+	var lines []string
+	for _, f := range named {
+		rec, err := readRecord(f.IndexFile)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s (%s): %v", f.Name, strings.Join(f.Networks, ", "), err))
+			continue
+		}
+		if rec == nil || rec.Status == statusParsed {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s (%s) %s on %s: %s", f.Name, strings.Join(f.Networks, ", "),
+			rec.Status, rec.FinishedAt.UTC().Format(time.DateTime), rec.Reason))
+		switch _, err := os.Stat(filepath.Join(core.CodesOutputDir, f.Stem()+".parquet")); {
+		case err != nil:
+			lines = append(lines, "  no earlier parse left its rates on disk, so its networks have none")
+		case rec.ratesCopy() != nil:
+			lines = append(lines, "  its rates on disk are the copy Anthem updated on "+rec.ratesCopy().UTC().Format(time.DateTime))
+		default:
+			lines = append(lines, "  its rates on disk are from an earlier copy")
+		}
+		if rec.Status == statusFailed {
+			lines = append(lines, fmt.Sprintf("  it waits until someone looks at why and runs `make parse FILE=%s`", f.Name))
+		} else {
+			lines = append(lines, "  the probe stopped it (ingestion/etl/parse.md#the-provider-probe), and it's downloaded again once Anthem updates it")
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	log.Printf("╔══════════════════════════════════════════════════════════════════════")
+	log.Printf("║ ⚠️  FILES THE TARGETS NAME THAT AREN'T PARSED")
+	for _, l := range lines {
+		log.Printf("║ %s", l)
+	}
+	log.Printf("║ Parse exits 0 for these, so every other network publishes.")
+	log.Printf("╚══════════════════════════════════════════════════════════════════════")
 }
 
 // guardAgainstSilentSkip turns the probe's quietest failure mode — every file
@@ -784,7 +853,7 @@ func Run(ctx context.Context, opts Options) error {
 // no file a target names has Parquet on disk, the run fails; if some do, the
 // build still has rates, so it is a warning - but a renamed network still
 // means today's rates are stale, so it is a loud one.
-func guardAgainstSilentSkip(opts Options, targets *TargetSet, named []core.IndexFile, outcomes map[parseOutcome]int) error {
+func guardAgainstSilentSkip(opts Options, targets *TargetSet, named []namedFile, outcomes map[parseOutcome]int) error {
 	if opts.DryRun || named == nil || targets == nil || targets.NetworkMatcher() == nil {
 		return nil
 	}

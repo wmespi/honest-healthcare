@@ -113,7 +113,8 @@ def main():
     args = ap.parse_args()
 
     health, hs = get(args.api, "/health")
-    if hs != 200 or BLUE_VALUE not in [n["network_id"] for n in (health or {}).get("networks") or []]:
+    priced = [n["network_id"] for n in (health or {}).get("networks") or [] if n["prices_status"] != "missing"]
+    if hs != 200 or BLUE_VALUE not in priced:
         msg = f"{BLUE_VALUE} not loaded at {args.api} — journeys need the real corpus"
         if args.json:
             print(json.dumps({"skipped": True, "reason": msg}))

@@ -14,6 +14,8 @@ from integration.inputs import datasets as d
 
 # The two networks the corpus prices, by Georgia's network ID.
 BLUE_VALUE, PATHWAY = "45334-GAN001", "49046-GAN008"
+# When the payer updated the copy of its file the corpus's rates are from.
+OCT31 = "2026-10-31 09:24:31+00"
 
 
 def _parquet(con, path: str, schema: dict, rows: list[tuple]):
@@ -57,6 +59,7 @@ class Corpus:
         self.premiums = []
         self.zips = []
         self.rates = []
+        self.statuses = {}
         self.group_sets = []
         self.rosters = []
         self.npis = []
@@ -88,6 +91,11 @@ class Corpus:
                            "professional", "", "outpatient"))
         self._write_rates()
 
+    def remove_rates(self, network_id):
+        """Take every payer rate on `network_id` away."""
+        self.rates = [r for r in self.rates if r[0] != network_id]
+        self._write_rates()
+
     def scan_price(self, network_id, group_set, code, all_in=None, scan=None, reading=None,
                    service_code="11"):
         """Add the payer's rates for `code` on `network_id`, covering the rosters in
@@ -100,6 +108,20 @@ class Corpus:
 
     def _write_rates(self):
         self._queue(f"{self.root}/payer_rates/anthem/rates.parquet", d.PAYER_RATES.columns, self.rates)
+        self._write_networks()
+
+    def network(self, network_id, status, as_of=OCT31, reason=None):
+        """Say how fresh `network_id`'s rates are: `current`, `stale` or
+        `missing`, from the payer's copy of `as_of`. A network with rates is
+        current, from its 31 October copy, unless this says otherwise."""
+        self.statuses[network_id] = (status, None if status == "missing" else as_of, reason)
+        self._write_networks()
+
+    def _write_networks(self):
+        statuses = {r[0]: ("current", OCT31, None) for r in self.rates} | self.statuses
+        self._queue(f"{self.root}/payer_rates/anthem/networks.parquet", d.PAYER_NETWORKS.columns,
+                    [(n, s, None if s == "missing" else "GA_FILE.json.gz", as_of, reason)
+                     for n, (s, as_of, reason) in sorted(statuses.items())])
 
     def roster(self, network_id, group_set, group, biller, *npis, tin_type="npi"):
         """Put provider group `group`, billing as `biller`, with doctors `npis`, in

@@ -1,5 +1,5 @@
-"""plans.parquet: one row per plan on a network the payer rates price, from
-Georgia's exchange plan file."""
+"""plans.parquet: one row per plan on a network with prices, from Georgia's
+exchange plan file."""
 from integration.inputs.datasets import EXCHANGE_PLANS
 from integration.table import Table
 
@@ -19,5 +19,5 @@ class Plans(Table):
         return f"""
             SELECT plan_id, name, carrier, metal_level, needs_referral, network_id, deductible
             FROM {EXCHANGE_PLANS.read(data_dir)}
-            WHERE network_id IN (SELECT network_id FROM networks)
+            WHERE network_id IN (SELECT network_id FROM networks WHERE prices_status != 'missing')
         """

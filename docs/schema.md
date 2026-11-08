@@ -48,7 +48,7 @@ roster per file. `prices ⨝ group_sets` reproduces every original
 | `codes/{name}.parquet` | `billing_code_type`, `billing_code`, `name`, `description` |
 | `index_files.parquet` | `file_id`, `name`, `address`, `location` |
 | `index_file_plans.parquet` | `file_id`, `plan_id` |
-| `parses/{name}.parquet` | `file_id`, `name`, `address`, `status`, `reason`, `anthem_updated_at`, `finished_at`, `compressed_bytes`, `price_rows`, `provider_rows`, `price_rows_dropped`, `provider_rows_dropped` |
+| `parses/{name}.parquet` | `file_id`, `name`, `address`, `status`, `reason`, `anthem_updated_at`, `rates_updated_at`, `finished_at`, `compressed_bytes`, `price_rows`, `provider_rows`, `price_rows_dropped`, `provider_rows_dropped` |
 
 `{name}` is the file's name in Anthem's index without `.json.gz` (`GA_JBNKMED0001`), and `file_id` is its ID, a hash of its address ([ingestion/etl/discover.md](../ingestion/etl/discover.md#a-files-id)).
 
@@ -61,7 +61,7 @@ The find-care build calls it the biller ([integration/build.md](../integration/b
 
 `index_files.parquet` is every file this month's index lists, and `index_file_plans.parquet` the Georgia individual-market plans it lists against each, one row per `(file_id, plan_id)`; `make discover` writes both ([ingestion/etl/discover.md](../ingestion/etl/discover.md)).
 Parse picks the files `ingestion/etl/targets.yaml` names from them, and its last step reads the link to tell which parsed file prices a network ([ingestion/etl/parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
-`parses/{name}.parquet` is one row saying what the last parse of a file made of it, which decides whether parse downloads it again ([ingestion/etl/parse.md](../ingestion/etl/parse.md#when-parse-downloads-a-file)).
+`parses/{name}.parquet` is one row saying what the last parse of a file made of it, which decides whether parse downloads it again ([ingestion/etl/parse.md](../ingestion/etl/parse.md#when-parse-downloads-a-file)), and which copy its Parquet is from.
 
 ### Why price grain + `group_sets`
 
@@ -92,8 +92,11 @@ What ingestion hands integration: each target network's rates, keyed on Georgia'
 | `rates.parquet` | `network_id`, `group_set_id`, `billing_code_type`, `billing_code`, `negotiation_arrangement`, `negotiated_type`, `negotiated_rate`, `expiration_date`, `service_code`, `billing_class`, `modifier`, `setting` |
 | `rate_groups.parquet` | `network_id`, `group_set_id`, `provider_group_id`, unique together |
 | `rosters.parquet` | `network_id`, `provider_group_id`, `npi`, `tin_type`, `tin_value` |
+| `networks.parquet` | `network_id`, unique, `status`, `file`, `file_updated_at`, `reason`: one row per target network, with or without rates |
 
 The columns keep CMS's Transparency in Coverage names, as `data/raw/anthem/` has them.
+`networks` says whether a network's rates are `current`, from the payer's latest copy of `file`; `stale`, from an earlier copy, because the latest failed to parse or was skipped; or `missing`, when it has none in the other three files and `file` is empty.
+`file_updated_at` is when the payer updated the copy they're from, and `reason` says why they aren't current.
 A rate's `group_set_id` lists the provider groups it covers in `rate_groups`, and each group's roster lists its doctors (`npi`) and its billing ID (`tin_value`, an NPI or EIN by `tin_type`).
 `rosters` runs to hundreds of millions of rows, every doctor in every group a network's rates use, so it's written as streamed, in no order.
 
@@ -104,7 +107,7 @@ table here is a `503` from `GET /api/health`, never a fallback to what ingestion
 
 | Table | Columns |
 |---|---|
-| `networks.parquet` | `network_id`, `name`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
+| `networks.parquet` | `network_id`, `name`, `prices_status`, `prices_as_of`, `prices_reason`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `plans.parquet` | `plan_id`, `name`, `carrier`, `metal_level`, `needs_referral`, `network_id`, `deductible`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `premiums.parquet` | `plan_id`, `rating_area`, `age`, `premium`, `tobacco_premium`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `zips.parquet` | `zip`, `lat`, `lon`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |

@@ -17,9 +17,6 @@ Needs this month's file list from `make discover`, and the NPPES and exchange-pl
 CLI-only: `-all-npis`, `-min-groups n`, `-dry-run`, `-targets ""` (with `-files` or `-fixture` only: no probe network signal).
 See `etl parse -h`.
 
-The parser writes **every network** a file carries, and the last step of `make parse` publishes each target network's rates ([below](#publishing-the-rates-by-network)).
-`prices/` stays Hive-partitioned by `net=` so the build prunes to one directory.
-
 ## Target selection
 
 A file is parsed because [`targets.yaml`](targets.yaml) names it, and nothing else is downloaded.
@@ -34,7 +31,7 @@ Files are parsed in the order the targets name them.
 
 ## When parse downloads a file
 
-Each file parse tries gets a parse record, `data/raw/anthem/parses/<name>.parquet`: one row with its name and address, `status` (`parsed`, `skipped` or `failed`), `reason`, `anthem_updated_at` (the `Last-Modified` of the copy it read), `finished_at`, the download size, and the rows written and dropped.
+Each file parse tries gets a parse record, `data/raw/anthem/parses/<name>.parquet`: one row with its name and address, `status` (`parsed`, `skipped` or `failed`), `reason`, `anthem_updated_at` (the `Last-Modified` of the copy it read), `rates_updated_at` (that of the copy whose Parquet is on disk, which a failed or skipped parse leaves as it was), `finished_at`, the download size, and the rows written and dropped.
 For each named file, parse reads the record and:
 
 - downloads the file when there's no record, or the record is for another address, because the same name at a new address is a new file;
@@ -44,6 +41,9 @@ For each named file, parse reads the record and:
 Parse stops if Anthem doesn't answer, because it can't tell whether a parsed file is current.
 A re-parse writes under the same name, so its Parquet replaces the old.
 `skipped` is deliberately not `failed`: nothing went wrong, the file just isn't ours ([below](#the-provider-probe)).
+
+A run the targets select ends with a banner of every file they name whose latest parse failed or was skipped, in this run or one before: its networks, why, and the copy its rates on disk are from, if any.
+It still exits 0, because one file prices only its own networks, and the publish step prices the rest ([below](#publishing-the-rates-by-network)).
 
 ```bash
 # what the last parse of each file made of it
@@ -56,10 +56,12 @@ To stream a file the probe skips, run `docker compose exec ingestion go run . pa
 
 ## Publishing the rates by network
 
-After the stream, `make parse` runs `ingestion/anthem_rates.py`, which writes what integration reads: `data/ingestion/payer_rates/anthem/` `rates`, `rate_groups` and `rosters`, keyed on Georgia's exchange network ID ([schema.md](../../docs/schema.md)).
-A target network's rates are the ones under its `network_patterns`, matched as the probe matches them, in the one parsed file the index links to the network's plans.
-The step stops unless each network is one of Georgia's, with a plan and one target; one parsed file prices it ([mrf-model.md](mrf-model.md#one-plan-one-contract)); and the index links every plan on it to that file.
-The three files move into place together, so a failed check leaves the last ones, and the step runs even when nothing is downloaded, so a change to `targets.yaml` or Georgia's plans reaches the next build.
+After the stream, `make parse` runs `ingestion/anthem_rates.py`, which writes what integration reads: `data/ingestion/payer_rates/anthem/` `rates`, `rate_groups`, `rosters` and `networks`, keyed on Georgia's exchange network ID ([schema.md](../../docs/schema.md)).
+A target network's rates are the ones under its `network_patterns`, matched as the probe matches them, in the one parsed file its target names that the index links to the network's plans.
+The step stops on a mistake in `targets.yaml` or the index: unless each network is one of Georgia's, with a plan and one target; its target names a file the index links to its plans; one parsed file prices it ([mrf-model.md](mrf-model.md#one-plan-one-contract)); and the index links every plan on it to that file.
+
+A network no parsed file prices, such as one whose file failed its first parse, is left out with a warning instead, and `networks` marks it `missing`, or `stale` while its rates are from an earlier copy ([schema.md](../../docs/schema.md)); the step stops only when no network has rates.
+The four files move into place together, so a failed check leaves the last ones, and the step runs even when nothing is downloaded, so a change to `targets.yaml` or Georgia's plans reaches the next build.
 
 ## Per-file steps
 
@@ -106,6 +108,6 @@ If ≥1 file was skipped on the network signal and none was parsed, it prints a 
 
 ## Known parser issues
 
-- **No automatic retry.** A timeout / 5xx / short read / stall records the file `failed`, and it waits for `make parse FILE=`. `watchStall` aborts a body delivering zero bytes for `stallTimeout`; there is deliberately no total timeout (a multi-GB body streams for hours).
+- **No automatic retry.** A timeout / 5xx / short read / stall records the file `failed`, and it waits for `make parse FILE=`, its networks' rates `stale` or `missing` until then. `watchStall` aborts a body delivering zero bytes for `stallTimeout`; there is deliberately no total timeout (a multi-GB body streams for hours).
 - **One parse at a time.** Nothing stops two parse runs from reading the same file at once.
 - **First-file schema capture is fragile** (double JSON round-trip); an unusual *type* on a known field hard-fails the parse. Unknown extra fields are ignored.

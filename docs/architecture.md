@@ -110,6 +110,9 @@ erDiagram
     networks {
         network_id str PK
         name str
+        prices_status str
+        prices_as_of date(optional)
+        prices_reason str(optional)
     }
     premiums {
         plan_id str PK, FK

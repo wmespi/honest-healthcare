@@ -33,10 +33,11 @@ _COUNTED = {"plans": PLANS_SRC, "services": SERVICES_SRC, "places": PLACES_SRC,
 
 @app.get("/api/health")
 def health():
-    """Health: when the build ran, the networks it priced and how many rows
-    each find-care table holds. A missing build is an error, not a degraded
-    mode: 503 with what's absent, so nobody mistakes an unbuilt stack for an
-    empty corpus."""
+    """Health: when the build ran, each network ingestion delivered and how
+    fresh its prices are (`current`, `stale` or `missing`, as of when, and
+    why), and how many rows each find-care table holds. A missing build is an
+    error, not a degraded mode: 503 with what's absent, so nobody mistakes an
+    unbuilt stack for an empty corpus."""
     missing = missing_build()
     if missing:
         return JSONResponse(status_code=503, content={
@@ -45,8 +46,10 @@ def health():
             "missing": missing,
         })
     conn = db()
-    networks = [{"network_id": r[0], "name": r[1]} for r in conn.execute(
-        f"SELECT network_id, name FROM {NETWORKS_SRC} ORDER BY network_id").fetchall()]
+    cursor = conn.execute(f"SELECT network_id, name, prices_status, prices_as_of, prices_reason "
+                          f"FROM {NETWORKS_SRC} ORDER BY network_id")
+    columns = [c[0] for c in cursor.description]
+    networks = [dict(zip(columns, r)) for r in cursor.fetchall()]
     rows = {name: conn.execute(f"SELECT count(*) FROM {src}").fetchone()[0] for name, src in _COUNTED.items()}
     return {"status": "ok", "built_at": manifest().get("built_at"), "networks": networks, "rows": rows}
 
