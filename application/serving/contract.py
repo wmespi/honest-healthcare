@@ -96,7 +96,8 @@ class Service(BaseModel):
 
 
 class Part(BaseModel):
-    """One bill at a place, with the highest rate the plan lists for it there,
+    """One bill at a place, with the rate the plan lists for it there that has
+    the strongest evidence behind it, and the highest of those when several tie,
     since the file doesn't say which applies. Empty when the place has no usable
     price for that bill: a hospital's own fee, or the scan at a group whose
     doctors read scans done elsewhere."""
@@ -135,7 +136,7 @@ class Place(BaseModel):
     distance_mi: float = Field(ge=0)
     parts: list[Part] = Field(min_length=1)
     several_rates: bool = Field(
-        description="The plan lists more than one rate for a bill here without saying which applies, "
+        description="The plan lists more than one rate that could apply to a bill here without saying which, "
                     "so someone should ask which they'd get.")
     billers: list[str] = Field(min_length=1, description="The groups that bill for the service here, by name: "
                                                          "at a hospital, the groups reading scans there.")
@@ -149,7 +150,7 @@ class Place(BaseModel):
             raise ValueError("only a hospital has stars")
         return self
 
-    @computed_field(description="The most you'd pay: every part's highest rate, added up.")
+    @computed_field(description="The most you'd pay: every part's rate, added up.")
     @property
     def max_rate(self) -> Optional[float]:
         if any(p.max is None for p in self.parts):

@@ -43,18 +43,9 @@ def inputs(services_path=SERVICES_PATH):
     ]
 
 
-def build(data_dir, serving_dir, services_path=SERVICES_PATH):
-    """Write every serving table under `serving_dir` from the inputs under
-    `data_dir` (`data`, or `data-test` for a test build); returns {table: rows}.
-
-    Every dataset is checked first (integration/inputs/datasets.py), then the inputs
-    and the tables are made and checked in this order, and each one's SQL may
-    read the ones above it. None is written until all of them pass, and none is
-    moved into place until all of them are written, so a failed check or a
-    failed write leaves the last build's files as they were. The app reads the
-    files as they are, so it can see two builds' tables side by side only in the
-    moment the renames take, not while the tables are written."""
-    tables = [
+def serving():
+    """The serving tables, in the order they're made."""
+    return [
         Networks(),
         Plans(),
         Premiums(),
@@ -66,12 +57,35 @@ def build(data_dir, serving_dir, services_path=SERVICES_PATH):
         Prices(),
         Providers(),
     ]
+
+
+def make(con, data_dir, services_path=SERVICES_PATH):
+    """Make every input and serving table in `con` from the inputs under
+    `data_dir`, writing nothing; returns the serving tables.
+
+    Every dataset is checked first (integration/inputs/datasets.py), then the inputs
+    and the tables are made and checked in this order, and each one's SQL may
+    read the ones above it."""
+    tables = serving()
+    check_inputs(con, data_dir)
+    for table in inputs(services_path) + tables:
+        table.make(con, data_dir)
+    return tables
+
+
+def build(data_dir, serving_dir, services_path=SERVICES_PATH):
+    """Write every serving table under `serving_dir` from the inputs under
+    `data_dir` (`data`, or `data-test` for a test build); returns {table: rows}.
+
+    None is written until all of them are made and pass their checks (`make`),
+    and none is moved into place until all of them are written, so a failed
+    check or a failed write leaves the last build's files as they were. The app
+    reads the files as they are, so it can see two builds' tables side by side
+    only in the moment the renames take, not while the tables are written."""
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)
     try:
-        check_inputs(con, data_dir)
-        for table in inputs(services_path) + tables:
-            table.make(con, data_dir)
+        tables = make(con, data_dir, services_path)
         rows = {}
         try:
             for table in tables:

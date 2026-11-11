@@ -47,7 +47,8 @@ function RadiusPicker({ radiusMi, onChange }) {
 function RateExplainer({ plan }) {
   return (
     <>
-      Each price is the highest rate your plan has agreed with that place. Your plan has
+      Each price is a rate your plan has agreed with that place. Where it has agreed several,
+      you see the one for the doctors known to do this service there. Your plan has
       a {money(plan.deductible)} deductible, and each place shows your share.
     </>
   );

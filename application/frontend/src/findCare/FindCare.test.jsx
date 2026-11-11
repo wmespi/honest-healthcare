@@ -188,7 +188,7 @@ describe('find care', () => {
     const user = userEvent.setup();
     open(MRI);
     await user.click(await screen.findByRole('button', { name: 'Jeff A Traub, MD, PC' }));
-    expect(screen.getByText(/more than one rate here without saying which applies/)).toBeInTheDocument();
+    expect(screen.getByText(/more than one rate that could apply here without saying which/)).toBeInTheDocument();
   });
 
   it('finds a place by a provider who works there', async () => {
