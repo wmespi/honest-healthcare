@@ -1,5 +1,5 @@
 """The build-only biller_rates table (integration/inputs/biller_rates.py): who prices
-each service, and whether they do it or only read it."""
+each service, whether they do it or only read it, and the evidence behind each rate."""
 import pytest
 
 BV = "45334-GAN001"
@@ -63,3 +63,29 @@ def test_a_registered_center_does_its_kind_of_scan_without_a_medicare_record(cor
     assert rows == [("1000000010", "mri-lower-back", True),
                     ("1000000011", "mammogram-screening", True),
                     ("1000000011", "mri-lower-back", False)]
+
+
+def test_a_rate_records_the_strongest_evidence_behind_it(corpus):
+    # Midtown also sits under a second fee schedule, whose roster has no doctor
+    # Medicare shows doing the MRI, and 1000000010 is an MRI center Medicare has
+    # no record of.
+    corpus.roster(BV, 30, 30, "1000000001", 2000000030)
+    corpus.scan_price(BV, 30, "72148", all_in=640)
+    corpus.roster(BV, 10, 10, "1000000010", 2000000010)
+    corpus.scan_price(BV, 10, "72148", all_in=450)
+    corpus.npi(1000000010, "CENTER 10", "10 MAIN ST", "ATLANTA", "303082233", taxonomy="261QM1200X")
+    rows = corpus.inputs().execute("""
+        SELECT biller, rate, evidence FROM biller_rates
+        WHERE biller IN ('1000000001', '1000000010') AND part = 'all_in' ORDER BY ALL""").fetchall()
+    assert rows == [("1000000001", 500.0, "medicare_roster"),
+                    ("1000000001", 640.0, "medicare_biller"),
+                    ("1000000010", 450.0, "registered")]
+
+
+def test_a_rate_for_another_bill_is_left_out_and_an_unknown_modifier_stops_the_build(corpus):
+    corpus.modified_price(BV, 1, "72148", "50", 750)     # both sides in one visit
+    corpus.modified_price(BV, 1, "72148", "26|TC", 480)  # two parts at once
+    assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0)]
+    corpus.modified_price(BV, 1, "72148", "26|ZZ", 90)
+    with pytest.raises(SystemExit, match=r"carry modifiers \['ZZ'\], which the build has no rule for"):
+        corpus.build()

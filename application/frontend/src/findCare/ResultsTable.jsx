@@ -111,7 +111,7 @@ function MissingBillNote({ location }) {
 function SeveralRatesNote() {
   return (
     <p className="text-pretty text-[13px] leading-5 text-slate-600">
-      Your plan lists more than one rate here without saying which applies, so this is the highest. Ask which you&rsquo;d get.
+      Your plan lists more than one rate that could apply here without saying which, so this is the highest of them. Ask which you&rsquo;d get.
     </p>
   );
 }

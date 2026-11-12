@@ -116,7 +116,8 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **A place can have several rates for one scan.** When a billing ID sits under more
   than one fee schedule for the same scan, the file does not say which applies to a
   given patient ([price lines](../ingestion/etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
-  The row shows the highest and says to ask which applies.
+  The row shows the rate whose own roster has a doctor Medicare shows billing the scan.
+  Where several rates still tie, it shows the highest and says to ask which applies; `make coverage` counts those rows.
 - **The find-care list carries some non-imaging practices.** A group's price is
   attached to every clinician on its roster, so a practice with one Medicare-billing
   imaging clinician (an orthopedic or primary care group, say) can appear beside the

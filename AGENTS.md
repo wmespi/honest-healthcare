@@ -11,9 +11,9 @@ The `network_name` label in Anthem's file (`GA Blue Value HIX Individual Network
 This file is the charter: read it first, then follow the [doc map](#where-to-look) to the detail for whatever you're touching.
 Keep it thin; detail lives next to the code.
 
-**Current focus** *(update as the active work changes)*: the Cloud Run deploy for invited testers ([#17](https://github.com/wmespi/honest-healthcare/issues/17)), with deploys from GitHub Actions next ([#180](https://github.com/wmespi/honest-healthcare/issues/180)).
+**Current focus** *(update as the active work changes)*: epic [#191](https://github.com/wmespi/honest-healthcare/issues/191), pricing any shoppable service at any place with a quality signal, in the order of work on the issue.
+Deploys from GitHub Actions ([#180](https://github.com/wmespi/honest-healthcare/issues/180)) follow the Cloud Run deploy for invited testers ([#17](https://github.com/wmespi/honest-healthcare/issues/17)).
 The find-care tables' data model is the ERD on [#135](https://github.com/wmespi/honest-healthcare/issues/135), whose order of work is done.
-Epic [#120](https://github.com/wmespi/honest-healthcare/issues/120) is on hold.
 Product direction is in [docs/direction.md](docs/direction.md).
 Don't restructure `ingestion/`, `integration/` or `application/` without a reason (rule 7).
 
@@ -94,6 +94,7 @@ make parse FILE=GA_JBNKMED0001.json.gz  #   one file by name, now (bypasses targ
 make parse TARGETS=<path>   #   a different target-plan list (default ingestion/etl/targets.yaml)
 make parse TEST=1           #   test isolation (data-test/)
 make build                  # what ingestion delivered (data/ingestion/) → the find-care tables in data/serving/
+make coverage               # what the build keeps at each step, from rates on file to rows shown; writes nothing (BY=service, TEST=1)
 make refresh                # the monthly job: discover → reference → parse → reference STEP=geocode → build
 make deploy                 # ship the committed code and data/serving/'s tables to Cloud Run behind Google sign-in (infra/deploy.md)
 
@@ -149,7 +150,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Where each biller and hospital is on the map, and how far it is from a ZIP code | [ingestion/reference/geocode.md](ingestion/reference/geocode.md) |
 | CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [ingestion/reference/mips.md](ingestion/reference/mips.md) · [ingestion/reference/zip-centroids.md](ingestion/reference/zip-centroids.md) |
 | Real practice identity - the CMS group a doctor's own billing NPI is named after (CMS Doctors & Clinicians) | [ingestion/reference/doctors-clinicians.md](ingestion/reference/doctors-clinicians.md) |
-| The build step: payer rates + reference → the find-care tables, and the checks on its inputs | [integration/build.md](integration/build.md) |
+| The build step: payer rates + reference → the find-care tables, the checks on its inputs, and what each step keeps (`make coverage`) | [integration/build.md](integration/build.md) |
 | The layers and what each delivers, and the three standing diagrams (data flow, serving entities, runtime) | [docs/architecture.md](docs/architecture.md) |
 | API routes, query-layer notes | [application/serving/serving.md](application/serving/serving.md) |
 | On-disk schema (Parquet) | [docs/schema.md](docs/schema.md) |

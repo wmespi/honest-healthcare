@@ -1,6 +1,7 @@
 """prices.parquet: what a network's contract pays for a service at a place, by
 the bills a patient there would get."""
 from integration.inputs.biller_places import practice_name
+from integration.inputs.biller_rates import EVIDENCE
 from integration.inputs.datasets import NPPES
 from integration.table import Table
 
@@ -12,8 +13,9 @@ def _part(name, rate):
 class Prices(Table):
     """One row per network, service and place where the place's billers have a
     rate for the service (integration/inputs/biller_rates.py), for the places on the
-    map. Each part is one bill, with the highest rate the plan lists for it
-    there, since the file doesn't say which of several applies:
+    map. Each part is one bill, with the rate that has the strongest evidence
+    there (biller_rates.EVIDENCE), and the highest of those when several tie,
+    since the file doesn't say which of them applies:
 
     - a hospital's row is its own fee, which Anthem's professional file doesn't
       price, so it's empty, and the reading by the groups in its building. Their
@@ -26,7 +28,7 @@ class Prices(Table):
       rate has no row, since it would show nothing at a place nobody goes to for
       the scan.
 
-    `several_rates` says a part shown has more than one rate on file, so
+    `several_rates` says a part shown has more than one rate with that evidence, so
     someone should ask which they'd get, and `billers` lists the names of the
     billing groups behind the row (biller_places.biller_name), which at a
     hospital are the groups reading there. Names that match once punctuation
@@ -44,6 +46,7 @@ class Prices(Table):
 
     def select(self, data_dir):
         empty = "NULL::DOUBLE"
+        rank = f"list_position({list(EVIDENCE)!r}, r.evidence)"
         return f"""
             WITH clinicians AS (
                 SELECT d.network_id, d.service_id, b.place_id, list(DISTINCT d.npi ORDER BY d.npi) AS providers
@@ -59,15 +62,23 @@ class Prices(Table):
                       GROUP BY r.network_id, r.service_id, b.place_id, {practice_name("b.biller_name")})
                 GROUP BY network_id, service_id, place_id
             ),
-            rows AS (
-                SELECT r.network_id, r.service_id, b.place_id, any_value(b.kind) = 'hospital' AS hospital,
-                       bool_or(r.does_scan) AS does_scan,
-                       {", ".join(f"max(r.rate) FILTER (WHERE r.part = '{p}') AS {p}, "
-                                  f"count(DISTINCT r.rate) FILTER (WHERE r.part = '{p}') AS {p}_rates"
-                                  for p in ("all_in", "scan", "reading"))}
+            rated AS (
+                SELECT r.network_id, r.service_id, b.place_id, b.kind, r.part, r.rate,
+                       bool_or(r.does_scan) OVER (PARTITION BY r.network_id, r.service_id, b.place_id) AS does_scan,
+                       {rank} = min({rank}) OVER (
+                           PARTITION BY r.network_id, r.service_id, b.place_id, r.part) AS strongest
                 FROM biller_rates r JOIN biller_places b USING (biller)
                 WHERE b.place_id IN (SELECT place_id FROM places)
-                GROUP BY r.network_id, r.service_id, b.place_id
+            ),
+            rows AS (
+                SELECT network_id, service_id, place_id, any_value(kind) = 'hospital' AS hospital,
+                       bool_or(does_scan) AS does_scan,
+                       {", ".join(f"max(rate) FILTER (WHERE part = '{p}') AS {p}, "
+                                  f"count(DISTINCT rate) FILTER (WHERE part = '{p}') AS {p}_rates"
+                                  for p in ("all_in", "scan", "reading"))}
+                FROM rated
+                WHERE strongest
+                GROUP BY network_id, service_id, place_id
             )
             SELECT network_id, service_id, place_id,
                    CASE WHEN hospital THEN [{_part("facility", empty)}, {_part("reading", "reading")}]

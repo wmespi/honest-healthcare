@@ -63,7 +63,15 @@ def test_a_place_that_lists_no_all_in_rate_shows_the_scan_and_the_reading(corpus
                                             ["SPLIT BILL IMAGING"])
 
 
-def test_several_rates_for_a_bill_show_the_highest_and_say_so(corpus):
+def test_a_rate_with_stronger_evidence_is_shown_over_a_higher_one(corpus):
+    # Midtown also sits under a second fee schedule, for more, whose roster has no
+    # doctor Medicare shows doing the MRI.
+    corpus.roster(BV, 30, 30, "1000000001", 2000000030)
+    corpus.scan_price(BV, 30, "72148", all_in=640)
+    assert prices(corpus)["1000000001"] == ([part("all_in", 500.0)], False, ["MIDTOWN IMAGING PC"])
+
+
+def test_several_rates_with_the_same_evidence_show_the_highest_and_say_so(corpus):
     # A second group reads at Grady for more, and Midtown's second billing ID lists
     # a higher all-in rate.
     biller(corpus, 1000000021, "EMORY RADIOLOGY", "80 JESSE HILL JR DR SE", "303033031", "F", reading=250)

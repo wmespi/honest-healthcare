@@ -21,7 +21,7 @@
 .PHONY: help \
         start up down logs \
         worktree worktree-rm \
-        discover parse reference build refresh deploy \
+        discover parse reference build coverage refresh deploy \
         check test test-live \
         footprint clean \
         fixture \
@@ -89,6 +89,9 @@ reference: ## Build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geo
 
 build: ## What ingestion delivered (data/ingestion/) -> the find-care tables in data/serving/. TEST=1
 	docker compose exec -T -e DUCKDB_TMP= integration python3 -m integration.build --data-dir /app/data $(if $(filter 1,$(TEST)),--test,)
+
+coverage: ## What the build keeps at each step, from rates on file to rows shown; writes nothing. BY=service, TEST=1
+	docker compose exec -T -e DUCKDB_TMP= integration python3 -m integration.coverage --data-dir /app/data $(if $(BY),--by $(BY),) $(if $(filter 1,$(TEST)),--test,)
 
 refresh: ## The monthly job: discover → reference (what's missing; NPPES gates parse) → parse → geocode (new billing IDs) → build
 	$(MAKE) discover

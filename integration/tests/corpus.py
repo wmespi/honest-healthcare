@@ -106,6 +106,13 @@ class Corpus:
                                    "9999-12-31", service_code, "professional", modifier, "outpatient"))
         self._write_rates()
 
+    def modified_price(self, network_id, group_set, code, modifier, rate):
+        """Add the payer's rate for `code` billed with `modifier`, which is a list
+        joined by `|` when the line names several."""
+        self.rates.append((network_id, group_set, "CPT", code, "ffs", "fee schedule", float(rate),
+                           "9999-12-31", "11", "professional", modifier, "outpatient"))
+        self._write_rates()
+
     def _write_rates(self):
         self._queue(f"{self.root}/payer_rates/anthem/rates.parquet", d.PAYER_RATES.columns, self.rates)
         self._write_networks()

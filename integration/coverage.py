@@ -1,0 +1,115 @@
+"""`make coverage`: what the build keeps at each step, from the rates a
+network's file lists to the rows the screen shows (integration/build.md).
+
+Makes the same tables `make build` does, from <data-dir>/ingestion/, and writes
+nothing; data-test/ stands in for <data-dir> under --test.
+"""
+import argparse
+import os
+import shutil
+import tempfile
+
+from integration import tables
+from integration.inputs.biller_rates import EVIDENCE, covered
+from integration.inputs.service_list import SERVICES_PATH
+
+# Each step of the funnel, in order, and what it counts. A pair is a service and
+# a biller on a network; a row is a service at a place.
+STEPS = {
+    "priced": "service and biller pairs with a rate",
+    "evidenced": "pairs with evidence the biller does the service",
+    **{kind: f"  strongest evidence {kind}" for kind in EVIDENCE},
+    "placed": "pairs whose biller is a place",
+    "on_map": "pairs whose place is on the map",
+    "shown": "rows shown",
+    "several_rates": "rows with more than one rate to ask about",
+    "with_clinician": "rows naming a clinician",
+    "places": "places shown",
+}
+
+
+def report(con, data_dir, by_service=False):
+    """The funnel as one dict per network, or per network and service, keyed by
+    STEPS. Needs the build's tables made in `con` (integration.tables.make)."""
+    keys = "network_id, service_id" if by_service else "network_id"
+    kinds = ", ".join(f"count(*) FILTER (WHERE strongest = {i}) AS {kind}" for i, kind in enumerate(EVIDENCE, 1))
+    cur = con.execute(f"""
+        WITH {covered(data_dir)},
+        pairs AS (
+            SELECT c.network_id, c.service_id, c.biller, any_value(b.place_id) AS place_id,
+                   min(list_position({list(EVIDENCE)!r}, r.evidence)) AS strongest
+            FROM (SELECT DISTINCT network_id, service_id, biller FROM covered) c
+            LEFT JOIN biller_rates r USING (network_id, service_id, biller)
+            LEFT JOIN biller_places b USING (biller)
+            GROUP BY c.network_id, c.service_id, c.biller
+        ),
+        funnel AS (
+            SELECT {keys}, count(*) AS priced, count(strongest) AS evidenced, {kinds},
+                   count(*) FILTER (WHERE strongest IS NOT NULL AND place_id IS NOT NULL) AS placed,
+                   count(*) FILTER (WHERE strongest IS NOT NULL
+                                      AND place_id IN (SELECT place_id FROM places)) AS on_map
+            FROM pairs
+            GROUP BY {keys}
+        ),
+        shown AS (
+            SELECT {keys}, count(*) AS shown, count(*) FILTER (WHERE several_rates) AS several_rates,
+                   count(*) FILTER (WHERE len(providers) > 0) AS with_clinician,
+                   count(DISTINCT place_id) AS places
+            FROM prices
+            GROUP BY {keys}
+        )
+        SELECT {keys}, {", ".join(f"coalesce({step}, 0) AS {step}" for step in STEPS)}
+        FROM funnel LEFT JOIN shown USING ({keys})
+        ORDER BY {keys}
+    """)
+    names = [d[0] for d in cur.description]
+    return [dict(zip(names, row)) for row in cur.fetchall()]
+
+
+def show(rows, by_service=False):
+    """Print the funnel: a list of steps per network, or one line per service."""
+    if not by_service:
+        for row in rows:
+            print(f"\n{row['network_id']}")
+            for step, label in STEPS.items():
+                print(f"  {row[step]:>9,}  {label}")
+        return
+    steps = ["priced", "evidenced", "on_map", "shown", "several_rates"]
+    width = max(len(row["service_id"]) for row in rows)
+    network = None
+    for row in rows:
+        if row["network_id"] != network:
+            network = row["network_id"]
+            print(f"\n{network}\n  {'':<{width}}" + "".join(f"{step:>15}" for step in steps))
+        print(f"  {row['service_id']:<{width}}" + "".join(f"{row[step]:>15,}" for step in steps))
+
+
+def coverage(data_dir, by_service=False, services_path=SERVICES_PATH):
+    """Make the build's tables from `data_dir` in a connection of its own and
+    return the funnel's rows."""
+    spill = os.getenv("DUCKDB_TMP") or tempfile.mkdtemp(prefix="coverage-")
+    con = tables.connect(spill)
+    try:
+        tables.make(con, data_dir, services_path)
+        return report(con, data_dir, by_service)
+    finally:
+        con.close()
+        if not os.getenv("DUCKDB_TMP"):
+            shutil.rmtree(spill, ignore_errors=True)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--data-dir", default=os.getenv("DATA_DIR", "/app/data"))
+    ap.add_argument("--test", action="store_true", help="read under data-test/")
+    ap.add_argument("--by", choices=["network", "service"], default="network",
+                    help="one list per network (the default), or one line per service")
+    args = ap.parse_args()
+
+    root = "data-test" if args.test else args.data_dir
+    by_service = args.by == "service"
+    show(coverage(f"{root}/ingestion", by_service), by_service)
+
+
+if __name__ == "__main__":
+    main()
