@@ -35,6 +35,12 @@
 #                      leaves out, with a warning, a network none of them
 #                      prices yet (ingestion/etl/parse.md).
 #
+#   facility_patterns  Other labels in the same file whose institutional rates,
+#                      the bills a hospital or surgery center sends, price the
+#                      plan too. Only those rates are published under them, and
+#                      a file has to carry one of `network_patterns` first.
+#                      Optional.
+#
 # See ingestion/etl/discover.md (how the plan→file link is captured) and ingestion/etl/parse.md (how
 # parse selects and checks the named files).
 
@@ -61,3 +67,9 @@ targets:
       - "GA_JBLDMEDTR01.json.gz"
     network_patterns:
       - "Pathway PCP Copay Choice*"
+    # The file prices its hospitals under this label, on provider groups that
+    # don't carry the one above: hospitals' own price files give the same
+    # rates for their Pathway exchange plan (#191, decision 1). The doctors'
+    # rates under it aren't published.
+    facility_patterns:
+      - "EXCHANGES SPECIALIST*GATEKEEPER*ON INDIVIDUAL"
