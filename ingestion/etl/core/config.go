@@ -24,6 +24,7 @@ var (
 	IndexFilePlansPath string
 	GAProvidersPath    string
 	NPPESOutputPath    string
+	NPPESLocationsPath string
 	ExchangePlansPath  string
 )
 
@@ -45,6 +46,7 @@ func usePaths(root string) {
 	IndexFilePlansPath = anthem + "/index_file_plans.parquet"
 	GAProvidersPath = root + "/ingestion/nppes/ga_providers.parquet"
 	NPPESOutputPath = GAProvidersPath
+	NPPESLocationsPath = root + "/ingestion/nppes/ga_locations.parquet"
 	ExchangePlansPath = root + "/ingestion/reference/exchange_plans_ga.parquet"
 }
 

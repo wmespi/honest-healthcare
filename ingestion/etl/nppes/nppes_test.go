@@ -3,7 +3,9 @@ package nppes
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	parquet "github.com/parquet-go/parquet-go"
 
@@ -109,4 +111,71 @@ func mustOpen(t *testing.T, path string) *os.File {
 	}
 	t.Cleanup(func() { f.Close() })
 	return f
+}
+
+func TestExtractNPPESGeorgiaKeepsThePracticePhone(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "ga_providers.parquet")
+	if _, err := extractNPPESGeorgia(mustOpen(t, "testdata/nppes_sample.csv"), out, 0); err != nil {
+		t.Fatalf("extractNPPESGeorgia: %v", err)
+	}
+	rows, err := parquet.ReadFile[core.NPPESRow](out)
+	if err != nil {
+		t.Fatalf("read parquet: %v", err)
+	}
+	phones := map[int64]string{}
+	for _, r := range rows {
+		phones[r.NPI] = r.Phone
+	}
+	if phones[1000000001] != "4046051000" || phones[1000000004] != "" {
+		t.Errorf("phones = (%q,%q), want (\"4046051000\",\"\")", phones[1000000001], phones[1000000004])
+	}
+	if _, err := os.Stat(out + ".part"); !os.IsNotExist(err) {
+		t.Errorf("the part file is still there after a finished write")
+	}
+}
+
+func TestExtractLocationsGeorgia(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "ga_locations.parquet")
+	kept, err := extractLocationsGeorgia(mustOpen(t, "testdata/pl_sample.csv"), out)
+	if err != nil {
+		t.Fatalf("extractLocationsGeorgia: %v", err)
+	}
+	if kept != 3 {
+		t.Fatalf("kept = %d Georgia locations, want 3 (4 rows − 1 FL)", kept)
+	}
+	rows, err := parquet.ReadFile[core.NPPESLocationRow](out)
+	if err != nil {
+		t.Fatalf("read parquet: %v", err)
+	}
+	want := core.NPPESLocationRow{NPI: 1000000003, AddressLine1: "4700 WATERS AVE", AddressLine2: "STE 200",
+		City: "SAVANNAH", State: "GA", PostalCode: "314046220", Phone: "9125550134"}
+	if rows[0] != want {
+		t.Errorf("first location = %+v, want %+v", rows[0], want)
+	}
+	// lowercase "ga" still matches, and a row with no phone keeps an empty one, not its fax
+	if rows[1].City != "Pooler" || rows[1].State != "GA" || rows[1].Phone != "" {
+		t.Errorf("second location = %+v, want Pooler/GA with no phone", rows[1])
+	}
+}
+
+func TestExtractLocationsGeorgiaStopsOnAHeaderItCannotRead(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "ga_locations.parquet")
+	_, err := extractLocationsGeorgia(strings.NewReader("\"NPI\",\"Street\"\n\"1\",\"x\"\n"), out)
+	if err == nil || !strings.Contains(err.Error(), "addressline1") {
+		t.Fatalf("err = %v, want one naming the missing column", err)
+	}
+	if _, serr := os.Stat(out); !os.IsNotExist(serr) {
+		t.Errorf("a file was written for a header that couldn't be read")
+	}
+}
+
+func TestDefaultNPPESURLsAreThisMonthThenLast(t *testing.T) {
+	got := defaultNPPESURLs(time.Date(2027, time.January, 31, 12, 0, 0, 0, time.UTC))
+	want := []string{
+		"https://download.cms.gov/nppes/NPPES_Data_Dissemination_January_2027_V2.zip",
+		"https://download.cms.gov/nppes/NPPES_Data_Dissemination_December_2026_V2.zip",
+	}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("urls = %v, want %v", got, want)
+	}
 }

@@ -84,6 +84,29 @@ def test_dac_ga_keeps_solo_and_null_grad_year(built):
     assert gy is None
 
 
+def test_locations_are_each_clinicians_georgia_addresses_once(built):
+    con, out = built
+    locations = out.replace("dac_ga.parquet", "dac_locations_ga.parquet")
+    # NPI ...01 is listed at three addresses, under two groups.
+    rows = con.execute(f"""
+        SELECT address_line1, address_line2, city, state, postal_code, phone
+        FROM read_parquet('{locations}') WHERE npi = 1000000001 ORDER BY 1
+    """).fetchall()
+    assert rows == [
+        ("1 Peachtree St", "STE 300", "Atlanta", "GA", "30303", "4045550111"),
+        ("200 Main St", "", "Decatur", "GA", "30030", None),
+        ("55 10th St", "", "Atlanta", "GA", "30309", None),
+    ]
+    # One row per clinician and address, and none outside Georgia.
+    assert con.execute(f"""
+        SELECT count(*) FROM (SELECT npi, address_line1, address_line2, city, postal_code
+                              FROM read_parquet('{locations}') GROUP BY ALL HAVING count(*) > 1)
+    """).fetchone()[0] == 0
+    assert con.execute(
+        f"SELECT count(*) FROM read_parquet('{locations}') WHERE npi IN (2000000001, 2000000002)"
+    ).fetchone()[0] == 0
+
+
 @pytest.fixture(scope="module")
 def built_roster_scoped(tmp_path_factory):
     """Exercise the parsed-rosters geo branch, the production path, with two

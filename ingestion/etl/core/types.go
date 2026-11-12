@@ -128,4 +128,18 @@ type NPPESRow struct {
 	City          string `parquet:"city"`
 	State         string `parquet:"state"`
 	PostalCode    string `parquet:"postal_code"`
+	Phone         string `parquet:"phone"` // practice-location phone, digits as NPPES has them
+}
+
+// NPPESLocationRow is one Georgia address from the NPPES secondary practice
+// locations file: another place a provider practices, beside the address on its
+// own record. A provider has as many rows as it lists.
+type NPPESLocationRow struct {
+	NPI          int64  `parquet:"npi"`
+	AddressLine1 string `parquet:"address_line1"`
+	AddressLine2 string `parquet:"address_line2"`
+	City         string `parquet:"city"`
+	State        string `parquet:"state"`
+	PostalCode   string `parquet:"postal_code"`
+	Phone        string `parquet:"phone"`
 }

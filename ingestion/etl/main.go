@@ -22,7 +22,7 @@ Usage: etl <command> [flags]
 Commands:
   discover   Write this month's file list and plan links from the Anthem master index
   parse      Stream the files ingestion/etl/targets.yaml names into Parquet
-  nppes      Download the NPPES national file, write the GA subset Parquet
+  nppes      Download the NPPES national file, write Georgia's providers and their secondary locations
   fixture    Build a truncated *.json.gz fixture from a file name or URL
 
 Run "etl <command> -h" for that command's flags.
@@ -150,6 +150,7 @@ func cmdNPPES(args []string) {
 	test := fs.Bool("test", false, "isolated test mode (../data-test/ingestion/nppes/)")
 	url := fs.String("url", "", "override the NPPES dissemination zip URL")
 	file := fs.String("file", "", "use a local NPPES zip (or plain .csv) instead of downloading")
+	locations := fs.String("locations-file", "", "with a plain .csv -file: the secondary practice locations, as a plain .csv")
 	limit := fs.Int("limit", 0, "cap GA rows written (0 = all)")
 	_ = fs.Parse(args)
 
@@ -157,7 +158,7 @@ func cmdNPPES(args []string) {
 		core.ApplyTestMode()
 		log.Println("🧪 Test mode enabled - writing to ../data-test/")
 	}
-	nppes.Run(*url, *file, *limit)
+	nppes.Run(*url, *file, *locations, *limit)
 }
 
 // ── fixture ─────────────────────────────────────────────────────────────────
