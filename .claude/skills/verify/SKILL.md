@@ -36,8 +36,6 @@ description: >
   `SET temp_directory='/tmp/dsp'` first, or a big aggregate spills to `./.tmp/`
   and breaks `git add`. Read one `net=<slug>` partition of `data/raw/anthem/prices/`,
   not the whole store.
-- **`make reference STEP=nppes` is not atomic** — mid-run the output file is 0
-  bytes and queries that touch it 500. Let it finish, then restart `application`.
 - **`make test` and `make test-live` hit different data.** `test` is hermetic:
   fixtures, `data-test/`, mocked `./api` in vitest. A green `test` does not
   prove a serving-layer change works on real volume — run `test-live` too.

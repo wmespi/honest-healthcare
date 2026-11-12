@@ -123,3 +123,24 @@ def test_a_doctor_billing_at_a_hospital_under_their_own_npi_is_named_for_their_g
         corpus.npi(npi, last_name, "80 JESSE HILL JR DR SE", "ATLANTA", "303033031", entity_type="individual")
     corpus.group(1000000024, "ATLANTA RADIOLOGY ASSOCIATES")
     assert prices(corpus)["110079"][2] == ["ATLANTA RADIOLOGY ASSOCIATES", "GRADY RADIOLOGY GROUP", "PAT LEE"]
+
+
+def test_a_place_names_the_clinicians_cms_lists_practicing_there(corpus):
+    # Midtown Imaging lists a second office, and CMS lists one of its two MRI doctors there.
+    person(corpus, 2000000001, "OKAFOR")
+    person(corpus, 2000000032, "ADEYEMI")
+    corpus.roster(BV, 1, 1, "1000000001", 2000000032)
+    corpus.billed(2000000032, "72148", "O")
+    corpus.location(1000000001, "200 N MAIN ST", "ALPHARETTA", "300091234")
+    corpus.geocode("200 N MAIN ST", "ALPHARETTA", "300091234", "200 N MAIN ST, ALPHARETTA, GA, 30009",
+                   34.0778, -84.2954)
+    corpus.practices_at(2000000032, "200 N MAIN ST", "ALPHARETTA", "300091234", address_line2="STE 5")
+    rows = providers(corpus)
+    office = [place for network, service, place in rows if place.startswith("1000000001-")]
+    assert len(office) == 1 and rows[(BV, "mri-lower-back", office[0])] == [2000000032]
+    # Its doctors are seen at the second office, so the MRI isn't shown at the first.
+    assert (BV, "mri-lower-back", "1000000001") not in rows
+    corpus.practices_at(2000000001, "550 PEACHTREE ST NE", "ATLANTA", "303082233")
+    rows = providers(corpus)
+    assert rows[(BV, "mri-lower-back", "1000000001")] == [2000000001]
+    assert rows[(BV, "mri-lower-back", office[0])] == [2000000032]

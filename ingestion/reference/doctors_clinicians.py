@@ -5,7 +5,7 @@ reference table — a real practice identity that Anthem's coarse
 `provider_references` buckets can't give us (issue #62). The find-care build
 names a doctor's own billing NPI after its CMS group from it.
 
-One output under ``data/ingestion/reference/``:
+Two outputs under ``data/ingestion/reference/``:
 
   dac_ga.parquet                  one row per NPI
     npi | last_name | first_name | credential | primary_specialty
@@ -14,6 +14,11 @@ One output under ``data/ingestion/reference/``:
       That file is one row per (NPI × group × practice address); we collapse to
       the clinician's *primary* group — the ``org_pac_id`` they appear under most
       often, largest group breaking ties.
+
+  dac_locations_ga.parquet        one row per NPI and Georgia practice address
+    npi | address_line1 | address_line2 | city | state | postal_code | phone
+    ← the same file's addresses: where each clinician sees patients, which the
+      build compares with the addresses a biller lists for itself.
 
 Why Python/DuckDB and not Go: the National file is ~1 GB / ~2.5M rows but the
 work is a filter + projection + a window function to pick one group per NPI —
@@ -180,6 +185,34 @@ def build_national(con, src: str, out_path: str, geo_filter: str) -> None:
     write_parquet_atomic(con, select_sql, out_path)
 
 
+def build_locations(con, src: str, out_path: str, geo_filter: str) -> None:
+    """Each Georgia address a clinician in scope practices at, once, whichever
+    of its groups it's listed under there."""
+    src_sql = _read_csv(src)
+    c = _cols(con, src_sql)
+    cols = {"npi": _pick(c, "npi"), "line1": _pick(c, "adr_ln_1"), "line2": _pick(c, "adr_ln_2"),
+            "city": _pick(c, "city/town", "citytown", "cty"), "state": _pick(c, "state", "st"),
+            "zip": _pick(c, "zip code", "zip"), "phone": _pick(c, "telephone number", "phn_numbr")}
+    missing = [name for name in ("npi", "line1", "city", "state", "zip") if not cols[name]]
+    if missing:
+        raise SystemExit(f"National file has no column for {missing}, so it can't say where a clinician practices")
+    q = {name: _q(col) for name, col in cols.items()}
+    write_parquet_atomic(con, f"""
+        SELECT TRY_CAST({q['npi']} AS BIGINT) AS npi,
+               TRIM({q['line1']}) AS address_line1,
+               COALESCE(TRIM({q['line2']}), '') AS address_line2,
+               TRIM({q['city']}) AS city, 'GA' AS state, TRIM({q['zip']}) AS postal_code,
+               min(NULLIF(TRIM({q['phone']}), '')) AS phone
+        FROM {src_sql}
+        WHERE TRY_CAST({q['npi']} AS BIGINT) IS NOT NULL
+          AND ({geo_filter.format(state=q['state'], npi=q['npi'])})
+          AND UPPER(TRIM({q['state']})) = 'GA'
+          AND TRIM({q['line1']}) <> '' AND TRIM({q['zip']}) <> ''
+        GROUP BY ALL
+        ORDER BY ALL
+    """, out_path)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dac-url", default=None, help="override the National Downloadable File URL")
@@ -218,6 +251,8 @@ def main() -> None:
         f"{cache_dir}/dac_national.csv", [dac_url] if dac_url else [], args.dac_file
     )
     build_national(con, dac_src, ga_out, geo_filter)
+    locations_out = f"{rd}/dac_locations_ga.parquet"
+    build_locations(con, dac_src, locations_out, geo_filter)
 
     n, groups, gy = con.execute(f"""
         SELECT count(*), count(DISTINCT org_pac_id),
@@ -232,6 +267,13 @@ def main() -> None:
     """).fetchall()
     for s, cnt in top:
         print(f"    {cnt:>7,}  {s}")
+    n, clinicians, addresses = con.execute(f"""
+        SELECT count(*), count(DISTINCT npi),
+               count(DISTINCT (address_line1, address_line2, city, postal_code))
+        FROM read_parquet('{locations_out}')
+    """).fetchone()
+    print(f"→ wrote {locations_out}")
+    print(f"  {n:,} practice addresses for {clinicians:,} clinicians · {addresses:,} distinct addresses")
 
 
 if __name__ == "__main__":

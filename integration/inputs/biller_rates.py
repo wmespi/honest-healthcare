@@ -85,9 +85,10 @@ class BillerRates(Table):
     A biller appears for a service if Medicare shows a doctor billing it for that
     biller (biller_doctors), or if its NPPES primary specialty code registers it
     as an imaging center that does that kind of scan (imaging_centers), because
-    Medicare's file often misses those centers. `does_scan` says it's such a
-    center, or one of its doctors billed the service in an office. Otherwise the
-    biller only reads the scan (the 2026-11-04 decisions on #135).
+    Medicare's file often misses those centers. `registered` says it's such a
+    center, and `does_scan` that it is, or that one of its doctors billed the
+    service in an office. Otherwise the biller only reads the scan (the
+    2026-11-04 decisions on #135).
 
     `evidence` is the strongest of EVIDENCE behind the rate. A biller often sits
     under several fee schedules, each with its own roster, and the file doesn't
@@ -96,7 +97,8 @@ class BillerRates(Table):
     name = "biller_rates"
     key = ["network_id", "service_id", "biller", "part", "rate"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR",
-               "part": "VARCHAR", "rate": "DOUBLE", "does_scan": "BOOLEAN", "evidence": "VARCHAR"}
+               "part": "VARCHAR", "rate": "DOUBLE", "does_scan": "BOOLEAN", "registered": "BOOLEAN",
+               "evidence": "VARCHAR"}
 
     def select(self, data_dir):
         return f"""
@@ -120,6 +122,7 @@ class BillerRates(Table):
             )
             SELECT DISTINCT c.network_id, c.service_id, c.biller, c.part, c.rate,
                    r.biller IS NOT NULL OR coalesce(e.in_office, false) AS does_scan,
+                   r.biller IS NOT NULL AS registered,
                    CASE WHEN o.biller IS NOT NULL THEN 'medicare_roster'
                         WHEN e.biller IS NOT NULL THEN 'medicare_biller'
                         ELSE 'registered' END AS evidence

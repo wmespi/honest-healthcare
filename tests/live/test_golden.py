@@ -54,7 +54,7 @@ def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 11, "services": 26, "places": 992, "prices": 6313, "providers": 2090}
+    assert root["rows"] == {"plans": 11, "services": 26, "places": 1121, "prices": 6785, "providers": 1938}
 
 
 def test_a_brain_mri_near_emory_on_silver_4000(client):

@@ -1,34 +1,11 @@
-"""Build-only: the place each biller in biller_rates is, if it has one."""
-from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES, georgia_matches
+"""Build-only: the places each biller in biller_rates is at, if it has any."""
+from integration.inputs.addresses import ADDRESS, _words
+from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES, NPPES_LOCATIONS
 from integration.table import Table
-
-# USPS's standard abbreviations (Publication 28) for the street words addresses
-# spell out, so "1200 MEMORIAL DRIVE" and "1200 MEMORIAL DR" are one street.
-STREET_WORDS = {"STREET": "ST", "DRIVE": "DR", "ROAD": "RD", "AVENUE": "AVE", "BOULEVARD": "BLVD",
-                "HIGHWAY": "HWY", "PARKWAY": "PKWY", "EXPRESSWAY": "EXPY", "CIRCLE": "CIR",
-                "COURT": "CT", "LANE": "LN", "PLACE": "PL", "POINT": "PT", "TRAIL": "TRL",
-                "TERRACE": "TER", "NORTH": "N", "SOUTH": "S", "EAST": "E", "WEST": "W",
-                "NORTHEAST": "NE", "NORTHWEST": "NW", "SOUTHEAST": "SE", "SOUTHWEST": "SW"}
 
 # Company endings a practice's billing IDs spell differently, so "MIDTOWN IMAGING,
 # P.C." and "MIDTOWN IMAGING PC" are one practice.
 ENDINGS = ["LLC", "PLLC", "LLP", "PC", "PA", "INC", "LTD", "CORP", "CORPORATION", "CO", "THE"]
-
-
-def _words(text):
-    """SQL for `text`'s words in capitals, without punctuation: "P.C." is "PC" and
-    "EAGLE'S" is "EAGLES"."""
-    return (f"list_filter(string_split(regexp_replace(regexp_replace(upper({text}), '[.'']', '', 'g'), "
-            f"'[^A-Z0-9]+', ' ', 'g'), ' '), w -> w != '')")
-
-
-def street(line):
-    """SQL for an address line's street, in USPS's abbreviations and without the
-    cross street of an address like "915 GORDON AVENUE & MIMOSA DRIVE"."""
-    words = ", ".join(f"'{word}': '{short}'" for word, short in STREET_WORDS.items())
-    before_cross_street = f"split_part({line}, '&', 1)"
-    return (f"array_to_string(list_transform({_words(before_cross_street)}, "
-            f"w -> coalesce(MAP {{{words}}}[w], w)), ' ')")
 
 
 def practice_name(name):
@@ -37,82 +14,90 @@ def practice_name(name):
     return f"array_to_string(list_filter({_words(name)}, w -> w NOT IN ({endings})), ' ')"
 
 
+def _phone(digits):
+    """SQL for a 10-digit phone number the way hospitals' are written,
+    "(706) 272-6105", and nothing for any other."""
+    return (f"CASE WHEN regexp_full_match({digits}, '[0-9]{{10}}') THEN '(' || substr({digits}, 1, 3) || ') ' "
+            f"|| substr({digits}, 4, 3) || '-' || substr({digits}, 7, 4) END")
+
+
 class BillerPlaces(Table):
-    """A place's name and address come from the biller's own NPPES record, never
-    its roster. Two addresses are one building when Census standardized them to
-    the same address, or when their streets and ZIPs match once spelled the same
-    way; an address Census didn't match in Georgia takes the Census address and
-    point of another on its street. A point is only ever Census's, so a place in a
-    building Census matched no address in has none.
+    """One row per biller and place it's at. A biller is at the address on its
+    NPPES record (`main`) and at the other Georgia addresses it lists there,
+    never its roster's, and several of those in one building are one site
+    (integration/inputs/addresses.py). service_sites says which of a biller's
+    sites show its rate for a service.
 
-    A biller in a Georgia hospital's building is that hospital, keyed on its CCN.
-    Any other biller belongs to a practice: the billers in one building whose
-    names match once punctuation and company endings are dropped. A practice is
-    keyed on its lowest billing NPI and takes that biller's name and address, and
-    it's an imaging center if NPPES registers any of its billers as one.
-    Different practices in one building stay apart, because their prices differ
-    more often than one practice's billing IDs do. A doctor's own NPI takes the
-    name of its CMS group, and away from a hospital it has no place without one.
-    A biller with no Georgia NPPES record has no place either (#135 step 8).
+    A site in a Georgia hospital's building is that hospital, keyed on its CCN.
+    Any other site belongs to a practice: the billers with a site in the building
+    whose names match once punctuation and company endings are dropped. A
+    practice is keyed on the lowest billing NPI whose main address is in the
+    building, and takes that biller's name, address and phone. Where none of its
+    billers has its main address, the key is the lowest billing NPI and a short
+    hash of the building, so one biller's sites are different places. It's an
+    imaging center if NPPES registers any of its billers as one. Different
+    practices in one building stay apart, because their prices differ more often
+    than one practice's billing IDs do. A doctor's own NPI takes the name of its
+    CMS group, and away from a hospital it has no place without one. A biller with
+    no Georgia NPPES record has no place either (#135 step 8).
 
-    `biller_name` is the biller's own name, which a hospital's row lists for the
-    groups reading there: its NPPES name, or for a doctor's own NPI its CMS
-    group's, or the doctor's when it has none."""
+    The point is the building's, so a place in a building no geocoder located
+    has none. `biller_name` is the biller's own name, which a hospital's row
+    lists for the groups reading there: its NPPES name, or for a doctor's own NPI
+    its CMS group's, or the doctor's when it has none."""
     name = "biller_places"
-    key = ["biller"]
+    key = ["biller", "place_id"]
     columns = {"biller": "VARCHAR", "biller_name": "VARCHAR", "place_id": "VARCHAR", "kind": "VARCHAR",
                "name": "VARCHAR", "address": "VARCHAR", "city": "VARCHAR", "zip": "VARCHAR",
-               "lat": "DOUBLE", "lon": "DOUBLE"}
+               "lat": "DOUBLE", "lon": "DOUBLE", "phone": "VARCHAR", "main": "BOOLEAN", "building": "VARCHAR"}
 
     def select(self, data_dir):
         return f"""
-            WITH listed AS (
-                SELECT b.biller, n.taxonomy_code IN (SELECT taxonomy_code FROM imaging_centers) AS center,
+            WITH billers AS (
+                SELECT b.biller, n.npi, n.taxonomy_code IN (SELECT taxonomy_code FROM imaging_centers) AS center,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name ELSE d.org_name END AS name,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name
-                            ELSE coalesce(d.org_name, concat_ws(' ', n.first_name, n.last_name)) END AS biller_name,
-                       concat_ws(', ', n.address_line1, nullif(trim(n.address_line2), '')) AS address,
-                       n.city, left(n.postal_code, 5) AS zip,
-                       {street("n.address_line1")} || ' ' || left(n.postal_code, 5) AS street,
-                       g.matched_address, g.latitude AS lat, g.longitude AS lon
+                            ELSE coalesce(d.org_name, concat_ws(' ', n.first_name, n.last_name)) END AS biller_name
                 FROM (SELECT DISTINCT biller FROM biller_rates) b
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
-                LEFT JOIN {georgia_matches(data_dir)} g
-                  ON g.address_line1 = n.address_line1 AND coalesce(g.address_line2, '') = coalesce(n.address_line2, '')
-                 AND g.city = n.city AND g.state = n.state AND g.postal_code = n.postal_code
             ),
-            streets AS (
-                SELECT DISTINCT ON (street) street, matched_address, lat, lon
-                FROM listed WHERE matched_address IS NOT NULL
-                ORDER BY street, matched_address, lat, lon
+            listed AS (
+                SELECT npi, true AS main, address_line1, coalesce(address_line2, '') AS address_line2, city, state,
+                       postal_code, phone
+                FROM {NPPES.read(data_dir)}
+                UNION ALL
+                SELECT npi, false, address_line1, coalesce(address_line2, ''), city, state, postal_code, phone
+                FROM {NPPES_LOCATIONS.read(data_dir)}
             ),
-            own AS (
-                SELECT l.biller, l.biller_name, l.center, l.name, l.address, l.city, l.zip, l.street,
-                       coalesce(l.matched_address, s.matched_address) AS matched_address,
-                       coalesce(l.lat, s.lat) AS lat, coalesce(l.lon, s.lon) AS lon
-                FROM listed l LEFT JOIN streets s USING (street)
-            ),
-            at_hospital AS (
-                SELECT o.biller, o.biller_name, h.ccn, h.name, h.address, h.city, left(h.postal_code, 5) AS zip,
-                       h.lat, h.lon
-                FROM own o JOIN hospitals h
-                  ON o.matched_address = h.matched_address
-                  OR o.street = {street("h.address")} || ' ' || left(h.postal_code, 5)
+            sites AS (
+                SELECT DISTINCT ON (b.biller, a.building)
+                       b.biller, b.biller_name, b.name, b.center, l.main, a.building, a.lat, a.lon,
+                       concat_ws(', ', l.address_line1, nullif(trim(l.address_line2), '')) AS address,
+                       l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone
+                FROM billers b
+                JOIN listed l USING (npi)
+                JOIN addresses a USING ({ADDRESS})
+                ORDER BY b.biller, a.building, NOT l.main, {", ".join(f"l.{c}" for c in ADDRESS.split(", "))}
             ),
             practices AS (
-                SELECT biller, biller_name, min(biller) OVER practice AS place_id,
+                SELECT biller, biller_name, main, building,
+                       coalesce(min(biller) FILTER (WHERE main) OVER practice, min(biller) OVER practice) AS lowest,
+                       bool_or(main) OVER practice AS any_main,
                        bool_or(center) OVER practice AS any_center
-                FROM own
-                WHERE name IS NOT NULL AND biller NOT IN (SELECT biller FROM at_hospital)
-                WINDOW practice AS (PARTITION BY coalesce(matched_address, street), {practice_name("name")})
+                FROM sites
+                WHERE name IS NOT NULL AND building NOT IN (SELECT building FROM hospitals)
+                WINDOW practice AS (PARTITION BY building, {practice_name("name")})
             )
-            SELECT biller, biller_name, ccn AS place_id, 'hospital' AS kind, name, address, city, zip, lat, lon
-            FROM at_hospital
+            SELECT s.biller, s.biller_name, h.ccn AS place_id, 'hospital' AS kind, h.name, h.address, h.city,
+                   left(h.postal_code, 5) AS zip, h.lat, h.lon, h.phone, s.main, s.building
+            FROM sites s JOIN hospitals h USING (building)
             UNION ALL
-            SELECT p.biller, p.biller_name, p.place_id, CASE WHEN p.any_center THEN 'imaging_center' ELSE 'practice' END,
-                   o.name, o.address, o.city, o.zip, o.lat, o.lon
-            FROM practices p JOIN own o ON o.biller = p.place_id
+            SELECT p.biller, p.biller_name,
+                   CASE WHEN p.any_main THEN p.lowest ELSE p.lowest || '-' || left(md5(p.building), 8) END,
+                   CASE WHEN p.any_center THEN 'imaging_center' ELSE 'practice' END,
+                   o.name, o.address, o.city, o.zip, o.lat, o.lon, o.phone, p.main, p.building
+            FROM practices p JOIN sites o ON o.biller = p.lowest AND o.building = p.building
         """
 
     def check(self, con, data_dir):
@@ -139,9 +124,9 @@ class BillerPlaces(Table):
                 print(f"  billing IDs with a price that {why}, so they aren't places ({len(ids)}): "
                       f"{', '.join(ids)}")
         hospitals = [f"{r[0]} ({r[1]})" for r in con.execute(f"""
-            SELECT p.biller, p.name FROM biller_places p
+            SELECT DISTINCT p.biller, p.name FROM biller_places p
             JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(p.biller AS BIGINT)
-            WHERE p.kind != 'hospital' AND n.is_hospital ORDER BY p.biller
+            WHERE p.main AND p.kind != 'hospital' AND n.is_hospital ORDER BY p.biller
         """).fetchall()]
         if hospitals:
             print(f"  billing IDs NPPES registers as hospitals that match no hospital's address, so they're "

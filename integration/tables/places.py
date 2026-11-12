@@ -1,25 +1,26 @@
 """places.parquet: every Georgia hospital and every practice with a price that
-Census can put on the map, and unlocated_places.parquet: the ones it can't."""
+a geocoder can put on the map, and unlocated_places.parquet: the ones none can."""
 from integration.table import Table
 
-# Every hospital, and every practice with a price (integration/inputs/biller_places.py).
+# Every hospital, and every practice a service is shown at (integration/inputs/service_sites.py).
 EVERY_PLACE = """
     SELECT ccn AS place_id, name, 'hospital' AS kind, address, city, left(postal_code, 5) AS zip,
            lat, lon, phone, stars
     FROM hospitals
     UNION ALL
-    SELECT DISTINCT place_id, name, kind, address, city, zip, lat, lon, NULL::VARCHAR, NULL::INTEGER
-    FROM biller_places WHERE kind != 'hospital'
+    SELECT DISTINCT place_id, name, kind, address, city, zip, lat, lon, phone, NULL::INTEGER
+    FROM biller_places
+    WHERE kind != 'hospital' AND (biller, place_id) IN (SELECT (biller, place_id) FROM service_sites)
 """
 
 
 class Places(Table):
     """A hospital is keyed on its CCN and has Medicare's star rating and its phone.
-    Any other place is a practice with a price: its billers at one address under
-    one name, keyed on its lowest billing NPI (integration/inputs/biller_places.py).
-    Every place has Census's point on the map. One Census can't place isn't
-    shown, because any other point would be a guess, and goes to
-    unlocated_places instead."""
+    Any other place is a practice with a price: its billers in one building under
+    one name, with the phone NPPES lists there (integration/inputs/biller_places.py).
+    Every place has its building's point on the map (integration/inputs/addresses.py).
+    One in a building no geocoder located isn't shown, because any other point
+    would be a guess, and goes to unlocated_places instead."""
     name = "places"
     key = ["place_id"]
     columns = {"place_id": "VARCHAR", "name": "VARCHAR", "kind": "VARCHAR", "address": "VARCHAR",
@@ -40,8 +41,8 @@ class Places(Table):
 
 
 class UnlocatedPlaces(Table):
-    """The places Census can't put on the map, left off the screen and saved with
-    the address and ZIP to try with another geocoder. Nothing serves this table."""
+    """The places no geocoder can put on the map, left off the screen and saved
+    with the address and ZIP to look up by hand. Nothing serves this table."""
     name = "unlocated_places"
     key = ["place_id"]
     columns = {"place_id": "VARCHAR", "name": "VARCHAR", "kind": "VARCHAR", "address": "VARCHAR",

@@ -13,6 +13,7 @@ import shutil
 
 import duckdb
 
+from integration.inputs.addresses import Addresses
 from integration.inputs.biller_doctors import BillerDoctors
 from integration.inputs.biller_places import BillerPlaces
 from integration.inputs.biller_rates import BillerRates
@@ -20,6 +21,7 @@ from integration.inputs.datasets import check_inputs
 from integration.inputs.hospitals import Hospitals
 from integration.inputs.imaging_centers import ImagingCenters
 from integration.inputs.service_list import SERVICES_PATH, ServiceList
+from integration.inputs.service_sites import ServiceSites
 from integration.tables.cost_sharing import CostSharing
 from integration.tables.networks import Networks
 from integration.tables.places import Places, UnlocatedPlaces
@@ -38,8 +40,10 @@ def inputs(services_path=SERVICES_PATH):
         ImagingCenters(),
         BillerDoctors(),
         BillerRates(),
+        Addresses(),
         Hospitals(),
         BillerPlaces(),
+        ServiceSites(),
     ]
 
 

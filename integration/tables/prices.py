@@ -12,8 +12,9 @@ def _part(name, rate):
 
 class Prices(Table):
     """One row per network, service and place where the place's billers have a
-    rate for the service (integration/inputs/biller_rates.py), for the places on the
-    map. Each part is one bill, with the rate that has the strongest evidence
+    rate for the service (integration/inputs/biller_rates.py) and it's one of
+    their places for it (integration/inputs/service_sites.py), for the places on
+    the map. Each part is one bill, with the rate that has the strongest evidence
     there (biller_rates.EVIDENCE), and the highest of those when several tie,
     since the file doesn't say which of them applies:
 
@@ -33,9 +34,11 @@ class Prices(Table):
     billing groups behind the row (biller_places.biller_name), which at a
     hospital are the groups reading there. Names that match once punctuation
     and company endings are dropped are one group, under its lowest billing
-    NPI's spelling, as a practice is. `providers` lists the clinicians Medicare shows billing the
-    service for those billers (integration/inputs/biller_doctors.py), never the whole
-    roster (#135 step 1), and is empty when Medicare shows none, as at an
+    NPI's spelling, as a practice is. `providers` lists the clinicians Medicare
+    shows billing the service for those billers, never the whole roster (#135
+    step 1): the ones CMS lists practicing in the building, or all of them at a
+    biller's main place when it lists none at any of its places
+    (service_sites.providers). It's empty when Medicare shows none, as at an
     imaging center it has no record of. An organization's own NPI isn't a
     clinician, and neither is a doctor with no Georgia NPPES record as a person."""
     name = "prices"
@@ -49,17 +52,16 @@ class Prices(Table):
         rank = f"list_position({list(EVIDENCE)!r}, r.evidence)"
         return f"""
             WITH clinicians AS (
-                SELECT d.network_id, d.service_id, b.place_id, list(DISTINCT d.npi ORDER BY d.npi) AS providers
-                FROM biller_doctors d
-                JOIN biller_places b USING (biller)
+                SELECT d.network_id, d.service_id, d.place_id, list(DISTINCT d.npi ORDER BY d.npi) AS providers
+                FROM (SELECT network_id, service_id, place_id, unnest(providers) AS npi FROM service_sites) d
                 JOIN {NPPES.read(data_dir)} n ON n.npi = d.npi AND n.entity_type = 'individual'
-                GROUP BY d.network_id, d.service_id, b.place_id
+                GROUP BY d.network_id, d.service_id, d.place_id
             ),
             groups AS (
                 SELECT network_id, service_id, place_id, list(name ORDER BY name) AS billers
-                FROM (SELECT r.network_id, r.service_id, b.place_id, arg_min(b.biller_name, b.biller) AS name
-                      FROM biller_rates r JOIN biller_places b USING (biller)
-                      GROUP BY r.network_id, r.service_id, b.place_id, {practice_name("b.biller_name")})
+                FROM (SELECT s.network_id, s.service_id, s.place_id, arg_min(b.biller_name, b.biller) AS name
+                      FROM service_sites s JOIN biller_places b USING (biller, place_id)
+                      GROUP BY s.network_id, s.service_id, s.place_id, {practice_name("b.biller_name")})
                 GROUP BY network_id, service_id, place_id
             ),
             rated AS (
@@ -67,7 +69,9 @@ class Prices(Table):
                        bool_or(r.does_scan) OVER (PARTITION BY r.network_id, r.service_id, b.place_id) AS does_scan,
                        {rank} = min({rank}) OVER (
                            PARTITION BY r.network_id, r.service_id, b.place_id, r.part) AS strongest
-                FROM biller_rates r JOIN biller_places b USING (biller)
+                FROM biller_rates r
+                JOIN service_sites s USING (network_id, service_id, biller)
+                JOIN biller_places b USING (biller, place_id)
                 WHERE b.place_id IN (SELECT place_id FROM places)
             ),
             rows AS (
