@@ -1,14 +1,15 @@
-# `make reference STEP=doctors-clinicians` — real practice identity
+# `make reference STEP=doctors-clinicians` - real practice identity
 
 *Read this when working on **who a provider really practices with**, such as the group
 name a doctor's own billing NPI takes on the find-care screen.*
 
-**Builds** one table under `data/ingestion/reference/` from the public CMS **Doctors and
+**Builds** two tables under `data/ingestion/reference/` from the public CMS **Doctors and
 Clinicians** dataset (Care Compare, `data.cms.gov/provider-data`):
 
 | Output | Grain | Columns |
 |---|---|---|
 | `dac_ga.parquet` | one row per NPI | `npi \| last_name \| first_name \| credential \| primary_specialty \| org_pac_id \| org_name \| grad_year \| med_school \| gender` |
+| `dac_locations_ga.parquet` | one row per NPI and Georgia address it practices at | `npi \| address_line1 \| address_line2 \| city \| state \| postal_code \| phone` |
 
 Module `ingestion/reference/doctors_clinicians.py`; `--dac-url` overrides the source (CMS
 re-stamps the resource hash monthly); module flags `--dac-file`, `--test`.
@@ -35,6 +36,7 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
 - **One group per NPI**: the group the clinician appears under most often, ties
   broken by larger `num_org_mem`, then `org_pac_id`. A solo clinician keeps
   `org_pac_id` / `org_name` NULL.
+- **Every Georgia address**: `dac_locations_ga.parquet` keeps each Georgia address a clinician in scope is listed at, once, whichever of its groups lists it there.
 - **GA scope**: the NPIs on the rosters of every file parse has written,
   `data/raw/anthem/providers/*.parquet` (providers we hold Anthem rates for, including
   GA contractors practising out of state), falling back to `State = 'GA'` before any
@@ -42,7 +44,7 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
 
 ## How it reaches serving
 
-The find-care build names a doctor's own billing NPI after its CMS group
+The find-care build names a doctor's own billing NPI after its CMS group, and lists a clinician at a biller's place only when CMS lists them practicing in that building
 ([build.md](../../integration/build.md#the-find-care-tables)).
 
 ## Caveats (also in [../docs/known-gaps.md](../../docs/known-gaps.md))
@@ -59,4 +61,5 @@ Tested by `ingestion/reference/tests/test_doctors_clinicians.py` against
 the parsed rosters, with two files as two runs of parse leave them — the production
 path, where the file's all-varchar NPI vs the rosters' BIGINT once raised a
 real-data-only `BinderException`), and by
-`integration/tests/tables/test_places.py` for a doctor's own NPI named after its CMS group.
+`integration/tests/tables/test_places.py` for a doctor's own NPI named after its CMS group
+and `integration/tests/inputs/test_service_sites.py` for where a clinician is listed.

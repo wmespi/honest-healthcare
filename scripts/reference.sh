@@ -8,7 +8,7 @@
 #   make reference STEP=mpfs ARGS="--year 2025"
 #   make reference FORCE=1
 #
-# geocode always runs too: it sends Census only the addresses it hasn't before.
+# geocode always runs too: it asks each geocoder only about the addresses it hasn't before.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,11 +17,12 @@ FORCE="${FORCE:-}"
 ARGS="${ARGS:-}"
 
 # name | output (inside the ingestion container) | command
+# A step that writes several files names the last one it writes.
 STEPS=(
-  "nppes|/app/data/ingestion/nppes/ga_providers.parquet|etl"
+  "nppes|/app/data/ingestion/nppes/ga_locations.parquet|etl"
   "taxonomy-labels|/app/data/ingestion/reference/nucc_taxonomy.parquet|ingestion.reference.taxonomy_labels"
   "cms-utilization|/app/data/ingestion/cms/ga_provider_service.parquet|ingestion.reference.cms_utilization"
-  "doctors-clinicians|/app/data/ingestion/reference/dac_ga.parquet|ingestion.reference.doctors_clinicians"
+  "doctors-clinicians|/app/data/ingestion/reference/dac_locations_ga.parquet|ingestion.reference.doctors_clinicians"
   "mpfs|/app/data/ingestion/reference/mpfs_ga.parquet|ingestion.reference.mpfs"
   "opps|/app/data/ingestion/reference/opps.parquet|ingestion.reference.opps"
   "hospitals|/app/data/ingestion/reference/hospitals_ga.parquet|ingestion.reference.hospitals"

@@ -15,7 +15,7 @@ A layer can change freely as long as what it delivers keeps its contract, so ano
 
 | Layer | Container | Code | Reads | Writes |
 |---|---|---|---|---|
-| Ingestion | `ingestion`: Go + Python/DuckDB | `ingestion/` | Anthem, NPPES, Georgia Access, CMS, NUCC, Census | `data/raw/`, its own files, and `data/ingestion/`, the contract integration reads |
+| Ingestion | `ingestion`: Go + Python/DuckDB | `ingestion/` | Anthem, NPPES, Georgia Access, CMS, NUCC, Census, OpenStreetMap | `data/raw/`, its own files, and `data/ingestion/`, the contract integration reads |
 | Integration | `integration`: Python/DuckDB | `integration/` | `data/ingestion/`, read-only | `data/serving/`, the find-care tables |
 | Application | `application`: `serving` (FastAPI + DuckDB) under `/api`, and the built `frontend` (React + Vite) at every other path, `localhost:8000` | `application/serving/`, `application/frontend/` | `data/serving/`, read-only | nothing |
 
@@ -59,7 +59,7 @@ flowchart LR
     PUF[Georgia Access plan files] --> XNET[(exchange networks, plans, premiums and cost sharing)]
     XNET -->|plan IDs| PICK
     XNET -->|plan to network| PUB
-    PUBLIC[CMS, NUCC and Census datasets] --> REF
+    PUBLIC[CMS, NUCC, Census and OpenStreetMap datasets] --> REF
     GA -->|"NPIs to keep: MIPS"| REF
     PUBLIC --> GEO
     GA -->|addresses| GEO

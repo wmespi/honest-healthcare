@@ -96,11 +96,16 @@ MPFS = Dataset("reference/mpfs_ga.parquet", "make reference STEP=mpfs", {
 OPPS = Dataset("reference/opps.parquet", "make reference STEP=opps", {
     "billing_code": V, "billing_code_type": V, "status_indicator": V, "apc": V, "payment_rate": D,
     "year": I}, key=["billing_code"])
-# Each Georgia NPI's own record: name, specialty code and practice address (ingestion/etl/nppes.md).
+# Each Georgia NPI's own record: name, specialty code, practice address and its
+# phone (ingestion/etl/nppes.md).
 NPPES = Dataset("nppes/ga_providers.parquet", "make reference STEP=nppes", {
     "npi": B, "entity_type": V, "org_name": V, "last_name": V, "first_name": V, "taxonomy_code": V,
     "taxonomy_group": V, "is_hospital": F, "is_clinic": F, "address_line1": V, "address_line2": V,
-    "city": V, "state": V, "postal_code": V}, key=["npi"])
+    "city": V, "state": V, "postal_code": V, "phone": V}, key=["npi"])
+# The other Georgia addresses an NPI lists as places it practices, beside the one
+# on its own record (ingestion/etl/nppes.md).
+NPPES_LOCATIONS = Dataset("nppes/ga_locations.parquet", "make reference STEP=nppes", {
+    "npi": B, "address_line1": V, "address_line2": V, "city": V, "state": V, "postal_code": V, "phone": V})
 # Who billed Medicare for each code in Georgia, and whether in an office (O) or a
 # facility (F) (ingestion/reference/cms-utilization.md).
 MEDICARE_BILLING = Dataset("cms/ga_provider_service.parquet", "make reference STEP=cms-utilization", {
@@ -116,6 +121,10 @@ NUCC_TAXONOMY = Dataset("reference/nucc_taxonomy.parquet", "make reference STEP=
 DOCTORS_CLINICIANS = Dataset("reference/dac_ga.parquet", "make reference STEP=doctors-clinicians", {
     "npi": B, "last_name": V, "first_name": V, "credential": V, "primary_specialty": V, "org_pac_id": V,
     "org_name": V, "grad_year": I, "med_school": V, "gender": V}, key=["npi"])
+# Each Georgia address CMS lists a clinician practicing at (ingestion/reference/doctors-clinicians.md).
+CLINICIAN_LOCATIONS = Dataset("reference/dac_locations_ga.parquet", "make reference STEP=doctors-clinicians", {
+    "npi": B, "address_line1": V, "address_line2": V, "city": V, "state": V, "postal_code": V},
+    key=["npi", "address_line1", "address_line2", "city", "postal_code"])
 # Each clinician's Medicare quality (MIPS) score, 0 to 100, by NPI (ingestion/reference/mips.md).
 MIPS = Dataset("reference/mips_ga.parquet", "make reference STEP=mips", {
     "npi": B, "mips_score": D, "mips_source": V, "performance_year": I}, key=["npi"])
@@ -123,28 +132,17 @@ MIPS = Dataset("reference/mips_ga.parquet", "make reference STEP=mips", {
 HOSPITALS = Dataset("reference/hospitals_ga.parquet", "make reference STEP=hospitals", {
     "ccn": V, "name": V, "address": V, "city": V, "state": V, "postal_code": V, "county": V, "phone": V,
     "hospital_type": V, "ownership": V, "emergency_services": F, "stars": I}, key=["ccn"])
-# Every address sent to Census, with its standardized match and coordinates
-# (ingestion/reference/geocode.md).
+# What each geocoder (`source`: census or openstreetmap) answered for each address
+# it was sent. `located` says the answer is a point in Georgia, and only Census
+# gives a standardized address (ingestion/reference/geocode.md).
 GEOCODES = Dataset("reference/geocode_addresses.parquet", "make reference STEP=geocode", {
-    "address_line1": V, "address_line2": V, "city": V, "state": V, "postal_code": V, "match_type": V,
-    "matched_address": V, "latitude": D, "longitude": D, "benchmark": V, "geocoded_on": "DATE"},
-    key=["address_line1", "address_line2", "city", "state", "postal_code"])
+    "address_line1": V, "address_line2": V, "city": V, "state": V, "postal_code": V, "source": V,
+    "matched_address": V, "latitude": D, "longitude": D, "located": F},
+    key=["address_line1", "address_line2", "city", "state", "postal_code", "source"])
 # Each ZIP's Census centroid: zip, lat, lon (ingestion/reference/zip-centroids.md).
 ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids", {
     "zip": V, "lat": D, "lon": D}, key=["zip"])
 
 DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, PAYER_NETWORKS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
-            EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, MEDICARE_BILLING, NUCC_TAXONOMY,
-            DOCTORS_CLINICIANS, MIPS, HOSPITALS, GEOCODES, ZIP_CENTROIDS]
-
-# Georgia's bounding box, with a margin. Census now and then matches an address to a
-# same-named town in another state (LaFayette GA to Tennessee, Riverdale GA to
-# Maryland), so a match outside it is wrong, and counts as no match.
-GEORGIA_LAT, GEORGIA_LON = (30.3, 35.1), (-85.7, -80.7)
-
-
-def georgia_matches(data_dir):
-    """GEOCODES without Census's matches outside Georgia."""
-    return (f"(SELECT * FROM {GEOCODES.read(data_dir)} "
-            f"WHERE latitude BETWEEN {GEORGIA_LAT[0]} AND {GEORGIA_LAT[1]} "
-            f"AND longitude BETWEEN {GEORGIA_LON[0]} AND {GEORGIA_LON[1]})")
+            EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, NPPES_LOCATIONS, MEDICARE_BILLING,
+            NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, MIPS, HOSPITALS, GEOCODES, ZIP_CENTROIDS]

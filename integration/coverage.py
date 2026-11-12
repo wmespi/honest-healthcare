@@ -19,8 +19,8 @@ STEPS = {
     "priced": "service and biller pairs with a rate",
     "evidenced": "pairs with evidence the biller does the service",
     **{kind: f"  strongest evidence {kind}" for kind in EVIDENCE},
-    "placed": "pairs whose biller is a place",
-    "on_map": "pairs whose place is on the map",
+    "placed": "pairs with a place for the service",
+    "on_map": "pairs with one of those places on the map",
     "shown": "rows shown",
     "several_rates": "rows with more than one rate to ask about",
     "with_clinician": "rows naming a clinician",
@@ -36,18 +36,18 @@ def report(con, data_dir, by_service=False):
     cur = con.execute(f"""
         WITH {covered(data_dir)},
         pairs AS (
-            SELECT c.network_id, c.service_id, c.biller, any_value(b.place_id) AS place_id,
+            SELECT c.network_id, c.service_id, c.biller, count(s.place_id) > 0 AS placed,
+                   count(p.place_id) > 0 AS on_map,
                    min(list_position({list(EVIDENCE)!r}, r.evidence)) AS strongest
             FROM (SELECT DISTINCT network_id, service_id, biller FROM covered) c
             LEFT JOIN biller_rates r USING (network_id, service_id, biller)
-            LEFT JOIN biller_places b USING (biller)
+            LEFT JOIN service_sites s USING (network_id, service_id, biller)
+            LEFT JOIN places p USING (place_id)
             GROUP BY c.network_id, c.service_id, c.biller
         ),
         funnel AS (
             SELECT {keys}, count(*) AS priced, count(strongest) AS evidenced, {kinds},
-                   count(*) FILTER (WHERE strongest IS NOT NULL AND place_id IS NOT NULL) AS placed,
-                   count(*) FILTER (WHERE strongest IS NOT NULL
-                                      AND place_id IN (SELECT place_id FROM places)) AS on_map
+                   count(*) FILTER (WHERE placed) AS placed, count(*) FILTER (WHERE on_map) AS on_map
             FROM pairs
             GROUP BY {keys}
         ),

@@ -63,6 +63,8 @@ class Corpus:
         self.group_sets = []
         self.rosters = []
         self.npis = []
+        self.locations = []
+        self.clinician_locations = []
         self.medicare_billing = []
         self.hospitals = []
         self.geocodes = []
@@ -71,6 +73,10 @@ class Corpus:
         self.scores = []
         self.benefits = {}
         self.pending = {}
+        # The build reads both of these, so they're written even with no rows.
+        self._queue(f"{root}/nppes/ga_locations.parquet", d.NPPES_LOCATIONS.columns, self.locations)
+        self._queue(f"{root}/reference/dac_locations_ga.parquet", d.CLINICIAN_LOCATIONS.columns,
+                    self.clinician_locations)
 
     def _queue(self, path, schema, rows):
         """Write `rows` to `path` at the next flush, which build() and inputs() do."""
@@ -141,13 +147,24 @@ class Corpus:
         self._queue(f"{self.root}/payer_rates/anthem/rosters.parquet", d.PAYER_ROSTERS.columns, self.rosters)
 
     def npi(self, npi, name, address, city, postal_code, entity_type="organization",
-            taxonomy="2085R0202X", address_line2=""):
+            taxonomy="2085R0202X", address_line2="", phone=""):
         """Add a Georgia NPPES record. An individual's `name` is a last name."""
         org = entity_type == "organization"
         self.npis.append((npi, entity_type, name if org else None, None if org else name,
                           None if org else "PAT", taxonomy, None, taxonomy.startswith("28"),
-                          taxonomy.startswith("261Q"), address, address_line2, city, "GA", postal_code))
+                          taxonomy.startswith("261Q"), address, address_line2, city, "GA", postal_code, phone))
         self._queue(f"{self.root}/nppes/ga_providers.parquet", d.NPPES.columns, self.npis)
+
+    def location(self, npi, address, city, postal_code, phone="", address_line2=""):
+        """Add another Georgia address `npi` lists in NPPES as a place it practices."""
+        self.locations.append((npi, address, address_line2, city, "GA", postal_code, phone))
+        self._queue(f"{self.root}/nppes/ga_locations.parquet", d.NPPES_LOCATIONS.columns, self.locations)
+
+    def practices_at(self, npi, address, city, postal_code, address_line2=""):
+        """Have CMS list clinician `npi` practicing at an address."""
+        self.clinician_locations.append((npi, address, address_line2, city, "GA", postal_code))
+        self._queue(f"{self.root}/reference/dac_locations_ga.parquet", d.CLINICIAN_LOCATIONS.columns,
+                    self.clinician_locations)
 
     def billed(self, npi, code, place_of_service):
         """Have Medicare's file show `npi` billing `code` in an office (O) or a facility (F)."""
@@ -161,10 +178,13 @@ class Corpus:
                                "Acute Care Hospitals", "Government", True, stars))
         self._queue(f"{self.root}/reference/hospitals_ga.parquet", d.HOSPITALS.columns, self.hospitals)
 
-    def geocode(self, address, city, postal_code, matched_address, lat, lon, address_line2=""):
-        """Add Census's answer for an address it was sent."""
-        self.geocodes.append((address, address_line2, city, "GA", postal_code, "Exact", matched_address,
-                              lat, lon, "Public_AR_Current", None))
+    def geocode(self, address, city, postal_code, matched_address, lat, lon, address_line2="",
+                source="census", located=True):
+        """Add a geocoder's answer for an address it was sent: Census's, with its
+        standardized address, or OpenStreetMap's, which has none. `located` says
+        the point is in Georgia."""
+        self.geocodes.append((address, address_line2, city, "GA", postal_code, source, matched_address,
+                              lat, lon, located))
         self._queue(f"{self.root}/reference/geocode_addresses.parquet", d.GEOCODES.columns, self.geocodes)
 
     def group(self, npi, org_name):

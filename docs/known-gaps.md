@@ -40,9 +40,6 @@ Where the product is headed: [direction.md](direction.md) and epic
   the median for that service and part on the network, which is deliberately loose, so a
   genuinely cheap contract survives. Tighter cut:
   [#51](https://github.com/wmespi/honest-healthcare/issues/51).
-- **A practice in `places` has no phone number.** The NPPES extract
-  ([ingestion/etl/nppes.md](../ingestion/etl/nppes.md)) doesn't keep the practice location's phone, so only
-  hospitals, from Hospital General Information, have one.
 
 ## Provider ↔ procedure
 
@@ -70,17 +67,17 @@ Where the product is headed: [direction.md](direction.md) and epic
   ([#187](https://github.com/wmespi/honest-healthcare/issues/187)).
 - **Only `GET /api/health` says how fresh a network's prices are.** The screen doesn't
   show `prices_as_of` or a `stale` network yet ([build.md](../integration/build.md#the-find-care-tables)).
-- **`make reference STEP=nppes` is not atomic** — `ga_providers.parquet` is briefly
-  empty during a re-extract and queries touching it 500. Run it when the API is idle.
 - **Large GA files** (multi-GB) are tractable thanks to the price/roster split; still
   parse individually and watch `du -sh data`.
 
 ## Imaging
 
-- **Places Census can't put on the map aren't shown.** Census can't place about one address in
-  eight, many of them rural, and some are hospitals whose number its street ranges don't cover,
-  such as 5353 Reynolds Street in Savannah. `places` leaves them out, prices there included,
-  and `make build` saves them to `unlocated_places.parquet` to try with another geocoder.
+- **Places neither geocoder can put on the map aren't shown.**
+  Census can't place many addresses, a lot of them rural, and OpenStreetMap, asked next, knows only some of those buildings ([geocode.md](../ingestion/reference/geocode.md)).
+  `places` leaves the rest out, prices there included, and `make build` saves them to `unlocated_places.parquet` and prints how many buildings each geocoder located.
+- **A clinician is listed only where CMS lists them practicing.**
+  When Doctors & Clinicians places any of a biller's doctors for a service at one of its places, the service shows at those places with those doctors, and nowhere else.
+  The directory is self-reported, so a doctor missing from an address they do work at is missing from that place, and a biller's place with no listed doctor doesn't show the service.
 - **A hospital's own billing ID can land as a practice** when its NPPES address is written
   differently from the hospital's beyond spelling, as "541 441 HISTORIC HWY N" is for "541
   HISTORIC HIGHWAY 441-NORTH", or when the hospital isn't in Hospital General Information.
@@ -88,8 +85,8 @@ Where the product is headed: [direction.md](direction.md) and epic
 - **Practices registered outside Georgia aren't listed.** The NPPES extract keeps an NPI only
   when its primary location is in Georgia, and `places` needs a location to show,
   so a billing ID registered elsewhere has no place. Most are teleradiology groups, which aren't
-  places a patient goes, but some are: groups registered elsewhere with Georgia sites (NPPES
-  secondary practice locations, which the extract doesn't read), and in-network imaging
+  places a patient goes, but some are: groups registered elsewhere with Georgia sites, whose
+  secondary locations the extract keeps but whose name and specialty it doesn't, and in-network imaging
   centers just across the state line. A new NPI missing from the monthly NPPES snapshot drops
   out the same way. A reading group's fee can still be part of what a Georgia facility's scan
   costs, and `prices` leaves it out.
