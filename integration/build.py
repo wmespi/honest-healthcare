@@ -11,13 +11,14 @@ import json
 import os
 
 from integration import tables
+from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH
 from integration.inputs.service_list import SERVICES_PATH
 
 
-def build(data_dir, serving_dir, services_path=SERVICES_PATH):
+def build(data_dir, serving_dir, services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH):
     """Write the find-care tables and manifest.json under `serving_dir`; returns
     {table: rows}. A failed check writes nothing (integration/tables/__init__.py)."""
-    rows = tables.build(data_dir, serving_dir, services_path)
+    rows = tables.build(data_dir, serving_dir, services_path, hospital_plans_path)
     manifest = {
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "rows": rows,

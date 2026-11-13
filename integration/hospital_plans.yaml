@@ -1,0 +1,116 @@
+# What the payer and plan names in hospitals' own price files mean
+# (integration/inputs/hospital_plans.py, integration/build.md).
+#
+# A hospital's own file names each rate's payer and plan in its own words, so the
+# build prices a hospital's own fee from it only under a name someone has read
+# and said is a plan on one of the exchange networks we price. It does so only
+# where the plan's own file prices no fee at that hospital.
+#
+# Each group lists the hospitals (CCNs) whose files use the same names, the names
+# that mean each network, by Georgia's network ID, and under `other` the names
+# read and found to be something else, such as Medicare Advantage or an employer
+# plan:
+#
+#   - hospitals: ["110010", "110078"]
+#     networks:
+#       49046-GAN008: ["ANTHEM BLUE CROSS | PATHWAY X HMO"]
+#     other: ["ANTHEM BLUE CROSS | MEDICARE ADVANTAGE"]
+#
+# A name is "<payer> | <plan>", exactly as the file gives them, and "<payer> |"
+# when it gives no plan. The build stops on a name a hospital's file uses that its
+# group doesn't list, on a hospital in two groups or a name listed twice for one
+# hospital, and on a network the payer rates don't list.
+#
+# No hospital's file names a plan on Blue Value's exchange network (45334-GAN001).
+
+# Emory
+- hospitals: ["110010", "110076", "110078", "110082", "110226", "110230"]
+  networks:
+    49046-GAN008: ["Bcbs | Blue Pathways Exchange"]
+  other:
+    - "Bcbs | Blue Value Secure Medicare Managed Care Plan"
+    - "Bcbs | Hmo"
+    - "Bcbs | Hpn Other Commercial Plan"
+    - "Bcbs | Ppo"
+
+# Emory Hospital Warner Robins
+- hospitals: ["110069"]
+  networks:
+    49046-GAN008: ["Bcbs | Pathway Exchange"]
+  other:
+    - "Bcbs | Hmo"
+    - "Bcbs | Medicare Managed Care Plan"
+    - "Bcbs | Ppo"
+
+# Grady
+- hospitals: ["110079"]
+  networks:
+    49046-GAN008: ["Anthem BCBS | Pathways/Marketplace"]
+  other:
+    - "Anthem BCBS | HMO/POS"
+    - "Anthem BCBS | HPN"
+    - "Anthem BCBS | Medicare"
+    - "Anthem BCBS | PPO"
+
+# Southwell
+- hospitals: ["110095", "110101"]
+  networks:
+    49046-GAN008: ["Blue Cross Blue Shield | BCBS Pathways Network"]
+  other:
+    - "BCBS MA | BCBS MA"
+    - "Blue Cross Blue Shield | BCBS Commercial"
+
+# Piedmont. The payer's name has two spaces before its number, as the files give it.
+- hospitals: ["110018", "110030", "110046", "110064", "110074", "110083", "110091", "110191", "110192", "110200",
+              "110201", "110215", "110225", "110229"]
+  networks:
+    49046-GAN008: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
+  other:
+    - "BLUE CROSS MEDICARE [30101] | BCBS Medicare Advantage Georgia"
+    - "BLUE CROSS [10001] | Blue Cross HMO"
+    - "BLUE CROSS [10001] | Blue Cross PPO"
+
+# Piedmont Augusta, which also contracts with South Carolina's Blue Cross
+- hospitals: ["110028"]
+  networks:
+    49046-GAN008: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
+  other:
+    - "BLUE CROSS BLUE SHIELD EXCHANGE SOUTH CAROLINA  [11104] | BCBS South Carolina Exchange"
+    - "BLUE CROSS MEDICARE [30101] | BCBS Medicare Advantage Georgia"
+    - "BLUE CROSS MEDICARE [30101] | BCBS Medicare Advantage South Carolina"
+    - "BLUE CROSS [10001] | BCBS South Carolina SHP"
+    - "BLUE CROSS [10001] | Blue Cross HMO"
+    - "BLUE CROSS [10001] | Blue Cross PPO"
+    - "BLUE CROSS [10001] | Blue Cross South Carolina"
+
+# Wellstar, whose files name no exchange plan
+- hospitals: ["110016", "110031", "110035", "110042", "110143", "110184", "110198", "111319"]
+  other:
+    - "Bcbs | Hmo/Pos"
+    - "Bcbs | Medicare Managed Care Plan"
+    - "Bcbs | Ppo"
+    - "Bcbs | Shbp Other Commercial Plan"
+
+# Wellstar MCG Health
+- hospitals: ["110034"]
+  networks:
+    49046-GAN008: ["Bcbs | Hie/Pathways Exchange"]
+  other:
+    - "Bcbs | Anthem - Copps Hmo/Pos"
+    - "Bcbs | Anthem - Copps Ppo"
+    - "Bcbs | Medicare Managed Care Plan"
+
+# Northeast Georgia, whose files name an exchange plan only at Habersham
+- hospitals: ["110029", "110045", "110237"]
+  other:
+    - "Bcbs | Anthem Hmo"
+    - "Bcbs | Anthem Ppo"
+    - "Blue Cross | State Health Benefit Plan Medicare Managed Care Plan"
+
+- hospitals: ["110041"]
+  networks:
+    49046-GAN008: ["Bcbs | Anthem Pathway Exchange"]
+  other:
+    - "Bcbs | Anthem Hmo"
+    - "Bcbs | Anthem Ppo"
+    - "Blue Cross | State Health Benefit Plan Medicare Managed Care Plan"

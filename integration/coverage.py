@@ -11,6 +11,7 @@ import tempfile
 
 from integration import tables
 from integration.inputs.biller_rates import EVIDENCE, covered
+from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH
 from integration.inputs.service_list import SERVICES_PATH
 
 # Each step of the funnel, in order, and what it counts. A pair is a service and
@@ -25,7 +26,20 @@ STEPS = {
     "several_rates": "rows with more than one rate to ask about",
     "with_clinician": "rows naming a clinician",
     "places": "places shown",
+    "at_hospital": "rows at a hospital",
+    "fee_and_reading": "  showing its own fee and a reading",
+    "fee_only": "  showing its own fee and no reading",
+    "reading_only": "  showing a reading and no fee of its own",
+    "neither": "  showing neither, since its groups list no reading rate",
+    "fee_plan": "  with its own fee from the plan's file",
+    "fee_hospital": "  with its own fee from the hospital's file",
+    "cash_price": "  with a cash price",
 }
+
+
+def _part(name):
+    """SQL for a prices row's part `name`."""
+    return f"list_filter(p.parts, x -> x.part = '{name}')[1]"
 
 
 def report(con, data_dir, by_service=False):
@@ -57,9 +71,26 @@ def report(con, data_dir, by_service=False):
                    count(DISTINCT place_id) AS places
             FROM prices
             GROUP BY {keys}
+        ),
+        hospital_rows AS (
+            SELECT p.network_id, p.service_id, {_part("facility")}.max IS NOT NULL AS fee,
+                   {_part("reading")}.max IS NOT NULL AS reading, {_part("facility")}.source AS source, p.cash_price
+            FROM prices p JOIN places l USING (place_id)
+            WHERE l.kind = 'hospital'
+        ),
+        at_hospitals AS (
+            SELECT {keys}, count(*) AS at_hospital,
+                   count(*) FILTER (WHERE fee AND reading) AS fee_and_reading,
+                   count(*) FILTER (WHERE fee AND NOT reading) AS fee_only,
+                   count(*) FILTER (WHERE reading AND NOT fee) AS reading_only,
+                   count(*) FILTER (WHERE NOT fee AND NOT reading) AS neither,
+                   count(*) FILTER (WHERE source = 'plan') AS fee_plan,
+                   count(*) FILTER (WHERE source = 'hospital') AS fee_hospital, count(cash_price) AS cash_price
+            FROM hospital_rows
+            GROUP BY {keys}
         )
         SELECT {keys}, {", ".join(f"coalesce({step}, 0) AS {step}" for step in STEPS)}
-        FROM funnel LEFT JOIN shown USING ({keys})
+        FROM funnel FULL JOIN shown USING ({keys}) FULL JOIN at_hospitals USING ({keys})
         ORDER BY {keys}
     """)
     names = [d[0] for d in cur.description]
@@ -84,13 +115,13 @@ def show(rows, by_service=False):
         print(f"  {row['service_id']:<{width}}" + "".join(f"{row[step]:>15,}" for step in steps))
 
 
-def coverage(data_dir, by_service=False, services_path=SERVICES_PATH):
+def coverage(data_dir, by_service=False, services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH):
     """Make the build's tables from `data_dir` in a connection of its own and
     return the funnel's rows."""
     spill = os.getenv("DUCKDB_TMP") or tempfile.mkdtemp(prefix="coverage-")
     con = tables.connect(spill)
     try:
-        tables.make(con, data_dir, services_path)
+        tables.make(con, data_dir, services_path, hospital_plans_path)
         return report(con, data_dir, by_service)
     finally:
         con.close()

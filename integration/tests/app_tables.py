@@ -25,7 +25,7 @@ def main():
     os.environ.pop("DUCKDB_TMP", None)
     with tempfile.TemporaryDirectory() as tmp:
         c = default_corpus(f"{tmp}/corpus")
-        rows = build(c.root, OUT, c.services_file)
+        rows = build(c.root, OUT, c.services_file, c.hospital_plans_file)
     print(f"→ the app's test tables in {OUT}: {rows}")
 
 

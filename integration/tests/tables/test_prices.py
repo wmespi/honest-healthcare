@@ -2,10 +2,10 @@
 BV, PATHWAY = "45334-GAN001", "49046-GAN008"
 
 
-def prices(corpus):
-    """Each place's parts, several_rates and billers."""
+def prices(corpus, network_id=BV, service_id="mri-lower-back"):
+    """Each place's parts, several_rates and billers for a service on a network."""
     corpus.build()
-    return {row[2]: row[3:6] for row in corpus.rows("prices")}
+    return {row[2]: row[3:6] for row in corpus.rows("prices") if row[:2] == (network_id, service_id)}
 
 
 def providers(corpus):
@@ -18,8 +18,8 @@ def person(corpus, npi, last_name):
     corpus.npi(npi, last_name, "1 DOCTOR WAY", "ATLANTA", "303082233", entity_type="individual")
 
 
-def part(name, rate):
-    return {"part": name, "max": rate}
+def part(name, rate, source="plan"):
+    return {"part": name, "max": rate, "source": None if rate is None else source}
 
 
 def biller(corpus, npi, name, address, postal_code, place_of_service, **rates):
@@ -38,10 +38,82 @@ def test_each_place_shows_the_bills_a_patient_there_would_get(corpus):
         "1000000001": ([part("all_in", 500.0)], False, ["MIDTOWN IMAGING PC"]),
         "1000000002": ([part("all_in", 500.0)], False, ["HIRAM IMAGING LLC"]),
         "1000000005": ([part("all_in", 500.0)], False, ["EMORY MEDICAL CARE FOUNDATION"]),
-        # The group at Grady's address reads it, and the hospital's own fee isn't on file.
+        # The group at Grady's address reads it, and neither file prices the hospital's own fee.
         "110079": ([part("facility", None), part("reading", 200.0)], False, ["GRADY RADIOLOGY GROUP"])}
-    # South Georgia Radiology isn't on the map, so it has no row.
-    assert all(r[:2] == ("45334-GAN001", "mri-lower-back") for r in corpus.rows("prices"))
+    # South Georgia Radiology isn't on the map, so it has no row. The other rows
+    # are the hospitals' screening mammograms.
+    assert [r[:3] for r in corpus.rows("prices") if r[:2] != (BV, "mri-lower-back")] == [
+        (BV, "mammogram-screening", "110079"), (PATHWAY, "mammogram-screening", "110001"),
+        (PATHWAY, "mammogram-screening", "110079")]
+
+
+def test_a_hospitals_own_fee_is_from_the_plans_file_else_its_own_and_says_which(corpus):
+    mammogram = "mammogram-screening"
+    assert prices(corpus, PATHWAY, mammogram)["110079"] == (
+        [part("facility", 180.0), part("reading", 40.0)], False, ["GRADY RADIOLOGY GROUP"])
+    assert prices(corpus, BV, mammogram)["110079"] == (
+        [part("facility", 210.0, "hospital"), part("reading", 35.0)], False, ["GRADY RADIOLOGY GROUP"])
+
+
+def test_a_hospital_with_its_own_fee_and_no_group_on_file_shows_its_fee_alone(corpus):
+    # Pathway's file prices Hamilton's mammogram fee, and Hamilton's own file,
+    # which uses Grady's names, prices its MRI fee on Blue Value twice. Its file
+    # also lists a cash price for a mammogram, which Blue Value prices nowhere there.
+    corpus.hospital_plans([{"hospitals": ["110079", "110001"], "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"]},
+                            "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])
+    for rate in (1100.0, 1150.0):
+        corpus.hospital_price("110001", "72148", "ANTHEM BCBS", "BLUE VALUE HMO", negotiated=rate, cash=1300.0)
+    corpus.hospital_price("110001", "77067", cash=300.0)
+    corpus.build()
+    rows = {r[:3]: r[3:] for r in corpus.rows("prices") if r[2] == "110001"}
+    assert rows == {
+        (PATHWAY, "mammogram-screening", "110001"): ([part("facility", 165.0), part("reading", None)], False, [], [],
+                                                     300.0),
+        (BV, "mri-lower-back", "110001"): ([part("facility", 1150.0, "hospital"), part("reading", None)], True, [], [],
+                                           1300.0)}
+
+
+PERCENT = "percent of total billed charges"
+
+
+def test_a_hospitals_estimate_from_its_charge_isnt_its_fee(corpus):
+    # Grady's file also gives its Blue Value mammogram as a percentage of its
+    # charge, which it works out to more than the fee schedule's dollar.
+    corpus.hospital_price("110079", "77067", "ANTHEM BCBS", "BLUE VALUE HMO", negotiated=470.0, methodology=PERCENT)
+    assert prices(corpus, BV, "mammogram-screening")["110079"] == (
+        [part("facility", 210.0, "hospital"), part("reading", 35.0)], False, ["GRADY RADIOLOGY GROUP"])
+
+
+def test_a_hospital_with_only_estimates_from_its_charge_has_no_fee_of_its_own(corpus):
+    # Hamilton's file gives its Blue Value MRI only as percentages of its charge,
+    # and a cash price for a mammogram, which Pathway's own file prices there.
+    corpus.hospital_plans([{"hospitals": ["110079", "110001"], "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"]},
+                            "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])
+    for rate in (3900.0, 4800.0):
+        corpus.hospital_price("110001", "72148", "ANTHEM BCBS", "BLUE VALUE HMO", negotiated=rate, cash=1300.0,
+                              methodology=PERCENT)
+    corpus.hospital_price("110001", "77067", cash=300.0)
+    corpus.build()
+    rows = {r[:3]: (r[3], r[7]) for r in corpus.rows("prices") if r[2] == "110001"}
+    assert rows == {(PATHWAY, "mammogram-screening", "110001"): ([part("facility", 165.0), part("reading", None)],
+                                                                 300.0)}
+
+
+def test_a_hospitals_row_carries_its_cash_price_and_no_other_row_does(corpus):
+    corpus.build()
+    cash = {r[:3]: r[7] for r in corpus.rows("prices")}
+    assert cash.pop((BV, "mri-lower-back", "110079")) == 1450.0
+    assert cash.pop((BV, "mammogram-screening", "110079")) == 320.0
+    assert cash.pop((PATHWAY, "mammogram-screening", "110079")) == 320.0
+    assert set(cash.values()) == {None}
+
+
+def test_a_hospitals_fee_with_several_rates_shows_the_highest_and_says_so(corpus):
+    # Pathway's file lists Grady's fee under a second fee schedule, for more.
+    corpus.roster(PATHWAY, 51, 51, "1000000050", 1000000050)
+    corpus.facility_price(PATHWAY, 51, "77067", 195)
+    assert prices(corpus, PATHWAY, "mammogram-screening")["110079"][:2] == (
+        [part("facility", 195.0), part("reading", 40.0)], True)
 
 
 def test_a_reading_group_elsewhere_shows_an_empty_scan(corpus):
@@ -93,7 +165,10 @@ def test_a_row_lists_the_clinicians_medicare_shows_billing_the_service_there(cor
         (*mri, "1000000001"): [2000000001],
         (*mri, "1000000002"): [2000000002],
         (*mri, "1000000005"): [1000000005],  # the doctor bills under their own NPI
-        (*mri, "110079"): [2000000004]}
+        (*mri, "110079"): [2000000004],
+        (BV, "mammogram-screening", "110079"): [2000000004],
+        (PATHWAY, "mammogram-screening", "110001"): [],
+        (PATHWAY, "mammogram-screening", "110079"): [2000000004]}
     # 2000000003's group isn't on the map, and Medicare shows 2000000008 billing nothing.
 
 

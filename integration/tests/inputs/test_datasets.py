@@ -18,6 +18,13 @@ def test_missing_payer_rates_name_parse(corpus):
         corpus.build()
 
 
+def test_missing_hospital_price_files_name_their_step(corpus):
+    corpus.flush()
+    os.remove(f"{corpus.root}/hospital_rates/110079.parquet")
+    with pytest.raises(SystemExit, match="hospital_rates/\\*.parquet: run `make reference STEP=hospital-rates`"):
+        corpus.build()
+
+
 def rewrite(path, select):
     """Replace a dataset's file with a SELECT over it (`t`)."""
     con = duckdb.connect()

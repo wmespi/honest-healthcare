@@ -1,6 +1,6 @@
 """Build-only: the places each biller in biller_rates is at, if it has any."""
-from integration.inputs.addresses import ADDRESS, _words
-from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES, NPPES_LOCATIONS
+from integration.inputs.addresses import ADDRESS, _words, listed
+from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES
 from integration.table import Table
 
 # Company endings a practice's billing IDs spell differently, so "MIDTOWN IMAGING,
@@ -62,14 +62,7 @@ class BillerPlaces(Table):
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
             ),
-            listed AS (
-                SELECT npi, true AS main, address_line1, coalesce(address_line2, '') AS address_line2, city, state,
-                       postal_code, phone
-                FROM {NPPES.read(data_dir)}
-                UNION ALL
-                SELECT npi, false, address_line1, coalesce(address_line2, ''), city, state, postal_code, phone
-                FROM {NPPES_LOCATIONS.read(data_dir)}
-            ),
+            listed AS {listed(data_dir)},
             sites AS (
                 SELECT DISTINCT ON (b.biller, a.building)
                        b.biller, b.biller_name, b.name, b.center, l.main, a.building, a.lat, a.lon,

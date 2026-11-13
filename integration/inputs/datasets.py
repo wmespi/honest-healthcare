@@ -132,6 +132,14 @@ MIPS = Dataset("reference/mips_ga.parquet", "make reference STEP=mips", {
 HOSPITALS = Dataset("reference/hospitals_ga.parquet", "make reference STEP=hospitals", {
     "ccn": V, "name": V, "address": V, "city": V, "state": V, "postal_code": V, "county": V, "phone": V,
     "hospital_type": V, "ownership": V, "emergency_services": F, "stars": I}, key=["ccn"])
+# What each Georgia hospital's own price file lists, one file per hospital, keyed on
+# nothing because a file can repeat a row. A row is a code (`code_type` CPT, HCPCS or
+# MS-DRG) in a `setting`, on a `billing_class` of bill, with any `modifiers` joined by
+# `|`, for one `payer` and `plan` as the file names them, both empty on a row that
+# lists only the hospital's charges, and only payers whose plans we price.
+HOSPITAL_RATES = Dataset("hospital_rates/*.parquet", "make reference STEP=hospital-rates", {
+    "ccn": V, "code_type": V, "code": V, "setting": V, "billing_class": V, "modifiers": V, "payer": V, "plan": V,
+    "gross_charge": D, "cash_price": D, "negotiated_dollar": D, "negotiated_percentage": D, "methodology": V})
 # What each geocoder (`source`: census or openstreetmap) answered for each address
 # it was sent. `located` says the answer is a point in Georgia, and only Census
 # gives a standardized address (ingestion/reference/geocode.md).
@@ -145,4 +153,5 @@ ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=
 
 DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, PAYER_NETWORKS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
             EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, NPPES_LOCATIONS, MEDICARE_BILLING,
-            NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, MIPS, HOSPITALS, GEOCODES, ZIP_CENTROIDS]
+            NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, MIPS, HOSPITALS, HOSPITAL_RATES, GEOCODES,
+            ZIP_CENTROIDS]
