@@ -107,7 +107,7 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
 
     places = _rows(conn.execute(f"""
         WITH o AS (SELECT ?::DOUBLE AS lat, ?::DOUBLE AS lon)
-        SELECT l.place_id, l.name, l.kind, l.address, l.city, l.lat, l.lon, l.phone, l.stars,
+        SELECT l.place_id, l.name, l.kind, l.address, l.city, l.lat, l.lon, l.phone, l.stars, p.cash_price,
                {haversine_sql("l.lat", "l.lon", "o.lat", "o.lon")} AS distance_mi,
                p.parts, p.several_rates, p.billers, p.providers
         FROM {PRICES_SRC} p JOIN {PLACES_SRC} l USING (place_id) CROSS JOIN o

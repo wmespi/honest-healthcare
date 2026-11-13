@@ -2,7 +2,7 @@
 
 *Read this when changing what the serving layer reads, or a product rule.*
 `make build` (→ `integration/build.py`) is the one cheap, re-runnable step between
-the streaming ETL and the API, and the **only** thing the API reads — a missing
+the streaming ETL and the API, and the **only** thing the API reads - a missing
 table is a `503` from `GET /api/health`, not a fallback to raw Parquet.
 
 ## The find-care tables
@@ -26,7 +26,7 @@ A network whose file failed keeps its earlier prices, marked `stale`, or has non
 | `services.parquet` | one row per service in [`integration/services.yaml`](services.yaml) | `service_id`, our own slug such as `mri-lower-back`, its one `billing_code`, its `service_category`, the benefit in Georgia's cost-sharing file it falls under, and what the screen says about it: `name`, `keywords`, `about`, `could_change`, `asks` and an optional `preventive_note`. `medicare_rate` is Medicare's office rate for the whole service, the median of Georgia's two payment areas, and `medicare_facility_rate` is Medicare's national hospital outpatient rate, empty where Medicare doesn't pay that way, as for mammograms. A slug, a five-character code that no other service bills, and text in every field are required, or the build stops. |
 | `cost_sharing.parquet` | one row per plan and service category the services use | `plan_id`, `service_category`, and what the plan's standard version charges the member in network, from Georgia's benefits and cost-sharing file: `copay` in dollars and `coinsurance` as a percent of the rate, each empty when the plan doesn't charge one, and `after_deductible`, whether the member pays the whole rate until the deductible is met. "No Charge" is a $0 copay, and with both a copay and a coinsurance the member pays the copay and then the coinsurance, as the plans' summaries of benefits word it. The build stops if a plan doesn't cover a category, words its share in a way the build doesn't read, or applies the deductible to only one of the two. |
 | `places.parquet` | one row per Georgia hospital, plus one per practice with a price, that a geocoder can put on the map | `place_id`, `name`, `kind` (`hospital`, `imaging_center` or `practice`), `address`, `city`, `lat`, `lon`, `phone`, and a hospital's `stars`. A hospital's `place_id` is its CCN. A practice's is the lowest billing NPI among those registered in its building, and where none is, as at a group's second site, the lowest NPI there with a short hash of the building. The point is the building's ([addresses](inputs/addresses.py)), and a building no geocoder located has none, because any other would be a guess. |
-| `prices.parquet` | one row per network, service and place where the place's billers have a rate for it | `network_id`, `service_id`, `place_id`, and `parts`, one entry per bill a patient there would get, each with the rate that has the strongest evidence behind it, and the highest of those when several tie (`max`). A hospital's row is its own `facility` fee, empty because Anthem's professional file doesn't price it, and the `reading` by the groups in its building, whose rates put the hospital on the list though nothing on file confirms the hospital itself is in network ([decided on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6646717812)). A place that does the scan shows its `all_in` rate, or the `scan` and the `reading` when it lists no all-in rate, and a reading group elsewhere shows an empty `scan` and its `reading`. `several_rates` says a part shown has more than one rate with that evidence, and `billers` lists the names of the billing groups behind the row, which at a hospital are the groups reading there. `providers` lists the clinicians Medicare shows billing the service for those billers, never the whole roster, so it's exact for the row's network and service, and empty when Medicare shows no one. Every network, service and place is in its table, or the build stops. |
+| `prices.parquet` | one row per network, service and place where the place's billers have a rate for it, plus one per hospital with its own fee for it | `network_id`, `service_id`, `place_id`, and `parts`, one entry per bill a patient there would get, each with the rate that has the strongest evidence behind it, the highest of those when several tie (`max`), and where the rate is from (`source`: `plan` for the plan's own file, `hospital` for a hospital's own, empty with no rate). A hospital's row is its own `facility` fee ([a hospital's own fee](#a-hospitals-own-fee)) and the `reading` by the groups in its building. Either puts the hospital on the list: the groups' rates ([decided on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6646717812)), or its fee, which is evidence the hospital itself is in network. Only where the fee is empty does nothing on file confirm that. An empty reading at a hospital means another group reads the scan and bills it separately, and the plan's file doesn't place one there, so `billers` and `providers` are empty too unless a group there has a rate for another part. Its `cash_price` is what the hospital's own file says it charges when no plan pays, and it's empty at every other place. A place that does the scan shows its `all_in` rate, or the `scan` and the `reading` when it lists no all-in rate, and a reading group elsewhere shows an empty `scan` and its `reading`. `several_rates` says a part shown has more than one rate with that evidence, or a hospital's fee more than one at its source, and `billers` lists the names of the billing groups behind the row, which at a hospital are the groups reading there. `providers` lists the clinicians Medicare shows billing the service for those billers, never the whole roster, so it's exact for the row's network and service, and empty when Medicare shows no one. Every network, service and place is in its table, or the build stops. |
 | `providers.parquet` | one row per clinician a `prices` row lists | `npi`, and the `name` and `specialty` from the clinician's own NPPES record, the specialty as NUCC's name for its primary code, and `score`, Medicare's quality (MIPS) score, empty when there's none. Every clinician a price lists is here with a name and a specialty, or the build stops. |
 | `unlocated_places.parquet` | one row per hospital or practice no geocoder can put on the map | `place_id`, `name`, `kind`, `address`, `city` and `zip`. It's left off the screen, so nothing serves it, and a price there isn't shown. |
 
@@ -55,6 +55,23 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   A biller none of whose doctors is listed at any of its places shows the service at its main place, with all of them.
   A registered imaging center shows it at every one of its places, because the registration, not a doctor, is its evidence.
 
+## A hospital's own fee
+
+[`hospital_fees`](inputs/hospital_fees.py) prices a hospital's `facility` fee for a service on a network from one source, never a blend of two, since one contract prices a plan ([AGENTS.md](../AGENTS.md#critical-rules), rule 5), in this order:
+
+1. The plan's own file (`plan`): its institutional rates for the service's code, a fee-for-service dollar amount for an outpatient bill with no modifier (`facility_rates`).
+   A rate prices a hospital when it covers a billing NPI that NPPES registers as a hospital, with an address, its own or another it lists, in the hospital's building ([addresses](inputs/addresses.py)).
+2. Only where the plan's file prices none there, the hospital's own price file (`hospital`), one per hospital in `hospital_rates/`, which `make reference STEP=hospital-rates` writes.
+   It reads the file's rows for the service's code on a bill that isn't only the doctor's, outpatient or with no setting, with no modifier, and with a negotiated dollar amount above $1 and below `CEILING`, since files write runs of nines where they have no price.
+   Only a `fee schedule` row's dollar amount is the fee, since a percentage row's is the hospital's estimate from its own charge, a per diem is a day's rate, and a case rate covers more than the service.
+   A file names each rate's payer and plan in its own words, so a rate counts only under a name [`integration/hospital_plans.yaml`](hospital_plans.yaml) gives that hospital and the network ([hospital_plans](inputs/hospital_plans.py)).
+   The build stops on a name the list doesn't give the hospital, so a new one is read before it is priced or left out.
+
+The fee is the highest rate at its source, and `several_rates` says there is more than one, since neither file says which applies.
+A hospital on the map with a fee has a row for it whether or not a group with a rate is placed there.
+[`hospital_cash`](inputs/hospital_cash.py) is the hospital's cash price for the service: the highest on the same rows of its file, whatever their payer.
+It's shown on the hospital's rows, and a cash price alone puts no hospital on the list.
+
 ## Running it
 
 ```
@@ -66,6 +83,7 @@ make coverage BY=service   # one line per service
 ```
 
 **Coverage.** `make coverage` makes the same tables and counts, for each network, the service and biller pairs with a rate, those with evidence and of which kind, those with a place for the service and one of those places on the map, and the rows shown ([coverage.py](coverage.py)).
+At hospitals it counts the rows by what they show (a fee and a reading, a fee only, a reading only, or neither), those with a fee from each source, and those with a cash price.
 It is where to look when a service or a place is missing, and it takes `TEST=1` and `--data-dir` as the build does.
 
 **Memory.** The build holds its inputs and tables in one DuckDB connection, which spills

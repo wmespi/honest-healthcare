@@ -18,16 +18,29 @@ const MISSING_BILLS = {
     rowNote: 'Missing the hospital’s fee',
     explain: 'Hospitals bill their own fee for the scan, and your plan’s file doesn’t list it here. The doctors who read scans here are in your network, but nothing on file confirms the hospital itself is. Ask the hospital whether it’s in your network and what it would charge before you book.',
   },
+  // At a hospital the reading group is someone else; anywhere else it's the place's own doctors.
+  reading: (kind) => ({
+    rowNote: 'Missing the reading',
+    explain: kind === 'hospital'
+      ? 'A doctor reads your scan and bills for it separately. Your plan’s file doesn’t show which group reads scans here, so ask the hospital who will read yours and whether they’re in your network.'
+      : 'A doctor reads your scan and bills for it separately. Your plan’s file lists no rate for the reading here, so ask who will read yours, whether they’re in your network and what they charge.',
+  }),
   scan: {
     rowNote: 'Missing the cost of the scan',
     explain: 'Medicare records show this group’s doctors reading scans done at hospitals, so the place that does your scan bills for it separately. Ask where the scan would happen and what that place charges.',
   },
 };
 
+function missingBill(part, kind) {
+  const bill = part ? MISSING_BILLS[part] : null;
+  return typeof bill === 'function' ? bill(kind) : bill ?? null;
+}
+
 const round2 = (amount) => Math.round(amount * 100) / 100;
 
 export function placeView(place, { cheapestId, closestId, median, facilityRate }) {
   const missingPart = place.parts.find((part) => part.max === null)?.part;
+  const facility = place.parts.find((part) => part.part === 'facility');
   return {
     id: place.place_id,
     name: displayName(place.name),
@@ -42,11 +55,13 @@ export function placeView(place, { cheapestId, closestId, median, facilityRate }
     distanceMi: place.distance_mi,
     maxRate: place.max_rate,
     parts: place.parts.map((part) => ({ label: PART_LABELS[part.part], amount: part.max })),
-    missing: missingPart ? MISSING_BILLS[missingPart] : null,
+    missing: missingBill(missingPart, place.kind),
     severalRates: place.several_rates,
     billers: place.billers.map(displayName),
     providers: place.providers.map((p) => ({ ...p, name: displayName(p.name) })),
-    facilityEstimate: place.kind === 'hospital' ? facilityRate : null,
+    facilityEstimate: place.kind === 'hospital' && facility?.max === null ? facilityRate : null,
+    cashPrice: place.cash_price ?? null,
+    feeFromHospital: facility?.source === 'hospital',
     isCheapest: place.place_id === cheapestId,
     isClosest: place.place_id === closestId,
     maxVsMedian: place.max_rate === null || median === null ? null : round2(place.max_rate - median),

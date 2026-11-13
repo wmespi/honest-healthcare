@@ -119,10 +119,29 @@ function SeveralRatesNote() {
 // A hospital's own name says nothing about who reads the scan there, so its row names
 // the groups that bill for it. At any other place they're the place itself.
 function BilledHere({ billers }) {
+  if (billers.length === 0) return null;
   return (
     <p className="text-pretty text-[13px] leading-5 text-slate-600">
       {listed(billers)} {billers.length === 1 ? 'bills' : 'bill'} for the reading here.
     </p>
+  );
+}
+
+// Where a hospital's fee and its uninsured price come from, since neither is the plan's rate.
+function HospitalPriceList({ location }) {
+  return (
+    <>
+      {location.feeFromHospital && (
+        <p className="text-pretty text-[13px] leading-5 text-slate-600">
+          The hospital&rsquo;s fee comes from the hospital&rsquo;s own price list, not your plan&rsquo;s file.
+        </p>
+      )}
+      {location.cashPrice !== null && (
+        <p className="text-pretty text-[13px] leading-5 text-slate-600">
+          Without insurance, this hospital&rsquo;s price list says it charges {money(location.cashPrice)} for the scan. The reading may be billed separately.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -242,6 +261,7 @@ function LocationRow({ location, plan, costSharing, selected, highlighted, layou
                       {location.missing && <MissingBillNote location={location} />}
                       {location.severalRates && <SeveralRatesNote />}
                       {location.kind === 'hospital' && <BilledHere billers={location.billers} />}
+                      <HospitalPriceList location={location} />
                     </div>
                     <div className="flex flex-col gap-3">
                       <div className="text-sm leading-6 text-slate-600">

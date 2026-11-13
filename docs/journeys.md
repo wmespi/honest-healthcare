@@ -12,6 +12,7 @@ journey can start from one (coverage: `application/frontend/src/findCare/*.test.
 | Persona | Who | Plan |
 |---|---|---|
 | **Rosa** | 63, near retirement, individual HMO in Georgia — the primary use case ([AGENTS.md](../AGENTS.md)) | Anthem Silver Blue Value HMO 4000 (`45334GA0020002`), on Blue Value |
+| **Sam** | Downtown Atlanta, on the network whose file prices hospitals' own fees | Anthem Gold Pathway PCP Copay Choice HMO 1200 (`49046GA0700055`), on Pathway |
 | **Dana** | Comparison shopper with no plan yet | none |
 
 ## Flow A — find imaging care
@@ -20,6 +21,7 @@ journey can start from one (coverage: `application/frontend/src/findCare/*.test.
 |---|---|---|---|
 | J1 | Rosa: what does a brain MRI cost near me? | Brain MRI → ZIP 30322 → her plan | Places on her plan ranked by the most she'd pay, each with its own name, a city and a distance; The Emory Clinic's whole price; her share of the rate; a hospital's own fee shown as missing, so it has no most you'd pay |
 | J2 | Rosa: a knee MRI | Knee MRI → within 10 miles | Places with a whole price first, places missing part of their bill after |
+| J3 | Sam: a brain MRI at a hospital | Brain MRI → ZIP 30303 → their plan → Grady Memorial Hospital | The hospital's fee from the plan's file and the reading add up to the most they'd pay, and the row says what the hospital charges without insurance |
 
 ## No plan
 

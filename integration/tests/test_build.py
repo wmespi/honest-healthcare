@@ -8,14 +8,14 @@ from integration.build import build
 
 def make(corpus):
     corpus.flush()
-    return build(corpus.root, f"{corpus.root}/serving", corpus.services_file)
+    return build(corpus.root, f"{corpus.root}/serving", corpus.services_file, corpus.hospital_plans_file)
 
 
 def test_the_build_writes_the_find_care_tables_and_says_when(corpus):
     rows = make(corpus)
     with open(f"{corpus.root}/serving/manifest.json") as f:
         manifest = json.load(f)
-    assert manifest["rows"] == rows and rows["prices"] == 4
+    assert manifest["rows"] == rows and rows["prices"] == 7
     assert manifest["built_at"].endswith("+00:00")
 
 

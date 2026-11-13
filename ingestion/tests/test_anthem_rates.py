@@ -122,6 +122,25 @@ def test_labels_match_the_way_the_parse_probe_matches_them(anthem):
         "only Pathway PCP Copay Choice, TRADITIONAL HEALTH PLAN")
 
 
+def test_a_facility_label_adds_only_its_institutional_rates_and_their_groups(anthem):
+    # Pathway's file prices its hospitals under another label, which also carries
+    # doctors' rates the target doesn't claim.
+    label = "EXCHANGES SPECIALIST  GATEKEEPER  ON INDIVIDUAL"
+    anthem.add_target("    facility_patterns: [\"Exchanges Specialist*Gatekeeper*On Individual\"]\n")
+    anthem.rate(701, label, group_set=7, rate=900.0, billing_class="institutional")
+    anthem.rate(701, label, group_set=8, rate=60.0)
+    anthem.group(701, 7, 70, "1000000007", 2000000007)
+    anthem.group(701, 8, 80, "1000000008", 2000000008)
+    assert anthem.publish() == {"rates": 3, "rate_groups": 3, "rosters": 4, "networks": 2}
+    assert [(r[1], r[6], r[9]) for r in anthem.rows("rates") if r[0] == "49046-GAN008"] == [
+        (5, 250.0, "professional"), (7, 900.0, "institutional")]
+    assert ("49046-GAN008", 70, 2000000007, "npi", "1000000007") in anthem.rows("rosters")
+    # The facility label alone doesn't make a file the network's.
+    anthem.remove_rate(701, "Pathway PCP Copay Choice")
+    assert anthem.publish()["rates"] == 1
+    assert anthem.networks()[1][1] == "missing"
+
+
 def test_a_file_the_target_doesnt_name_is_left_out(anthem):
     # GA_JBKEMED0001 carries Blue Value's label, but the index links it only to
     # 45334GA0010112, a plan Georgia's files no longer list.
@@ -209,7 +228,7 @@ def test_a_network_with_no_plans_stops_the_step(anthem):
 
 def test_every_target_in_the_targets_file_names_networks_files_and_labels():
     """ingestion/etl/targets.yaml itself: every target pairs exchange networks with files and labels."""
-    for name, nets, files, patterns in read_targets():
+    for name, nets, files, patterns, _ in read_targets():
         assert nets and files and patterns, name
 
 

@@ -39,6 +39,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
   `make fixture`; `synthetic.json.gz` drives the e2e script, the rest are regression
   guards (`TestFixtures_Parse`). **Add one only for a genuinely new file shape.**
 - `ingestion/etl/nppes/testdata/nppes_sample.csv` - NPPES GA extractor sample.
+- `ingestion/etl/hospitalrates/testdata/` - a hand-written hospital price file in each layout `etl hospital-rates` reads: a tall CSV, a wide CSV and a JSON file; the unit tests zip, gzip and add a byte-order mark to them themselves.
 - `ingestion/reference/testdata/*` - small CMS / MPFS / DAC / geocode samples; each
   `ingestion/reference/tests/test_<builder>.py` runs its `ingestion/reference/` builder against them in test
   isolation. `test_common.py` runs the builders' download against a local HTTP server.
@@ -69,6 +70,7 @@ It then discovers a small served index and checks that parse downloads only the 
 It also checks that a failed file waits until it's named with `-files`, and that a parse that stopped part way stops the next one ([parse.md](../ingestion/etl/parse.md#when-parse-downloads-a-file)).
 With a second target network whose file fails, it checks that parse exits 0 and names the file and its network, and that the publish step prices the other network and marks the failed one's rates `missing`, then `stale` once an earlier copy parsed ([parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
 `tests/e2e/nppes.sh` does the same for the NPPES extractor.
+`tests/e2e/hospital-rates.sh` extracts the hospital price file fixtures in test mode, checks the rows with DuckDB, and checks that a file it can't read keeps the hospital's earlier rates ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
 Each removes what it wrote under `data-test/`, and `discover.sh` and `parse.sh` also check that nothing under `data/` changed during the run.
 `tests/e2e/lib.sh` holds their helpers, including the file server that stands in for Anthem: a Python server in the `ingestion` container, serving a folder under `data-test/raw/`, which `etl` reaches at `http://127.0.0.1:<port>/`.
 `parse.sh` needs `data-test/ingestion/nppes/ga_providers.parquet` absent, because a stale copy makes the GA NPI filter drop every synthetic row.

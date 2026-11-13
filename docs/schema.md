@@ -8,6 +8,7 @@ Everything is **Parquet** under `data/`, and there is no database.
 `data/` has one folder for each layer's output, and each layer's container mounts only the folders it reads and writes ([architecture.md](architecture.md#layers)):
 
 - `data/raw/` is ingestion's own: Anthem's file list, parse records and rates as filed (`raw/anthem/`), and every public dataset's download (`raw/downloads/`). Only ingestion reads it.
+  `raw/hospital_rates/` holds a hospital's price file only while `etl hospital-rates` reads it ([hospital-rates.md](../ingestion/etl/hospital-rates.md#the-formats)).
 - `data/ingestion/` is what ingestion delivers, the contract integration reads: the payer rates, NPPES, the reference datasets and CMS billing.
 - `data/serving/` is what integration delivers, the find-care tables the app reads.
 
@@ -114,7 +115,7 @@ table here is a `503` from `GET /api/health`, never a fallback to what ingestion
 | `services.parquet` | `service_id`, `billing_code`, `service_category`, `name`, `keywords`, `about`, `could_change`, `asks`, `preventive_note`, `medicare_rate`, `medicare_facility_rate`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `cost_sharing.parquet` | `plan_id`, `service_category`, `copay`, `coinsurance`, `after_deductible`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `places.parquet` | `place_id`, `name`, `kind`, `address`, `city`, `lat`, `lon`, `phone`, `stars`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
-| `prices.parquet` | `network_id`, `service_id`, `place_id`, `parts` (`part`, `max`), `several_rates`, `billers`, `providers`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
+| `prices.parquet` | `network_id`, `service_id`, `place_id`, `parts` (`part`, `max`, `source`: `plan`, `hospital`, or empty with no rate), `several_rates`, `billers`, `providers`, `cash_price` (what a hospital's own price file says it charges when no plan pays; hospitals only); a hospital with a fee has a row with empty `billers` and `providers` when no reading group is placed there: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `providers.parquet` | `npi`, `name`, `specialty`, `score`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `unlocated_places.parquet` | `place_id`, `name`, `kind`, `address`, `city`, `zip`: the places no geocoder can put on the map, which nothing serves ([build.md](../integration/build.md#the-find-care-tables)) |
 | `manifest.json` | `built_at`, `rows`: when the build ran and each table's row count, which `GET /api/health` reads |
@@ -123,7 +124,7 @@ The entity model: [architecture.md](architecture.md#serving-entity-model).
 
 ---
 
-## Parquet - `data/ingestion/nppes/`, `data/ingestion/reference/`, `data/ingestion/cms/`
+## Parquet - `data/ingestion/nppes/`, `data/ingestion/reference/`, `data/ingestion/cms/`, `data/ingestion/hospital_rates/`
 
 Paths are under `data/ingestion/`, and each file is built by `make reference` with the `STEP` shown.
 
@@ -141,6 +142,7 @@ Paths are under `data/ingestion/`, and each file is built by `make reference` wi
 | `reference/dac_ga.parquet`<br>[`STEP=doctors-clinicians`](../ingestion/reference/doctors-clinicians.md) | One row per NPI, from CMS Doctors & Clinicians (Care Compare): a real group-practice identity (`org_pac_id` and name) independent of Anthem's buckets, plus demographics. The build names a doctor's own billing NPI after its CMS group. Georgia only (the NPIs on the parsed rosters, `raw/anthem/providers/`, else `State='GA'`).<br>**Columns:** `npi`, `last_name`, `first_name`, `credential`, `primary_specialty`, `org_pac_id`, `org_name`, `grad_year`, `med_school`, `gender` |
 | `reference/dac_locations_ga.parquet`<br>[`STEP=doctors-clinicians`](../ingestion/reference/doctors-clinicians.md) | One row per clinician and Georgia address CMS Doctors & Clinicians lists them practicing at. The build lists a clinician at a place only when one of these is in its building.<br>**Columns:** `npi`, `address_line1`, `address_line2`, `city`, `state`, `postal_code`, `phone` |
 | `reference/hospitals_ga.parquet`<br>[`STEP=hospitals`](../ingestion/reference/hospitals.md) | One row per Georgia hospital, from CMS Hospital General Information. `stars` is Medicare's overall rating, null where CMS has none.<br>**Columns:** `ccn`, `name`, `address`, `city`, `state`, `postal_code`, `county`, `phone`, `hospital_type`, `ownership`, `emergency_services`, `stars` |
+| `hospital_rates/<ccn>.parquet`<br>[`STEP=hospital-rates`](../ingestion/etl/hospital-rates.md) | One file per hospital `ingestion/etl/hospitals.yaml` lists, from its own price file: a row per code and kept payer and plan with a negotiated rate, or, for an item no kept payer prices, the hospital's charges alone, with `payer` and `plan` null. `code_type` is `CPT`, `HCPCS` or `MS-DRG`, and every number is null where the file gives none.<br>**Columns:** `ccn`, `code_type`, `code`, `setting`, `billing_class`, `modifiers`, `payer`, `plan`, `gross_charge`, `cash_price`, `negotiated_dollar`, `negotiated_percentage`, `methodology` |
 | `reference/exchange_plans_ga.parquet`<br>[`STEP=exchange-plans`](../ingestion/reference/exchange-plans.md) | One row per medical plan on Georgia's exchange, keyed on its HIOS plan ID. `etl parse` reads it to check the files `ingestion/etl/targets.yaml` names. `network_id` is the issuer and Georgia's network ID (`45334-GAN001`).<br>**Columns:** `plan_id`, `plan_year`, `issuer_id`, `carrier`, `name`, `metal_level`, `plan_type`, `needs_referral`, `network_id`, `deductible` |
 | `reference/exchange_networks_ga.parquet`<br>[`STEP=exchange-plans`](../ingestion/reference/exchange-plans.md) | One row per provider network the plans above use.<br>**Columns:** `network_id`, `issuer_id`, `name` |
 | `reference/exchange_premiums_ga.parquet`<br>[`STEP=exchange-plans`](../ingestion/reference/exchange-plans.md) | The monthly premium for one person, for ages 0 to 64, where 64 means 64 and over.<br>**Columns:** `plan_id`, `rating_area`, `age`, `premium`, `tobacco_premium` |

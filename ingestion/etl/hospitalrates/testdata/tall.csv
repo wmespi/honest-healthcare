@@ -1,0 +1,15 @@
+hospital_name,last_updated_on,version,hospital_location,hospital_address,license_number|GA,"To the best of its knowledge and belief, the hospital has included all applicable standard charge information in accordance with the requirements of 45 CFR 180.50, and the information encoded is true, accurate, and complete as of the date indicated."
+Test Hospital,2026-01-01,2.2.0,Test Hospital,"1 Main St, Atlanta, GA 30303",123,true
+description,code|1,code|1|type,code|2,code|2|type,code|3,code|3|type,billing_class,setting,modifiers,standard_charge|gross,standard_charge|discounted_cash,payer_name,plan_name,standard_charge|negotiated_dollar,standard_charge|negotiated_percentage,standard_charge|negotiated_algorithm,standard_charge|methodology,standard_charge|min,standard_charge|max,additional_generic_notes
+MRI brain,70553,CPT,0611,RC,,,Facility,Outpatient,,"$3,200.00",1600,Anthem Blue Cross,Blue Value,"1,234.50",,,Fee Schedule,,,
+MRI brain,70553,CPT,0611,RC,,,Facility,Outpatient,,"$3,200.00",1600,Aetna,PPO,1500,,,fee schedule,,,
+MRI brain,70553,CPT,0611,RC,,,Facility,Outpatient,,"$3,200.00",1600,Cigna,Open Access,1400,,,fee schedule,,,
+MRI brain,70553,CPT,0611,RC,,,Facility,Outpatient,,"$3,200.00",1600,BCBS,PPO,,45.5,,percent of total billed charges,,,
+Injection,j1100 ,HCPCS,,,,,Facility,Outpatient,tc|26,25,12,BlueCross BlueShield,,12.5,,,Fee Schedule,,,
+Sepsis,65,MS DRG,123,APR-DRG,,,Facility,Inpatient,,50000,,Anthem,HMO,N/A,,,case rate,,,
+Bad code,705531,CPT,,,,,Facility,Outpatient,,100,50,Anthem,HMO,80,,,fee schedule,,,
+Office visit,99213,CPT,G0463,HCPCS,99213,CPT,Professional,Outpatient,,200,100,Anthem,PPO,100,,,fee schedule,,,
+Panel,80053,CPT,,,,,Facility,Outpatient,,$25,,,,,,,,,,
+Bad charges,80048,CPT,,,,,Facility,Outpatient,,abc,1.234.5,Anthem,PPO,10,,,fee schedule,,,
+Joint,MS-470,DRG,,,,,Facility,Inpatient,,40000,20000,Blue Cross,PPO,"$21,000",,,case rate,,,
+Anesthesia,846,CPT,,,,,Professional,Outpatient,,900,,Anthem,PPO,300,,,fee schedule,,,

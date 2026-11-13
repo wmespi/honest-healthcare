@@ -25,6 +25,19 @@ def _words(text):
             f"'[^A-Z0-9]+', ' ', 'g'), ' '), w -> w != '')")
 
 
+def listed(data_dir):
+    """SQL for every Georgia address NPPES lists each NPI at, with the phone there:
+    the one on its own record (`main`) and the other places it lists. An empty
+    second line is ''."""
+    return f"""(
+        SELECT npi, true AS main, address_line1, coalesce(address_line2, '') AS address_line2, city, state,
+               postal_code, phone
+        FROM {NPPES.read(data_dir)}
+        UNION ALL
+        SELECT npi, false, address_line1, coalesce(address_line2, ''), city, state, postal_code, phone
+        FROM {NPPES_LOCATIONS.read(data_dir)})"""
+
+
 def street(line):
     """SQL for an address line's street: in USPS's abbreviations, without the
     cross street of "915 GORDON AVENUE & MIMOSA DRIVE", and without the suite of
@@ -38,8 +51,9 @@ def street(line):
 
 class Addresses(Table):
     """One row per address: the one on the NPPES record of each biller in
-    biller_rates and the other places it lists, each hospital's, and each one CMS
-    lists a doctor in biller_doctors practicing at.
+    biller_rates and each hospital billing NPI in facility_rates, and the other
+    places it lists, each hospital's, and each one CMS lists a doctor in
+    biller_doctors practicing at.
 
     Two addresses are one `building` when Census standardized them to the same
     address, or when their streets and ZIPs match once spelled the same way and
@@ -59,7 +73,8 @@ class Addresses(Table):
                "located_by": "VARCHAR"}
 
     def select(self, data_dir):
-        billers = "(SELECT TRY_CAST(biller AS BIGINT) FROM biller_rates)"
+        billers = ("(SELECT TRY_CAST(biller AS BIGINT) FROM biller_rates "
+                   "UNION SELECT TRY_CAST(biller AS BIGINT) FROM facility_rates)")
 
         def answer(source, alias):
             return f"""
@@ -70,12 +85,7 @@ class Addresses(Table):
 
         return f"""
             WITH listed AS (
-                SELECT address_line1, coalesce(address_line2, '') AS address_line2, city, state, postal_code,
-                       false AS hospital
-                FROM {NPPES.read(data_dir)} WHERE npi IN {billers}
-                UNION ALL
-                SELECT address_line1, coalesce(address_line2, ''), city, state, postal_code, false
-                FROM {NPPES_LOCATIONS.read(data_dir)} WHERE npi IN {billers}
+                SELECT {ADDRESS}, false AS hospital FROM {listed(data_dir)} WHERE npi IN {billers}
                 UNION ALL
                 SELECT address_line1, coalesce(address_line2, ''), city, state, postal_code, false
                 FROM {CLINICIAN_LOCATIONS.read(data_dir)} WHERE npi IN (SELECT npi FROM biller_doctors)

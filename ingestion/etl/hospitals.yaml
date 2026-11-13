@@ -1,0 +1,199 @@
+# Hospital price files: the hospitals whose own prices we read, and the payers
+# whose rates in them we keep.
+#
+# CMS has every hospital publish a machine-readable file of its standard
+# charges: its gross charge and cash price for each item, and the rate it has
+# negotiated with each payer and plan. `etl hospital-rates` (`make reference
+# STEP=hospital-rates`) downloads each file listed here and writes its rates to
+# data/ingestion/hospital_rates/<ccn>.parquet (ingestion/etl/hospital-rates.md).
+#
+#   payers     Case-insensitive regular expressions. A rate whose payer name
+#              matches one is kept, and every other payer's is dropped; an item
+#              no kept payer prices keeps only its gross charge and cash price.
+#
+#   hospitals  One entry per hospital:
+#                ccn       Its CMS Certification Number, quoted ("110010"), as
+#                          hospitals_ga.parquet has it
+#                          (ingestion/reference/hospitals.md). It names the
+#                          output file.
+#                name      Its everyday name, for the log.
+#                index     Its system's cms-hpt.txt, at the root of the
+#                          system's website, which lists each location's file.
+#                location  Its location-name in that index, matched
+#                          case-insensitively once trimmed.
+#              or, for a hospital with no usable cms-hpt.txt, in place of
+#              index and location:
+#                url       The address of its price file.
+#
+# To add a hospital, find its location-name in its system's cms-hpt.txt and
+# run `make reference STEP=hospital-rates ARGS="-only <ccn>"`.
+
+payers:
+  - anthem
+  - 'blue ?cross'
+  - bcbs
+
+hospitals:
+  # Emory Healthcare
+  - ccn: "110076"
+    name: Emory Decatur Hospital
+    index: https://www.emoryhealthcare.org/cms-hpt.txt
+    location: Emory Decatur Hospital
+  - ccn: "110226"
+    name: Emory Hillandale Hospital
+    index: https://www.emoryhealthcare.org/cms-hpt.txt
+    location: Emory Hillandale Hospital
+  - ccn: "110069"
+    name: Emory Hospital Warner Robins
+    index: https://www.emoryhealthcare.org/cms-hpt.txt
+    location: Emory Hospital Warner Robins
+  - ccn: "110230"
+    name: Emory Johns Creek Hospital
+    index: https://www.emoryhealthcare.org/cms-hpt.txt
+    location: Emory Johns Creek Hospital
+  - ccn: "110082"
+    name: Emory Saint Joseph's Hospital
+    index: https://www.emoryhealthcare.org/cms-hpt.txt
+    location: Emory Saint Joseph's Hospital
+  - ccn: "110010"
+    name: Emory University Hospital
+    index: https://www.emoryhealthcare.org/cms-hpt.txt
+    location: Emory University Hospital
+  - ccn: "110078"
+    name: Emory University Hospital Midtown
+    index: https://www.emoryhealthcare.org/cms-hpt.txt
+    location: Emory University Hospital Midtown
+
+  # Grady Health System
+  - ccn: "110079"
+    name: Grady Health System
+    index: https://www.gradyhealth.org/cms-hpt.txt
+    location: Grady Health System
+
+  # Southwell
+  - ccn: "110095"
+    name: Tift Regional Medical Center
+    index: https://mysouthwell.com/cms-hpt.txt
+    location: Tift Regional Medical Center
+  - ccn: "110101"
+    name: Southwell Medical
+    index: https://mysouthwell.com/cms-hpt.txt
+    location: Southwell Medical
+
+  # Piedmont
+  - ccn: "110083"
+    name: Piedmont Atlanta
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Atlanta
+  - ccn: "110074"
+    name: Piedmont Athens Regional
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Athens Regional
+  - ccn: "110028"
+    name: Piedmont Augusta
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Augusta
+  - ccn: "110030"
+    name: Piedmont Cartersville
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Cartersville
+  - ccn: "110064"
+    name: Piedmont Columbus Regional - Midtown
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Columbus Regional - Midtown
+  - ccn: "110200"
+    name: Piedmont Columbus Regional - Northside
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Columbus Regional - Northside
+  - ccn: "110192"
+    name: Piedmont Eastside
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Eastside
+  - ccn: "110215"
+    name: Piedmont Fayette
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Fayette
+  - ccn: "110191"
+    name: Piedmont Henry
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Henry
+  - ccn: "110201"
+    name: Piedmont Macon North
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Macon North
+  - ccn: "110225"
+    name: Piedmont Mountainside
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Mountainside
+  - ccn: "110229"
+    name: Piedmont Newnan
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Newnan
+  - ccn: "110018"
+    name: Piedmont Newton
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Newton
+  - ccn: "110091"
+    name: Piedmont Rockdale
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Rockdale
+  - ccn: "110046"
+    name: Piedmont Walton
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Walton
+
+  # Wellstar
+  - ccn: "110143"
+    name: Wellstar Cobb Hospital
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar Cobb Hospital
+  - ccn: "110184"
+    name: Wellstar Douglas Hospital
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar Douglas Hospital
+  - ccn: "110035"
+    name: Wellstar Kennestone Hospital
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar Kennestone Hospital
+  - ccn: "110034"
+    name: Wellstar MCG Health
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar MCG Health
+  - ccn: "110198"
+    name: Wellstar North Fulton Hospital
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar North Fulton Hospital
+  - ccn: "110042"
+    name: Wellstar Paulding Hospital
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar Paulding Hospital
+  - ccn: "110031"
+    name: Wellstar Spalding Regional Hospital
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar Spalding Regional Hospital
+  - ccn: "111319"
+    name: Wellstar Sylvan Grove Hospital
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar Sylvan Grove Hospital
+  - ccn: "110016"
+    name: Wellstar West Georgia Medical Center
+    index: https://www.wellstar.org/cms-hpt.txt
+    location: Wellstar West Georgia Medical Center
+
+  # Northeast Georgia Health System
+  - ccn: "110029"
+    name: Northeast Georgia Medical Center Gainesville
+    index: https://www.nghs.com/cms-hpt.txt
+    location: Northeast Georgia Medical Center Gainesville
+  - ccn: "110045"
+    name: Northeast Georgia Medical Center Barrow
+    index: https://www.nghs.com/cms-hpt.txt
+    location: Northeast Georgia Medical Center Barrow, LLC
+  - ccn: "110237"
+    name: Northeast Georgia Medical Center Lumpkin
+    index: https://www.nghs.com/cms-hpt.txt
+    location: Northeast Georgia Medical Center Lumpkin
+  - ccn: "110041"
+    name: Northeast Georgia Medical Center Habersham
+    index: https://www.nghs.com/cms-hpt.txt
+    location: Northeast Georgia Medical Center Habersham

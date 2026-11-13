@@ -57,11 +57,11 @@ class Anthem:
                [("45334-GAN001", "45334", "Blue Value"), ("49046-GAN008", "49046", "Pathway"),
                 ("58081-GAN001", "58081", "Individual Georgia HMO")])
 
-    def rate(self, file_id, label, group_set=1, code="70551", rate=250.0):
+    def rate(self, file_id, label, group_set=1, code="70551", rate=250.0, billing_class="professional"):
         """Add a rate in file `file_id` under network label `label`."""
         rows = self.rates.setdefault((file_id, label), [])
         rows.append((file_id, group_set, label, "CPT", code, "ffs", "negotiated", rate, "9999-12-31", "11",
-                     "professional", "", "outpatient"))
+                     billing_class, "", "outpatient"))
         self._write_rates(file_id, label)
 
     def remove_rate(self, file_id, label):

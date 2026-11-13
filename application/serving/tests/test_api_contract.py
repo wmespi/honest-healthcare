@@ -23,7 +23,7 @@ def test_health_says_when_the_build_ran_and_what_it_holds(api):
     assert body["networks"] == [
         {"network_id": "45334-GAN001", "name": "Blue Value Individual Network HMO", **current},
         {"network_id": "49046-GAN008", "name": "Pathway PCP Copay Choice", **current}]
-    assert body["rows"] == {"plans": 3, "services": 2, "places": 5, "prices": 4, "providers": 1}
+    assert body["rows"] == {"plans": 3, "services": 2, "places": 5, "prices": 7, "providers": 1}
 
 
 def test_health_says_which_networks_have_stale_or_no_prices_and_why(api, monkeypatch):
@@ -88,7 +88,30 @@ def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
                                    "specialty": "Diagnostic Radiology Physician", "score": 87.5}]
     grady = body["results"][3]
     assert grady["kind"] == "hospital" and grady["stars"] == 3 and grady["phone"] == "(404) 555-0100"
-    assert grady["parts"] == [{"part": "facility", "max": None}, {"part": "reading", "max": 200.0}]
+    assert grady["parts"] == [{"part": "facility", "max": None, "source": None},
+                              {"part": "reading", "max": 200.0, "source": "plan"}]
+    assert grady["cash_price"] == 1450.0 and emory["cash_price"] is None
+    assert emory["parts"] == [{"part": "all_in", "max": 500.0, "source": "plan"}]
+
+
+def test_find_care_serves_a_hospital_with_its_own_fee_and_no_reading_group(api):
+    body = api.get("/api/find-care", params={**MRI, "service_id": "mammogram-screening",
+                                             "plan_id": "49046GA0700053", "zip": "30720"})
+    assert body.status_code == 200
+    by_id = {p["place_id"]: p for p in body.json()["results"]}
+    fee_only = by_id["110001"]
+    assert fee_only["name"] == "HAMILTON MEDICAL CENTER" and fee_only["billers"] == [] and fee_only["providers"] == [] and fee_only["max_rate"] is None
+    assert fee_only["parts"] == [{"part": "facility", "max": 165.0, "source": "plan"},
+                                 {"part": "reading", "max": None, "source": None}]
+    assert fee_only["cash_price"] is None
+
+
+def test_find_care_says_where_a_hospitals_fee_comes_from_and_what_it_charges_uninsured(api):
+    body = api.get("/api/find-care", params={**MRI, "service_id": "mammogram-screening"}).json()
+    grady = next(p for p in body["results"] if p["place_id"] == "110079")
+    assert grady["parts"] == [{"part": "facility", "max": 210.0, "source": "hospital"},
+                              {"part": "reading", "max": 35.0, "source": "plan"}]
+    assert grady["cash_price"] == 320.0 and grady["max_rate"] == 245.0
 
 
 def test_find_care_keeps_to_the_radius_and_sorts_by_distance(api):

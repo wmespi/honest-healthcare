@@ -99,10 +99,21 @@ class Part(BaseModel):
     """One bill at a place, with the rate the plan lists for it there that has
     the strongest evidence behind it, and the highest of those when several tie,
     since the file doesn't say which applies. Empty when the place has no usable
-    price for that bill: a hospital's own fee, or the scan at a group whose
-    doctors read scans done elsewhere."""
+    price for that bill: the reading at a hospital no reading group on the plan
+    is placed at, or the scan at a group whose doctors read scans done
+    elsewhere. A hospital's own fee is priced where the plan's file or the
+    hospital's own price list gives it, and `source` says which."""
     part: PartName
     max: Optional[float]
+    source: Optional[Literal["plan", "hospital"]] = Field(
+        description="Where the rate comes from: the plan's own file, or a hospital's own price list. "
+                    "Empty exactly when there is no rate.")
+
+    @model_validator(mode="after")
+    def _source_goes_with_a_rate(self):
+        if (self.source is None) != (self.max is None):
+            raise ValueError("a part has a source exactly when it has a rate")
+        return self
 
 
 class Provider(BaseModel):
@@ -120,9 +131,9 @@ class Place(BaseModel):
     The most you'd pay is its parts added up, and it's empty when any part has
     no price, because then nobody can say what the whole bill could be.
 
-    A hospital is listed because the groups reading scans there are on the
-    plan. Nothing on file confirms the hospital itself is, so the screen says
-    so for every hospital.
+    A hospital is listed when the groups reading scans there are on the plan
+    or when it has its own fee. Only where the fee is empty does nothing on
+    file confirm the hospital itself is in network.
     """
     place_id: str = Field(description="The CCN for a hospital, the lowest billing NPI for a practice.")
     name: str
@@ -138,8 +149,12 @@ class Place(BaseModel):
     several_rates: bool = Field(
         description="The plan lists more than one rate that could apply to a bill here without saying which, "
                     "so someone should ask which they'd get.")
-    billers: list[str] = Field(min_length=1, description="The groups that bill for the service here, by name: "
-                                                         "at a hospital, the groups reading scans there.")
+    billers: list[str] = Field(description="The groups that bill for the service here, by name: "
+                                           "at a hospital, the groups reading scans there. Empty at a hospital "
+                                           "no reading group on the plan is placed at.")
+    cash_price: Optional[float] = Field(
+        ge=0, description="What the hospital's own price list says it charges for the service without "
+                          "insurance. Hospitals only.")
     providers: list[Provider] = Field(
         description="Who Medicare shows billing the service here, never the whole roster. "
                     "Empty when Medicare shows no one, as at an imaging center it has no record of.")
@@ -148,6 +163,12 @@ class Place(BaseModel):
     def _stars_are_for_hospitals(self):
         if self.stars is not None and self.kind != "hospital":
             raise ValueError("only a hospital has stars")
+        return self
+
+    @model_validator(mode="after")
+    def _cash_prices_are_for_hospitals(self):
+        if self.cash_price is not None and self.kind != "hospital":
+            raise ValueError("only a hospital has a cash price")
         return self
 
     @computed_field(description="The most you'd pay: every part's rate, added up.")

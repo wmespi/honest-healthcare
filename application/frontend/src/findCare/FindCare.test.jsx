@@ -28,6 +28,8 @@ const SERVICES = [
 ];
 const MRI = `?service=mri-lower-back&zip=30322&plan=${SILVER}`;
 
+const part = (name, max, source = 'plan') => ({ part: name, max, source: max === null ? null : source });
+
 const provider = (npi, name, score = null) => ({ npi, name, specialty: 'Diagnostic Radiology Physician', score });
 
 function place(id, name, kind, distance, parts, extra = {}) {
@@ -35,21 +37,26 @@ function place(id, name, kind, distance, parts, extra = {}) {
   return {
     place_id: id, name, kind, address: '1365 CLIFTON RD NE', city: 'ATLANTA', lat: 33.79, lon: -84.32,
     phone: null, stars: null, distance_mi: distance, parts, several_rates: false, billers: [name], providers: [],
-    max_rate: priced ? parts.reduce((sum, p) => sum + p.max, 0) : null, ...extra,
+    max_rate: priced ? parts.reduce((sum, p) => sum + p.max, 0) : null, cash_price: null, ...extra,
   };
 }
 
-const EMORY = place('1174811889', 'THE EMORY CLINIC INC', 'practice', 0.3, [{ part: 'all_in', max: 177.21 }], {
+const EMORY = place('1174811889', 'THE EMORY CLINIC INC', 'practice', 0.3, [part('all_in', 177.21)], {
   providers: [provider(1417272576, 'ADAM SINGER'), provider(1609226851, 'NINAD SALASTEKAR', 93.2361)],
 });
-const TRAUB = place('1003000001', 'JEFF A TRAUB, MD, PC', 'practice', 2.7, [{ part: 'all_in', max: 489.04 }], {
+const TRAUB = place('1003000001', 'JEFF A TRAUB, MD, PC', 'practice', 2.7, [part('all_in', 489.04)], {
   several_rates: true,
 });
 const GRADY = place('110079', 'GRADY MEMORIAL HOSPITAL', 'hospital', 4.2,
-  [{ part: 'facility', max: null }, { part: 'reading', max: 67.07 }], {
+  [part('facility', null), part('reading', 67.07)], {
     address: '80 JESSE HILL JR DRIVE SE', phone: '(404) 616-1000', stars: 3,
     billers: ['EMORY MEDICAL CARE FOUNDATION', 'RADIOLOGY ASSOCIATES OF DEKALB PC'],
     providers: [provider(1003201336, 'OMAR KALLAS', 95.4)],
+  });
+
+const FEE_ONLY = place('110001', 'HAMILTON MEDICAL CENTER', 'hospital', 3.1,
+  [part('facility', 165, 'hospital'), part('reading', null)], {
+    address: '1200 MEMORIAL DRIVE', stars: 4, billers: [], cash_price: 320,
   });
 
 function answer(results, extra = {}) {
@@ -182,6 +189,46 @@ describe('find care', () => {
       .toBeInTheDocument();
     expect(screen.getByText('Medicare hospital rating: 3 of 5 stars')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /\(404\) 616-1000/ })).toBeInTheDocument();
+  });
+
+  it('shows a hospital with its own fee but no reading group: the fee, the reading note, no billers, no guide', async () => {
+    const user = userEvent.setup();
+    api.getFindCare.mockResolvedValue({ data: answer([FEE_ONLY]) });
+    open(MRI);
+    expect(await screen.findByText('Missing the reading')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Hamilton Medical Center' }));
+    expect(screen.getByText('Hospital facility fee')).toBeInTheDocument();
+    expect(screen.getByText('$165')).toBeInTheDocument();
+    expect(screen.getByText(/Your plan’s file doesn’t show which group reads scans here/)).toBeInTheDocument();
+    expect(screen.queryByText(/for the reading here/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Medicare pays hospitals about/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Who does this scan here')).not.toBeInTheDocument();
+  });
+
+  it('says a fee comes from the hospital\'s own price list only when it does', async () => {
+    const user = userEvent.setup();
+    const source = /fee comes from the hospital’s own price list/;
+    api.getFindCare.mockResolvedValue({ data: answer([FEE_ONLY]) });
+    const own = open(MRI);
+    await user.click(await screen.findByRole('button', { name: 'Hamilton Medical Center' }));
+    expect(screen.getByText(source)).toBeInTheDocument();
+    own.unmount();
+
+    const planFee = place('110001', 'HAMILTON MEDICAL CENTER', 'hospital', 3.1,
+      [part('facility', 165), part('reading', null)], { billers: [] });
+    api.getFindCare.mockResolvedValue({ data: answer([planFee]) });
+    open(MRI);
+    await user.click(await screen.findByRole('button', { name: 'Hamilton Medical Center' }));
+    expect(screen.queryByText(source)).not.toBeInTheDocument();
+  });
+
+  it('says what a hospital charges without insurance when its price list does', async () => {
+    const user = userEvent.setup();
+    api.getFindCare.mockResolvedValue({ data: answer([FEE_ONLY]) });
+    open(MRI);
+    await user.click(await screen.findByRole('button', { name: 'Hamilton Medical Center' }));
+    expect(screen.getByText('Without insurance, this hospital’s price list says it charges $320 for the scan. The reading may be billed separately.'))
+      .toBeInTheDocument();
   });
 
   it('says to ask which rate applies where the plan lists several', async () => {

@@ -1,9 +1,11 @@
 """The build's test corpus: a small, coherent set of the datasets ingestion
 writes, in a folder (payer rates and rosters by network, Georgia's plans,
-NPPES, Census, Medicare and the rest), with methods to add and remove rows.
-Each file has its dataset's columns (integration/inputs/datasets.py). The build's
-tests (inputs/, tables/) run the real find-care build on it, and application/serving/tests
-builds the app's fixture tables from `default_corpus`.
+NPPES, Census, Medicare, hospitals' own price files and the rest), with methods
+to add and remove rows, plus the services file and the reviewed list of
+hospitals' plan names the build reads. Each file has its dataset's columns
+(integration/inputs/datasets.py). The build's tests (inputs/, tables/) run the
+real find-care build on it, and application/serving/tests builds the app's
+fixture tables from `default_corpus`.
 """
 import os
 
@@ -45,13 +47,17 @@ PREVENTIVE = "Preventive Care/Screening/Immunization"
 
 class Corpus:
     """Payer rates and rosters, Georgia's networks, plans, premiums, cost sharing
-    and hospitals, ZIP centroids, NPPES records, Census matches, Medicare's
-    billing and rates, CMS groups and a services file in a tmp dir."""
+    and hospitals, hospitals' own price files, ZIP centroids, NPPES records,
+    Census matches, Medicare's billing and rates, CMS groups, a services file and
+    a list of hospitals' plan names in a tmp dir."""
 
     def __init__(self, root):
         self.root = root
         os.makedirs(root, exist_ok=True)
         self.services_file = f"{root}/services.yaml"
+        self.hospital_plans_file = f"{root}/hospital_plans.yaml"
+        self.hospital_plans([])
+        self.hospital_rates = {}
         self.services = []
         self.mpfs = []
         self.opps = []
@@ -119,9 +125,34 @@ class Corpus:
                            "9999-12-31", "11", "professional", modifier, "outpatient"))
         self._write_rates()
 
+    def facility_price(self, network_id, group_set, code, rate, modifier="", setting="outpatient",
+                       negotiated_type="fee schedule", arrangement="ffs"):
+        """Add the payer's institutional rate for `code` on `network_id`, a
+        hospital's own fee, covering the rosters in `group_set`."""
+        self.rates.append((network_id, group_set, "CPT", code, arrangement, negotiated_type, float(rate),
+                           "9999-12-31", "22", "institutional", modifier, setting))
+        self._write_rates()
+
     def _write_rates(self):
         self._queue(f"{self.root}/payer_rates/anthem/rates.parquet", d.PAYER_RATES.columns, self.rates)
         self._write_networks()
+
+    def hospital_price(self, ccn, code, payer=None, plan=None, negotiated=None, cash=None, gross=None,
+                       setting="outpatient", billing_class="facility", modifiers=None, code_type="CPT",
+                       methodology="fee schedule"):
+        """Add a row for `code` to hospital `ccn`'s own price file: its rate for
+        `payer` and `plan` by `methodology`, or with neither, only its charges."""
+        self.hospital_rates.setdefault(ccn, []).append(
+            (ccn, code_type, code, setting, billing_class, modifiers, payer, plan, gross, cash, negotiated, None,
+             None if negotiated is None else methodology))
+        self._queue(f"{self.root}/hospital_rates/{ccn}.parquet", d.HOSPITAL_RATES.columns,
+                    self.hospital_rates[ccn])
+
+    def hospital_plans(self, groups):
+        """Write the reviewed list of what the payer and plan names in hospitals'
+        own files mean (integration/hospital_plans.yaml)."""
+        with open(self.hospital_plans_file, "w") as f:
+            yaml.safe_dump(groups, f, sort_keys=False)
 
     def network(self, network_id, status, as_of=OCT31, reason=None):
         """Say how fresh `network_id`'s rates are: `current`, `stale` or
@@ -210,7 +241,7 @@ class Corpus:
         from integration import tables
         self.flush()
         con = tables.connect(f"{self.root}/.spill")
-        for table in tables.inputs(self.services_file):
+        for table in tables.inputs(self.services_file, self.hospital_plans_file):
             table.make(con, self.root)
         return con
 
@@ -292,7 +323,7 @@ class Corpus:
     def build(self, out="serving"):
         from integration import tables
         self.flush()
-        return tables.build(self.root, f"{self.root}/{out}", services_path=self.services_file)
+        return tables.build(self.root, f"{self.root}/{out}", self.services_file, self.hospital_plans_file)
 
     def rows(self, table, out="serving"):
         return duckdb.connect().execute(
@@ -303,8 +334,10 @@ class Corpus:
 def default_corpus(root):
     """Payer rates on Blue Value and Pathway, Georgia's networks (a third with
     no rates), plans, premiums and cost sharing, ZIP centroids, two services
-    with Medicare's rates, and eight billers priced for a lower-back MRI on Blue
-    Value, each showing one placement rule."""
+    with Medicare's rates, eight billers priced for a lower-back MRI on Blue
+    Value, each showing one placement rule, Grady's own fee for a screening
+    mammogram from each source, with its cash prices, and Hamilton's on Pathway,
+    where no group reads it."""
     c = Corpus(root)
     c.rate(BLUE_VALUE)
     c.rate(PATHWAY)
@@ -373,5 +406,30 @@ def default_corpus(root):
     c.geocode("1365 CLIFTON RD NE", "ATLANTA", "303221013", "1365 CLIFTON RD NE, ATLANTA, GA, 30322",
               33.792, -84.323)
     c.geocode("1200 MEMORIAL DRIVE", "DALTON", "30720", "1200 MEMORIAL DR, DALTON, GA, 30720", 34.7698, -84.9702)
+    # Grady Radiology Group also reads screening mammograms at Grady, on both
+    # networks. Grady's own NPI is on Pathway's institutional rate for one, so
+    # Pathway's file prices Grady's fee, and Grady's own price file prices it on
+    # Blue Value under a name the reviewed list gives that network. The file
+    # lists cash prices for both services, and a plan the list says isn't ours.
+    c.roster(PATHWAY, 4, 4, "1000000004", 2000000004)
+    for network, reading in ((BLUE_VALUE, 35), (PATHWAY, 40)):
+        c.scan_price(network, 4, "77067", reading=reading, service_code="22")
+    c.billed(2000000004, "77067", "F")
+    c.npi(1000000050, "GRADY MEMORIAL HOSPITAL CORPORATION", "80 JESSE HILL JR DR SE", "ATLANTA", "303033031",
+          taxonomy="282N00000X")
+    c.roster(PATHWAY, 50, 50, "1000000050", 1000000050)
+    c.facility_price(PATHWAY, 50, "77067", 180)
+    c.hospital_plans([{"hospitals": ["110079"], "networks": {BLUE_VALUE: ["ANTHEM BCBS | BLUE VALUE HMO"]},
+                       "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])
+    c.hospital_price("110079", "77067", "ANTHEM BCBS", "BLUE VALUE HMO", negotiated=210.0, gross=640.0)
+    c.hospital_price("110079", "77067", "ANTHEM BCBS", "MEDICARE ADVANTAGE", negotiated=150.0, gross=640.0)
+    c.hospital_price("110079", "77067", gross=640.0, cash=320.0)
+    c.hospital_price("110079", "72148", gross=4200.0, cash=1450.0)
+    # Pathway's file also prices Hamilton's own fee for a screening mammogram,
+    # where no group on file reads it.
+    c.npi(1000000060, "HAMILTON HEALTH CARE SYSTEM", "1200 MEMORIAL DRIVE", "DALTON", "30720",
+          taxonomy="282N00000X")
+    c.roster(PATHWAY, 60, 60, "1000000060", 1000000060)
+    c.facility_price(PATHWAY, 60, "77067", 165)
     c.flush()
     return c

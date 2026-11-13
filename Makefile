@@ -84,7 +84,7 @@ parse: ## Stream the files ingestion/etl/targets.yaml names into Parquet when th
 	  $(if $(TARGETS),--targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),--test,)
 
-reference: ## Build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, ZIP centroids, exchange plans, hospitals), skipping what exists except geocode, which looks up only new addresses. STEP=<name> · FORCE=1 · ARGS="--flag v"
+reference: ## Build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, ZIP centroids, exchange plans, hospitals, hospital price files), skipping what exists except geocode, which looks up only new addresses, and hospital-rates, which fetches only the hospitals with no rates yet. STEP=<name> · FORCE=1 · ARGS="--flag v"
 	@bash scripts/reference.sh
 
 build: ## What ingestion delivered (data/ingestion/) -> the find-care tables in data/serving/. TEST=1
@@ -169,7 +169,7 @@ sh: ## Open a shell inside a container - usage: make sh S=ingestion|integration|
 # The ETL e2e tests, then each layer's tests in its own container; the app's
 # read the tables integration builds from its test corpus. CI runs this too.
 _test-layers:
-	bash tests/e2e/discover.sh && bash tests/e2e/parse.sh && bash tests/e2e/nppes.sh
+	bash tests/e2e/discover.sh && bash tests/e2e/parse.sh && bash tests/e2e/nppes.sh && bash tests/e2e/hospital-rates.sh
 	docker compose exec -T -w /app ingestion python3 -m pytest -q ingestion
 	docker compose exec -T integration python3 -m pytest -q integration
 	docker compose exec -T integration python3 -m integration.tests.app_tables

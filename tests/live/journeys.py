@@ -5,7 +5,7 @@ answer" checks behind docs/journeys.md.
 
 Unlike test_golden.py beside it (pinned answers), this is depth: for a handful
 of named personas, does the specific expected outcome still hold — the canary rate,
-the hospital's missing fee, whole prices first.
+the hospital's missing fee, whole prices first, a hospital's fee where the plan's file has one.
 
 Needs the REAL corpus in the running stack (the assertions check real dollar
 figures), so this is a local tool — `make test-live` — not a CI gate.
@@ -36,6 +36,9 @@ BLUE_VALUE = "45334-GAN001"
 SILVER = "45334GA0020002"  # Anthem Silver Blue Value HMO 4000, Rosa's plan here
 CANARY_70551 = 180.49  # brain MRI at The Emory Clinic on Blue Value — must not move without a known reason
 EMORY_CLINIC = "1396798229"
+GOLD_PATHWAY = "49046GA0700055"  # Anthem Gold Pathway PCP Copay Choice HMO 1200, Sam's plan here
+GRADY = "110079"
+GRADY_70551 = 1287.28  # brain MRI at Grady on Pathway: the hospital's fee in the plan's file plus the reading
 SLOW_CALL_MS = 1500   # a single API call slower than this gets flagged (not a failure)
 
 _calls = []  # (path, ms) for the journey currently running — reset per journey
@@ -74,7 +77,8 @@ def j1(api):
         (clinic is not None, "The Emory Clinic listed"),
         (clinic and clinic["max_rate"] == CANARY_70551, f"Emory Clinic {clinic and clinic['max_rate']} (want {CANARY_70551})"),
         (body.get("cost_sharing") is not None, "the plan's share of the rate"),
-        (all(h["max_rate"] is None and h["parts"][0] == {"part": "facility", "max": None} for h in hospitals),
+        (all(h["max_rate"] is None and h["parts"][0] == {"part": "facility", "max": None, "source": None}
+             for h in hospitals),
          "a hospital's own fee shows as missing, so it has no most you'd pay"),
         (all(r["name"] and r["city"] and r["distance_mi"] is not None for r in rows),
          "every place has its own name, a city and a distance from the ZIP"),
@@ -94,6 +98,24 @@ def j2(api):
     return ok, f"{len(rows)} places · {sum(whole)} with a whole price, listed first"
 
 
+def j3(api):
+    body, status = get(api, "/find-care", service_id="mri-brain", plan_id=GOLD_PATHWAY, zip="30303")
+    rows = (body or {}).get("results") or []
+    grady = next((r for r in rows if r["place_id"] == GRADY), None)
+    if status != 200 or grady is None:
+        return False, f"/find-care mri-brain returned {status} / {len(rows)} places, Grady {'listed' if grady else 'missing'}"
+    fee = grady["parts"][0]
+    checks = [
+        (fee["part"] == "facility" and fee["source"] == "plan", f"Grady's fee is {fee} (want the plan's file)"),
+        (grady["max_rate"] == GRADY_70551, f"Grady {grady['max_rate']} (want {GRADY_70551})"),
+        (grady["max_rate"] == round(sum(p["max"] or 0 for p in grady["parts"]), 2), "the most you'd pay is the fee plus the reading"),
+        (grady["cash_price"] is not None, "the hospital's price without insurance"),
+    ]
+    bad = [msg for ok, msg in checks if not ok]
+    return (not bad), ("; ".join(bad) if bad else
+            f"Grady ${GRADY_70551} = fee ${fee['max']} + reading · ${grady['cash_price']:,.0f} without insurance")
+
+
 def j4(api):
     body, status = get(api, "/find-care", service_id="mri-brain", zip="30322")
     return status == 422, f"no plan -> {status} (want 422: prices depend on the plan)"
@@ -102,6 +124,7 @@ def j4(api):
 JOURNEYS = [
     ("J1", "Rosa — brain MRI price near Emory", j1),
     ("J2", "Rosa — knee MRI", j2),
+    ("J3", "Sam - brain MRI at a hospital", j3),
     ("J4", "Dana — a search with no plan", j4),
 ]
 

@@ -6,22 +6,36 @@ from integration.inputs.datasets import NPPES
 from integration.table import Table
 
 
-def _part(name, rate):
-    return f"{{'part': '{name}', 'max': {rate}}}"
+def _part(name, rate, source=None):
+    """SQL for one bill: its rate, and where the rate is from, the plan's own file
+    (`plan`) unless `source` says otherwise. Both are empty when nothing prices it."""
+    source = source or f"CASE WHEN {rate} IS NOT NULL THEN 'plan' END"
+    return f"{{'part': '{name}', 'max': {rate}, 'source': {source}}}"
 
 
 class Prices(Table):
-    """One row per network, service and place where the place's billers have a
-    rate for the service (integration/inputs/biller_rates.py) and it's one of
-    their places for it (integration/inputs/service_sites.py), for the places on
-    the map. Each part is one bill, with the rate that has the strongest evidence
-    there (biller_rates.EVIDENCE), and the highest of those when several tie,
-    since the file doesn't say which of them applies:
+    """One row per network, service and place on the map where the place's
+    billers have a rate for the service (integration/inputs/biller_rates.py) and
+    it's one of their places for it (integration/inputs/service_sites.py), plus
+    one per network, service and hospital on the map with its own fee for the
+    service (integration/inputs/hospital_fees.py). Each part is one bill, with
+    the rate that has the strongest evidence there (biller_rates.EVIDENCE), and
+    the highest of those when several tie, since the file doesn't say which of
+    them applies:
 
-    - a hospital's row is its own fee, which Anthem's professional file doesn't
-      price, so it's empty, and the reading by the groups in its building. Their
-      rates put the hospital on the list, and nothing on file confirms the
-      hospital itself is in network, so the screen says so (decided on #135);
+    - a hospital's row is its own fee (`facility`) and the reading by the groups
+      in its building. The hospital is on the list where those groups have a
+      rate (decided on #135), or where it has a fee, since a fee is evidence the
+      hospital itself is in network. The fee is from one source, never a blend
+      (hospital_fees): the plan's own file where it prices the hospital, else
+      the hospital's own price file under a name the reviewed list says is the
+      network's. Only where the fee is empty does nothing on file confirm the
+      hospital itself is in network, so the screen says so. An empty reading at a
+      hospital means another group reads the scan and bills it separately, and
+      the plan's file doesn't place one there, so `billers` and `providers` are
+      empty too unless a group there has a rate for another part. `cash_price` is
+      what the hospital's own file says it charges for the service when no plan
+      pays (hospital_cash), and it's empty at every other place;
     - a place that does the scan shows its all-in rate, which covers the
       reading, or the scan and the reading when it lists no all-in rate;
     - a reading group elsewhere shows the scan, empty because someone else does
@@ -29,23 +43,28 @@ class Prices(Table):
       rate has no row, since it would show nothing at a place nobody goes to for
       the scan.
 
-    `several_rates` says a part shown has more than one rate with that evidence, so
-    someone should ask which they'd get, and `billers` lists the names of the
-    billing groups behind the row (biller_places.biller_name), which at a
-    hospital are the groups reading there. Names that match once punctuation
-    and company endings are dropped are one group, under its lowest billing
-    NPI's spelling, as a practice is. `providers` lists the clinicians Medicare
-    shows billing the service for those billers, never the whole roster (#135
-    step 1): the ones CMS lists practicing in the building, or all of them at a
-    biller's main place when it lists none at any of its places
-    (service_sites.providers). It's empty when Medicare shows none, as at an
-    imaging center it has no record of. An organization's own NPI isn't a
-    clinician, and neither is a doctor with no Georgia NPPES record as a person."""
+    Each part says where its rate is from (`source`): `plan` for the plan's own
+    file, `hospital` for a hospital's own fee from its own file, and nothing
+    when the part has no rate.
+
+    `several_rates` says a part shown has more than one rate with that evidence,
+    or at that source for a hospital's fee, so someone should ask which they'd
+    get, and `billers` lists the names of the billing groups behind the row
+    (biller_places.biller_name), which at a hospital are the groups reading
+    there. Names that match once punctuation and company endings are dropped are
+    one group, under its lowest billing NPI's spelling, as a practice is.
+    `providers` lists the clinicians Medicare shows billing the service for those
+    billers, never the whole roster (#135 step 1): the ones CMS lists practicing
+    in the building, or all of them at a biller's main place when it lists none
+    at any of its places (service_sites.providers). It's empty when Medicare
+    shows none, as at an imaging center it has no record of. An organization's
+    own NPI isn't a clinician, and neither is a doctor with no Georgia NPPES
+    record as a person."""
     name = "prices"
     key = ["network_id", "service_id", "place_id"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "place_id": "VARCHAR",
-               "parts": "STRUCT(part VARCHAR, max DOUBLE)[]", "several_rates": "BOOLEAN",
-               "billers": "VARCHAR[]", "providers": "BIGINT[]"}
+               "parts": 'STRUCT(part VARCHAR, max DOUBLE, "source" VARCHAR)[]', "several_rates": "BOOLEAN",
+               "billers": "VARCHAR[]", "providers": "BIGINT[]", "cash_price": "DOUBLE"}
 
     def select(self, data_dir):
         empty = "NULL::DOUBLE"
@@ -83,19 +102,28 @@ class Prices(Table):
                 FROM rated
                 WHERE strongest
                 GROUP BY network_id, service_id, place_id
+                UNION ALL BY NAME
+                SELECT network_id, service_id, place_id, true AS hospital, false AS does_scan, 0 AS reading_rates
+                FROM hospital_fees
+                WHERE place_id IN (SELECT place_id FROM places)
+                  AND (network_id, service_id, place_id) NOT IN (SELECT (network_id, service_id, place_id) FROM rated)
             )
             SELECT network_id, service_id, place_id,
-                   CASE WHEN hospital THEN [{_part("facility", empty)}, {_part("reading", "reading")}]
+                   CASE WHEN hospital THEN [{_part("facility", "f.fee", "f.source")}, {_part("reading", "reading")}]
                         WHEN does_scan AND all_in IS NOT NULL THEN [{_part("all_in", "all_in")}]
                         WHEN does_scan THEN [{_part("scan", "scan")}, {_part("reading", "reading")}]
                         ELSE [{_part("scan", empty)}, {_part("reading", "reading")}] END AS parts,
-                   CASE WHEN hospital OR NOT does_scan THEN reading_rates > 1
+                   CASE WHEN hospital THEN reading_rates > 1 OR coalesce(f.rates, 0) > 1
+                        WHEN NOT does_scan THEN reading_rates > 1
                         WHEN all_in IS NOT NULL THEN all_in_rates > 1
                         ELSE scan_rates > 1 OR reading_rates > 1 END AS several_rates,
-                   g.billers, coalesce(c.providers, []::BIGINT[]) AS providers
+                   coalesce(g.billers, []::VARCHAR[]) AS billers, coalesce(c.providers, []::BIGINT[]) AS providers,
+                   CASE WHEN hospital THEN h.cash_price END AS cash_price
             FROM rows
-            JOIN groups g USING (network_id, service_id, place_id)
+            LEFT JOIN groups g USING (network_id, service_id, place_id)
             LEFT JOIN clinicians c USING (network_id, service_id, place_id)
+            LEFT JOIN hospital_fees f USING (network_id, service_id, place_id)
+            LEFT JOIN hospital_cash h USING (service_id, place_id)
             WHERE hospital OR does_scan OR reading IS NOT NULL
         """
 

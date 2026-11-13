@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { displayName, money } from './format';
-import { filterResults, pinStack, shareText } from './view';
+import { filterResults, pinStack, placeView, shareText } from './view';
 
 describe('find care wording', () => {
   it('spells names in capitals as words, keeping endings, credentials and directions', () => {
@@ -50,5 +50,46 @@ describe('find care wording', () => {
     ];
     expect(pinStack(results).map((r) => r.id)).toEqual(['hospital', 'imaging', 'clinic', 'practice']);
     expect(results.map((r) => r.id)).toEqual(['practice', 'hospital', 'clinic', 'imaging']);
+  });
+
+  describe('a hospital\'s own fee', () => {
+    const context = { cheapestId: null, closestId: null, median: null, facilityRate: 243.77 };
+    const hospital = (parts, extra = {}) => ({
+      place_id: '110079', name: 'GRADY MEMORIAL HOSPITAL', kind: 'hospital', address: '80 JESSE HILL JR DRIVE SE',
+      city: 'ATLANTA', lat: 33.75, lon: -84.38, phone: null, stars: 3, distance_mi: 4.2, max_rate: null, parts,
+      several_rates: false, billers: [], providers: [], cash_price: null, ...extra,
+    });
+    const FEE = { part: 'facility', max: 210, source: 'hospital' };
+    const NO_READING = { part: 'reading', max: null, source: null };
+
+    it('offers Medicare\'s rough guide only where the fee is missing', () => {
+      const missing = placeView(hospital([{ part: 'facility', max: null, source: null }, { part: 'reading', max: 35, source: 'plan' }]), context);
+      expect(missing.facilityEstimate).toBe(243.77);
+      expect(missing.missing.rowNote).toBe('Missing the hospital’s fee');
+      expect(placeView(hospital([FEE, NO_READING]), context).facilityEstimate).toBeNull();
+    });
+
+    it('says the reading is missing when only the reading is', () => {
+      const view = placeView(hospital([FEE, NO_READING]), context);
+      expect(view.missing.rowNote).toBe('Missing the reading');
+      expect(view.missing.explain).toMatch(/ask the hospital who will read yours/);
+    });
+
+    it('doesn\'t send someone to a hospital for a reading missing anywhere else', () => {
+      const parts = [{ part: 'scan', max: 400, source: 'plan' }, NO_READING];
+      const view = placeView(hospital(parts, { kind: 'imaging_center' }), context);
+      expect(view.missing.rowNote).toBe('Missing the reading');
+      expect(view.missing.explain).toMatch(/lists no rate for the reading here/);
+      expect(view.missing.explain).not.toMatch(/hospital/);
+    });
+
+    it('exposes the cash price and whether the fee is the hospital\'s own', () => {
+      const own = placeView(hospital([FEE, NO_READING], { cash_price: 320 }), context);
+      expect(own.cashPrice).toBe(320);
+      expect(own.feeFromHospital).toBe(true);
+      const plan = placeView(hospital([{ part: 'facility', max: 165, source: 'plan' }, NO_READING]), context);
+      expect(plan.cashPrice).toBeNull();
+      expect(plan.feeFromHospital).toBe(false);
+    });
   });
 });

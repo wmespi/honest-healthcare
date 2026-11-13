@@ -1,9 +1,8 @@
 # Known gaps
 
-*What is wrong, missing, or deferred — current state only; a fixed gap is deleted,
-not struck through. Parser-internal scale issues: [../etl/parse.md](../ingestion/etl/parse.md).
-Where the product is headed: [direction.md](direction.md) and epic
-[#95](https://github.com/wmespi/honest-healthcare/issues/95).*
+*What is wrong, missing, or deferred - current state only; a fixed gap is deleted, not struck through.
+Parser-internal scale issues: [../etl/parse.md](../ingestion/etl/parse.md).
+Where the product is headed: [direction.md](direction.md) and epic [#191](https://github.com/wmespi/honest-healthcare/issues/191).*
 
 ## Attribution
 
@@ -104,12 +103,16 @@ Where the product is headed: [direction.md](direction.md) and epic
   The place takes the name of the group the doctor bills Medicare with (CMS Doctors &
   Clinicians), and away from a hospital a doctor with no group there has no place, even when
   they do run their own office.
-- **A hospital's own fee isn't on file.** Anthem's professional file carries the
-  doctor's reading (`26`) and, for freestanding centers, the equipment part (`TC`). A
-  hospital bills its own fee in a file we do not carry, so a hospital's row has the
-  reading and no most you'd pay, and says so. The screen gives Medicare's hospital
-  outpatient rate as a rough guide ([ingestion/reference/opps.md](../ingestion/reference/opps.md)); hospital
-  price-transparency files would be the real source, and mammography has no Medicare rate.
+- **Blue Value has no open source for a hospital's fee.**
+  Its file's institutional lines are all revenue codes, so its target has no `facility_patterns`, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-hospitals-own-fee)).
+  A hospital on that network shows the reading and Medicare's hospital outpatient rate as a rough guide ([opps.md](../ingestion/reference/opps.md)), and mammography has no Medicare rate.
+- **A hospital paid a percentage of its charges or a per diem shows no fee**, from either source, and a case rate in a hospital's own file is not read as a fee ([build.md](../integration/build.md#a-hospitals-own-fee)).
+- **Some hosts refuse a non-browser client, so their hospitals have no price file:** Northside's asset host, `sghs.org`, `adventhealth.com`, and Phoebe, whose links go through a link-rewriting service ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
+- **`ingestion/etl/hospitals.yaml` lists only some of Georgia's hospitals**, and some locations in listed systems' indexes match no CCN in the hospital reference: Emory Hospital Perry, Piedmont Macon, Piedmont McDuffie, Wellstar Windy Hill and NGMC Braselton ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
+- **Some hospital billing NPIs with institutional rates in Pathway's file price no hospital's fee**, because they match no hospital's building, and the build prints them.
+  Shepherd Center and Children's Healthcare of Atlanta at Hughes Spalding are not in the hospital reference.
+  Wayne Memorial, Memorial Health University Medical Center, Polk Medical Center and Mountain Lakes Medical Center have a billing address that differs from the hospital reference's ([build.md](../integration/build.md#a-hospitals-own-fee)).
+- **The exchange labels' professional lines are not published**, only the institutional lines of a target's `facility_patterns` ([parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
 - **A place can have several rates for one scan.** When a billing ID sits under more
   than one fee schedule for the same scan, the file does not say which applies to a
   given patient ([price lines](../ingestion/etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
