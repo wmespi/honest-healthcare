@@ -1,7 +1,8 @@
 package core
 
 // MRF JSON shapes (index + in-network file) and the Parquet row structs written
-// by the extraction pass. Shared by discovery, extraction, nppes, and fixture.
+// by the extraction pass. Shared by discovery, extraction, nppes, fixture and
+// hospitalrates.
 
 type ReportingPlan struct {
 	PlanName        string `json:"plan_name"`
@@ -142,4 +143,24 @@ type NPPESLocationRow struct {
 	State        string `parquet:"state"`
 	PostalCode   string `parquet:"postal_code"`
 	Phone        string `parquet:"phone"`
+}
+
+// HospitalRateRow is one price from a hospital's own price file (the CMS
+// hospital price transparency template), for one billing code: a kept payer's
+// negotiated rate, or the hospital's charges alone when no kept payer has one.
+// Every field but ccn, code_type and code is null when the file leaves it blank.
+type HospitalRateRow struct {
+	CCN                  string   `parquet:"ccn"`
+	CodeType             string   `parquet:"code_type"` // CPT, HCPCS or MS-DRG
+	Code                 string   `parquet:"code"`
+	Setting              *string  `parquet:"setting"`       // inpatient, outpatient or both
+	BillingClass         *string  `parquet:"billing_class"` // facility, professional or both
+	Modifiers            *string  `parquet:"modifiers"`     // sorted, "|"-joined
+	Payer                *string  `parquet:"payer"`
+	Plan                 *string  `parquet:"plan"`
+	GrossCharge          *float64 `parquet:"gross_charge"`
+	CashPrice            *float64 `parquet:"cash_price"`
+	NegotiatedDollar     *float64 `parquet:"negotiated_dollar"`
+	NegotiatedPercentage *float64 `parquet:"negotiated_percentage"`
+	Methodology          *string  `parquet:"methodology"`
 }

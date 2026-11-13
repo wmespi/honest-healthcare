@@ -86,8 +86,9 @@ make up / make down / make logs
 
 make discover               # this month's file list + plan→file link (index_files, index_file_plans Parquet) from Anthem's index
 make discover SCHEMA=1      #   stream only, write index_schema.json and nothing else
-make reference              # NPPES, NUCC labels, CMS utilization, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals;
-                            #   skips each whose output exists, except geocode, which runs every time and looks up only new addresses
+make reference              # NPPES, NUCC labels, CMS utilization, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals,
+                            #   hospital price files; skips each whose output exists, except geocode, which runs every time and looks up only new
+                            #   addresses, and hospital price files, which fetch only the hospitals with none (STEP=hospital-rates fetches all)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
 make parse                  # stream the files ingestion/etl/targets.yaml names → Parquet when new or updated, then publish their rates by Georgia network (needs the NPPES and exchange-plans references first)
 make parse FILE=GA_JBNKMED0001.json.gz  #   one file by name, now (bypasses target selection and its parse record)
@@ -145,6 +146,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Provider↔procedure evidence (CMS utilization) | [ingestion/reference/cms-utilization.md](ingestion/reference/cms-utilization.md) |
 | Medicare Physician Fee Schedule rate (`services.medicare_rate`) | [ingestion/reference/mpfs.md](ingestion/reference/mpfs.md) |
 | Georgia's hospitals: CCN, name, address, phone and Medicare star rating | [ingestion/reference/hospitals.md](ingestion/reference/hospitals.md) |
+| Hospitals' own price files - which hospitals and payers (`ingestion/etl/hospitals.yaml`), the CSV and JSON formats, the `hospital_rates` rows | [ingestion/etl/hospital-rates.md](ingestion/etl/hospital-rates.md) |
 | Georgia's individual-market plans: real names, metal level, referral rule, network and premiums by HIOS plan ID | [ingestion/reference/exchange-plans.md](ingestion/reference/exchange-plans.md) |
 | Medicare hospital-outpatient (OPPS) rate (`services.medicare_facility_rate`) - the rough guide the find-care screen gives at a hospital | [ingestion/reference/opps.md](ingestion/reference/opps.md) |
 | Where each biller and hospital is on the map, and how far it is from a ZIP code | [ingestion/reference/geocode.md](ingestion/reference/geocode.md) |

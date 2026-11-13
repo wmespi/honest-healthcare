@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	parquet "github.com/parquet-go/parquet-go"
-
 	"github.com/wmespi/honest-healthcare/ingestion/etl/core"
 )
 
@@ -133,60 +131,6 @@ func streamEntry(zr *zip.ReadCloser, name *regexp.Regexp, pattern, what, out str
 		log.Fatalf("❌ %v", err)
 	}
 	log.Printf("✅ Wrote %s — %d Georgia %s", out, kept, what)
-}
-
-// rowWriter writes rows to a Parquet file beside its path and moves it into
-// place once complete, so a reader never sees a half-written file.
-type rowWriter[T any] struct {
-	path string
-	f    *os.File
-	pw   *parquet.GenericWriter[T]
-	buf  []T
-}
-
-func newRowWriter[T any](path string) (*rowWriter[T], error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	f, err := os.Create(path + ".part")
-	if err != nil {
-		return nil, err
-	}
-	return &rowWriter[T]{path: path, f: f, buf: make([]T, 0, 4096),
-		pw: parquet.NewGenericWriter[T](f, parquet.Compression(&parquet.Zstd))}, nil
-}
-
-func (w *rowWriter[T]) add(row T) error {
-	w.buf = append(w.buf, row)
-	if len(w.buf) < cap(w.buf) {
-		return nil
-	}
-	return w.flush()
-}
-
-func (w *rowWriter[T]) flush() error {
-	_, err := w.pw.Write(w.buf)
-	w.buf = w.buf[:0]
-	return err
-}
-
-// finish writes what's buffered and moves the file into place, or removes it
-// when the extraction (`err`) or the write failed.
-func (w *rowWriter[T]) finish(err error) error {
-	if err == nil {
-		err = w.flush()
-	}
-	if cerr := w.pw.Close(); err == nil {
-		err = cerr
-	}
-	if cerr := w.f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(w.path + ".part")
-		return err
-	}
-	return os.Rename(w.path+".part", w.path)
 }
 
 // nppesColumns resolves the NPPES CSV header (names are stable across releases)
@@ -322,7 +266,7 @@ func extractNPPESGeorgia(r io.Reader, outPath string, limit int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	w, err := newRowWriter[core.NPPESRow](outPath)
+	w, err := core.NewRowWriter[core.NPPESRow](outPath)
 	if err != nil {
 		return 0, err
 	}
@@ -358,7 +302,7 @@ func extractNPPESGeorgia(r io.Reader, outPath string, limit int) (int, error) {
 		if cols.addr2 >= 0 && cols.addr2 < len(rec) {
 			addr2 = strings.TrimSpace(rec[cols.addr2])
 		}
-		err = w.add(core.NPPESRow{
+		err = w.Add(core.NPPESRow{
 			NPI:           npi,
 			EntityType:    entity,
 			OrgName:       strings.TrimSpace(rec[cols.orgName]),
@@ -378,7 +322,7 @@ func extractNPPESGeorgia(r io.Reader, outPath string, limit int) (int, error) {
 		kept++
 	}
 	log.Printf("  scanned %d NPPES rows, kept %d Georgia providers", scanned, kept)
-	return kept, w.finish(err)
+	return kept, w.Finish(err)
 }
 
 // locationColumns are the secondary-locations file's columns, by the words
@@ -421,7 +365,7 @@ func extractLocationsGeorgia(r io.Reader, outPath string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	w, err := newRowWriter[core.NPPESLocationRow](outPath)
+	w, err := core.NewRowWriter[core.NPPESLocationRow](outPath)
 	if err != nil {
 		return 0, err
 	}
@@ -442,12 +386,12 @@ func extractLocationsGeorgia(r io.Reader, outPath string) (int, error) {
 		}
 		var npi int64
 		fmt.Sscan(field(0), &npi)
-		err = w.add(core.NPPESLocationRow{
+		err = w.Add(core.NPPESLocationRow{
 			NPI: npi, AddressLine1: field(1), AddressLine2: field(2), City: field(3),
 			State: "GA", PostalCode: field(5), Phone: field(6),
 		})
 		kept++
 	}
 	log.Printf("  scanned %d secondary locations, kept %d in Georgia", scanned, kept)
-	return kept, w.finish(err)
+	return kept, w.Finish(err)
 }

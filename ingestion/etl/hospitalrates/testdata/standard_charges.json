@@ -1,0 +1,53 @@
+{
+  "hospital_name": "Test Hospital",
+  "last_updated_on": "2026-01-01",
+  "version": "3.0.0",
+  "location_name": ["Test Hospital"],
+  "hospital_address": ["1 Main St, Atlanta, GA 30303"],
+  "license_information": {"license_number": "123", "state": "GA"},
+  "affirmation": {"affirmation": "To the best of its knowledge and belief, the hospital has included all applicable standard charge information.", "confirm_affirmation": true},
+  "modifier_information": [
+    {"description": "Professional component", "code": "26", "modifier_payer_information": [{"payer_name": "Anthem", "plan_name": "PPO", "description": "paid at 40%"}]}
+  ],
+  "standard_charge_information": [
+    {
+      "description": "MRI brain",
+      "code_information": [{"code": "70553", "type": "CPT"}, {"code": "0611", "type": "RC"}, {"code": "70553", "type": "CPT"}],
+      "standard_charges": [
+        {
+          "setting": "Outpatient", "billing_class": "Facility", "gross_charge": 3000, "discounted_cash": "1,500.00",
+          "minimum": 100, "maximum": 2000, "modifier_code": ["TC"],
+          "payers_information": [
+            {"payer_name": "Anthem", "plan_name": "Blue Value", "standard_charge_dollar": 1200.5, "methodology": "Fee Schedule"},
+            {"payer_name": "Aetna", "plan_name": "PPO", "standard_charge_dollar": 1300, "methodology": "fee schedule"},
+            {"payer_name": "Blue Cross Blue Shield", "plan_name": "PPO", "standard_charge_percentage": "45", "methodology": "percent of total billed charges"},
+            {"payer_name": "BCBS", "plan_name": "HMO", "standard_charge_algorithm": "see the contract", "methodology": "other"}
+          ]
+        },
+        {
+          "setting": "inpatient", "gross_charge": "$4,000",
+          "payers_information": [{"payer_name": "Cigna", "plan_name": "Open Access", "standard_charge_dollar": 10, "methodology": "fee schedule"}]
+        }
+      ]
+    },
+    {
+      "description": "Sepsis",
+      "code_information": [{"code": 871, "type": "MS-DRG"}, {"code": "871", "type": "APR-DRG"}],
+      "standard_charges": [
+        {"setting": "inpatient", "billing_class": "facility", "gross_charge": 60000,
+         "payers_information": [{"payer_name": "Anthem", "plan_name": "HMO", "standard_charge_dollar": "22,000.00", "methodology": "Case Rate"}]}
+      ]
+    },
+    {
+      "description": "Emergency room, revenue code only",
+      "code_information": [{"code": "0450", "type": "RC"}],
+      "standard_charges": [{"setting": "outpatient", "gross_charge": 100}]
+    },
+    {
+      "description": "Supply",
+      "code_information": [{"code": "c1713", "type": "HCPCS"}],
+      "standard_charges": [{"setting": "both", "gross_charge": 500, "discounted_cash": 250, "modifiers": "RT|LT"}]
+    }
+  ],
+  "attestation": {"attestation": "The hospital attests.", "confirm_attestation": true}
+}

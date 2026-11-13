@@ -7,8 +7,9 @@ import (
 
 // Mutable process config. The paths are relative to the etl module dir
 // (ingestion/etl/): Anthem's files and what parse and discover keep about them
-// live in data/raw/anthem/, which only ingestion reads, and NPPES and Georgia's
-// plan file in data/ingestion/, which integration reads too (docs/schema.md).
+// live in data/raw/anthem/, which only ingestion reads, and NPPES, Georgia's
+// plan file and the hospitals' own rates in data/ingestion/, which integration
+// reads too (docs/schema.md).
 // ApplyTestMode moves them all under data-test/; nothing else should mutate
 // these after startup.
 var (
@@ -26,6 +27,10 @@ var (
 	NPPESOutputPath    string
 	NPPESLocationsPath string
 	ExchangePlansPath  string
+	// HospitalRatesDir holds one <ccn>.parquet per hospital, and
+	// HospitalRatesRawDir each hospital's price file while it is read.
+	HospitalRatesDir    string
+	HospitalRatesRawDir string
 )
 
 func init() { usePaths("../../data") }
@@ -48,6 +53,8 @@ func usePaths(root string) {
 	NPPESOutputPath = GAProvidersPath
 	NPPESLocationsPath = root + "/ingestion/nppes/ga_locations.parquet"
 	ExchangePlansPath = root + "/ingestion/reference/exchange_plans_ga.parquet"
+	HospitalRatesDir = root + "/ingestion/hospital_rates"
+	HospitalRatesRawDir = root + "/raw/hospital_rates"
 }
 
 // DefaultIndexURL is the current month's Anthem master-index URL.

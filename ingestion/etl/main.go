@@ -12,6 +12,7 @@ import (
 	"github.com/wmespi/honest-healthcare/ingestion/etl/discovery"
 	"github.com/wmespi/honest-healthcare/ingestion/etl/extraction"
 	"github.com/wmespi/honest-healthcare/ingestion/etl/fixture"
+	"github.com/wmespi/honest-healthcare/ingestion/etl/hospitalrates"
 	"github.com/wmespi/honest-healthcare/ingestion/etl/nppes"
 )
 
@@ -20,10 +21,11 @@ const usageText = `etl — Anthem MRF ingestion
 Usage: etl <command> [flags]
 
 Commands:
-  discover   Write this month's file list and plan links from the Anthem master index
-  parse      Stream the files ingestion/etl/targets.yaml names into Parquet
-  nppes      Download the NPPES national file, write Georgia's providers and their secondary locations
-  fixture    Build a truncated *.json.gz fixture from a file name or URL
+  discover        Write this month's file list and plan links from the Anthem master index
+  parse           Stream the files ingestion/etl/targets.yaml names into Parquet
+  nppes           Download the NPPES national file, write Georgia's providers and their secondary locations
+  hospital-rates  Download the price files of the hospitals ingestion/etl/hospitals.yaml lists, write each one's rates
+  fixture         Build a truncated *.json.gz fixture from a file name or URL
 
 Run "etl <command> -h" for that command's flags.
 Most workflows have a matching "make" target — see "make help".
@@ -43,6 +45,8 @@ func main() {
 		cmdParse(args)
 	case "nppes":
 		cmdNPPES(args)
+	case "hospital-rates":
+		cmdHospitalRates(args)
 	case "fixture":
 		cmdFixture(args)
 	case "help", "-h", "--help":
@@ -159,6 +163,34 @@ func cmdNPPES(args []string) {
 		log.Println("🧪 Test mode enabled - writing to ../data-test/")
 	}
 	nppes.Run(*url, *file, *locations, *limit)
+}
+
+// ── hospital-rates ──────────────────────────────────────────────────────────
+
+func cmdHospitalRates(args []string) {
+	fs := flag.NewFlagSet("hospital-rates", flag.ExitOnError)
+	test := fs.Bool("test", false, "isolated test mode (../data-test/ingestion/hospital_rates/)")
+	list := fs.String("list", hospitalrates.DefaultListPath, "the hospitals to fetch, and the payers whose rates are kept")
+	only := fs.String("only", "", "comma-separated CCNs from the list to fetch (default all)")
+	missing := fs.Bool("missing", false, "skip a hospital whose rates file already exists")
+	file := fs.String("file", "", "extract a local price file instead of downloading (needs -ccn)")
+	ccn := fs.String("ccn", "", "with -file: the hospital's CCN, which names the output")
+	_ = fs.Parse(args)
+
+	if *test {
+		core.ApplyTestMode()
+		log.Println("🧪 Test mode enabled - writing to ../data-test/")
+	}
+	err := hospitalrates.Run(hospitalrates.Options{
+		ListPath: *list,
+		Only:     splitList(*only),
+		Missing:  *missing,
+		File:     *file,
+		CCN:      *ccn,
+	})
+	if err != nil {
+		log.Fatalf("❌ %v", err)
+	}
 }
 
 // ── fixture ─────────────────────────────────────────────────────────────────
