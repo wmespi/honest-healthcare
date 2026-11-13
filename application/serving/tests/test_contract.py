@@ -11,15 +11,16 @@ from pydantic import ValidationError
 from application.serving.contract import FindCare, FindCareQuery, Place, Plan, Service, plan_order
 
 
-def part(name, hi=None):
-    return {"part": name, "max": hi}
+def part(name, hi=None, source="plan"):
+    return {"part": name, "max": hi, "source": source if hi is not None else None}
 
 
-def place(place_id="1000000010", kind="imaging_center", parts=None, stars=None, distance_mi=2.4, several_rates=False):
+def place(place_id="1000000010", kind="imaging_center", parts=None, stars=None, distance_mi=2.4, several_rates=False,
+          cash_price=None):
     return {
         "place_id": place_id, "name": "Dogwood Imaging", "kind": kind,
         "address": "215 E Ponce de Leon Ave, Decatur, GA 30030", "city": "Decatur",
-        "lat": 33.7752, "lon": -84.2935, "phone": None, "stars": stars, "distance_mi": distance_mi,
+        "lat": 33.7752, "lon": -84.2935, "phone": None, "stars": stars, "cash_price": cash_price, "distance_mi": distance_mi,
         "parts": parts if parts is not None else [part("scan", 340), part("reading", 70)],
         "several_rates": several_rates,
         "billers": ["Dogwood Imaging"],
@@ -48,6 +49,14 @@ def test_the_most_youd_pay_is_the_parts_added_up():
         assert Place.model_validate(missing).model_dump()["max_rate"] is None
 
 
+def test_a_hospital_with_its_own_fee_needs_no_reading_group():
+    fee_only = place("110011", "hospital", [part("facility", 210, "hospital"), part("reading")],
+                     cash_price=320.0, distance_mi=1.0) | {"billers": [], "providers": []}
+    dumped = Place.model_validate(fee_only).model_dump()
+    assert dumped["billers"] == [] and dumped["max_rate"] is None and dumped["cash_price"] == 320.0
+    assert dumped["parts"][0]["source"] == "hospital" and dumped["parts"][1]["source"] is None
+
+
 def test_results_sort_and_summarize_themselves():
     body = FindCare.model_validate(search([HOSPITAL, READS_ONLY, ALL_IN, COMPLETE])).model_dump()
     assert [p["place_id"] for p in body["results"]] == ["1000000030", "1000000010", "110010", "1000000020"]
@@ -70,7 +79,11 @@ def test_searches_with_no_full_price_or_no_results_fit():
 @pytest.mark.parametrize("row, why", [
     (place(stars=4), "only a hospital has stars"),
     (place(parts=[]), "every place has a bill"),
-    ({**COMPLETE, "billers": []}, "someone bills there"),
+    (place(cash_price=300.0), "only a hospital has a cash price"),
+    (place("110010", "hospital", cash_price=-1.0), "a cash price is not negative"),
+    (place(parts=[{"part": "scan", "max": 340, "source": None}]), "a rate has a source"),
+    (place(parts=[{"part": "scan", "max": None, "source": "plan"}]), "a source needs a rate"),
+    (place(parts=[{"part": "scan", "max": 340, "source": "cms"}]), "a source is the plan or the hospital"),
 ])
 def test_a_place_breaking_a_rule_is_rejected(row, why):
     with pytest.raises(ValidationError):
