@@ -79,7 +79,7 @@ Every test tears down after itself, so `rm -rf data-test/*` is only needed after
 ## CI (`.github/workflows/ci.yml`)
 
 Runs on every PR and push to `main`. `changes` runs the docs drift check and sets
-`run` — `false` for a docs-only or draft PR, `true` otherwise — and the heavy jobs
+`run` (`false` for a docs-only PR or one that is a draft when the run starts, `true` otherwise), and the heavy jobs
 gate on it. `CI Gate` (`if: always()`, `needs` all jobs) is the **single required
 status check**: it passes only when every job succeeded or was legitimately skipped.
 
