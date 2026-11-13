@@ -3,14 +3,17 @@ name: CI
 on:
   pull_request:
     # default types + ready_for_review, so a draft PR's heavy jobs actually run
-    # when it's marked ready (the `changes` job skips them while draft).
+    # when it's marked ready (the `changes` job skips them while the PR is a draft).
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
-# One in-flight run per branch; a new push cancels the old run.
+# One in-flight run per branch and kind of event; a new push cancels the old push's run.
+# "Ready for review" has its own group because it lands on the same commit as the push before
+# it: in one group the run that loses is cancelled, its gate fails, and that failure stays on
+# the commit beside the other run's pass and blocks the merge.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event.action == 'ready_for_review' && 'ready' || 'push' }}
   cancel-in-progress: true
 
 # `CI Gate` is the single required status check (branch protection). It always
@@ -22,6 +25,9 @@ jobs:
   changes:
     name: Detect change scope
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       run: ${{ steps.scope.outputs.run }}
     steps:
@@ -33,15 +39,23 @@ jobs:
       - id: scope
         env:
           EVENT: ${{ github.event_name }}
-          DRAFT: ${{ github.event.pull_request.draft }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT" = "pull_request" ] && [ "$DRAFT" = "true" ]; then
-            echo "draft PR — skipping the heavy jobs until it's marked ready"
+          # Ask whether the PR is a draft now, not when the event fired: a push and "ready for
+          # review" a moment apart leave one run, and it can be the push's, whose event still says
+          # draft. If the lookup fails, the answer is empty and the heavy jobs run.
+          if [ "$EVENT" = "pull_request" ]; then
+            draft="$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft || true)"
+            echo "draft now: ${draft:-unknown}"
+          fi
+          if [ "${draft:-}" = "true" ]; then
+            echo "draft PR - skipping the heavy jobs until it's marked ready"
             echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           if [ "$EVENT" = "pull_request" ]; then
