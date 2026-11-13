@@ -104,7 +104,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   Clinicians), and away from a hospital a doctor with no group there has no place, even when
   they do run their own office.
 - **Blue Value has no open source for a hospital's fee.**
-  Its file's institutional lines are all revenue codes, so its target has no `facility_patterns`, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-hospitals-own-fee)).
+  Its file's institutional lines are all revenue codes, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-hospitals-own-fee)).
   A hospital on that network shows the reading and Medicare's hospital outpatient rate as a rough guide ([opps.md](../ingestion/reference/opps.md)), and mammography has no Medicare rate.
 - **A hospital paid a percentage of its charges or a per diem shows no fee**, from either source, and a case rate in a hospital's own file is not read as a fee ([build.md](../integration/build.md#a-hospitals-own-fee)).
 - **Some hosts refuse a non-browser client, so their hospitals have no price file:** Northside's asset host, `sghs.org`, `adventhealth.com`, and Phoebe, whose links go through a link-rewriting service ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
@@ -112,7 +112,9 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **Some hospital billing NPIs with institutional rates in Pathway's file price no hospital's fee**, because they match no hospital's building, and the build prints them.
   Shepherd Center and Children's Healthcare of Atlanta at Hughes Spalding are not in the hospital reference.
   Wayne Memorial, Memorial Health University Medical Center, Polk Medical Center and Mountain Lakes Medical Center have a billing address that differs from the hospital reference's ([build.md](../integration/build.md#a-hospitals-own-fee)).
-- **The exchange labels' professional lines are not published**, only the institutional lines of a target's `facility_patterns` ([parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
+- **Which labels price a plan beyond its own is hand-written, and the order between them is a rule we chose.**
+  A target's `shared_patterns` name the labels in its file that price the plan's members without its name, and the build shows a rate under one only where the plan's own label has none for the biller, service and bill ([parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
+  Nothing in the file states that order, and no hospital's own file lists a professional rate to test it against.
 - **A place can have several rates for one scan.** When a billing ID sits under more
   than one fee schedule for the same scan, the file does not say which applies to a
   given patient ([price lines](../ingestion/etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).

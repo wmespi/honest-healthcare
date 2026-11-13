@@ -57,7 +57,8 @@ To stream a file the probe skips, run `docker compose exec ingestion go run . pa
 ## Publishing the rates by network
 
 After the stream, `make parse` runs `ingestion/anthem_rates.py`, which writes what integration reads: `data/ingestion/payer_rates/anthem/` `rates`, `rate_groups`, `rosters` and `networks`, keyed on Georgia's exchange network ID ([schema.md](../../docs/schema.md)).
-A target network's rates are the ones under its `network_patterns`, matched as the probe matches them, plus the institutional rates under its optional `facility_patterns`, provider-network labels in the same file that price a hospital's own fee ([build.md](../../integration/build.md#a-hospitals-own-fee)), in the one parsed file its target names that the index links to the network's plans.
+A target network's rates are the ones under its `network_patterns`, matched as the probe matches them, plus all the rates under its optional `shared_patterns`, other labels in the same file that price the plan's members without its name, in the one parsed file its target names that the index links to the network's plans.
+Every rate says in `own_label` whether it is under the network's own labels, and the build uses one under a shared label only where the own labels have no rate for the biller, service and bill ([build.md](../../integration/build.md#the-find-care-tables)).
 The step stops on a mistake in `targets.yaml` or the index: unless each network is one of Georgia's, with a plan and one target; its target names a file the index links to its plans; one parsed file prices it ([mrf-model.md](mrf-model.md#one-plan-one-contract)); and the index links every plan on it to that file.
 
 A network no parsed file prices, such as one whose file failed its first parse, is left out with a warning instead, and `networks` marks it `missing`, or `stale` while its rates are from an earlier copy ([schema.md](../../docs/schema.md)); the step stops only when no network has rates.

@@ -100,7 +100,7 @@ class Corpus:
         """Add one payer rate on `network_id`, for a code no service uses, so the
         network is priced."""
         self.rates.append((network_id, 1, "CPT", "70551", "ffs", "negotiated", 250.0, "9999-12-31", "11",
-                           "professional", "", "outpatient"))
+                           "professional", "", "outpatient", True))
         self._write_rates()
 
     def remove_rates(self, network_id):
@@ -109,28 +109,28 @@ class Corpus:
         self._write_rates()
 
     def scan_price(self, network_id, group_set, code, all_in=None, scan=None, reading=None,
-                   service_code="11"):
+                   service_code="11", own_label=True):
         """Add the payer's rates for `code` on `network_id`, covering the rosters in
         `group_set`: the whole service, the scan (TC) and the reading (26)."""
         for modifier, rate in (("", all_in), ("TC", scan), ("26", reading)):
             if rate is not None:
                 self.rates.append((network_id, group_set, "CPT", code, "ffs", "fee schedule", float(rate),
-                                   "9999-12-31", service_code, "professional", modifier, "outpatient"))
+                                   "9999-12-31", service_code, "professional", modifier, "outpatient", own_label))
         self._write_rates()
 
     def modified_price(self, network_id, group_set, code, modifier, rate):
         """Add the payer's rate for `code` billed with `modifier`, which is a list
         joined by `|` when the line names several."""
         self.rates.append((network_id, group_set, "CPT", code, "ffs", "fee schedule", float(rate),
-                           "9999-12-31", "11", "professional", modifier, "outpatient"))
+                           "9999-12-31", "11", "professional", modifier, "outpatient", True))
         self._write_rates()
 
     def facility_price(self, network_id, group_set, code, rate, modifier="", setting="outpatient",
-                       negotiated_type="fee schedule", arrangement="ffs"):
+                       negotiated_type="fee schedule", arrangement="ffs", own_label=True):
         """Add the payer's institutional rate for `code` on `network_id`, a
         hospital's own fee, covering the rosters in `group_set`."""
         self.rates.append((network_id, group_set, "CPT", code, arrangement, negotiated_type, float(rate),
-                           "9999-12-31", "22", "institutional", modifier, setting))
+                           "9999-12-31", "22", "institutional", modifier, setting, own_label))
         self._write_rates()
 
     def _write_rates(self):

@@ -35,6 +35,7 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
 - [`biller_doctors`](inputs/biller_doctors.py) keeps, for each billing NPI with a rate for a service, the doctors Medicare shows billing that service: those on the rosters the rate covers, and the biller itself when it bills under a doctor's own NPI.
   `biller_rates` takes them as its evidence, and `prices` as the clinicians on each row.
 - [`biller_rates`](inputs/biller_rates.py) keeps a network's outpatient professional rates for each service, by the billing NPI each covers.
+  A rate under the file's shared labels is used only where the network's own labels have none for the biller, service and bill.
   A biller appears if it has a doctor in `biller_doctors` for that service, or if its NPPES primary specialty code registers it as an imaging center for that kind of scan ([imaging_centers](inputs/imaging_centers.py)).
   It does the scan if it's such a center or one of them billed the service in an office, and otherwise it only reads it.
   A rate's modifier says which bill it prices (`PARTS`), a rate with a modifier in `OTHER_BILLS` is a different bill and is left out, and the build stops on a modifier in neither list.
@@ -61,6 +62,7 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
 
 1. The plan's own file (`plan`): its institutional rates for the service's code, a fee-for-service dollar amount for an outpatient bill with no modifier (`facility_rates`).
    A rate prices a hospital when it covers a billing NPI that NPPES registers as a hospital, with an address, its own or another it lists, in the hospital's building ([addresses](inputs/addresses.py)).
+   A rate under the file's shared labels is used only where the network's own labels have none for the biller, service and bill.
 2. Only where the plan's file prices none there, the hospital's own price file (`hospital`), one per hospital in `hospital_rates/`, which `make reference STEP=hospital-rates` writes.
    It reads the file's rows for the service's code on a bill that isn't only the doctor's, outpatient or with no setting, with no modifier, and with a negotiated dollar amount above $1 and below `CEILING`, since files write runs of nines where they have no price.
    Only a `fee schedule` row's dollar amount is the fee, since a percentage row's is the hospital's estimate from its own charge, a per diem is a day's rate, and a case rate covers more than the service.

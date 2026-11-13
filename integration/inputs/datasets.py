@@ -58,12 +58,22 @@ V, I, B, D, F = "VARCHAR", "INTEGER", "BIGINT", "DOUBLE", "BOOLEAN"
 PAYER_RATES = Dataset("payer_rates/*/rates.parquet", "make parse", {
     "network_id": V, "group_set_id": B, "billing_code_type": V, "billing_code": V,
     "negotiation_arrangement": V, "negotiated_type": V, "negotiated_rate": D, "expiration_date": V,
-    "service_code": V, "billing_class": V, "modifier": V, "setting": V})
+    "service_code": V, "billing_class": V, "modifier": V, "setting": V, "own_label": F})
 PAYER_RATE_GROUPS = Dataset("payer_rates/*/rate_groups.parquet", "make parse", {
     "network_id": V, "group_set_id": B, "provider_group_id": B},
     key=["network_id", "group_set_id", "provider_group_id"])
 PAYER_ROSTERS = Dataset("payer_rates/*/rosters.parquet", "make parse", {
     "network_id": V, "provider_group_id": B, "npi": B, "tin_type": V, "tin_value": V})
+
+
+def own_first(*by):
+    """SQL for a QUALIFY over payer rates that carry `own_label`: within each `by`,
+    keep the rates under the network's own labels, and the ones under its file's
+    shared labels only where it has none of its own. The file doesn't state that
+    order: the own label is the one with the plan's name on it (decided on #191)."""
+    return f"own_label OR NOT bool_or(own_label) OVER (PARTITION BY {', '.join(by)})"
+
+
 # Each target network the payer's rates are for, with or without rates: `status` says
 # they're from the payer's latest copy of `file` (`current`), from an earlier copy
 # (`stale`), or that it has none (`missing`), `file_updated_at` when the payer updated

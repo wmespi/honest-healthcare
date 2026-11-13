@@ -1,6 +1,6 @@
 """Build-only: each rate a network's file lists for a service, by the biller it
 covers, with the evidence that the biller does or reads that service."""
-from integration.inputs.datasets import NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS
+from integration.inputs.datasets import NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first
 from integration.table import Table
 
 # The bill a rate is for, by its modifier: none is the whole service, TC the scan
@@ -38,13 +38,15 @@ PRICED = """r.billing_class = 'professional' AND r.setting IN ('outpatient', 'bo
 
 def covered(data_dir):
     """SQL for the CTEs that end in `covered`: each kept rate with the biller and
-    each doctor (`npi`) on the rosters it covers. biller_doctors reads it too."""
+    each doctor (`npi`) on the rosters it covers. biller_doctors reads it too. A
+    rate under the file's shared labels is kept only where the network's own labels
+    have none for the biller, service and bill, and a placeholder doesn't count."""
     modifiers = ", ".join(f"'{m}'" for m in PARTS)
     part = " ".join(f"WHEN '{m}' THEN '{p}'" for m, p in PARTS.items())
     return f"""
         lines AS (
             SELECT r.network_id, s.service_id, r.group_set_id,
-                   CASE coalesce(r.modifier, '') {part} END AS part, r.negotiated_rate AS rate,
+                   CASE coalesce(r.modifier, '') {part} END AS part, r.negotiated_rate AS rate, r.own_label,
                    coalesce(r.service_code, '') IN ('', 'CSTM-00')
                        OR contains('|' || r.service_code || '|', '|11|') AS office_line
             FROM {PAYER_RATES.read(data_dir)} r
@@ -62,13 +64,17 @@ def covered(data_dir):
             SELECT network_id, service_id, part, median(rate) AS median FROM kept
             GROUP BY network_id, service_id, part
         ),
-        covered AS (
-            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, p.tin_value AS biller, p.npi
+        real AS (
+            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, p.tin_value AS biller, p.npi, k.own_label
             FROM kept k
             JOIN medians m USING (network_id, service_id, part)
             JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
             JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
             WHERE k.rate > greatest(1, 0.05 * m.median)
+        ),
+        covered AS (
+            SELECT DISTINCT network_id, service_id, part, rate, biller, npi FROM real
+            QUALIFY {own_first("network_id", "service_id", "part", "biller")}
         )"""
 
 
@@ -77,7 +83,8 @@ class BillerRates(Table):
     or negotiated dollar amount, for an outpatient visit. A service with a line
     that applies in an office keeps only those lines, and a placeholder rate, at
     most $1 or 5% of the median for that service and part on the network, is
-    dropped.
+    dropped. A rate under the file's shared labels is used only where the network's
+    own labels have none for the biller, service and bill.
 
     A rate's roster is the provider groups its group set lists, on the rate's
     network.

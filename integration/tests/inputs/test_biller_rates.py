@@ -89,3 +89,30 @@ def test_a_rate_for_another_bill_is_left_out_and_an_unknown_modifier_stops_the_b
     corpus.modified_price(BV, 1, "72148", "26|ZZ", 90)
     with pytest.raises(SystemExit, match=r"carry modifiers \['ZZ'\], which the build has no rule for"):
         corpus.build()
+
+
+def all_in(corpus, biller="1000000001"):
+    return corpus.inputs().execute(
+        "SELECT DISTINCT rate FROM biller_rates WHERE biller = ? AND service_id = 'mri-lower-back' "
+        "AND part = 'all_in' ORDER BY rate", [biller]).fetchall()
+
+
+def test_a_biller_with_a_rate_under_the_own_label_ignores_a_higher_one_under_a_shared_label(corpus):
+    corpus.roster(BV, 40, 40, "1000000001", 2000000001)
+    corpus.scan_price(BV, 40, "72148", all_in=900, own_label=False)
+    assert all_in(corpus) == [(500.0,)]
+
+
+def test_a_biller_with_only_a_shared_label_rate_keeps_it(corpus):
+    corpus.roster(BV, 41, 41, "1000000010", 2000000010)
+    corpus.npi(1000000010, "CENTER 10", "10 MAIN ST", "ATLANTA", "303082233", taxonomy="261QM1200X")
+    corpus.scan_price(BV, 41, "72148", all_in=450, own_label=False)
+    assert all_in(corpus, "1000000010") == [(450.0,)]
+
+
+def test_a_placeholder_under_the_own_label_does_not_hide_a_real_shared_label_rate(corpus):
+    corpus.roster(BV, 42, 42, "1000000010", 2000000010)
+    corpus.npi(1000000010, "CENTER 10", "10 MAIN ST", "ATLANTA", "303082233", taxonomy="261QM1200X")
+    corpus.scan_price(BV, 42, "72148", all_in=0.5)
+    corpus.scan_price(BV, 42, "72148", all_in=450, own_label=False)
+    assert all_in(corpus, "1000000010") == [(450.0,)]

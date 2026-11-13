@@ -90,7 +90,7 @@ What ingestion hands integration: each target network's rates, keyed on Georgia'
 
 | File | Columns |
 |---|---|
-| `rates.parquet` | `network_id`, `group_set_id`, `billing_code_type`, `billing_code`, `negotiation_arrangement`, `negotiated_type`, `negotiated_rate`, `expiration_date`, `service_code`, `billing_class`, `modifier`, `setting` |
+| `rates.parquet` | `network_id`, `group_set_id`, `billing_code_type`, `billing_code`, `negotiation_arrangement`, `negotiated_type`, `negotiated_rate`, `expiration_date`, `service_code`, `billing_class`, `modifier`, `setting`, `own_label` (true under the network's own labels, false under its file's shared labels) |
 | `rate_groups.parquet` | `network_id`, `group_set_id`, `provider_group_id`, unique together |
 | `rosters.parquet` | `network_id`, `provider_group_id`, `npi`, `tin_type`, `tin_value` |
 | `networks.parquet` | `network_id`, unique, `status`, `file`, `file_updated_at`, `reason`: one row per target network, with or without rates |
