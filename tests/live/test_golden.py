@@ -23,6 +23,7 @@ import pytest
 API_URL = os.environ.get("API_URL", "http://localhost:8000/api")
 BLUE_VALUE = "45334-GAN001"
 SILVER = "45334GA0020002"  # Anthem Silver Blue Value HMO 4000
+GOLD_PATHWAY = "49046GA0700055"  # Anthem Gold Pathway PCP Copay Choice HMO 1200
 NEAR_EMORY = {"plan_id": SILVER, "zip": "30322"}
 
 
@@ -54,7 +55,7 @@ def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 11, "services": 26, "places": 1121, "prices": 6785, "providers": 1938}
+    assert root["rows"] == {"plans": 11, "services": 26, "places": 1121, "prices": 7380, "providers": 1938}
 
 
 def test_a_brain_mri_near_emory_on_silver_4000(client):
@@ -62,16 +63,33 @@ def test_a_brain_mri_near_emory_on_silver_4000(client):
     assert body["radius_mi"] == 5 and len(body["results"]) == 9
     clinic = next(p for p in body["results"] if p["place_id"] == "1396798229")
     assert clinic["name"] == "THE EMORY CLINIC INC"
-    assert clinic["parts"] == [{"part": "all_in", "max": 180.49}]
+    assert clinic["parts"] == [{"part": "all_in", "max": 180.49, "source": "plan"}]
     assert body["median_max_rate"] == 180.49
     assert body["cost_sharing"] == {"copay": 300.0, "coinsurance": 50.0, "after_deductible": True}
 
 
-def test_a_hospital_shows_its_readers_and_no_fee_of_its_own(client):
+def test_a_hospital_on_blue_value_shows_its_readers_and_no_fee_of_its_own(client):
     grady = next(p for p in find_care(client, "mri-brain")["results"] if p["place_id"] == "110079")
-    assert grady["parts"] == [{"part": "facility", "max": None}, {"part": "reading", "max": 66.48}]
+    assert grady["parts"] == [{"part": "facility", "max": None, "source": None},
+                              {"part": "reading", "max": 66.48, "source": "plan"}]
     assert grady["max_rate"] is None
     assert grady["billers"] == ["EMORY MEDICAL CARE FOUNDATION INC"]
+    assert grady["cash_price"] == 5561.0
+
+
+def test_a_hospital_on_pathway_shows_the_fee_in_the_plans_file(client):
+    grady = next(p for p in find_care(client, "mri-brain", plan_id=GOLD_PATHWAY)["results"] if p["place_id"] == "110079")
+    assert grady["parts"] == [{"part": "facility", "max": 1171.15, "source": "plan"},
+                              {"part": "reading", "max": 116.13, "source": "plan"}]
+    assert grady["max_rate"] == 1287.28
+
+
+def test_a_hospital_the_plans_file_leaves_out_shows_the_fee_in_its_own_price_list(client):
+    emory = next(p for p in find_care(client, "xray-chest", plan_id=GOLD_PATHWAY)["results"] if p["place_id"] == "110010")
+    assert emory["name"] == "EMORY UNIVERSITY HOSPITAL"
+    assert emory["parts"] == [{"part": "facility", "max": 34.58, "source": "hospital"},
+                              {"part": "reading", "max": None, "source": None}]
+    assert emory["max_rate"] is None and emory["billers"] == [] and emory["cash_price"] == 289.0
 
 
 def test_a_brain_mri_carries_medicares_rates(client):
