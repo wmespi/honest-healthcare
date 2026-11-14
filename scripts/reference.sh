@@ -30,6 +30,7 @@ STEPS=(
   "doctors-clinicians|/app/data/ingestion/reference/dac_locations_ga.parquet|ingestion.reference.doctors_clinicians"
   "mpfs|/app/data/ingestion/reference/mpfs_ga.parquet|ingestion.reference.mpfs"
   "opps|/app/data/ingestion/reference/opps.parquet|ingestion.reference.opps"
+  "shoppable|/app/data/ingestion/reference/shoppable_services.parquet|ingestion.reference.shoppable"
   "hospitals|/app/data/ingestion/reference/hospitals_ga.parquet|ingestion.reference.hospitals"
   "hospital-rates||etl hospital-rates|-missing"
   "geocode||ingestion.reference.geocode"

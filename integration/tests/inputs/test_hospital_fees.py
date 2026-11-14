@@ -83,3 +83,13 @@ def test_the_plans_file_beats_the_hospitals_own(corpus):
     corpus.hospital_price(GRADY, "72148", "ANTHEM BCBS", "PATHWAY", negotiated=1250.0)
     assert [r for r in fees(corpus) if r[0] == PATHWAY and r[2] == GRADY] == [
         (PATHWAY, MAMMOGRAM, GRADY, 180.0, 1, "plan"), (PATHWAY, MRI, GRADY, 1250.0, 1, "hospital")]
+
+
+def test_a_hospitals_own_label_fee_wins_over_a_higher_shared_label_fee_which_is_used_only_alone(corpus):
+    hospital_npi(corpus, 1000000051, 51, "9 BILLING OFFICE WAY", "DALTON", "30720")
+    corpus.location(1000000051, "1200 MEMORIAL DRIVE", "DALTON", "30720")
+    corpus.facility_price(PATHWAY, 51, "72148", 900)
+    corpus.facility_price(PATHWAY, 51, "72148", 1500, own_label=False)
+    corpus.facility_price(PATHWAY, 51, "77067", 700, own_label=False)
+    assert fees(corpus, MRI) == [(PATHWAY, MRI, HAMILTON, 900.0, 1, "plan")]
+    assert [r[3] for r in fees(corpus, MAMMOGRAM) if r[0] == PATHWAY and r[2] == HAMILTON] == [700.0]

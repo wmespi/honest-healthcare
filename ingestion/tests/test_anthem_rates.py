@@ -122,20 +122,20 @@ def test_labels_match_the_way_the_parse_probe_matches_them(anthem):
         "only Pathway PCP Copay Choice, TRADITIONAL HEALTH PLAN")
 
 
-def test_a_facility_label_adds_only_its_institutional_rates_and_their_groups(anthem):
-    # Pathway's file prices its hospitals under another label, which also carries
-    # doctors' rates the target doesn't claim.
+def test_a_shared_label_adds_all_its_rates_and_their_groups_and_says_they_are_not_the_networks_own(anthem):
+    # Pathway's file prices its hospitals and doctors under another label.
     label = "EXCHANGES SPECIALIST  GATEKEEPER  ON INDIVIDUAL"
-    anthem.add_target("    facility_patterns: [\"Exchanges Specialist*Gatekeeper*On Individual\"]\n")
+    anthem.add_target("    shared_patterns: [\"Exchanges Specialist*Gatekeeper*On Individual\"]\n")
     anthem.rate(701, label, group_set=7, rate=900.0, billing_class="institutional")
     anthem.rate(701, label, group_set=8, rate=60.0)
     anthem.group(701, 7, 70, "1000000007", 2000000007)
     anthem.group(701, 8, 80, "1000000008", 2000000008)
-    assert anthem.publish() == {"rates": 3, "rate_groups": 3, "rosters": 4, "networks": 2}
-    assert [(r[1], r[6], r[9]) for r in anthem.rows("rates") if r[0] == "49046-GAN008"] == [
-        (5, 250.0, "professional"), (7, 900.0, "institutional")]
+    assert anthem.publish() == {"rates": 4, "rate_groups": 4, "rosters": 5, "networks": 2}
+    assert [(r[1], r[6], r[9], r[12]) for r in anthem.rows("rates") if r[0] == "49046-GAN008"] == [
+        (5, 250.0, "professional", True), (7, 900.0, "institutional", False), (8, 60.0, "professional", False)]
     assert ("49046-GAN008", 70, 2000000007, "npi", "1000000007") in anthem.rows("rosters")
-    # The facility label alone doesn't make a file the network's.
+    assert ("49046-GAN008", 80, 2000000008, "npi", "1000000008") in anthem.rows("rosters")
+    # The shared label alone doesn't make a file the network's.
     anthem.remove_rate(701, "Pathway PCP Copay Choice")
     assert anthem.publish()["rates"] == 1
     assert anthem.networks()[1][1] == "missing"

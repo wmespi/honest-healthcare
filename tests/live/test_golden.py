@@ -51,11 +51,31 @@ def find_care(client, service_id, **params):
     return client.get("/find-care", params={"service_id": service_id, **NEAR_EMORY, **params}).json()
 
 
+def rates(place):
+    """A place's bills as (part, rate, where the rate is from)."""
+    return [(p["part"], p["max"], p["source"]) for p in place["parts"]]
+
+
+def unpriced(client, plan_id):
+    """The services with no place within 50 miles of Emory on `plan_id`."""
+    return sorted(s["service_id"] for s in client.get("/services").json()["services"]
+                  if not find_care(client, s["service_id"], plan_id=plan_id, radius_mi=50)["results"])
+
+
 def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 11, "services": 26, "places": 1121, "prices": 7380, "providers": 1938}
+    assert root["rows"] == {"plans": 11, "services": 168, "families": 11, "places": 6073, "prices": 62784,
+                            "providers": 12727}
+
+
+def test_the_families_are_in_the_screens_order(client):
+    catalog = client.get("/services").json()
+    assert [f["family"] for f in catalog["families"]] == [
+        "office_visits", "preventive_visits", "urgent_care", "mental_health", "therapy", "lab_tests", "xrays",
+        "mammograms", "ultrasound", "ct", "mri"]
+    assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
 
 
 def test_a_brain_mri_near_emory_on_silver_4000(client):
@@ -63,15 +83,29 @@ def test_a_brain_mri_near_emory_on_silver_4000(client):
     assert body["radius_mi"] == 5 and len(body["results"]) == 9
     clinic = next(p for p in body["results"] if p["place_id"] == "1396798229")
     assert clinic["name"] == "THE EMORY CLINIC INC"
-    assert clinic["parts"] == [{"part": "all_in", "max": 180.49, "source": "plan"}]
+    assert rates(clinic) == [("all_in", 180.49, "plan")]
+    assert clinic["parts"][0]["label"] == "The scan and its reading" and clinic["kind_name"] == "Medical practice"
     assert body["median_max_rate"] == 180.49
-    assert body["cost_sharing"] == {"copay": 300.0, "coinsurance": 50.0, "after_deductible": True}
+    assert body["cost_sharing"] == [{
+        "benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": 300.0, "coinsurance": 50.0,
+        "after_deductible": True, "parts": ["all_in", "scan", "reading", "facility"]}]
+
+
+def test_an_office_visit_near_emory_shows_one_bill_and_both_shares(client):
+    body = find_care(client, "visit-return-20")
+    clinic = next(p for p in body["results"] if p["place_id"] == "1396798229")
+    assert rates(clinic) == [("visit", 90.5, "plan")]
+    assert all(p["kind"] != "hospital" for p in body["results"])
+    assert [(s["benefit"], s["parts"]) for s in body["cost_sharing"]] == [
+        ("primary_care", ["visit"]), ("specialist", ["visit"])]
 
 
 def test_a_hospital_on_blue_value_shows_its_readers_and_no_fee_of_its_own(client):
     grady = next(p for p in find_care(client, "mri-brain")["results"] if p["place_id"] == "110079")
-    assert grady["parts"] == [{"part": "facility", "max": None, "source": None},
-                              {"part": "reading", "max": 66.48, "source": "plan"}]
+    assert rates(grady) == [("facility", None, None), ("reading", 66.48, "plan")]
+    fee, reading = grady["parts"]
+    assert fee["billing_class"] == "institutional" and fee["missing_note"] and fee["missing_explain"]
+    assert reading["missing_note"] is None and reading["missing_explain"] is None
     assert grady["max_rate"] is None
     assert grady["billers"] == ["EMORY MEDICAL CARE FOUNDATION INC"]
     assert grady["cash_price"] == 5561.0
@@ -79,28 +113,31 @@ def test_a_hospital_on_blue_value_shows_its_readers_and_no_fee_of_its_own(client
 
 def test_a_hospital_on_pathway_shows_the_fee_in_the_plans_file(client):
     grady = next(p for p in find_care(client, "mri-brain", plan_id=GOLD_PATHWAY)["results"] if p["place_id"] == "110079")
-    assert grady["parts"] == [{"part": "facility", "max": 1171.15, "source": "plan"},
-                              {"part": "reading", "max": 116.13, "source": "plan"}]
+    assert rates(grady) == [("facility", 1171.15, "plan"), ("reading", 116.13, "plan")]
     assert grady["max_rate"] == 1287.28
 
 
 def test_a_hospital_the_plans_file_leaves_out_shows_the_fee_in_its_own_price_list(client):
     emory = next(p for p in find_care(client, "xray-chest", plan_id=GOLD_PATHWAY)["results"] if p["place_id"] == "110010")
     assert emory["name"] == "EMORY UNIVERSITY HOSPITAL"
-    assert emory["parts"] == [{"part": "facility", "max": 34.58, "source": "hospital"},
-                              {"part": "reading", "max": None, "source": None}]
+    assert rates(emory) == [("facility", 34.58, "hospital"), ("reading", None, None)]
     assert emory["max_rate"] is None and emory["billers"] == [] and emory["cash_price"] == 289.0
 
 
 def test_a_brain_mri_carries_medicares_rates(client):
-    brain = next(s for s in client.get("/services").json() if s["service_id"] == "mri-brain")
+    brain = next(s for s in client.get("/services").json()["services"] if s["service_id"] == "mri-brain")
     assert brain["medicare_rate"] == 185.25 and brain["medicare_facility_rate"] == 243.77
 
 
-def test_every_service_has_a_price_on_blue_value_within_50_miles(client):
-    for service in client.get("/services").json():
-        body = find_care(client, service["service_id"], radius_mi=50)
-        assert body["results"], service["service_id"]
+def test_every_service_has_a_price_on_pathway_within_50_miles(client):
+    assert unpriced(client, GOLD_PATHWAY) == []
+
+
+def test_blue_value_prices_all_but_five_services_within_50_miles(client):
+    # Its file has a rate for each, but no doctor Medicare shows billing it near Emory.
+    assert unpriced(client, SILVER) == [
+        "checkup-return-18-39", "counseling-family-with", "counseling-family-without", "counseling-group",
+        "therapy-iontophoresis"]
 
 
 def test_a_search_needs_a_plan(client):

@@ -6,42 +6,42 @@ from integration.inputs.datasets import NPPES
 from integration.table import Table
 
 
-def _part(name, rate, source=None):
-    """SQL for one bill: its rate, and where the rate is from, the plan's own file
-    (`plan`) unless `source` says otherwise. Both are empty when nothing prices it."""
-    source = source or f"CASE WHEN {rate} IS NOT NULL THEN 'plan' END"
-    return f"{{'part': '{name}', 'max': {rate}, 'source': {source}}}"
-
-
 class Prices(Table):
     """One row per network, service and place on the map where the place's
     billers have a rate for the service (integration/inputs/biller_rates.py) and
     it's one of their places for it (integration/inputs/service_sites.py), plus
     one per network, service and hospital on the map with its own fee for the
-    service (integration/inputs/hospital_fees.py). Each part is one bill, with
+    service (integration/inputs/hospital_fees.py). Which bills a row shows is the
+    service's family's (integration/families.yaml), and each is one part, with
     the rate that has the strongest evidence there (biller_rates.EVIDENCE), and
     the highest of those when several tie, since the file doesn't say which of
     them applies:
 
-    - a hospital's row is its own fee (`facility`) and the reading by the groups
-      in its building. The hospital is on the list where those groups have a
-      rate (decided on #135), or where it has a fee, since a fee is evidence the
-      hospital itself is in network. The fee is from one source, never a blend
-      (hospital_fees): the plan's own file where it prices the hospital, else
-      the hospital's own price file under a name the reviewed list says is the
-      network's. Only where the fee is empty does nothing on file confirm the
-      hospital itself is in network, so the screen says so. An empty reading at a
-      hospital means another group reads the scan and bills it separately, and
-      the plan's file doesn't place one there, so `billers` and `providers` are
-      empty too unless a group there has a rate for another part. `cash_price` is
-      what the hospital's own file says it charges for the service when no plan
-      pays (hospital_cash), and it's empty at every other place;
-    - a place that does the scan shows its all-in rate, which covers the
-      reading, or the scan and the reading when it lists no all-in rate;
-    - a reading group elsewhere shows the scan, empty because someone else does
-      it, and its reading (the 2026-11-04 decision on #135). One with no reading
-      rate has no row, since it would show nothing at a place nobody goes to for
-      the scan.
+    - a hospital's row shows the family's `hospital` bills, in order: its own
+      fee (the institutional bill) and the others by the groups in its building,
+      such as a scan's reading. The hospital is on the list where those groups
+      have a rate (decided on #135), or where it has a fee, since a fee is
+      evidence the hospital itself is in network. The fee is from one source,
+      never a blend (hospital_fees): the plan's own file where it prices the
+      hospital, else the hospital's own price file under a name the reviewed
+      list says is the network's. Only where the fee is empty does nothing on
+      file confirm the hospital itself is in network, so the screen says so. An
+      empty reading at a hospital means another group reads the scan and bills
+      it separately, and the plan's file doesn't place one there, so `billers`
+      and `providers` are empty too unless a group there has a rate for another
+      part. `cash_price` is what the hospital's own file says it charges for the
+      service when no plan pays (hospital_cash), and it's empty at every other
+      place. A family with no `hospital` bills isn't shown at hospitals;
+    - any other place shows the first of the family's `elsewhere` alternatives
+      it has a rate for every bill of, else the last. An `on_site` bill counts
+      only where the place does the service (biller_rates.on_site) and is
+      empty elsewhere. For a scan, a place that does it shows its all-in rate,
+      which covers the reading, or the scan and the reading when it lists no
+      all-in rate, and a reading group elsewhere shows the scan, empty because
+      someone else does it, and its reading (the 2026-11-04 decision on #135).
+
+    A row shows at least one rate, so a reading group with no reading rate has
+    none, since it would show nothing at a place nobody goes to for the scan.
 
     Each part says where its rate is from (`source`): `plan` for the plan's own
     file, `hospital` for a hospital's own fee from its own file, and nothing
@@ -67,8 +67,8 @@ class Prices(Table):
                "billers": "VARCHAR[]", "providers": "BIGINT[]", "cash_price": "DOUBLE"}
 
     def select(self, data_dir):
-        empty = "NULL::DOUBLE"
         rank = f"list_position({list(EVIDENCE)!r}, r.evidence)"
+        counts = "w.hospital OR w.on_site OR NOT b.on_site"
         return f"""
             WITH clinicians AS (
                 SELECT d.network_id, d.service_id, d.place_id, list(DISTINCT d.npi ORDER BY d.npi) AS providers
@@ -85,7 +85,7 @@ class Prices(Table):
             ),
             rated AS (
                 SELECT r.network_id, r.service_id, b.place_id, b.kind, r.part, r.rate,
-                       bool_or(r.does_scan) OVER (PARTITION BY r.network_id, r.service_id, b.place_id) AS does_scan,
+                       bool_or(r.on_site) OVER (PARTITION BY r.network_id, r.service_id, b.place_id) AS on_site,
                        {rank} = min({rank}) OVER (
                            PARTITION BY r.network_id, r.service_id, b.place_id, r.part) AS strongest
                 FROM biller_rates r
@@ -93,43 +93,77 @@ class Prices(Table):
                 JOIN biller_places b USING (biller, place_id)
                 WHERE b.place_id IN (SELECT place_id FROM places)
             ),
-            rows AS (
-                SELECT network_id, service_id, place_id, any_value(kind) = 'hospital' AS hospital,
-                       bool_or(does_scan) AS does_scan,
-                       {", ".join(f"max(rate) FILTER (WHERE part = '{p}') AS {p}, "
-                                  f"count(DISTINCT rate) FILTER (WHERE part = '{p}') AS {p}_rates"
-                                  for p in ("all_in", "scan", "reading"))}
+            rates AS (
+                SELECT network_id, service_id, place_id, part, max(rate) AS max, count(DISTINCT rate) AS rates
                 FROM rated
                 WHERE strongest
+                GROUP BY network_id, service_id, place_id, part
+            ),
+            rows AS (
+                SELECT network_id, service_id, place_id, any_value(kind) = 'hospital' AS hospital,
+                       bool_or(on_site) AS on_site
+                FROM rated
                 GROUP BY network_id, service_id, place_id
                 UNION ALL BY NAME
-                SELECT network_id, service_id, place_id, true AS hospital, false AS does_scan, 0 AS reading_rates
+                SELECT network_id, service_id, place_id, true AS hospital, false AS on_site
                 FROM hospital_fees
                 WHERE place_id IN (SELECT place_id FROM places)
                   AND (network_id, service_id, place_id) NOT IN (SELECT (network_id, service_id, place_id) FROM rated)
+            ),
+            choices AS (
+                SELECT family, true AS hospital, 1 AS choice, generate_subscripts(hospital, 1) AS position,
+                       unnest(hospital) AS part
+                FROM family_list
+                UNION ALL
+                SELECT family, false, choice, generate_subscripts(parts, 1), unnest(parts)
+                FROM (SELECT family, generate_subscripts(elsewhere, 1) AS choice, unnest(elsewhere) AS parts
+                      FROM family_list)
+            ),
+            offered AS (
+                SELECT w.network_id, w.service_id, w.place_id, w.hospital, c.choice, c.position, c.part,
+                       CASE WHEN b.billing_class = 'institutional' THEN f.fee WHEN {counts} THEN r.max END AS max,
+                       CASE WHEN b.billing_class = 'institutional' THEN f.rates WHEN {counts} THEN r.rates END
+                           AS rates,
+                       CASE WHEN b.billing_class = 'institutional' THEN f.source ELSE 'plan' END AS source
+                FROM rows w
+                JOIN service_list s USING (service_id)
+                JOIN choices c ON c.family = s.family AND c.hospital = w.hospital
+                JOIN family_bills b ON b.family = c.family AND b.part = c.part
+                LEFT JOIN rates r ON r.network_id = w.network_id AND r.service_id = w.service_id
+                                 AND r.place_id = w.place_id AND r.part = c.part
+                LEFT JOIN hospital_fees f ON f.network_id = w.network_id AND f.service_id = w.service_id
+                                         AND f.place_id = w.place_id
+            ),
+            chosen AS (
+                SELECT network_id, service_id, place_id, coalesce(min(choice) FILTER (WHERE whole), max(choice))
+                    AS choice
+                FROM (SELECT network_id, service_id, place_id, choice, bool_and(max IS NOT NULL) AS whole
+                      FROM offered
+                      GROUP BY network_id, service_id, place_id, choice)
+                GROUP BY network_id, service_id, place_id
+            ),
+            shown AS (
+                SELECT network_id, service_id, place_id, any_value(hospital) AS hospital,
+                       list({{'part': part, 'max': max, 'source': CASE WHEN max IS NOT NULL THEN source END}}
+                            ORDER BY position) AS parts,
+                       bool_or(coalesce(rates, 0) > 1) AS several_rates
+                FROM offered JOIN chosen USING (network_id, service_id, place_id, choice)
+                GROUP BY network_id, service_id, place_id
+                HAVING bool_or(max IS NOT NULL)
             )
-            SELECT network_id, service_id, place_id,
-                   CASE WHEN hospital THEN [{_part("facility", "f.fee", "f.source")}, {_part("reading", "reading")}]
-                        WHEN does_scan AND all_in IS NOT NULL THEN [{_part("all_in", "all_in")}]
-                        WHEN does_scan THEN [{_part("scan", "scan")}, {_part("reading", "reading")}]
-                        ELSE [{_part("scan", empty)}, {_part("reading", "reading")}] END AS parts,
-                   CASE WHEN hospital THEN reading_rates > 1 OR coalesce(f.rates, 0) > 1
-                        WHEN NOT does_scan THEN reading_rates > 1
-                        WHEN all_in IS NOT NULL THEN all_in_rates > 1
-                        ELSE scan_rates > 1 OR reading_rates > 1 END AS several_rates,
+            SELECT network_id, service_id, place_id, parts, several_rates,
                    coalesce(g.billers, []::VARCHAR[]) AS billers, coalesce(c.providers, []::BIGINT[]) AS providers,
                    CASE WHEN hospital THEN h.cash_price END AS cash_price
-            FROM rows
+            FROM shown
             LEFT JOIN groups g USING (network_id, service_id, place_id)
             LEFT JOIN clinicians c USING (network_id, service_id, place_id)
-            LEFT JOIN hospital_fees f USING (network_id, service_id, place_id)
             LEFT JOIN hospital_cash h USING (service_id, place_id)
-            WHERE hospital OR does_scan OR reading IS NOT NULL
         """
 
     def check(self, con, data_dir):
-        """Every row's network, service and place is in its table."""
-        for column, table in [("network_id", "networks"), ("service_id", "services"), ("place_id", "places")]:
+        """Every row's network, service and place is in its table, the service
+        among those integration/services.yaml names."""
+        for column, table in [("network_id", "networks"), ("service_id", "service_list"), ("place_id", "places")]:
             stray = con.execute(f"""
                 SELECT {column} FROM prices WHERE {column} NOT IN (SELECT {column} FROM {table}) LIMIT 1
             """).fetchone()

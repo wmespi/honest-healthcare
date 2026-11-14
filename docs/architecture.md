@@ -72,8 +72,8 @@ flowchart LR
     GEO --> FC
     GA --> FC
     XNET --> FC
-    SVC[integration/services.yaml] --> FC
-    FC --> FCT[("find-care tables: networks, plans, premiums, zips, services, cost_sharing, places, prices, providers")]
+    SVC["integration/families.yaml, services.yaml"] --> FC
+    FC --> FCT[("find-care tables: networks, plans, premiums, zips, families, services, cost_sharing, places, prices, providers")]
   end
   subgraph app [application]
     FCT --> API[FastAPI, one persistent DuckDB connection]
@@ -102,7 +102,8 @@ erDiagram
     }
     cost_sharing {
         plan_id str PK, FK
-        service_category str PK
+        benefit str PK
+        label str
         copay number(optional)
         coinsurance number(optional)
         after_deductible bool
@@ -121,16 +122,22 @@ erDiagram
         premium number
         tobacco_premium number
     }
+    families {
+        family str PK
+        name str
+        position int
+    }
     services {
         service_id str PK
         billing_code str
-        service_category str
+        family str FK
         name str
         keywords str
         about str
         could_change str[]
         asks str[]
         preventive_note str(optional)
+        bills bill[]
         medicare_rate number(optional)
         medicare_facility_rate number(optional)
     }
@@ -147,6 +154,7 @@ erDiagram
         place_id str PK
         name str
         kind str
+        kind_name str
         address str
         city str
         lat number
@@ -166,19 +174,19 @@ erDiagram
         lon number
     }
 
+    families ||--o{ services : "family"
     services ||--o{ prices : "service_id"
     places ||--o{ prices : "place_id"
     networks ||--o{ plans : "network_id"
     plans ||--o{ premiums : "plan_id"
     plans ||--o{ cost_sharing : "plan_id"
-    services }o--o{ cost_sharing : "service_category"
+    services }o--o{ cost_sharing : "bills.benefits"
     networks ||--o{ prices : "network_id"
     providers }o--o{ prices : "providers"
 ```
 
-The find-care tables, the same model as the ERD on
-[#135](https://github.com/wmespi/honest-healthcare/issues/135), which holds the decisions behind
-it. Each box reads column, type, then key, and `[]` means a list; a list of keys is checked by
+The find-care tables.
+The decisions behind the model are on [#135](https://github.com/wmespi/honest-healthcare/issues/135) and [#191](https://github.com/wmespi/honest-healthcare/issues/191). Each box reads column, type, then key, and `[]` means a list; a list of keys is checked by
 the build, not enforced by a database. Full column notes: [integration/build.md](../integration/build.md#the-find-care-tables).
 
 ## Runtime

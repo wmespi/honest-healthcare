@@ -1,7 +1,7 @@
 """Build-only: a hospital's own fee for a service on a network, from one source:
 the plan's own file, else the hospital's own price file."""
 from integration.inputs.addresses import ADDRESS, listed
-from integration.inputs.datasets import HOSPITAL_RATES, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS
+from integration.inputs.datasets import HOSPITAL_RATES, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first
 from integration.inputs.hospital_plans import plan_name
 from integration.table import Table
 
@@ -19,6 +19,12 @@ FACILITY_PRICED = """r.billing_class = 'institutional' AND r.billing_code_type I
               AND coalesce(r.setting, 'both') IN ('outpatient', 'both') AND r.negotiation_arrangement = 'ffs'
               AND r.negotiated_type IN ('fee schedule', 'negotiated') AND coalesce(r.modifier, '') = ''
               AND r.negotiated_rate > 1"""
+
+
+# The services a hospital bills its own fee for: those whose family has an
+# institutional bill (integration/families.yaml).
+FEE_SERVICES = """(SELECT service_id, billing_code FROM service_list
+                   WHERE family IN (SELECT family FROM family_bills WHERE billing_class = 'institutional'))"""
 
 
 def facility_lines(r):
@@ -47,23 +53,29 @@ def priced(amount):
 
 
 class FacilityRates(Table):
-    """One row per network, service, hospital billing NPI and institutional rate
-    the network's file lists for the service (FACILITY_PRICED), covering a
-    roster with that billing NPI. A billing NPI counts only where NPPES registers
-    it as a hospital organization, since a hospital's own fee is what's priced."""
+    """One row per network, service a hospital bills its own fee for
+    (FEE_SERVICES), hospital billing NPI and institutional rate the network's
+    file lists for the service (FACILITY_PRICED), covering a
+    roster with that billing NPI. A rate under the file's shared labels is kept
+    only where the network's own labels have none for the hospital and service
+    (datasets.own_first). A billing NPI counts only where NPPES registers it as
+    a hospital organization, since a hospital's own fee is what's priced."""
     name = "facility_rates"
     key = ["network_id", "service_id", "biller", "rate"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR", "rate": "DOUBLE"}
 
     def select(self, data_dir):
         return f"""
-            SELECT DISTINCT r.network_id, s.service_id, p.tin_value AS biller, r.negotiated_rate AS rate
-            FROM {PAYER_RATES.read(data_dir)} r
-            JOIN service_list s ON s.billing_code = r.billing_code
-            JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
-            JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
-            JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(p.tin_value AS BIGINT)
-            WHERE {FACILITY_PRICED} AND n.entity_type = 'organization' AND n.is_hospital
+            SELECT DISTINCT network_id, service_id, biller, rate FROM (
+                SELECT DISTINCT r.network_id, s.service_id, p.tin_value AS biller, r.negotiated_rate AS rate,
+                       r.own_label
+                FROM {PAYER_RATES.read(data_dir)} r
+                JOIN {FEE_SERVICES} s ON s.billing_code = r.billing_code
+                JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
+                JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
+                JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(p.tin_value AS BIGINT)
+                WHERE {FACILITY_PRICED} AND n.entity_type = 'organization' AND n.is_hospital)
+            QUALIFY {own_first("network_id", "service_id", "biller")}
         """
 
 
@@ -102,7 +114,7 @@ class HospitalFees(Table):
                 SELECT p.network_id, s.service_id, r.ccn AS place_id, max(r.negotiated_dollar) AS fee,
                        count(DISTINCT r.negotiated_dollar) AS rates
                 FROM {HOSPITAL_RATES.read(data_dir)} r
-                JOIN service_list s ON s.billing_code = r.code
+                JOIN {FEE_SERVICES} s ON s.billing_code = r.code
                 JOIN hospital_plans p ON p.ccn = r.ccn AND p.name = {plan_name("r")}
                 WHERE p.network_id IS NOT NULL AND {facility_lines("r")} AND {fee_schedule("r")}
                   AND {priced("r.negotiated_dollar")} AND r.ccn IN (SELECT ccn FROM hospitals)

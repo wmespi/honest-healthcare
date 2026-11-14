@@ -8,7 +8,8 @@ BV, PATHWAY = "45334-GAN001", "49046-GAN008"
 
 def funnel(corpus, by_service=False):
     corpus.flush()
-    return coverage(corpus.root, by_service, corpus.services_file, corpus.hospital_plans_file)
+    return coverage(corpus.root, by_service, corpus.services_file, corpus.hospital_plans_file,
+                    corpus.families_file)
 
 
 def test_the_funnel_counts_what_each_step_keeps_and_writes_nothing(corpus):
@@ -33,14 +34,14 @@ def test_the_funnel_counts_what_each_step_keeps_and_writes_nothing(corpus):
         "on_map": 5,           # the center's address and South Georgia Radiology's aren't geocoded
         "shown": 5, "several_rates": 0, "with_clinician": 1, "places": 4,
         "at_hospital": 2,      # Grady's MRI, with no fee, and its mammogram
-        "fee_and_reading": 1, "fee_only": 0, "reading_only": 1, "neither": 0,
+        "fee_and_doctor": 1, "fee_only": 0, "doctor_only": 1,
         "fee_plan": 0, "fee_hospital": 1, "cash_price": 2,
     }, {
         "network_id": PATHWAY,
         "priced": 1, "evidenced": 1, "medicare_roster": 1, "medicare_biller": 0, "registered": 0,
         "placed": 1, "on_map": 1, "shown": 3, "several_rates": 0, "with_clinician": 0, "places": 2,
         "at_hospital": 3,      # Grady's mammogram, and Hamilton's mammogram and MRI, which no group reads
-        "fee_and_reading": 1, "fee_only": 2, "reading_only": 0, "neither": 0,
+        "fee_and_doctor": 1, "fee_only": 2, "doctor_only": 0,
         "fee_plan": 3, "fee_hospital": 0, "cash_price": 1,
     }]
     # Pathway lists no professional rate for the MRI, and its line still shows Hamilton's row.

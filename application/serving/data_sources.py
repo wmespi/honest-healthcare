@@ -25,6 +25,7 @@ def _table(name: str) -> str:
 NETWORKS_SRC = _table("networks")
 PLANS_SRC = _table("plans")
 SERVICES_SRC = _table("services")
+FAMILIES_SRC = _table("families")
 COST_SHARING_SRC = _table("cost_sharing")
 PLACES_SRC = _table("places")
 PRICES_SRC = _table("prices")
@@ -32,7 +33,7 @@ PROVIDERS_SRC = _table("providers")
 ZIPS_SRC = _table("zips")
 MANIFEST_PATH = f"{SERVING_DIR}/manifest.json"
 
-_TABLES = ("networks", "plans", "services", "cost_sharing", "places", "prices", "providers", "zips")
+_TABLES = ("networks", "plans", "services", "families", "cost_sharing", "places", "prices", "providers", "zips")
 
 
 def missing_build() -> list:

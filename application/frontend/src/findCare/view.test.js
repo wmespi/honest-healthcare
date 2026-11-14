@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { displayName, money } from './format';
-import { filterResults, pinStack, placeView, shareText } from './view';
+import { filterResults, pinStack, placeView, shareLines, shareText } from './view';
 
 describe('find care wording', () => {
   it('spells names in capitals as words, keeping endings, credentials and directions', () => {
@@ -29,6 +29,15 @@ describe('find care wording', () => {
       'You pay the whole rate until you’ve met your $10,600 deductible. After that, you pay nothing.');
   });
 
+  it('leads each share with its label only when there are several', () => {
+    const one = { benefit: 'preventive', label: 'Preventive care', copay: 0, coinsurance: null, after_deductible: false };
+    const two = { ...one, benefit: 'specialist', label: 'Specialist visit', copay: 60 };
+    expect(shareLines([one], 4000)).toEqual([{ key: 'preventive', label: null, text: 'You pay nothing.' }]);
+    expect(shareLines([one, two], 4000)).toEqual([
+      { key: 'preventive', label: 'Preventive care', text: 'You pay nothing.' },
+      { key: 'specialist', label: 'Specialist visit', text: 'You pay a $60 copay.' }]);
+  });
+
   it('finds a place by its name or a provider who works there', () => {
     const results = [
       { name: 'Midtown Imaging', providers: [{ name: 'Pat Okafor' }] },
@@ -55,15 +64,22 @@ describe('find care wording', () => {
   describe('a hospital\'s own fee', () => {
     const context = { cheapestId: null, closestId: null, median: null, facilityRate: 243.77 };
     const hospital = (parts, extra = {}) => ({
-      place_id: '110079', name: 'GRADY MEMORIAL HOSPITAL', kind: 'hospital', address: '80 JESSE HILL JR DRIVE SE',
+      place_id: '110079', name: 'GRADY MEMORIAL HOSPITAL', kind: 'hospital', kind_name: 'Hospital', address: '80 JESSE HILL JR DRIVE SE',
       city: 'ATLANTA', lat: 33.75, lon: -84.38, phone: null, stars: 3, distance_mi: 4.2, max_rate: null, parts,
       several_rates: false, billers: [], providers: [], cash_price: null, ...extra,
     });
-    const FEE = { part: 'facility', max: 210, source: 'hospital' };
-    const NO_READING = { part: 'reading', max: null, source: null };
+    const bill = (name, label, billingClass, max, source, note = null, explain = null) => ({
+      part: name, label, billing_class: billingClass, max, source, missing_note: note, missing_explain: explain,
+    });
+    const FEE = bill('facility', 'Hospital facility fee', 'institutional', 210, 'hospital');
+    const NO_FEE = bill('facility', 'Hospital facility fee', 'institutional', null, null,
+      'Missing the hospital’s fee', 'Hospitals bill their own fee.');
+    const NO_READING = bill('reading', 'Reading', 'professional', null, null, 'Missing the reading',
+      'Ask the hospital who will read yours.');
+    const READING = bill('reading', 'Reading', 'professional', 35, 'plan');
 
     it('offers Medicare\'s rough guide only where the fee is missing', () => {
-      const missing = placeView(hospital([{ part: 'facility', max: null, source: null }, { part: 'reading', max: 35, source: 'plan' }]), context);
+      const missing = placeView(hospital([NO_FEE, READING]), context);
       expect(missing.facilityEstimate).toBe(243.77);
       expect(missing.missing.rowNote).toBe('Missing the hospital’s fee');
       expect(placeView(hospital([FEE, NO_READING]), context).facilityEstimate).toBeNull();
@@ -72,22 +88,24 @@ describe('find care wording', () => {
     it('says the reading is missing when only the reading is', () => {
       const view = placeView(hospital([FEE, NO_READING]), context);
       expect(view.missing.rowNote).toBe('Missing the reading');
-      expect(view.missing.explain).toMatch(/ask the hospital who will read yours/);
+      expect(view.missing.explain).toBe('Ask the hospital who will read yours.');
     });
 
     it('doesn\'t send someone to a hospital for a reading missing anywhere else', () => {
-      const parts = [{ part: 'scan', max: 400, source: 'plan' }, NO_READING];
-      const view = placeView(hospital(parts, { kind: 'imaging_center' }), context);
+      const own = { ...NO_READING, missing_explain: 'Ask who will read yours.' };
+      const view = placeView(hospital([bill('scan', 'Scan', 'professional', 400, 'plan'), own],
+        { kind: 'imaging_center', kind_name: 'Imaging center' }), context);
+      expect(view.kindLabel).toBe('Imaging center');
       expect(view.missing.rowNote).toBe('Missing the reading');
-      expect(view.missing.explain).toMatch(/lists no rate for the reading here/);
-      expect(view.missing.explain).not.toMatch(/hospital/);
+      expect(view.missing.explain).toBe('Ask who will read yours.');
+      expect(view.facilityEstimate).toBeNull();
     });
 
     it('exposes the cash price and whether the fee is the hospital\'s own', () => {
       const own = placeView(hospital([FEE, NO_READING], { cash_price: 320 }), context);
       expect(own.cashPrice).toBe(320);
       expect(own.feeFromHospital).toBe(true);
-      const plan = placeView(hospital([{ part: 'facility', max: 165, source: 'plan' }, NO_READING]), context);
+      const plan = placeView(hospital([{ ...FEE, max: 165, source: 'plan' }, NO_READING]), context);
       expect(plan.cashPrice).toBeNull();
       expect(plan.feeFromHospital).toBe(false);
     });

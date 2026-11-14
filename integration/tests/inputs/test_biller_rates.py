@@ -7,7 +7,7 @@ BV = "45334-GAN001"
 
 def billers(corpus):
     return corpus.inputs().execute(
-        "SELECT DISTINCT biller, does_scan FROM biller_rates ORDER BY biller").fetchall()
+        "SELECT DISTINCT biller, on_site FROM biller_rates ORDER BY biller").fetchall()
 
 
 def test_a_biller_does_the_scan_if_medicare_shows_it_in_an_office_or_it_is_an_imaging_center(corpus):
@@ -58,7 +58,7 @@ def test_a_registered_center_does_its_kind_of_scan_without_a_medicare_record(cor
         corpus.npi(biller, f"CENTER {group}", f"{group} MAIN ST", "ATLANTA", "303082233", taxonomy=taxonomy)
     corpus.billed(2000000011, "72148", "F")
     rows = corpus.inputs().execute("""
-        SELECT DISTINCT biller, service_id, does_scan FROM biller_rates
+        SELECT DISTINCT biller, service_id, on_site FROM biller_rates
         WHERE biller IN ('1000000010', '1000000011') ORDER BY ALL""").fetchall()
     assert rows == [("1000000010", "mri-lower-back", True),
                     ("1000000011", "mammogram-screening", True),
@@ -89,3 +89,52 @@ def test_a_rate_for_another_bill_is_left_out_and_an_unknown_modifier_stops_the_b
     corpus.modified_price(BV, 1, "72148", "26|ZZ", 90)
     with pytest.raises(SystemExit, match=r"carry modifiers \['ZZ'\], which the build has no rule for"):
         corpus.build()
+
+
+def test_a_bill_that_names_several_modifiers_takes_a_rate_under_each(corpus):
+    scan = next(b for f in corpus.families["families"] if f["family"] == "mri"
+                for b in f["bills"] if b["part"] == "scan")
+    scan["modifier"] = ["TC", "QW"]
+    corpus.write_families()
+    corpus.modified_price(BV, 1, "72148", "QW", 310)
+    assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0),
+                                               ("scan", 310.0)]
+
+
+def all_in(corpus, biller="1000000001"):
+    return corpus.inputs().execute(
+        "SELECT DISTINCT rate FROM biller_rates WHERE biller = ? AND service_id = 'mri-lower-back' "
+        "AND part = 'all_in' ORDER BY rate", [biller]).fetchall()
+
+
+def test_a_biller_with_a_rate_under_the_own_label_ignores_a_higher_one_under_a_shared_label(corpus):
+    corpus.roster(BV, 40, 40, "1000000001", 2000000001)
+    corpus.scan_price(BV, 40, "72148", all_in=900, own_label=False)
+    assert all_in(corpus) == [(500.0,)]
+
+
+def test_a_biller_with_only_a_shared_label_rate_keeps_it(corpus):
+    corpus.roster(BV, 41, 41, "1000000010", 2000000010)
+    corpus.npi(1000000010, "CENTER 10", "10 MAIN ST", "ATLANTA", "303082233", taxonomy="261QM1200X")
+    corpus.scan_price(BV, 41, "72148", all_in=450, own_label=False)
+    assert all_in(corpus, "1000000010") == [(450.0,)]
+
+
+def test_a_placeholder_under_the_own_label_does_not_hide_a_real_shared_label_rate(corpus):
+    corpus.roster(BV, 42, 42, "1000000010", 2000000010)
+    corpus.npi(1000000010, "CENTER 10", "10 MAIN ST", "ATLANTA", "303082233", taxonomy="261QM1200X")
+    corpus.scan_price(BV, 42, "72148", all_in=0.5)
+    corpus.scan_price(BV, 42, "72148", all_in=450, own_label=False)
+    assert all_in(corpus, "1000000010") == [(450.0,)]
+
+
+def test_a_service_keeps_only_the_best_place_of_service_its_family_lists_that_the_network_has(corpus):
+    corpus.family("mri", place_of_service=["20", "11"])
+    # No line names "20" yet, so the office lines stay.
+    assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0)]
+    # One line at "20" is the best the network has, so it alone is kept.
+    corpus.scan_price(BV, 1, "72148", all_in=999, service_code="20")
+    assert rates(corpus, "mri-lower-back") == [("all_in", 999.0)]
+    # The family's other order puts the office first again.
+    corpus.family("mri", place_of_service=["11", "20"])
+    assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0)]

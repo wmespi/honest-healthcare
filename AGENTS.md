@@ -86,7 +86,7 @@ make up / make down / make logs
 
 make discover               # this month's file list + plan→file link (index_files, index_file_plans Parquet) from Anthem's index
 make discover SCHEMA=1      #   stream only, write index_schema.json and nothing else
-make reference              # NPPES, NUCC labels, CMS utilization, MPFS, OPPS, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals,
+make reference              # NPPES, NUCC labels, CMS utilization, MPFS, OPPS, shoppable items, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals,
                             #   hospital price files; skips each whose output exists, except geocode, which runs every time and looks up only new
                             #   addresses, and hospital price files, which fetch only the hospitals with none (STEP=hospital-rates fetches all)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
@@ -140,7 +140,8 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Discovery - the monthly file list, the plan→file link, a file's ID, monthly churn | [ingestion/etl/discover.md](ingestion/etl/discover.md) |
 | Extraction - target selection, when a file is downloaded again, recovering a failed or stopped parse, the parser, network attribution, GA NPI filter, Parquet writers, publishing the rates by network | [ingestion/etl/parse.md](ingestion/etl/parse.md) |
 | Which plans we parse files for | [ingestion/etl/targets.yaml](ingestion/etl/targets.yaml) |
-| The services the find-care screen offers, and what it says about each | [integration/services.yaml](integration/services.yaml) |
+| The families of services the find-care screen offers: each one's codes, bills, benefits, kinds of place and what the screen says | [integration/families.yaml](integration/families.yaml) |
+| The services in each family, by our own names | [integration/services.yaml](integration/services.yaml) |
 | NPPES Georgia provider subset | [ingestion/etl/nppes.md](ingestion/etl/nppes.md) |
 | NUCC specialty labels | [ingestion/reference/taxonomy-labels.md](ingestion/reference/taxonomy-labels.md) |
 | Provider↔procedure evidence (CMS utilization) | [ingestion/reference/cms-utilization.md](ingestion/reference/cms-utilization.md) |
@@ -149,6 +150,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Hospitals' own price files - which hospitals and payers (`ingestion/etl/hospitals.yaml`), the CSV and JSON formats, the `hospital_rates` rows | [ingestion/etl/hospital-rates.md](ingestion/etl/hospital-rates.md) |
 | Georgia's individual-market plans: real names, metal level, referral rule, network and premiums by HIOS plan ID | [ingestion/reference/exchange-plans.md](ingestion/reference/exchange-plans.md) |
 | Medicare hospital-outpatient (OPPS) rate (`services.medicare_facility_rate`) - the rough guide the find-care screen gives at a hospital | [ingestion/reference/opps.md](ingestion/reference/opps.md) |
+| Which codes are candidates for a service: CMS's 500 shoppable items, each with CMS's classification (RBCS) | [ingestion/reference/shoppable.md](ingestion/reference/shoppable.md) |
 | Where each biller and hospital is on the map, and how far it is from a ZIP code | [ingestion/reference/geocode.md](ingestion/reference/geocode.md) |
 | CMS MIPS quality score per clinician; ZIP → lat/lon for `?zip=` distance | [ingestion/reference/mips.md](ingestion/reference/mips.md) · [ingestion/reference/zip-centroids.md](ingestion/reference/zip-centroids.md) |
 | Real practice identity - the CMS group a doctor's own billing NPI is named after (CMS Doctors & Clinicians) | [ingestion/reference/doctors-clinicians.md](ingestion/reference/doctors-clinicians.md) |

@@ -35,11 +35,13 @@
 #                      leaves out, with a warning, a network none of them
 #                      prices yet (ingestion/etl/parse.md).
 #
-#   facility_patterns  Other labels in the same file whose institutional rates,
-#                      the bills a hospital or surgery center sends, price the
-#                      plan too. Only those rates are published under them, and
-#                      a file has to carry one of `network_patterns` first.
-#                      Optional.
+#   shared_patterns    Other labels in the same file that price this plan's
+#                      members without its name, such as Anthem's exchange-wide
+#                      labels. Their rates are published under the network with
+#                      `own_label` false, and the build shows one only where the
+#                      plan's own labels have no rate for the biller, service and
+#                      bill. They count only in a file that carries one of
+#                      `network_patterns`. Optional.
 #
 # See ingestion/etl/discover.md (how the plan→file link is captured) and ingestion/etl/parse.md (how
 # parse selects and checks the named files).
@@ -67,9 +69,12 @@ targets:
       - "GA_JBLDMEDTR01.json.gz"
     network_patterns:
       - "Pathway PCP Copay Choice*"
-    # The file prices its hospitals under this label, on provider groups that
-    # don't carry the one above: hospitals' own price files give the same
-    # rates for their Pathway exchange plan (#191, decision 1). The doctors'
-    # rates under it aren't published.
-    facility_patterns:
+    # Every provider group in the file carries a set of labels. Nearly all
+    # carry the exchange specialist label below, and a part of them also carry
+    # the plan's own. Hospitals' contracts sit on groups without the plan's own
+    # label (decision 1 on #191), so the exchange labels are published too.
+    # TRADITIONAL HEALTH PLAN and the program labels stay out because nothing
+    # ties them to the exchange plan.
+    shared_patterns:
       - "EXCHANGES SPECIALIST*GATEKEEPER*ON INDIVIDUAL"
+      - "EXCHANGES PCP*GATEKEEPER*ON INDIVIDUAL"

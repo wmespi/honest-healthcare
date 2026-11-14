@@ -14,10 +14,8 @@ from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, BeforeValidator, Field, computed_field, model_validator
 
-# A bill behind a price. A practice files one all-in rate, or the scan and the
-# reading separately; a hospital also bills its own facility fee.
-PartName = Literal["all_in", "scan", "reading", "facility"]
-PlaceKind = Literal["hospital", "imaging_center", "practice"]
+# "hospital" is the one place kind the contract and the screen treat specially;
+# every other kind, and every bill's name, comes from the build's tables.
 Sort = Literal["price", "distance"]
 RadiusMi = Literal[5, 10, 25, 50]
 RADIUS_OPTIONS_MI = (5, 10, 25, 50)
@@ -80,9 +78,24 @@ class CostSharing(BaseModel):
         return self
 
 
+class Share(CostSharing):
+    """What the plan charges for one benefit the service is billed under, and
+    which of the service's bills fall under it."""
+    benefit: str
+    label: str = Field(description="What the plan's summary calls the benefit, such as a specialist visit.")
+    parts: list[str] = Field(min_length=1, description="The service's bills under this benefit.")
+
+
+class Family(BaseModel):
+    """A group of services that the service picker browses by."""
+    family: str
+    name: str
+
+
 class Service(BaseModel):
     """A service someone can search for, and what the screen says about it."""
     service_id: str = Field(description="Our own slug, such as `mri-lower-back`.")
+    family: str = Field(description="The `family` of the group it belongs to.")
     name: str
     keywords: str = Field(description="Other words the service picker matches.")
     about: str
@@ -95,6 +108,12 @@ class Service(BaseModel):
         description="What Medicare pays a hospital for its part: a labelled estimate, never part of a price.")
 
 
+class Catalog(BaseModel):
+    """Every service, and the families they are grouped in."""
+    families: list[Family] = Field(description="In the order the picker lists them.")
+    services: list[Service] = Field(description="By name.")
+
+
 class Part(BaseModel):
     """One bill at a place, with the rate the plan lists for it there that has
     the strongest evidence behind it, and the highest of those when several tie,
@@ -103,16 +122,26 @@ class Part(BaseModel):
     is placed at, or the scan at a group whose doctors read scans done
     elsewhere. A hospital's own fee is priced where the plan's file or the
     hospital's own price list gives it, and `source` says which."""
-    part: PartName
+    part: str = Field(description="The bill's name, such as `all_in`, `scan`, `reading` or `facility`.")
+    label: str
+    billing_class: Literal["professional", "institutional"]
     max: Optional[float]
     source: Optional[Literal["plan", "hospital"]] = Field(
         description="Where the rate comes from: the plan's own file, or a hospital's own price list. "
                     "Empty exactly when there is no rate.")
+    missing_note: Optional[str] = Field(description="Said of a part with no rate: what is missing.")
+    missing_explain: Optional[str] = Field(description="Said of a part with no rate: why, and who bills it.")
 
     @model_validator(mode="after")
     def _source_goes_with_a_rate(self):
         if (self.source is None) != (self.max is None):
             raise ValueError("a part has a source exactly when it has a rate")
+        return self
+
+    @model_validator(mode="after")
+    def _a_rate_has_nothing_missing(self):
+        if self.max is not None and (self.missing_note is not None or self.missing_explain is not None):
+            raise ValueError("a part with a rate has no missing text")
         return self
 
 
@@ -137,7 +166,8 @@ class Place(BaseModel):
     """
     place_id: str = Field(description="The CCN for a hospital, the lowest billing NPI for a practice.")
     name: str
-    kind: PlaceKind
+    kind: str
+    kind_name: str = Field(description="What to call the kind of place, such as Imaging center.")
     address: str
     city: str
     lat: float
@@ -223,7 +253,9 @@ class FindCare(BaseModel):
     origin: Origin
     radius_mi: RadiusMi = Field(description="The radius asked for, or the one chosen when none was.")
     sort: Sort
-    cost_sharing: CostSharing = Field(description="What the plan charges the member for the service.")
+    cost_sharing: list[Share] = Field(
+        min_length=1, description="What the plan charges the member for the service: one share per benefit "
+                                  "its bills fall under, in the order the bills come.")
     results: list[Place]
     wider_radius_mi: Optional[RadiusMi] = Field(
         description="When no result has a `max_rate`, the smallest radius that reaches the nearest place with one, "

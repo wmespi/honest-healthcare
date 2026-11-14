@@ -8,17 +8,26 @@ from fastapi import FastAPI, Query
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from application.serving.contract import FindCare, FindCareQuery, Place, Plan, Service, plan_order
+from application.serving.contract import Catalog, FindCare, FindCareQuery, Place, Plan, plan_order
+
+
+LABELS = {"all_in": "The scan and its reading", "scan": "The scan", "reading": "Radiologist's reading",
+          "facility": "Hospital facility fee"}
 
 
 def part(name, hi=None, source="plan"):
-    return {"part": name, "max": hi, "source": source if hi is not None else None}
+    return {"part": name, "label": LABELS[name],
+            "billing_class": "institutional" if name == "facility" else "professional",
+            "max": hi, "source": source if hi is not None else None,
+            "missing_note": None if hi is not None else f"Missing the {name}",
+            "missing_explain": None if hi is not None else f"Who bills the {name}."}
 
 
 def place(place_id="1000000010", kind="imaging_center", parts=None, stars=None, distance_mi=2.4, several_rates=False,
           cash_price=None):
     return {
         "place_id": place_id, "name": "Dogwood Imaging", "kind": kind,
+        "kind_name": "Hospital" if kind == "hospital" else "Imaging center",
         "address": "215 E Ponce de Leon Ave, Decatur, GA 30030", "city": "Decatur",
         "lat": 33.7752, "lon": -84.2935, "phone": None, "stars": stars, "cash_price": cash_price, "distance_mi": distance_mi,
         "parts": parts if parts is not None else [part("scan", 340), part("reading", 70)],
@@ -34,11 +43,15 @@ HOSPITAL = place("110010", "hospital", [part("reading", 80), part("facility")], 
 READS_ONLY = place("1000000020", "practice", [part("scan"), part("reading", 55)], distance_mi=5.1)
 
 
+SHARE = {"benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": 300.0, "coinsurance": 50.0,
+         "after_deductible": True, "parts": ["scan", "reading"]}
+
+
 def search(results, **extra):
     return {
         "service_id": "mri-brain", "plan_id": "blue-value",
         "origin": {"zip": "30322", "lat": 33.79, "lon": -84.32}, "radius_mi": 10, "sort": "price",
-        "cost_sharing": {"copay": 300.0, "coinsurance": 50.0, "after_deductible": True},
+        "cost_sharing": [SHARE],
         "results": results, "wider_radius_mi": None, "closest_outside": None, **extra,
     }
 
@@ -81,9 +94,11 @@ def test_searches_with_no_full_price_or_no_results_fit():
     (place(parts=[]), "every place has a bill"),
     (place(cash_price=300.0), "only a hospital has a cash price"),
     (place("110010", "hospital", cash_price=-1.0), "a cash price is not negative"),
-    (place(parts=[{"part": "scan", "max": 340, "source": None}]), "a rate has a source"),
-    (place(parts=[{"part": "scan", "max": None, "source": "plan"}]), "a source needs a rate"),
-    (place(parts=[{"part": "scan", "max": 340, "source": "cms"}]), "a source is the plan or the hospital"),
+    (place(parts=[{**part("scan", 340), "source": None}]), "a rate has a source"),
+    (place(parts=[{**part("scan"), "source": "plan"}]), "a source needs a rate"),
+    (place(parts=[{**part("scan", 340), "source": "cms"}]), "a source is the plan or the hospital"),
+    (place(parts=[{**part("scan", 340), "missing_note": "Missing the scan"}]), "a part with a rate has no missing text"),
+    (place(parts=[{**part("scan", 340), "billing_class": "other"}]), "a bill is professional or institutional"),
 ])
 def test_a_place_breaking_a_rule_is_rejected(row, why):
     with pytest.raises(ValidationError):
@@ -94,14 +109,21 @@ def test_a_place_breaking_a_rule_is_rejected(row, why):
     ({"wider_radius_mi": 25}, "widening is only for a search with no price"),
     ({"closest_outside": READS_ONLY}, "the closest outside is only for a search with no results"),
     ({"radius_mi": 15}, "a radius is one the screen offers"),
-    ({"cost_sharing": {"copay": None, "coinsurance": None, "after_deductible": False}},
+    ({"cost_sharing": [{**SHARE, "copay": None, "coinsurance": None}]},
      "the plan charges a copay, a coinsurance or both"),
-    ({"cost_sharing": {"copay": None, "coinsurance": 140.0, "after_deductible": True}},
-     "a coinsurance is a percent"),
+    ({"cost_sharing": [{**SHARE, "copay": None, "coinsurance": 140.0}]}, "a coinsurance is a percent"),
+    ({"cost_sharing": []}, "a service has at least one share"),
 ])
 def test_a_search_breaking_a_rule_is_rejected(extra, why):
     with pytest.raises(ValidationError):
         FindCare.model_validate(search([COMPLETE, HOSPITAL], **extra))
+
+
+def test_a_service_can_have_two_shares():
+    two = [SHARE, {**SHARE, "benefit": "specialist", "label": "Specialist visit", "copay": 60.0,
+                   "coinsurance": None, "after_deductible": False, "parts": ["reading"]}]
+    body = FindCare.model_validate(search([COMPLETE], cost_sharing=two)).model_dump()
+    assert [s["benefit"] for s in body["cost_sharing"]] == ["advanced_imaging", "specialist"]
 
 
 def _plan(plan_id, name, metal_level, deductible, carrier="Anthem Blue Cross and Blue Shield"):
@@ -127,12 +149,12 @@ def test_fastapi_publishes_the_contract():
         return [{"plan_id": "blue-value", "name": "Blue Value HMO", "carrier": "Anthem", "metal_level": "Silver",
                  "needs_referral": True, "deductible": 4000.0}]
 
-    @app.get("/services", response_model=list[Service])
+    @app.get("/services", response_model=Catalog)
     def services():
-        return [{"service_id": "mammogram", "name": "Screening mammogram", "keywords": "breast",
+        return {"families": [{"family": "mammograms", "name": "Mammograms"}], "services": [{"service_id": "mammogram", "family": "mammograms", "name": "Screening mammogram", "keywords": "breast",
                  "about": "A low-dose X-ray.", "could_change": [], "asks": [],
                  "preventive_note": "Usually $0 in network.", "medicare_rate": 98.1,
-                 "medicare_facility_rate": None}]
+                 "medicare_facility_rate": None}]}
 
     @app.get("/find-care", response_model=FindCare)
     def find_care(q: Annotated[FindCareQuery, Query()]):

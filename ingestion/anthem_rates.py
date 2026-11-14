@@ -7,8 +7,9 @@ price them and the labels those files give them. A network's rates are the
 ones under one of its labels in the one parsed file its target names that the
 index links to the network's plans, and every plan on the network has to be
 linked to that file (ingestion/etl/mrf-model.md, "One plan, one contract").
-A target's facility labels add only that file's institutional rates, the
-bills a hospital or surgery center sends, with the groups they cover.
+A target's shared labels, other labels in that file that price the plan's
+members without its name, add all their rates with the groups they cover;
+`own_label` says which rates are under the network's own labels.
 A network no parsed file prices is left out, and networks.parquet says why, so
 one file's failure stales only its own networks. A mistake in the targets file
 or the index stops the step, and so does a run that prices no network at all,
@@ -38,27 +39,24 @@ _EXCHANGE_NETWORKS = ("ingestion/reference/exchange_networks_ga.parquet", "make 
 _EXCHANGE_PLANS = ("ingestion/reference/exchange_plans_ga.parquet", "make reference STEP=exchange-plans", "")
 
 # The payer rates, as integration reads them (integration/inputs/datasets.py). Each
-# SELECT reads the `network_files` table publish() makes, through _KEPT: every
-# rate under a network's own labels, and the institutional ones under its
-# facility labels. Rates and rate groups
+# SELECT reads the `network_files` table publish() makes: every
+# rate under a network's own and shared labels is published, and `own_label` says
+# which. Rates and rate groups
 # are written in full row order, so the same files make the same bytes; a
 # network's rosters can run to hundreds of millions of rows (every doctor in
 # every provider group its rates use), so they're streamed as they come.
-_KEPT = "NOT f.facility_only OR r.billing_class = 'institutional'"
 _RATES = f"""
     SELECT f.network_id, r.group_set_id, r.billing_code_type, r.billing_code,
            r.negotiation_arrangement, r.negotiated_type, r.negotiated_rate, r.expiration_date,
-           r.service_code, r.billing_class, r.modifier, r.setting
+           r.service_code, r.billing_class, r.modifier, r.setting, f.own_label
     FROM {{rates}} r JOIN network_files f USING (file_id, network_name)
-    WHERE {_KEPT}
     ORDER BY ALL
 """
 _RATE_GROUPS = f"""
     SELECT DISTINCT n.network_id, g.group_set_id, g.provider_group_id
     FROM {{groups}} g
     JOIN (SELECT DISTINCT f.network_id, r.file_id, r.group_set_id
-          FROM {{rates}} r JOIN network_files f USING (file_id, network_name)
-          WHERE {_KEPT}) n
+          FROM {{rates}} r JOIN network_files f USING (file_id, network_name)) n
       USING (file_id, group_set_id)
     ORDER BY ALL
 """
@@ -67,8 +65,7 @@ _ROSTERS = f"""
     FROM {{rosters}} p
     JOIN (SELECT DISTINCT f.network_id, r.file_id, g.provider_group_id
           FROM {{rates}} r JOIN network_files f USING (file_id, network_name)
-          JOIN {{groups}} g USING (file_id, group_set_id)
-          WHERE {_KEPT}) n
+          JOIN {{groups}} g USING (file_id, group_set_id)) n
       USING (file_id, provider_group_id)
 """
 # One row per target network, saying whether its rates are from the latest copy
@@ -131,8 +128,8 @@ def _targets(con, data_dir, targets_path):
     and its labels as SQL LIKE patterns. Every network has to be one of
     Georgia's, with a plan on it, and named by one target that names files."""
     rows = [(name, (net or "").strip(), [f.strip() for f in files], patterns, [_like(p) for p in patterns],
-             [_like(p) for p in facility])
-            for name, nets, files, patterns, facility in read_targets(targets_path) for net in nets]
+             [_like(p) for p in shared])
+            for name, nets, files, patterns, shared in read_targets(targets_path) for net in nets]
     if not rows:
         raise SystemExit(f"{targets_path} names no exchange networks")
     blank = [name for name, net, *_ in rows if not net]
@@ -142,7 +139,7 @@ def _targets(con, data_dir, targets_path):
     if fileless:
         raise SystemExit(f"{targets_path}: target {fileless[0]!r} names no files, so nothing can price its networks")
     con.execute("CREATE TEMP TABLE targets (target VARCHAR, network_id VARCHAR, files VARCHAR[], "
-                "patterns VARCHAR[], likes VARCHAR[], facility_likes VARCHAR[])")
+                "patterns VARCHAR[], likes VARCHAR[], shared_likes VARCHAR[])")
     con.executemany("INSERT INTO targets VALUES (?, ?, ?, ?, ?, ?)", rows)
     twice = con.execute("SELECT network_id, list(target ORDER BY target) FROM targets "
                         "GROUP BY network_id HAVING count(*) > 1 ORDER BY network_id").fetchone()
@@ -189,13 +186,13 @@ def _named_files(con, data_dir, targets_path):
 
 
 def _network_files(con, data_dir, targets_path):
-    """`network_files`: (network_id, file_id, network_name, facility_only) for
+    """`network_files`: (network_id, file_id, network_name, own_label) for
     each label a target network's rates carry in a parsed file that can price
     it, and `labels`: every label in each parsed file. Labels match the way the
     parse probe matches them (ingestion/etl/extraction/targets.go): trimmed,
-    case-insensitive, and `*` is the only wildcard. A facility label counts only
-    in a file that carries one of the network's own labels, and `facility_only`
-    says just its institutional rates are the network's. Two parsed files
+    case-insensitive, and `*` is the only wildcard. A shared label counts only
+    in a file that carries one of the network's own labels, and `own_label`
+    says whether a label is one of the network's own. Two parsed files
     carrying one network's labels stop the step: one file prices a network."""
     if glob.glob(f"{data_dir}/{_RAW_RATES[0]}"):
         con.execute(f"CREATE TEMP TABLE labels AS "
@@ -210,10 +207,10 @@ def _network_files(con, data_dir, targets_path):
             JOIN named_files n USING (network_id)
             JOIN labels l ON l.file_id = n.file_id AND lower(trim(l.network_name)) LIKE k.label_like ESCAPE '!'
         )
-        SELECT network_id, file_id, network_name, false AS facility_only FROM own
+        SELECT network_id, file_id, network_name, true AS own_label FROM own
         UNION ALL
-        SELECT DISTINCT k.network_id, l.file_id, l.network_name, true
-        FROM (SELECT network_id, unnest(facility_likes) AS label_like FROM targets) k
+        SELECT DISTINCT k.network_id, l.file_id, l.network_name, false
+        FROM (SELECT network_id, unnest(shared_likes) AS label_like FROM targets) k
         JOIN (SELECT DISTINCT network_id, file_id FROM own) o USING (network_id)
         JOIN labels l ON l.file_id = o.file_id AND lower(trim(l.network_name)) LIKE k.label_like ESCAPE '!'
         WHERE NOT EXISTS (SELECT 1 FROM own w WHERE w.network_id = k.network_id AND w.file_id = l.file_id
@@ -365,12 +362,12 @@ def _swap(staged, out_dir):
 
 
 def read_targets(path=TARGETS_PATH):
-    """[(name, exchange_networks, files, network_patterns, facility_patterns)]
+    """[(name, exchange_networks, files, network_patterns, shared_patterns)]
     for each target in ingestion/etl/targets.yaml."""
     with open(path) as f:
         targets = (yaml.safe_load(f) or {}).get("targets") or []
     return [(t.get("name"), t.get("exchange_networks") or [], t.get("files") or [],
-             t.get("network_patterns") or [], t.get("facility_patterns") or []) for t in targets]
+             t.get("network_patterns") or [], t.get("shared_patterns") or []) for t in targets]
 
 
 def _like(pattern):

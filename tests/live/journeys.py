@@ -5,7 +5,8 @@ answer" checks behind docs/journeys.md.
 
 Unlike test_golden.py beside it (pinned answers), this is depth: for a handful
 of named personas, does the specific expected outcome still hold — the canary rate,
-the hospital's missing fee, whole prices first, a hospital's fee where the plan's file has one.
+the hospital's missing fee, whole prices first, a hospital's fee where the plan's file has one,
+one service in every family.
 
 Needs the REAL corpus in the running stack (the assertions check real dollar
 figures), so this is a local tool — `make test-live` — not a CI gate.
@@ -39,6 +40,7 @@ EMORY_CLINIC = "1396798229"
 GOLD_PATHWAY = "49046GA0700055"  # Anthem Gold Pathway PCP Copay Choice HMO 1200, Sam's plan here
 GRADY = "110079"
 GRADY_70551 = 1287.28  # brain MRI at Grady on Pathway: the hospital's fee in the plan's file plus the reading
+PEACHTREE_IMMEDIATE_CARE = "1235573841"
 SLOW_CALL_MS = 1500   # a single API call slower than this gets flagged (not a failure)
 
 _calls = []  # (path, ms) for the journey currently running — reset per journey
@@ -76,9 +78,9 @@ def j1(api):
     checks = [
         (clinic is not None, "The Emory Clinic listed"),
         (clinic and clinic["max_rate"] == CANARY_70551, f"Emory Clinic {clinic and clinic['max_rate']} (want {CANARY_70551})"),
-        (body.get("cost_sharing") is not None, "the plan's share of the rate"),
-        (all(h["max_rate"] is None and h["parts"][0] == {"part": "facility", "max": None, "source": None}
-             for h in hospitals),
+        ([s["benefit"] for s in body.get("cost_sharing") or []] == ["advanced_imaging"], "the plan's share of the rate"),
+        (all(h["max_rate"] is None and h["parts"][0]["billing_class"] == "institutional"
+             and h["parts"][0]["max"] is None and h["parts"][0]["missing_explain"] for h in hospitals),
          "a hospital's own fee shows as missing, so it has no most you'd pay"),
         (all(r["name"] and r["city"] and r["distance_mi"] is not None for r in rows),
          "every place has its own name, a city and a distance from the ZIP"),
@@ -121,11 +123,41 @@ def j4(api):
     return status == 422, f"no plan -> {status} (want 422: prices depend on the plan)"
 
 
+def one_bill(service_id, part, place_id, rate, shares, radius_mi=None, kind=None):
+    """A journey for a service with one bill: the place shows that one part at the
+    rate, no hospital is listed, and the plan's share is under `shares`."""
+    def journey(api):
+        body, status = search(api, service_id, radius_mi=radius_mi)
+        rows = (body or {}).get("results") or []
+        if status != 200 or not rows:
+            return False, f"/find-care {service_id} returned {status} / {len(rows)} places"
+        place = next((r for r in rows if r["place_id"] == place_id), None)
+        got = place and [(p["part"], p["max"]) for p in place["parts"]]
+        benefits = [s["benefit"] for s in body.get("cost_sharing") or []]
+        checks = [
+            (place is not None, f"place {place_id} listed"),
+            (got == [(part, rate)] and place["max_rate"] == rate, f"{place_id} shows {got} (want {part} at {rate})"),
+            (all(r["kind"] != "hospital" for r in rows), "no hospital is listed"),
+            (kind is None or all(r["kind"] == kind for r in rows), f"every place is a {kind}"),
+            (benefits == shares, f"the plan's share is under {benefits} (want {shares})"),
+        ]
+        bad = [msg for ok, msg in checks if not ok]
+        return (not bad), ("; ".join(bad) if bad else f"{len(rows)} places · {place['name']} ${rate}")
+    return journey
+
+
 JOURNEYS = [
     ("J1", "Rosa — brain MRI price near Emory", j1),
     ("J2", "Rosa — knee MRI", j2),
     ("J3", "Sam - brain MRI at a hospital", j3),
     ("J4", "Dana — a search with no plan", j4),
+    ("J5", "Rosa - an office visit", one_bill("visit-return-20", "visit", EMORY_CLINIC, 90.5, ["primary_care", "specialist"])),
+    ("J6", "Rosa - a yearly checkup", one_bill("checkup-return-40-64", "visit", EMORY_CLINIC, 123.06, ["preventive"])),
+    ("J7", "Rosa - urgent care", one_bill("urgent-return-20", "visit", PEACHTREE_IMMEDIATE_CARE, 90.5, ["urgent_care"],
+                                         radius_mi=10, kind="urgent_care")),
+    ("J8", "Rosa - counseling", one_bill("counseling-45", "session", EMORY_CLINIC, 111.03, ["mental_health"])),
+    ("J9", "Rosa - physical therapy", one_bill("therapy-exercise", "therapy", EMORY_CLINIC, 27.64, ["therapy"])),
+    ("J10", "Rosa - a lab test", one_bill("lab-cbc-basic", "test", EMORY_CLINIC, 6.47, ["lab"])),
 ]
 
 

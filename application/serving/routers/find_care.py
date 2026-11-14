@@ -13,9 +13,9 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..contract import RADIUS_OPTIONS_MI, FindCare, FindCareQuery, Plan, Problem, Service, plan_order
+from ..contract import RADIUS_OPTIONS_MI, Catalog, FindCare, FindCareQuery, Plan, Problem, plan_order
 from ..data_sources import (
-    COST_SHARING_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, ZIPS_SRC, db,
+    COST_SHARING_SRC, FAMILIES_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, ZIPS_SRC, db,
 )
 
 router = APIRouter()
@@ -54,13 +54,47 @@ def get_plans():
     return sorted(plans, key=plan_order)
 
 
-@router.get("/services", response_model=list[Service])
+@router.get("/services", response_model=Catalog)
 def get_services():
-    return _rows(db().execute(f"""
-        SELECT service_id, name, keywords, about, could_change, asks, preventive_note,
-               medicare_rate, medicare_facility_rate
-        FROM {SERVICES_SRC} ORDER BY name
-    """))
+    conn = db()
+    return {"families": _rows(conn.execute(f"SELECT family, name FROM {FAMILIES_SRC} ORDER BY position, family")),
+            "services": _rows(conn.execute(f"""
+                SELECT service_id, family, name, keywords, about, could_change, asks, preventive_note,
+                       medicare_rate, medicare_facility_rate
+                FROM {SERVICES_SRC} ORDER BY name, service_id
+            """))}
+
+
+def with_bill_text(place, bills):
+    """A place's parts with each bill's label, class and, on a part with no
+    rate, what is missing. At a hospital that is the bill's own hospital
+    wording when it has one."""
+    by_part = {b["part"]: b for b in bills}
+    hospital = place["kind"] == "hospital"
+    parts = []
+    for p in place["parts"]:
+        bill = by_part[p["part"]]
+        missing = p["max"] is None
+        parts.append({**p, "label": bill["label"], "billing_class": bill["billing_class"],
+                      "missing_note": bill["missing_note"] if missing else None,
+                      "missing_explain": ((bill["missing_explain_hospital"] if hospital else None)
+                                          or bill["missing_explain"]) if missing else None})
+    return {**place, "parts": parts}
+
+
+def shares_for(conn, plan_id, bills):
+    """One share per distinct benefit across the bills, in the order first
+    seen, with the bills under it."""
+    parts_by_benefit = {}
+    for b in bills:
+        for benefit in b["benefits"]:
+            parts_by_benefit.setdefault(benefit, []).append(b["part"])
+    benefits = list(parts_by_benefit)
+    rows = {r["benefit"]: r for r in _rows(conn.execute(f"""
+        SELECT benefit, label, copay, coinsurance, after_deductible FROM {COST_SHARING_SRC}
+        WHERE plan_id = ? AND list_contains(?::VARCHAR[], benefit)
+    """, [plan_id, benefits]))}
+    return [{**rows[b], "parts": parts_by_benefit[b]} for b in benefits if b in rows]
 
 
 def priced(place) -> bool:
@@ -91,7 +125,7 @@ def wider_radius(places, results) -> Optional[int]:
 @router.get("/find-care", response_model=FindCare, responses={404: {"model": Problem}})
 def find_care(q: Annotated[FindCareQuery, Query()]):
     conn = db()
-    service = _one(conn, f"SELECT service_category FROM {SERVICES_SRC} WHERE service_id = ?", [q.service_id])
+    service = _one(conn, f"SELECT bills FROM {SERVICES_SRC} WHERE service_id = ?", [q.service_id])
     if service is None:
         raise _not_found("unknown_service", f"There's no service {q.service_id!r}.")
     plan = _one(conn, f"SELECT network_id FROM {PLANS_SRC} WHERE plan_id = ?", [q.plan_id])
@@ -100,14 +134,11 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
     origin = _one(conn, f"SELECT zip, lat, lon FROM {ZIPS_SRC} WHERE zip = ?", [q.zip])
     if origin is None:
         raise _not_found("unknown_zip", f"There's no ZIP code {q.zip}.")
-    cost_sharing = _one(conn, f"""
-        SELECT copay, coinsurance, after_deductible FROM {COST_SHARING_SRC}
-        WHERE plan_id = ? AND service_category = ?
-    """, [q.plan_id, service["service_category"]])
+    cost_sharing = shares_for(conn, q.plan_id, service["bills"])
 
     places = _rows(conn.execute(f"""
         WITH o AS (SELECT ?::DOUBLE AS lat, ?::DOUBLE AS lon)
-        SELECT l.place_id, l.name, l.kind, l.address, l.city, l.lat, l.lon, l.phone, l.stars, p.cash_price,
+        SELECT l.place_id, l.name, l.kind, l.kind_name, l.address, l.city, l.lat, l.lon, l.phone, l.stars, p.cash_price,
                {haversine_sql("l.lat", "l.lon", "o.lat", "o.lon")} AS distance_mi,
                p.parts, p.several_rates, p.billers, p.providers
         FROM {PRICES_SRC} p JOIN {PLACES_SRC} l USING (place_id) CROSS JOIN o
@@ -124,7 +155,7 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
         f"SELECT npi, name, specialty, score FROM {PROVIDERS_SRC} WHERE list_contains(?::BIGINT[], npi)", [npis]))}
 
     def place(p):
-        return {**p, "distance_mi": round(p["distance_mi"], 1),
+        return {**with_bill_text(p, service["bills"]), "distance_mi": round(p["distance_mi"], 1),
                 "providers": sorted((providers[n] for n in p["providers"]), key=lambda v: (v["name"], v["npi"]))}
 
     return FindCare(service_id=q.service_id, plan_id=q.plan_id, origin=origin, radius_mi=radius, sort=q.sort,
