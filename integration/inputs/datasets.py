@@ -160,8 +160,13 @@ GEOCODES = Dataset("reference/geocode_addresses.parquet", "make reference STEP=g
 # Each ZIP's Census centroid: zip, lat, lon (ingestion/reference/zip-centroids.md).
 ZIP_CENTROIDS = Dataset("reference/zip_centroids.parquet", "make reference STEP=zip-centroids", {
     "zip": V, "lat": D, "lon": D}, key=["zip"])
+# CMS's shoppable services, each code with CMS's classification of it (RBCS): its
+# category, subcategory and family, the names integration/families.yaml groups codes by.
+SHOPPABLE_SERVICES = Dataset("reference/shoppable_services.parquet", "make reference STEP=shoppable", {
+    "billing_code": V, "billing_code_type": V, "rbcs_category": V, "rbcs_subcategory": V, "rbcs_family": V},
+    key=["billing_code_type", "billing_code"])
 
 DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, PAYER_NETWORKS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
             EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, NPPES_LOCATIONS, MEDICARE_BILLING,
             NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, MIPS, HOSPITALS, HOSPITAL_RATES, GEOCODES,
-            ZIP_CENTROIDS]
+            ZIP_CENTROIDS, SHOPPABLE_SERVICES]

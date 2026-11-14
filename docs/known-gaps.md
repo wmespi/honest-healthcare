@@ -23,9 +23,10 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 
 ## Data scope
 
-- **Only the services in `integration/services.yaml` have prices.** The find-care tables
-  price the scans it lists, and every other code (PCP visits, for one) has none.
-  [#158](https://github.com/wmespi/honest-healthcare/issues/158) plans how the list grows.
+- **Only the services in `integration/services.yaml` have prices.**
+  A family in `integration/families.yaml` takes its codes from CMS's shoppable services, and a code shows once the file names it.
+  `make build` lists each family's codes a plan prices that have no name yet.
+  Procedures and hospital stays have no family ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
 - **Prices are outpatient professional fee-for-service only.** `biller_rates`
   ([integration/build.md](../integration/build.md#the-find-care-tables)) keeps fee-schedule or
   negotiated dollar rates for an outpatient professional visit. Excluded but still in the
@@ -68,6 +69,23 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   show `prices_as_of` or a `stale` network yet ([build.md](../integration/build.md#the-find-care-tables)).
 - **Large GA files** (multi-GB) are tractable thanks to the price/roster split; still
   parse individually and watch `du -sh data`.
+
+## Visits, lab tests, therapy and counseling
+
+- **None of them shows at a hospital.**
+  Their families list no hospital bills, so a clinic, lab or urgent care in a hospital's building is left out, and so is the hospital's own fee for one.
+- **An office visit lists every specialty together.**
+  The screen has no specialty filter, and it shows both the primary care and the specialist share because the file doesn't say which a practice's visit falls under.
+- **A yearly checkup's evidence is Medicare's wellness visit.**
+  Medicare doesn't pay the checkup codes, so a practice shows when Medicare has a doctor of its billing a wellness visit, and children's checkups aren't offered because Medicare has no evidence for them.
+- **Urgent care lists only the centers NPPES registers as urgent care.**
+  It shows the rate for the urgent care place of service where a network's file has one, and the office rate where it doesn't.
+- **Therapy is priced per code, and most codes are 15 minutes.**
+  A session bills several, and the screen doesn't add them up.
+- **Counseling shows the rate with no modifier.**
+  A rate a plan lists for a psychologist (`AH`) or a clinical social worker (`AJ`) alone is left out, so where a plan pays them less, a session with one costs less than shown.
+- **A lab test's price is the test alone.**
+  The blood draw is a service of its own, and the screen doesn't add the two.
 
 ## Imaging
 

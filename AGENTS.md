@@ -140,7 +140,8 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Discovery - the monthly file list, the plan→file link, a file's ID, monthly churn | [ingestion/etl/discover.md](ingestion/etl/discover.md) |
 | Extraction - target selection, when a file is downloaded again, recovering a failed or stopped parse, the parser, network attribution, GA NPI filter, Parquet writers, publishing the rates by network | [ingestion/etl/parse.md](ingestion/etl/parse.md) |
 | Which plans we parse files for | [ingestion/etl/targets.yaml](ingestion/etl/targets.yaml) |
-| The services the find-care screen offers, and what it says about each | [integration/services.yaml](integration/services.yaml) |
+| The families of services the find-care screen offers: each one's codes, bills, benefits, kinds of place and what the screen says | [integration/families.yaml](integration/families.yaml) |
+| The services in each family, by our own names | [integration/services.yaml](integration/services.yaml) |
 | NPPES Georgia provider subset | [ingestion/etl/nppes.md](ingestion/etl/nppes.md) |
 | NUCC specialty labels | [ingestion/reference/taxonomy-labels.md](ingestion/reference/taxonomy-labels.md) |
 | Provider↔procedure evidence (CMS utilization) | [ingestion/reference/cms-utilization.md](ingestion/reference/cms-utilization.md) |

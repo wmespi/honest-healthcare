@@ -7,6 +7,8 @@ hospitals' plan names the build reads. Each file has its dataset's columns
 real find-care build on it, and application/serving/tests builds the app's
 fixture tables from `default_corpus`.
 """
+import copy
+import json
 import os
 
 import duckdb
@@ -41,9 +43,53 @@ def _literal(v):
     return "'" + str(v).replace("'", "''") + "'"
 
 
-# Two of Georgia's service categories, as its cost-sharing file names them.
+# Georgia's service categories, as its cost-sharing file names them, for the
+# benefits the test families use.
 IMAGING = "Imaging (CT/PET Scans, MRIs)"
 PREVENTIVE = "Preventive Care/Screening/Immunization"
+PRIMARY_CARE = "Primary Care Visit to Treat an Injury or Illness"
+SPECIALIST = "Specialist Visit"
+
+_SCAN_BILLS = [
+    {"part": "all_in", "label": "The scan and its reading", "billing_class": "professional", "modifier": "",
+     "on_site": True},
+    {"part": "scan", "label": "The scan", "billing_class": "professional", "modifier": "TC", "on_site": True,
+     "missing": {"note": "Missing the cost of the scan", "explain": "The place that does your scan bills it."}},
+    {"part": "reading", "label": "Radiologist's reading", "billing_class": "professional", "modifier": "26",
+     "on_site": False,
+     "missing": {"note": "Missing the reading", "explain": "A doctor reads your scan and bills for it.",
+                 "explain_at_hospital": "Ask the hospital who will read yours."}},
+    {"part": "facility", "label": "Hospital facility fee", "billing_class": "institutional",
+     "missing": {"note": "Missing the hospital's fee", "explain": "Hospitals bill their own fee."}},
+]
+_SCAN = {"about": "A scan.", "could_change": ["Contrast dye"], "asks": ["Is this everything?"],
+         "bills": _SCAN_BILLS, "hospital": ["facility", "reading"], "elsewhere": [["all_in"], ["scan", "reading"]]}
+# What the corpus's families.yaml says: the imaging families the tests were
+# written for, and one one-bill family, office visits, not shown at hospitals.
+FAMILIES = {
+    "benefits": {
+        "advanced_imaging": {"name": IMAGING, "label": "CT, PET and MRI scans"},
+        "preventive": {"name": PREVENTIVE, "label": "Preventive care"},
+        "primary_care": {"name": PRIMARY_CARE, "label": "Primary care visit"},
+        "specialist": {"name": SPECIALIST, "label": "Specialist visit"},
+    },
+    "kinds": {"hospital": "Hospital", "imaging_center": "Imaging center", "practice": "Medical practice"},
+    "families": [
+        {"family": "office_visits", "name": "Office visits", "groups": ["Office E&M - Established"],
+         "benefits": ["primary_care", "specialist"], "about": "A visit with a doctor in an office.",
+         "could_change": ["Tests done during the visit"], "asks": ["Is the doctor in my network?"],
+         "bills": [{"part": "visit", "label": "The visit", "billing_class": "professional", "modifier": "",
+                    "on_site": True}],
+         "elsewhere": [["visit"]]},
+        {"family": "mammograms", "name": "Mammograms", "groups": ["Mammography"], "benefits": ["advanced_imaging"],
+         **_SCAN, "centers": {"261QR0200X": "imaging_center", "261QR0208X": "imaging_center",
+                              "261QR0206X": "imaging_center", "261QR0207X": "imaging_center"}},
+        {"family": "mri", "name": "MRI scans", "groups": ["Magnetic Resonance"], "benefits": ["advanced_imaging"],
+         **_SCAN, "centers": {"261QR0200X": "imaging_center", "261QR0208X": "imaging_center",
+                              "261QM1200X": "imaging_center"}},
+    ],
+}
+GROUPS = {"office_visits": "Office E&M - Established", "mammograms": "Mammography", "mri": "Magnetic Resonance"}
 
 class Corpus:
     """Payer rates and rosters, Georgia's networks, plans, premiums, cost sharing
@@ -55,6 +101,10 @@ class Corpus:
         self.root = root
         os.makedirs(root, exist_ok=True)
         self.services_file = f"{root}/services.yaml"
+        self.families_file = f"{root}/families.yaml"
+        self.families = json.loads(json.dumps(FAMILIES))
+        self.write_families()
+        self.shoppable = []
         self.hospital_plans_file = f"{root}/hospital_plans.yaml"
         self.hospital_plans([])
         self.hospital_rates = {}
@@ -79,6 +129,7 @@ class Corpus:
         self.scores = []
         self.benefits = {}
         self.pending = {}
+        self._queue(f"{root}/reference/shoppable_services.parquet", d.SHOPPABLE_SERVICES.columns, self.shoppable)
         # The build reads both of these, so they're written even with no rows.
         self._queue(f"{root}/nppes/ga_locations.parquet", d.NPPES_LOCATIONS.columns, self.locations)
         self._queue(f"{root}/reference/dac_locations_ga.parquet", d.CLINICIAN_LOCATIONS.columns,
@@ -241,7 +292,7 @@ class Corpus:
         from integration import tables
         self.flush()
         con = tables.connect(f"{self.root}/.spill")
-        for table in tables.inputs(self.services_file, self.hospital_plans_file):
+        for table in tables.inputs(self.services_file, self.hospital_plans_file, self.families_file):
             table.make(con, self.root)
         return con
 
@@ -255,6 +306,8 @@ class Corpus:
             preventive = benefit == PREVENTIVE
             self.cost_sharing(plan_id, benefit, "No Charge" if preventive else "Not Applicable",
                               "Not Applicable" if preventive else "40.00% Coinsurance after deductible")
+        self.cost_sharing(plan_id, PRIMARY_CARE, "$30.00 Copay", "Not Applicable")
+        self.cost_sharing(plan_id, SPECIALIST, "$60.00 Copay", "Not Applicable")
 
     def cost_sharing(self, plan_id, benefit, copay, coinsurance, covered=True):
         """Set what `plan_id` charges the member for `benefit`, in Georgia's wording."""
@@ -288,15 +341,31 @@ class Corpus:
         self._queue(f"{self.root}/reference/zip_centroids.parquet",
                     d.ZIP_CENTROIDS.columns, self.zips)
 
-    def service(self, service_id, billing_code, **fields):
-        """Add a service to the services file, with placeholder text for any field
-        not given."""
-        self.services.append({"service_id": service_id, "billing_code": billing_code,
-                              "service_category": IMAGING, "name": f"Service {service_id}", "keywords": "scan",
-                              "about": "A scan.", "could_change": ["Contrast dye"],
-                              "asks": ["Is this everything?"], **fields})
+    def write_families(self):
+        """Write `self.families`, the model the build reads as families.yaml."""
+        with open(self.families_file, "w") as f:
+            yaml.safe_dump(copy.deepcopy(self.families), f, sort_keys=False)
+
+    def family(self, family, **fields):
+        """Change `family`'s fields in the families file."""
+        next(f for f in self.families["families"] if f["family"] == family).update(fields)
+        self.write_families()
+
+    def service(self, service_id, billing_code, family="mri", **fields):
+        """Add a service to `family` in the services file, with a name and keywords
+        unless given, and CMS's shoppable code for it in the family's group unless
+        the corpus has one."""
+        self.services.append((family, {"service_id": service_id, "billing_code": billing_code,
+                                       "name": f"Service {service_id}", "keywords": "scan", **fields}))
+        listed = {}
+        for fam, entry in self.services:
+            listed.setdefault(fam, []).append(entry)
         with open(self.services_file, "w") as f:
-            yaml.safe_dump({"services": self.services}, f, sort_keys=False)
+            yaml.safe_dump(listed, f, sort_keys=False)
+        if billing_code not in [r[0] for r in self.shoppable]:
+            self.shoppable.append((billing_code, "CPT", "Radiology", GROUPS[family], GROUPS[family]))
+            self._queue(f"{self.root}/reference/shoppable_services.parquet", d.SHOPPABLE_SERVICES.columns,
+                        self.shoppable)
 
     def medicare(self, billing_code, office, facility=None):
         """Medicare's office rate for `billing_code` in each of Georgia's two payment
@@ -323,7 +392,8 @@ class Corpus:
     def build(self, out="serving"):
         from integration import tables
         self.flush()
-        return tables.build(self.root, f"{self.root}/{out}", self.services_file, self.hospital_plans_file)
+        return tables.build(self.root, f"{self.root}/{out}", self.services_file, self.hospital_plans_file,
+                            self.families_file)
 
     def rows(self, table, out="serving"):
         return duckdb.connect().execute(
@@ -360,10 +430,12 @@ def default_corpus(root):
     c.zip("31602", 30.8774, -83.2799)
     c.zip("30720", 34.7698, -84.9702)
     c.service("mri-lower-back", "72148", name="Lower-back MRI")
-    c.service("mammogram-screening", "77067", name="Screening mammogram", service_category=PREVENTIVE,
-              preventive_note="Usually $0 in network as preventive care.")
+    c.service("mammogram-screening", "77067", family="mammograms", name="Screening mammogram",
+              benefits=["preventive"], preventive_note="Usually $0 in network as preventive care.")
+    c.service("office-visit-established", "99213", family="office_visits", name="Office visit")
     c.medicare("72148", office=(170.0, 190.0), facility=243.77)
     c.medicare("77067", office=(110.0, 120.0))
+    c.medicare("99213", office=(90.0, 95.0))
     # 1000000001 does the MRI in an office. 1000000002 is a registered imaging
     # center whose doctor Medicare shows only in hospitals. 1000000003 only reads,
     # at an office Census didn't match. 1000000004 reads at Grady's address.
@@ -433,3 +505,17 @@ def default_corpus(root):
     c.facility_price(PATHWAY, 60, "77067", 165)
     c.flush()
     return c
+
+
+def office_visit_practice(c):
+    """Price an office visit (99213) on Blue Value at a family medicine practice,
+    the one place the default corpus's one-bill family is shown."""
+    # An office visit is one bill, priced at a practice: a family doctor's own NPI.
+    c.npi(1000000070, "FAMILY MEDICINE ASSOCIATES PC", "10 PEACHTREE ST NE", "ATLANTA", "303083001",
+          taxonomy="207Q00000X")
+    c.geocode("10 PEACHTREE ST NE", "ATLANTA", "303083001", "10 PEACHTREE ST NE, ATLANTA, GA, 30308", 33.7721,
+              -84.3855)
+    c.roster(BLUE_VALUE, 70, 70, "1000000070", 2000000070)
+    c.scan_price(BLUE_VALUE, 70, "99213", all_in=95)
+    c.billed(2000000070, "99213", "O")
+    c.flush()

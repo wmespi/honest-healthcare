@@ -31,13 +31,13 @@ providers/facilities, blending **price on their plan**, **quality / volume**, an
 
 - **Exploring:** "find the cheapest care near me" as the lead experience: a service
   and an address or ZIP give a table of providers and rates, supplemented by a map.
-  The screen at `/find-care` does this for imaging
+  The screen at `/find-care` does this for the families of services in `integration/families.yaml`
   ([plan on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6536008460)).
 - Anchored on one network (theirs).
 - Needs: geocoding, CMS quality (hospital + clinician), inpatient volume.
 - **Closest to shippable** — rates exist; the rest is cheap public data.
 - Ends in a "Request this appointment" action (see *information tool → navigator*).
-- **Shipped:** the find-care screen at `/find-care`, for the scans in `integration/services.yaml`
+- **Shipped:** the find-care screen at `/find-care`, for the services in `integration/services.yaml`
   on Anthem's Georgia exchange plans, with each plan's deductible and cost sharing.
 - **Next:** invited testers on the deployed app ([#17](https://github.com/wmespi/honest-healthcare/issues/17)).
 
@@ -58,7 +58,7 @@ in-network status of their providers and drugs.
 ### Shared substrate
 
 Both sit on the same foundation, which is most of the work — build it once:
-a service list (`integration/services.yaml`, hand-written for now), provider identity and
+a service list (`integration/families.yaml` picks each family's codes from CMS's shoppable services, and `integration/services.yaml` names them), provider identity and
 geocode (have), negotiated rates per `(payer, network, code, provider)` (have for one
 payer), plan cost-sharing structure (have for Georgia's exchange plans), quality signal
 (Medicare's clinician score and hospital stars; patient experience missing).

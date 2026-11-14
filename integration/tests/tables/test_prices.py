@@ -219,3 +219,11 @@ def test_a_place_names_the_clinicians_cms_lists_practicing_there(corpus):
     rows = providers(corpus)
     assert rows[(BV, "mri-lower-back", "1000000001")] == [2000000001]
     assert rows[(BV, "mri-lower-back", office[0])] == [2000000032]
+
+
+def test_a_one_bill_family_is_priced_at_a_practice_and_never_at_a_hospital(corpus):
+    from integration.tests.corpus import office_visit_practice
+    office_visit_practice(corpus)
+    corpus.build()
+    rows = [r for r in corpus.rows("prices") if r[1] == "office-visit-established"]
+    assert [(r[0], r[2], r[3]) for r in rows] == [(BV, "1000000070", [part("visit", 95.0)])]

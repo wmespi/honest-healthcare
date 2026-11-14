@@ -1,0 +1,319 @@
+# What a service's bills are, family by family. integration/services.yaml names
+# the services in each family, and `make build` reads both (integration/build.md).
+#
+# benefits   Our key for each benefit a member's share can fall under: its `name`
+#            in Georgia's cost-sharing file and the `label` the screen shows
+#            (cost_sharing.parquet).
+# kinds      Our key for each kind of place, with what the screen calls it, in
+#            priority order: a place whose billers are registered as centers of
+#            two kinds is the first. A place that is neither a hospital nor a
+#            center is a practice.
+# families   In the order the screen lists them, each with:
+#   family            Our key for it.
+#   name              What the screen calls it.
+#   groups            The subcategories or families in CMS's classification of its
+#                     shoppable services (RBCS) whose codes are in this family, less
+#                     the ones in `except`, plus any `codes` it lists
+#                     (reference/shoppable_services.parquet). A service's code must
+#                     be one of them.
+#   benefits          What the member's share for each bill falls under, unless the
+#                     bill or the service names its own.
+#   about, could_change, asks
+#                     What the screen says about a service, unless the service
+#                     says its own: what it is, what could make the bill differ
+#                     from the price shown, and what to ask before booking.
+#   bills             Each bill a patient could get, in the order the screen lists
+#                     them: its `part`, the `label` the screen shows, and its
+#                     `billing_class`. A professional bill is priced from the plan's
+#                     rates with its `modifier` ("" for none), or with any of them
+#                     when it lists several, and `on_site` says only a place that
+#                     does the service bills it. The institutional bill, at most one,
+#                     is the hospital's own fee. `missing` is what the screen says
+#                     where the bill has no rate (`explain_at_hospital` at a hospital).
+#   hospital          The bills at a hospital, in order. A family without it isn't
+#                     shown at hospitals.
+#   elsewhere         The bills anywhere else, as alternatives in order: a place
+#                     shows the first it has a rate for every bill of, else the last.
+#   centers           The NPPES primary specialty codes that register a biller as a
+#                     center doing this family's services, each with its kind of place.
+#   evidence_codes    Optional: the Medicare codes whose billing shows a doctor does
+#                     this family's services, in place of each service's own code.
+#                     [] means only a center's registration does.
+#   place_of_service  Optional, ["11"] (an office) when not given: the
+#                     place-of-service codes whose rates the family reads, best first.
+#
+# Which centers count, and for which services, is a product decision (#135,
+# 2026-11-04), so it's NUCC's stable codes, not a match on its labels, which NUCC
+# edits.
+#
+# Wording several families share, written once:
+shared:
+  - &outside_network "Someone outside your network taking part, such as whoever reads the scan. Federal law limits most of these bills."
+  - &not_covered "Your plan not covering it, for example if a required approval was missed"
+  - &contrast_change "A change in the contrast dye used, which is billed as a different scan"
+  - &ask_approval "Does my plan need to approve this first?"
+  - &ask_all_in "Is this everything, or will anyone else send me a separate bill?"
+  - &ask_network "Is everyone involved in my network?"
+  - &ask_exact "Is this the exact scan my doctor ordered?"
+
+benefits:
+  diagnostic_imaging: {name: "X-rays and Diagnostic Imaging", label: "X-rays and diagnostic imaging"}
+  advanced_imaging: {name: "Imaging (CT/PET Scans, MRIs)", label: "CT, PET and MRI scans"}
+  preventive: {name: "Preventive Care/Screening/Immunization", label: "Preventive care"}
+  primary_care: {name: "Primary Care Visit to Treat an Injury or Illness", label: "Primary care visit"}
+  specialist: {name: "Specialist Visit", label: "Specialist visit"}
+  urgent_care: {name: "Urgent Care Centers or Facilities", label: "Urgent care"}
+  mental_health: {name: "Mental/Behavioral Health Outpatient Services", label: "Outpatient mental health"}
+  therapy: {name: "Rehabilitative Occupational and Rehabilitative Physical Therapy", label: "Physical and occupational therapy"}
+  lab: {name: "Laboratory Outpatient and Professional Services", label: "Lab tests"}
+
+kinds:
+  hospital: Hospital
+  imaging_center: Imaging center
+  urgent_care: Urgent care center
+  lab: Lab
+  practice: Medical practice
+
+families:
+  # A visit, a therapy session and a lab test are each one bill, from the place
+  # that does it. A clinic or lab a hospital owns adds the hospital's own fee,
+  # which isn't priced for these, so these families aren't shown at hospitals.
+  - family: office_visits
+    name: Office visits
+    groups: ["Office E&M - New", "Office E&M - Established"]
+    # A plan charges one share for primary care and another for a specialist, and
+    # the code doesn't say which the doctor is, so the screen shows both.
+    benefits: [primary_care, specialist]
+    about: A visit with a doctor or other clinician in an office. How long it takes depends on what you need. Bring a list of your medicines and your questions.
+    could_change:
+      - A different visit level, which the office picks afterwards from how long and involved your visit was
+      - Tests, shots or procedures done during the visit, which are billed on top
+      - A hospital fee, if the clinic is owned by a hospital
+    asks:
+      - Is this clinic owned by a hospital, and does it add a hospital fee?
+      - Will any tests or shots be done, and what do they cost?
+      - Is the doctor I am seeing in my network?
+    bills: &visit_bill
+      - part: visit
+        label: The visit
+        billing_class: professional
+        modifier: ""
+        on_site: true
+    elsewhere: &visit_only [[visit]]
+
+  - family: preventive_visits
+    name: Yearly checkups
+    codes: ["99385", "99386", "99387", "99395", "99396", "99397"]
+    benefits: [preventive]
+    about: A yearly checkup is for staying well when nothing is wrong. It usually takes 30 to 60 minutes. Bring your health history and a list of your medicines.
+    could_change:
+      - An office visit billed on top, if a health problem is treated during the checkup
+      - Lab tests, which are billed separately
+      - Care that your plan does not count as preventive
+    asks:
+      - Is this billed as a preventive visit?
+      - What happens to the bill if we talk about a health problem?
+      - Will lab tests be done, and who bills for them?
+    bills: *visit_bill
+    elsewhere: *visit_only
+    # Medicare pays for its own wellness visits, not these codes, so a doctor
+    # billing Medicare's wellness visits shows they do checkups.
+    evidence_codes: ["G0438", "G0439", "G0402"]
+
+  - family: urgent_care
+    name: Urgent care
+    codes: ["99202", "99203", "99204", "99205", "99211", "99212", "99213", "99214", "99215"]
+    benefits: [urgent_care]
+    about: A walk-in visit for something that can’t wait but isn’t an emergency, like a sprain or a sore throat. Visits often take an hour or less. Bring your insurance card and a list of your medicines.
+    could_change:
+      - A different visit level, which the center picks afterwards
+      - Tests, X-rays or stitches, which are billed on top
+      - Going to an emergency room instead, including a freestanding one, which bills far more
+    asks:
+      - Is this an urgent care center and not an emergency room?
+      - Is this center in my network?
+      - What will tests, X-rays or stitches cost if I need them?
+    bills: *visit_bill
+    elsewhere: *visit_only
+    # The codes are an office visit's, so the place is what makes it urgent care:
+    # only a registered urgent care center shows it, at its urgent care rate
+    # (place of service 20) where the plan's file has one, else its office rate.
+    centers:
+      261QU0200X: urgent_care  # urgent care clinic
+    evidence_codes: []
+    place_of_service: ["20", "11"]
+
+  - family: mental_health
+    name: Mental health counseling
+    groups: ["Psychotherapy - Nongroup", "Psychotherapy - Group"]
+    benefits: [mental_health]
+    about: Talk therapy with a counselor, therapist or psychiatrist. Sessions last 30 to 60 minutes. They can be one-on-one, with family or in a group.
+    could_change:
+      - The session length, which sets the price
+      - A lower amount paid to your therapist, because the price shown is the plan’s highest for the session
+      - A medication visit, which is billed as an office visit
+    asks:
+      - What will you charge me for each session?
+      - Are you in my network?
+      - How long will each session be?
+      - Will medication visits be billed separately?
+    bills:
+      - part: session
+        label: The session
+        billing_class: professional
+        modifier: ""
+        on_site: true
+    elsewhere: [[session]]
+
+  - family: therapy
+    name: Physical and occupational therapy
+    groups: ["PT Treatment", "Occupational Therapy"]
+    benefits: [therapy]
+    about: Treatment to help you move, build strength or manage daily tasks after an injury or illness. A session often lasts 45 to 60 minutes. Wear clothes you can move in.
+    could_change:
+      - More units in a session, because most of these are billed per 15 minutes and a session usually bills several
+      - The first visit’s evaluation, which is billed separately
+      - Your plan’s limit on visits per year
+    asks:
+      - How many 15-minute units will a typical session bill?
+      - What does the first evaluation cost?
+      - How many visits does my plan allow this year?
+      - Does my plan need an approval or a referral first?
+    bills:
+      - part: therapy
+        label: The therapy
+        billing_class: professional
+        modifier: ""
+        on_site: true
+    elsewhere: [[therapy]]
+
+  - family: lab_tests
+    name: Lab tests
+    groups: ["General Laboratory"]
+    benefits: [lab]
+    about: A lab test checks a sample of your blood, urine or other fluid. Some tests need you to skip food or drink first, so ask before you go.
+    could_change:
+      - A small fee for drawing your blood
+      - Other tests your doctor orders at the same time, each billed on its own
+      - A higher price if a hospital’s lab runs the test
+    asks:
+      - Do I need to skip food or drink before this test?
+      - Is this lab in my network?
+      - Which other tests are being ordered with it?
+      - Would an independent lab cost less than the hospital’s lab?
+    bills:
+      - part: test
+        label: The lab test
+        billing_class: professional
+        # QW is the same test run on a clinic's own analyzer, which a plan's file
+        # often prices under that modifier alone.
+        modifier: ["", "QW"]
+        on_site: true
+    elsewhere: [[test]]
+    # An independent lab bills under its own name, not a doctor's, so its
+    # registration is what shows it runs tests.
+    centers:
+      291U00000X: lab  # clinical medical laboratory
+    # A plan's file prices a test at an independent lab (place of service 81)
+    # apart from one run in a doctor's office.
+    place_of_service: ["81", "11"]
+
+  - family: xrays
+    name: X-rays and bone density scans
+    groups: ["Standard X-ray"]
+    except: ["Mammography"]
+    benefits: [diagnostic_imaging]
+    about: A quick, low-dose X-ray. It usually takes 10 to 20 minutes. Tell them if you might be pregnant.
+    could_change: ["More or other pictures than this scan covers, which is billed as a different scan", *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+    # A place that does the scan bills it all in, or the scan and its reading
+    # apart, and a group that only reads it bills the reading. At a hospital, the
+    # hospital bills its own fee and a group there bills the reading.
+    bills: &scan_bills
+      - part: all_in
+        label: The scan and its reading
+        billing_class: professional
+        modifier: ""
+        on_site: true
+      - part: scan
+        label: The scan
+        billing_class: professional
+        modifier: TC
+        on_site: true
+        missing:
+          note: Missing the cost of the scan
+          explain: Medicare records show this group’s doctors reading scans done at hospitals, so the place that does your scan bills for it separately. Ask where the scan would happen and what that place charges.
+      - part: reading
+        label: Radiologist’s reading
+        billing_class: professional
+        modifier: "26"
+        on_site: false
+        missing:
+          note: Missing the reading
+          explain: A doctor reads your scan and bills for it separately. Your plan’s file lists no rate for the reading here, so ask who will read yours, whether they’re in your network and what they charge.
+          explain_at_hospital: A doctor reads your scan and bills for it separately. Your plan’s file doesn’t show which group reads scans here, so ask the hospital who will read yours and whether they’re in your network.
+      - part: facility
+        label: Hospital facility fee
+        billing_class: institutional
+        missing:
+          note: Missing the hospital’s fee
+          explain: Hospitals bill their own fee for the scan, and your plan’s file doesn’t list it here. The doctors who read scans here are in your network, but nothing on file confirms the hospital itself is. Ask the hospital whether it’s in your network and what it would charge before you book.
+    hospital: &scan_at_hospital [facility, reading]
+    elsewhere: &scan_elsewhere [[all_in], [scan, reading]]
+    # Radiology centers, fixed and mobile, do every kind of scan.
+    centers: &radiology_centers
+      261QR0200X: imaging_center  # radiology center
+      261QR0208X: imaging_center  # mobile radiology
+
+  - family: mammograms
+    name: Mammograms
+    groups: ["Mammography"]
+    benefits: [diagnostic_imaging]
+    about: A low-dose X-ray that screens for cancer or looks into a symptom, such as a lump. It usually takes 20 minutes or more.
+    could_change: ["An ultrasound added the same day, which is billed as a separate scan", *outside_network, *not_covered]
+    asks: [*ask_all_in, *ask_network, *ask_exact]
+    bills: *scan_bills
+    hospital: *scan_at_hospital
+    elsewhere: *scan_elsewhere
+    centers:
+      <<: *radiology_centers
+      261QR0206X: imaging_center  # mammography center
+      261QR0207X: imaging_center  # mobile mammography
+
+  - family: ultrasound
+    name: Ultrasounds
+    groups: ["Ultrasound"]
+    benefits: [diagnostic_imaging]
+    about: Uses sound waves to picture the inside of your body, with no radiation. It usually takes 15 to 60 minutes.
+    could_change: ["Another scan done the same visit, which is billed as a separate scan", *outside_network, *not_covered]
+    asks: &ask_scan [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+    bills: *scan_bills
+    hospital: *scan_at_hospital
+    elsewhere: *scan_elsewhere
+    centers: *radiology_centers
+
+  - family: ct
+    name: CT scans
+    groups: ["CT Scan"]
+    benefits: [advanced_imaging]
+    about: Combines X-rays from many angles into detailed pictures of the inside of your body. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast_change, *outside_network, *not_covered]
+    asks: *ask_scan
+    bills: *scan_bills
+    hospital: *scan_at_hospital
+    elsewhere: *scan_elsewhere
+    centers: *radiology_centers
+
+  - family: mri
+    name: MRI scans
+    groups: ["Magnetic Resonance"]
+    benefits: [advanced_imaging]
+    about: Uses magnets and radio waves to picture the inside of your body, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
+    could_change: [*contrast_change, *outside_network, *not_covered]
+    asks: *ask_scan
+    bills: *scan_bills
+    hospital: *scan_at_hospital
+    elsewhere: *scan_elsewhere
+    centers:
+      <<: *radiology_centers
+      261QM1200X: imaging_center  # MRI center

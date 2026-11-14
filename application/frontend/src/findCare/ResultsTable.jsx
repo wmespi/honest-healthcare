@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { clsx } from 'clsx';
 import { ArrowDown, Navigation, Phone } from 'lucide-react';
 import { miles, money } from './format';
-import { shareText } from './view';
+import { shareLines } from './view';
 
 const PROVIDERS_SHOWN = 4;
 
@@ -91,7 +91,12 @@ function YourShare({ plan, costSharing }) {
   return (
     <div>
       <h3 className="text-[13px] font-semibold text-slate-900">Your share</h3>
-      <p className="mt-1 text-pretty text-sm leading-5 text-slate-600">{shareText(costSharing, plan.deductible)}</p>
+      {shareLines(costSharing, plan.deductible).map((line) => (
+        <p key={line.key} className="mt-1 text-pretty text-sm leading-5 text-slate-600">
+          {line.label && <span className="font-medium text-slate-900">{line.label}: </span>}
+          {line.text}
+        </p>
+      ))}
     </div>
   );
 }
@@ -152,7 +157,7 @@ function ProvidersHere({ providers }) {
   const shown = showAll ? providers : providers.slice(0, PROVIDERS_SHOWN);
   return (
     <div className="border-t border-emerald-900/10 pt-3">
-      <h3 className="text-[13px] font-semibold text-slate-900">Who does this scan here</h3>
+      <h3 className="text-[13px] font-semibold text-slate-900">Who provides this here</h3>
       <ul className="mt-1.5 space-y-1.5">
         {shown.map((provider) => (
           <li key={provider.npi} className="flex items-baseline justify-between gap-3 text-sm leading-5">
@@ -174,7 +179,7 @@ function ProvidersHere({ providers }) {
         </button>
       )}
       <p className="mt-2 text-pretty text-[13px] leading-5 text-slate-500">
-        These are the clinicians Medicare shows billing this scan here. Score is Medicare&rsquo;s clinician quality score, out of 100. It isn&rsquo;t a patient review.
+        These are the clinicians Medicare shows billing this service here. Score is Medicare&rsquo;s clinician quality score, out of 100. It isn&rsquo;t a patient review.
       </p>
     </div>
   );

@@ -18,17 +18,23 @@ class Places(Table):
     """A hospital is keyed on its CCN and has Medicare's star rating and its phone.
     Any other place is a practice with a price: its billers in one building under
     one name, with the phone NPPES lists there (integration/inputs/biller_places.py).
+    `kind_name` is what the screen calls its kind (integration/families.yaml).
     Every place has its building's point on the map (integration/inputs/addresses.py).
     One in a building no geocoder located isn't shown, because any other point
     would be a guess, and goes to unlocated_places instead."""
     name = "places"
     key = ["place_id"]
-    columns = {"place_id": "VARCHAR", "name": "VARCHAR", "kind": "VARCHAR", "address": "VARCHAR",
-               "city": "VARCHAR", "lat": "DOUBLE", "lon": "DOUBLE", "phone": "VARCHAR",
+    columns = {"place_id": "VARCHAR", "name": "VARCHAR", "kind": "VARCHAR", "kind_name": "VARCHAR",
+               "address": "VARCHAR", "city": "VARCHAR", "lat": "DOUBLE", "lon": "DOUBLE", "phone": "VARCHAR",
                "stars": "INTEGER"}
 
     def select(self, data_dir):
-        return f"SELECT * EXCLUDE (zip) FROM ({EVERY_PLACE}) WHERE lat IS NOT NULL AND lon IS NOT NULL"
+        return f"""
+            SELECT p.place_id, p.name, p.kind, k.name AS kind_name, p.address, p.city, p.lat, p.lon, p.phone, p.stars
+            FROM ({EVERY_PLACE}) p
+            LEFT JOIN kinds k USING (kind)
+            WHERE p.lat IS NOT NULL AND p.lon IS NOT NULL
+        """
 
     def check(self, con, data_dir):
         bad = con.execute("""

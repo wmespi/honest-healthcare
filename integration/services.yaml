@@ -1,26 +1,32 @@
-# The services someone can search for on the find-care screen, and what the
-# screen says about each (#135). `make build` writes them to services.parquet,
-# with Medicare's rates added from the reference data (integration/build.md).
+# The services someone can search for on the find-care screen, by family, and
+# what the screen says about each (#135). integration/families.yaml says what each
+# family's bills are and what the screen says about a service that doesn't say
+# its own. `make build` writes them to services.parquet, with their bills and
+# Medicare's rates (integration/build.md).
 #
-#   service_id       Our own slug: the kind of scan, then the body part, then a
-#                    variant ("mri-lower-back", "ct-chest-contrast").
-#   billing_code     The one CPT code the scan is billed under. A version with
-#                    contrast is its own service, because the order names it.
-#   name             What the screen calls it.
+# Each family in families.yaml lists its services here, each with:
+#   service_id       Our own slug: the kind of service, then what sets this one
+#                    apart ("mri-lower-back", "lab-cbc-basic").
+#   billing_code     The one code the service is billed under, one of CMS's
+#                    shoppable services in its family. A version with contrast is
+#                    its own service, because the order names it.
+#   name             What the screen calls it, in our own words: the codes'
+#                    official descriptions belong to the AMA.
 #   keywords         Other words the service picker matches.
-#   about            What the scan is, how long it takes and how to prepare.
-#   could_change     What could make the bill differ from the price shown.
-#   asks             Questions to ask before booking.
-#   service_category The benefit in Georgia's cost-sharing file the service falls
-#                    under, which sets what each plan charges the member for it
-#                    (cost_sharing.parquet).
+#   about            Optional: what it is, how long it takes and how to prepare.
+#   could_change     Optional: what could make the bill differ from the price shown.
+#   asks             Optional: questions to ask before booking.
+#                    Each of these three replaces the family's when given.
+#   benefits         Optional: what the member's share for every bill of the
+#                    service falls under, in place of what its family says.
 #   preventive_note  Optional. Shown first when the service is usually free as
 #                    preventive care.
 #
-# This is plain-language text. Writing every service by hand doesn't scale past
-# the POC; #158 has the plan to generate them from data.
+# A code is one service in a family, and may be a service in each of two families.
+# `make build` lists each family's shoppable codes that have a rate and no name
+# here, so naming one is all it takes to offer it.
 #
-# Wording several services share, written once:
+# Wording several services share, written once (`shared` is not a family):
 shared:
   - &contrast "Contrast dye, which makes it a different and pricier scan"
   - &before_and_after "Pictures both before and after the contrast dye, which is billed as a different scan"
@@ -28,253 +34,939 @@ shared:
   - &limited "A smaller, limited scan instead of a complete one, which is billed as a different scan"
   - &outside_network "Someone outside your network taking part, such as whoever reads the scan. Federal law limits most of these bills."
   - &not_covered "Your plan not covering it, for example if a required approval was missed"
-  - &ask_approval "Does my plan need to approve this first?"
-  - &ask_all_in "Is this everything, or will anyone else send me a separate bill?"
-  - &ask_network "Is everyone involved in my network?"
-  - &ask_exact "Is this the exact scan my doctor ordered?"
-  - &ask_screening "Will this be billed as a screening?"
-  # Georgia's service categories, as its cost-sharing file names them:
-  - &diagnostic_imaging "X-rays and Diagnostic Imaging"
-  - &advanced_imaging "Imaging (CT/PET Scans, MRIs)"
-  - &preventive "Preventive Care/Screening/Immunization"
+  - &free_checkup "Yearly checkups are usually $0 in network because they count as preventive care. The most you would pay matters if a health problem is also treated and billed as an office visit."
 
-services:
-  # X-ray
+xrays:
   - service_id: xray-chest
     billing_code: "71046"
-    service_category: *diagnostic_imaging
     name: Chest X-ray
     keywords: xray cxr lungs heart
     about: A quick, low-dose X-ray of your heart and lungs, usually from two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
 
   - service_id: xray-shoulder
     billing_code: "73030"
-    service_category: *diagnostic_imaging
     name: Shoulder X-ray
     keywords: xray arm joint
     about: A quick, low-dose X-ray of the bones in your shoulder, from at least two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
 
   - service_id: xray-knee
     billing_code: "73560"
-    service_category: *diagnostic_imaging
     name: Knee X-ray
     keywords: xray leg joint
     about: A quick, low-dose X-ray of the bones in your knee, from one or two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
 
   - service_id: xray-ankle
     billing_code: "73610"
-    service_category: *diagnostic_imaging
     name: Ankle X-ray
     keywords: xray foot leg joint
     about: A quick, low-dose X-ray of the bones in your ankle, from at least three angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
 
   - service_id: xray-lower-back
     billing_code: "72100"
-    service_category: *diagnostic_imaging
     name: Lower-back X-ray
     keywords: xray lumbar spine back
     about: A low-dose X-ray of the bones in your lower spine, from two or three angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
-
-  # Breast and bone
-  - service_id: mammogram-screening
-    billing_code: "77067"
-    service_category: *preventive
-    name: Screening mammogram
-    keywords: breast cancer screening
-    about: A low-dose X-ray of both breasts that screens for breast cancer. It usually takes about 20 minutes.
-    could_change: ["Being billed as diagnostic rather than screening", *outside_network]
-    asks: [*ask_all_in, *ask_network, *ask_screening]
-    preventive_note: Screening mammograms are usually $0 in network because they count as preventive care. The most you would pay matters if yours is billed as diagnostic.
-
-  - service_id: mammogram-diagnostic-both
-    billing_code: "77066"
-    service_category: *diagnostic_imaging
-    name: Diagnostic mammogram, both breasts
-    keywords: breast lump follow-up
-    about: A low-dose X-ray of both breasts to look into a symptom, such as a lump, or something a screening mammogram found. It takes more pictures than a screening, so it can take 30 minutes or more.
-    could_change: ["An ultrasound added the same day, which is billed as a separate scan", *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
-
-  - service_id: mammogram-diagnostic-one
-    billing_code: "77065"
-    service_category: *diagnostic_imaging
-    name: Diagnostic mammogram, one breast
-    keywords: breast lump follow-up
-    about: A low-dose X-ray of one breast to look into a symptom, such as a lump, or something a screening mammogram found. It takes more pictures than a screening, so it can take 30 minutes or more.
-    could_change: ["An ultrasound added the same day, which is billed as a separate scan", *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
 
   - service_id: dexa-bone-density
     billing_code: "77080"
-    service_category: *diagnostic_imaging
     name: Bone density scan (DEXA)
     keywords: dxa osteoporosis bone hip spine
     about: A low-dose X-ray that measures the density of the bones in your hips and spine, to check for osteoporosis. You lie still on a table for about 10 to 20 minutes. Tell them if you might be pregnant.
     could_change: ["A check of the spine for fractures added to the scan, which is billed as a different scan", *outside_network, *not_covered]
-    asks: [*ask_all_in, *ask_network, *ask_exact]
 
-  # Ultrasound
+mammograms:
+  - service_id: mammogram-screening
+    billing_code: "77067"
+    name: Screening mammogram
+    keywords: breast cancer screening
+    about: A low-dose X-ray of both breasts that screens for breast cancer. It usually takes about 20 minutes.
+    could_change: ["Being billed as diagnostic rather than screening", *outside_network]
+    asks: ["Is this everything, or will anyone else send me a separate bill?", "Is everyone involved in my network?", "Will this be billed as a screening?"]
+    benefits: [preventive]
+    preventive_note: Screening mammograms are usually $0 in network because they count as preventive care. The most you would pay matters if yours is billed as diagnostic.
+
+  - service_id: mammogram-diagnostic-both
+    billing_code: "77066"
+    name: Diagnostic mammogram, both breasts
+    keywords: breast lump follow-up
+    about: A low-dose X-ray of both breasts to look into a symptom, such as a lump, or something a screening mammogram found. It takes more pictures than a screening, so it can take 30 minutes or more.
+
+  - service_id: mammogram-diagnostic-one
+    billing_code: "77065"
+    name: Diagnostic mammogram, one breast
+    keywords: breast lump follow-up
+    about: A low-dose X-ray of one breast to look into a symptom, such as a lump, or something a screening mammogram found. It takes more pictures than a screening, so it can take 30 minutes or more.
+
+ultrasound:
   - service_id: ultrasound-abdomen
     billing_code: "76700"
-    service_category: *diagnostic_imaging
     name: Abdominal ultrasound
     keywords: sonogram belly stomach liver gallbladder kidneys
     about: Uses sound waves to picture the organs in your abdomen, with no radiation. It usually takes about 30 minutes, and you may be asked not to eat beforehand.
     could_change: [*limited, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ultrasound-pelvis
     billing_code: "76856"
-    service_category: *diagnostic_imaging
     name: Pelvic ultrasound
     keywords: sonogram uterus ovaries bladder
     about: Uses sound waves through your lower belly to picture the organs in your pelvis, with no radiation. You may be asked to drink water beforehand so your bladder is full. It usually takes about 30 minutes.
     could_change: [*limited, "A transvaginal ultrasound done the same visit, which is billed as a separate scan", *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ultrasound-transvaginal
     billing_code: "76830"
-    service_category: *diagnostic_imaging
     name: Transvaginal ultrasound
     keywords: sonogram uterus ovaries pelvic
     about: Uses a small probe placed in the vagina to picture your uterus and ovaries up close, with no radiation. It usually takes 15 to 30 minutes, and it's often done alongside a pelvic ultrasound.
     could_change: ["A pelvic ultrasound done the same visit, which is billed as a separate scan", *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ultrasound-thyroid
     billing_code: "76536"
-    service_category: *diagnostic_imaging
     name: Thyroid ultrasound
     keywords: sonogram neck thyroid nodule
     about: Uses sound waves to picture your thyroid and the other soft tissue in your neck, with no radiation. It usually takes 15 to 30 minutes.
     could_change: [*outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ultrasound-leg-veins
     billing_code: "93970"
-    service_category: *diagnostic_imaging
     name: Leg vein ultrasound
     keywords: sonogram doppler duplex blood clot dvt veins
     about: Uses sound waves to check the veins in both legs for blood clots or problems with blood flow, with no radiation. It usually takes 30 to 60 minutes.
     could_change: ["Scanning only one leg, which is billed as a different scan", *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
-  # CT
+ct:
   - service_id: ct-head
     billing_code: "70450"
-    service_category: *advanced_imaging
     name: Head CT
     keywords: cat scan brain skull
     about: Combines X-rays from many angles into detailed pictures of your head and brain. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ct-chest
     billing_code: "71250"
-    service_category: *advanced_imaging
     name: Chest CT
     keywords: cat scan lungs
     about: Combines X-rays from many angles into detailed pictures of your lungs and chest. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ct-chest-contrast
     billing_code: "71260"
-    service_category: *advanced_imaging
     name: Chest CT with contrast
     keywords: cat scan lungs dye iv
     about: Combines X-rays from many angles into detailed pictures of your lungs and chest, with contrast dye given through an IV so blood vessels and some tissue show up more clearly. The scan takes a few minutes, though the visit runs longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
     could_change: [*before_and_after, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ct-abdomen-pelvis
     billing_code: "74176"
-    service_category: *advanced_imaging
     name: Abdomen and pelvis CT
     keywords: cat scan belly stomach
     about: Combines X-rays from many angles into detailed pictures of your abdomen and pelvis. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ct-abdomen-pelvis-contrast
     billing_code: "74177"
-    service_category: *advanced_imaging
     name: Abdomen and pelvis CT with contrast
     keywords: cat scan belly stomach dye iv
     about: Combines X-rays from many angles into detailed pictures of your abdomen and pelvis, with contrast dye given through an IV. You may also drink contrast beforehand, so the visit can run an hour or longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
     could_change: [*before_and_after, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: ct-lower-back
     billing_code: "72131"
-    service_category: *advanced_imaging
     name: Lower-back CT
     keywords: cat scan lumbar spine back
     about: Combines X-rays from many angles into detailed pictures of the bones in your lower spine. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
-  # MRI
+mri:
   - service_id: mri-brain
     billing_code: "70551"
-    service_category: *advanced_imaging
     name: Brain MRI
     keywords: head scan
     about: Uses magnets and radio waves to picture your brain, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: mri-brain-contrast
     billing_code: "70553"
-    service_category: *advanced_imaging
     name: Brain MRI with and without contrast
     keywords: head scan dye iv
     about: Uses magnets and radio waves to picture your brain, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
     could_change: [*outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: mri-lower-back
     billing_code: "72148"
-    service_category: *advanced_imaging
     name: Lower-back MRI
     keywords: lumbar spine back scan
     about: Uses magnets and radio waves to picture your lower spine, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: mri-neck
     billing_code: "72141"
-    service_category: *advanced_imaging
     name: Neck MRI
     keywords: cervical spine scan
     about: Uses magnets and radio waves to picture the bones, discs and nerves in your neck, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: mri-knee
     billing_code: "73721"
-    service_category: *advanced_imaging
     name: Knee MRI
     keywords: joint scan leg
     about: Uses magnets and radio waves to picture the bones, cartilage and ligaments in your knee, with no radiation. It usually takes 30 to 45 minutes. Tell them about any metal implants.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
 
   - service_id: mri-shoulder
     billing_code: "73221"
-    service_category: *advanced_imaging
     name: Shoulder MRI
     keywords: joint scan arm rotator cuff
     about: Uses magnets and radio waves to picture the bones, muscles, tendons and ligaments in your shoulder, with no radiation. It usually takes 30 to 45 minutes. Tell them about any metal implants.
     could_change: [*contrast, *outside_network, *not_covered]
-    asks: [*ask_approval, *ask_all_in, *ask_network, *ask_exact]
+
+office_visits:
+  - service_id: visit-new-15
+    billing_code: "99202"
+    name: Office visit, new patient, 15 to 29 minutes
+    keywords: doctor appointment first short
+
+  - service_id: visit-new-30
+    billing_code: "99203"
+    name: Office visit, new patient, 30 to 44 minutes
+    keywords: doctor appointment first
+
+  - service_id: visit-new-45
+    billing_code: "99204"
+    name: Office visit, new patient, 45 to 59 minutes
+    keywords: doctor appointment first long
+
+  - service_id: visit-new-60
+    billing_code: "99205"
+    name: Office visit, new patient, 60 to 74 minutes
+    keywords: doctor appointment first long complex
+
+  - service_id: visit-return-nurse
+    billing_code: "99211"
+    name: Office visit, returning patient, brief nurse visit
+    keywords: doctor appointment quick blood pressure check
+
+  - service_id: visit-return-10
+    billing_code: "99212"
+    name: Office visit, returning patient, 10 to 19 minutes
+    keywords: doctor appointment follow-up short
+
+  - service_id: visit-return-20
+    billing_code: "99213"
+    name: Office visit, returning patient, 20 to 29 minutes
+    keywords: doctor appointment follow-up
+
+  - service_id: visit-return-30
+    billing_code: "99214"
+    name: Office visit, returning patient, 30 to 39 minutes
+    keywords: doctor appointment follow-up long
+
+  - service_id: visit-return-40
+    billing_code: "99215"
+    name: Office visit, returning patient, 40 to 54 minutes
+    keywords: doctor appointment follow-up long complex
+
+preventive_visits:
+  - service_id: checkup-new-18-39
+    billing_code: "99385"
+    name: Yearly checkup, new patient, age 18 to 39
+    keywords: physical wellness annual exam
+    preventive_note: *free_checkup
+
+  - service_id: checkup-new-40-64
+    billing_code: "99386"
+    name: Yearly checkup, new patient, age 40 to 64
+    keywords: physical wellness annual exam
+    preventive_note: *free_checkup
+
+  - service_id: checkup-new-65
+    billing_code: "99387"
+    name: Yearly checkup, new patient, age 65 and over
+    keywords: physical wellness annual exam senior
+    preventive_note: *free_checkup
+
+  - service_id: checkup-return-18-39
+    billing_code: "99395"
+    name: Yearly checkup, returning patient, age 18 to 39
+    keywords: physical wellness annual exam
+    preventive_note: *free_checkup
+
+  - service_id: checkup-return-40-64
+    billing_code: "99396"
+    name: Yearly checkup, returning patient, age 40 to 64
+    keywords: physical wellness annual exam
+    preventive_note: *free_checkup
+
+  - service_id: checkup-return-65
+    billing_code: "99397"
+    name: Yearly checkup, returning patient, age 65 and over
+    keywords: physical wellness annual exam senior
+    preventive_note: *free_checkup
+
+lab_tests:
+  - service_id: lab-blood-draw
+    billing_code: "36415"
+    name: Blood draw (fee for taking the sample)
+    keywords: venipuncture needle phlebotomy
+
+  - service_id: lab-basic-metabolic
+    billing_code: "80048"
+    name: Basic metabolic panel (BMP)
+    keywords: chem7 electrolytes kidney sugar bloodwork
+
+  - service_id: lab-general-health
+    billing_code: "80050"
+    name: General health blood panel
+    keywords: checkup screening bloodwork
+
+  - service_id: lab-electrolytes
+    billing_code: "80051"
+    name: Electrolyte panel
+    keywords: sodium potassium chloride salts
+
+  - service_id: lab-comprehensive-metabolic
+    billing_code: "80053"
+    name: Comprehensive metabolic panel (CMP)
+    keywords: chem14 liver kidney bloodwork
+
+  - service_id: lab-pregnancy-panel
+    billing_code: "80055"
+    name: Pregnancy blood test panel (obstetric panel)
+    keywords: prenatal pregnant bloodwork
+
+  - service_id: lab-pregnancy-panel-hiv
+    billing_code: "80081"
+    name: Pregnancy blood test panel with HIV test
+    keywords: prenatal screening hiv rubella hepatitis
+
+  - service_id: lab-lipid
+    billing_code: "80061"
+    name: Cholesterol panel (lipid panel)
+    keywords: lipids ldl hdl triglycerides
+
+  - service_id: lab-kidney-panel
+    billing_code: "80069"
+    name: Kidney function panel
+    keywords: renal creatinine bloodwork
+
+  - service_id: lab-hepatitis-panel
+    billing_code: "80074"
+    name: Acute hepatitis blood panel
+    keywords: hep a b c liver virus
+
+  - service_id: lab-liver-panel
+    billing_code: "80076"
+    name: Liver function panel
+    keywords: lfts hepatic bloodwork
+
+  - service_id: lab-tacrolimus
+    billing_code: "80197"
+    name: Tacrolimus drug level blood test
+    keywords: transplant immunosuppressant prograf
+
+  - service_id: lab-drug-screen
+    billing_code: "80307"
+    name: Drug screen by lab analyzer
+    keywords: urine tox toxicology workplace
+
+  - service_id: lab-urinalysis-scope-hand
+    billing_code: "81000"
+    name: Urinalysis with microscope, read by hand
+    keywords: urine pee
+
+  - service_id: lab-urinalysis-scope-auto
+    billing_code: "81001"
+    name: Urinalysis with microscope, machine-assisted
+    keywords: urine pee
+
+  - service_id: lab-urinalysis-dip-hand
+    billing_code: "81002"
+    name: Urinalysis dipstick, read by hand
+    keywords: urine pee strip
+
+  - service_id: lab-urinalysis-dip-auto
+    billing_code: "81003"
+    name: Urinalysis dipstick, machine-read
+    keywords: urine pee strip
+
+  - service_id: lab-urine-pregnancy
+    billing_code: "81025"
+    name: Urine pregnancy test
+    keywords: hcg pee stick
+
+  - service_id: lab-urine-albumin-exact
+    billing_code: "82043"
+    name: Urine albumin test, exact amount
+    keywords: protein kidney microalbumin diabetes
+
+  - service_id: lab-urine-albumin-rough
+    billing_code: "82044"
+    name: Urine albumin test, rough estimate
+    keywords: protein kidney dipstick
+
+  - service_id: lab-bilirubin-direct
+    billing_code: "82248"
+    name: Direct bilirubin blood test
+    keywords: jaundice liver
+
+  - service_id: lab-vitamin-d
+    billing_code: "82306"
+    name: Vitamin D blood test
+    keywords: hydroxy d3 deficiency
+
+  - service_id: lab-ck-mb
+    billing_code: "82553"
+    name: Heart enzyme blood test (CK-MB)
+    keywords: cardiac chest pain
+
+  - service_id: lab-urine-creatinine
+    billing_code: "82570"
+    name: Urine creatinine test
+    keywords: kidney pee
+
+  - service_id: lab-vitamin-b12
+    billing_code: "82607"
+    name: Vitamin B12 blood test
+    keywords: cobalamin anemia
+
+  - service_id: lab-dhea-s
+    billing_code: "82627"
+    name: DHEA-S hormone blood test
+    keywords: adrenal androgen
+
+  - service_id: lab-estradiol
+    billing_code: "82670"
+    name: Estradiol blood test
+    keywords: estrogen hormone menopause
+
+  - service_id: lab-ferritin
+    billing_code: "82728"
+    name: Ferritin blood test
+    keywords: iron stores anemia
+
+  - service_id: lab-immunoglobulins
+    billing_code: "82784"
+    name: Immunoglobulin blood test (IgA, IgG, IgM)
+    keywords: antibodies immune
+
+  - service_id: lab-blood-gas
+    billing_code: "82803"
+    name: Blood gas test
+    keywords: abg oxygen breathing
+
+  - service_id: lab-glucose
+    billing_code: "82947"
+    name: Blood sugar test (glucose)
+    keywords: diabetes fasting
+
+  - service_id: lab-glucose-after-drink
+    billing_code: "82950"
+    name: Blood sugar test after a sugar drink, one sample
+    keywords: glucose diabetes pregnancy
+
+  - service_id: lab-glucose-tolerance
+    billing_code: "82951"
+    name: Glucose tolerance test, several samples
+    keywords: diabetes gestational sugar drink
+
+  - service_id: lab-fsh
+    billing_code: "83001"
+    name: FSH hormone blood test
+    keywords: follicle fertility menopause
+
+  - service_id: lab-lh
+    billing_code: "83002"
+    name: LH hormone blood test
+    keywords: luteinizing fertility ovulation
+
+  - service_id: lab-pylori-breath
+    billing_code: "83013"
+    name: Stomach bacteria breath test (H. pylori)
+    keywords: ulcer heartburn
+
+  - service_id: lab-a1c
+    billing_code: "83036"
+    name: Average blood sugar test (A1C)
+    keywords: diabetes hemoglobin hba1c
+
+  - service_id: lab-immunoassay-other
+    billing_code: "83516"
+    name: Blood immunoassay for a hormone or protein
+    keywords: marker assay
+
+  - service_id: lab-iron
+    billing_code: "83540"
+    name: Iron blood test
+    keywords: anemia serum
+
+  - service_id: lab-iron-binding
+    billing_code: "83550"
+    name: Iron binding capacity blood test
+    keywords: tibc anemia
+
+  - service_id: lab-lead
+    billing_code: "83655"
+    name: Lead blood test
+    keywords: poisoning toxic children
+
+  - service_id: lab-hdl
+    billing_code: "83718"
+    name: HDL (good) cholesterol blood test
+    keywords: lipids lipoprotein
+
+  - service_id: lab-bnp
+    billing_code: "83880"
+    name: Heart failure blood test (BNP)
+    keywords: natriuretic peptide swelling
+
+  - service_id: lab-prealbumin
+    billing_code: "84134"
+    name: Prealbumin blood test
+    keywords: nutrition protein
+
+  - service_id: lab-psa-total
+    billing_code: "84153"
+    name: Total PSA prostate blood test
+    keywords: cancer antigen male
+
+  - service_id: lab-psa-free
+    billing_code: "84154"
+    name: Free PSA prostate blood test
+    keywords: cancer antigen male
+
+  - service_id: lab-prostate-screening
+    billing_code: "G0103"
+    name: Prostate cancer screening blood test
+    keywords: psa yearly men screen
+
+  - service_id: lab-t4-total
+    billing_code: "84436"
+    name: Total thyroxine (T4) blood test
+    keywords: thyroid hormone
+
+  - service_id: lab-t4-free
+    billing_code: "84439"
+    name: Free thyroxine (free T4) blood test
+    keywords: thyroid hormone
+
+  - service_id: lab-tsh
+    billing_code: "84443"
+    name: Thyroid stimulating hormone (TSH) blood test
+    keywords: thyroid screening
+
+  - service_id: lab-alt
+    billing_code: "84460"
+    name: Liver enzyme blood test (ALT)
+    keywords: sgpt liver
+
+  - service_id: lab-t3
+    billing_code: "84480"
+    name: Triiodothyronine (T3) blood test
+    keywords: thyroid hormone
+
+  - service_id: lab-troponin
+    billing_code: "84484"
+    name: Troponin blood test
+    keywords: heart attack cardiac chest pain
+
+  - service_id: lab-pregnancy-blood
+    billing_code: "84703"
+    name: Pregnancy blood test, yes or no (hCG)
+    keywords: pregnant serum
+
+  - service_id: lab-smear-differential
+    billing_code: "85007"
+    name: Blood smear with white cell count by hand
+    keywords: differential microscope infection
+
+  - service_id: lab-hemoglobin
+    billing_code: "85018"
+    name: Hemoglobin blood test
+    keywords: anemia hgb
+
+  - service_id: lab-cbc-differential
+    billing_code: "85025"
+    name: Complete blood count with white cell types (CBC)
+    keywords: bloodwork diff
+
+  - service_id: lab-cbc-basic
+    billing_code: "85027"
+    name: Complete blood count, basic (CBC)
+    keywords: bloodwork no diff
+
+  - service_id: lab-pt-inr
+    billing_code: "85610"
+    name: Prothrombin time (PT/INR)
+    keywords: clotting blood thinner warfarin coumadin
+
+  - service_id: lab-ptt
+    billing_code: "85730"
+    name: Partial thromboplastin time (PTT)
+    keywords: clotting bleeding heparin
+
+  - service_id: lab-ana
+    billing_code: "86039"
+    name: Antinuclear antibody level (ANA titer)
+    keywords: lupus autoimmune
+
+  - service_id: lab-cardiolipin
+    billing_code: "86147"
+    name: Cardiolipin antibody test
+    keywords: clotting lupus antiphospholipid
+
+  - service_id: lab-ccp
+    billing_code: "86200"
+    name: CCP antibody test
+    keywords: rheumatoid arthritis
+
+  - service_id: lab-ca-15-3
+    billing_code: "86300"
+    name: Breast cancer marker blood test (CA 15-3)
+    keywords: tumor monitoring
+
+  - service_id: lab-ca-125
+    billing_code: "86304"
+    name: Ovarian cancer marker blood test (CA 125)
+    keywords: tumor monitoring
+
+  - service_id: lab-inhibin
+    billing_code: "86336"
+    name: Inhibin A blood test
+    keywords: tumor ovarian prenatal
+
+  - service_id: lab-syphilis-screen
+    billing_code: "86592"
+    name: Syphilis screening blood test
+    keywords: std sti rpr
+
+  - service_id: lab-cmv
+    billing_code: "86644"
+    name: CMV antibody blood test
+    keywords: cytomegalovirus virus
+
+  - service_id: lab-epstein-barr
+    billing_code: "86665"
+    name: Epstein-Barr virus antibody blood test
+    keywords: ebv mono mononucleosis
+
+  - service_id: lab-pylori-blood
+    billing_code: "86677"
+    name: Stomach bacteria antibody blood test (H. pylori)
+    keywords: ulcer heartburn
+
+  - service_id: lab-hiv-antibody
+    billing_code: "86703"
+    name: HIV antibody blood test
+    keywords: aids std sti
+
+  - service_id: lab-hep-b-core
+    billing_code: "86704"
+    name: Hepatitis B core antibody blood test
+    keywords: hep liver infection
+
+  - service_id: lab-hep-a
+    billing_code: "86708"
+    name: Hepatitis A antibody blood test
+    keywords: hep liver infection
+
+  - service_id: lab-rubella
+    billing_code: "86762"
+    name: Rubella antibody blood test
+    keywords: german measles immunity
+
+  - service_id: lab-rubeola
+    billing_code: "86765"
+    name: Rubeola antibody blood test
+    keywords: measles immunity
+
+  - service_id: lab-syphilis-confirm
+    billing_code: "86780"
+    name: Syphilis confirmation blood test (treponema)
+    keywords: std sti
+
+  - service_id: lab-hep-c
+    billing_code: "86803"
+    name: Hepatitis C antibody blood test
+    keywords: hep liver infection
+
+  - service_id: lab-rbc-antibody
+    billing_code: "86850"
+    name: Red blood cell antibody screen
+    keywords: transfusion pregnancy type
+
+  - service_id: lab-blood-culture
+    billing_code: "87040"
+    name: Blood culture for bacteria
+    keywords: sepsis infection
+
+  - service_id: lab-stool-culture
+    billing_code: "87046"
+    name: Stool bacteria culture, each type tested
+    keywords: diarrhea salmonella poop
+
+  - service_id: lab-culture-other
+    billing_code: "87070"
+    name: Bacteria culture, samples other than blood or urine
+    keywords: swab throat sputum
+
+  - service_id: lab-bacteria-id
+    billing_code: "87077"
+    name: Bacteria identification after a culture, each
+    keywords: wound germ
+
+  - service_id: lab-culture-screen
+    billing_code: "87081"
+    name: Bacteria screening culture, plate only
+    keywords: strep mrsa swab
+
+  - service_id: lab-urine-culture
+    billing_code: "87086"
+    name: Urine culture with colony count
+    keywords: uti bladder infection
+
+  - service_id: lab-urine-bacteria-id
+    billing_code: "87088"
+    name: Urine bacteria identification, each type
+    keywords: uti bladder infection
+
+  - service_id: lab-fungus-culture
+    billing_code: "87101"
+    name: Skin, hair or nail fungus culture
+    keywords: ringworm yeast mold
+
+  - service_id: lab-antibiotic-sensitivity
+    billing_code: "87186"
+    name: Antibiotic sensitivity test (MIC)
+    keywords: susceptibility resistance
+
+  - service_id: lab-gram-stain
+    billing_code: "87205"
+    name: Gram stain smear
+    keywords: bacteria microscope
+
+  - service_id: lab-wet-mount
+    billing_code: "87210"
+    name: Wet mount smear
+    keywords: yeast vaginal microscope
+
+  - service_id: lab-c-diff
+    billing_code: "87324"
+    name: Clostridium difficile stool test
+    keywords: cdiff diarrhea toxin
+
+  - service_id: lab-hiv-combo
+    billing_code: "87389"
+    name: HIV antigen and antibody combination test
+    keywords: aids std sti
+
+  - service_id: lab-flu-rapid
+    billing_code: "87804"
+    name: Rapid flu test
+    keywords: influenza swab
+
+  - service_id: lab-rsv-rapid
+    billing_code: "87807"
+    name: Rapid RSV test
+    keywords: virus swab respiratory children
+
+  - service_id: lab-strep-rapid
+    billing_code: "87880"
+    name: Rapid strep throat test
+    keywords: sore swab group
+
+therapy:
+  - service_id: therapy-hot-cold-pack
+    billing_code: "97010"
+    name: Heat or ice pack treatment
+    keywords: cold hot physical pt
+
+  - service_id: therapy-traction
+    billing_code: "97012"
+    name: Traction treatment for neck or back
+    keywords: mechanical spine decompression pt
+
+  - service_id: therapy-estim-unattended
+    billing_code: "97014"
+    name: Electric stimulation, no therapist at your side
+    keywords: tens estim pain unattended
+
+  - service_id: therapy-compression-pump
+    billing_code: "97016"
+    name: Compression pump treatment for swelling
+    keywords: swelling vasopneumatic
+
+  - service_id: therapy-infrared
+    billing_code: "97026"
+    name: Infrared heat treatment
+    keywords: light pain
+
+  - service_id: therapy-estim-hands-on
+    billing_code: "97032"
+    name: Electric stimulation with a therapist, per 15 minutes
+    keywords: estim muscle pt
+
+  - service_id: therapy-iontophoresis
+    billing_code: "97033"
+    name: Iontophoresis, medicine through the skin, per 15 minutes
+    keywords: iontophoresis medication pt
+
+  - service_id: therapy-ultrasound
+    billing_code: "97035"
+    name: Therapy ultrasound (deep heat), per 15 minutes
+    keywords: sound waves tendon pt
+
+  - service_id: therapy-exercise
+    billing_code: "97110"
+    name: Exercise therapy, per 15 minutes
+    keywords: strength stretching physical pt
+
+  - service_id: therapy-balance-retraining
+    billing_code: "97112"
+    name: Balance and movement retraining, per 15 minutes
+    keywords: neuromuscular coordination pt
+
+  - service_id: therapy-water-exercise
+    billing_code: "97113"
+    name: Water exercise therapy, per 15 minutes
+    keywords: pool aquatic pt
+
+  - service_id: therapy-walking-training
+    billing_code: "97116"
+    name: Walking training, per 15 minutes
+    keywords: gait pt
+
+  - service_id: therapy-massage
+    billing_code: "97124"
+    name: Massage therapy, per 15 minutes
+    keywords: muscle rub pt
+
+  - service_id: therapy-hands-on
+    billing_code: "97140"
+    name: Hands-on joint and muscle therapy, per 15 minutes
+    keywords: manual mobilization pt
+
+  - service_id: therapy-activities
+    billing_code: "97530"
+    name: Activity-based therapy, per 15 minutes
+    keywords: occupational ot daily tasks
+
+  - service_id: therapy-self-care
+    billing_code: "97535"
+    name: Self-care skills training, per 15 minutes
+    keywords: occupational ot daily living
+
+mental_health:
+  - service_id: counseling-intake
+    billing_code: "90791"
+    name: Mental health intake evaluation
+    keywords: psychiatric assessment first visit therapist
+
+  - service_id: counseling-intake-medical
+    billing_code: "90792"
+    name: Mental health intake evaluation with medical exam
+    keywords: psychiatrist assessment first visit medication
+
+  - service_id: counseling-30
+    billing_code: "90832"
+    name: Talk therapy, about 30 minutes
+    keywords: counseling therapist psychotherapy session
+
+  - service_id: counseling-30-med
+    billing_code: "90833"
+    name: Talk therapy added to a medication visit, about 30 minutes
+    keywords: counseling psychiatrist psychotherapy
+
+  - service_id: counseling-45
+    billing_code: "90834"
+    name: Talk therapy, about 45 minutes
+    keywords: counseling therapist psychotherapy session
+
+  - service_id: counseling-45-med
+    billing_code: "90836"
+    name: Talk therapy added to a medication visit, about 45 minutes
+    keywords: counseling psychiatrist psychotherapy
+
+  - service_id: counseling-60
+    billing_code: "90837"
+    name: Talk therapy, about 60 minutes
+    keywords: counseling therapist psychotherapy session
+
+  - service_id: counseling-60-med
+    billing_code: "90838"
+    name: Talk therapy added to a medication visit, about 60 minutes
+    keywords: counseling psychiatrist psychotherapy
+
+  - service_id: counseling-crisis-first
+    billing_code: "90839"
+    name: Crisis talk therapy, first hour
+    keywords: emergency counseling urgent mental
+
+  - service_id: counseling-crisis-extra
+    billing_code: "90840"
+    name: Crisis talk therapy, each added 30 minutes
+    keywords: emergency counseling urgent mental
+
+  - service_id: counseling-family-without
+    billing_code: "90846"
+    name: Family therapy without the patient, about 50 minutes
+    keywords: counseling relatives parents
+
+  - service_id: counseling-family-with
+    billing_code: "90847"
+    name: Family therapy with the patient, about 50 minutes
+    keywords: counseling relatives couples
+
+  - service_id: counseling-group
+    billing_code: "90853"
+    name: Group therapy session
+    keywords: counseling support psychotherapy
+
+urgent_care:
+  - service_id: urgent-new-15
+    billing_code: "99202"
+    name: Urgent care visit, new patient, 15 to 29 minutes
+    keywords: walk-in clinic sick minor
+
+  - service_id: urgent-new-30
+    billing_code: "99203"
+    name: Urgent care visit, new patient, 30 to 44 minutes
+    keywords: walk-in clinic sick minor
+
+  - service_id: urgent-new-45
+    billing_code: "99204"
+    name: Urgent care visit, new patient, 45 to 59 minutes
+    keywords: walk-in clinic sick
+
+  - service_id: urgent-new-60
+    billing_code: "99205"
+    name: Urgent care visit, new patient, 60 to 74 minutes
+    keywords: walk-in clinic sick complex
+
+  - service_id: urgent-return-nurse
+    billing_code: "99211"
+    name: Urgent care visit, returning patient, brief nurse visit
+    keywords: walk-in clinic quick
+
+  - service_id: urgent-return-10
+    billing_code: "99212"
+    name: Urgent care visit, returning patient, 10 to 19 minutes
+    keywords: walk-in clinic sick minor
+
+  - service_id: urgent-return-20
+    billing_code: "99213"
+    name: Urgent care visit, returning patient, 20 to 29 minutes
+    keywords: walk-in clinic sick minor
+
+  - service_id: urgent-return-30
+    billing_code: "99214"
+    name: Urgent care visit, returning patient, 30 to 39 minutes
+    keywords: walk-in clinic sick
+
+  - service_id: urgent-return-40
+    billing_code: "99215"
+    name: Urgent care visit, returning patient, 40 to 54 minutes
+    keywords: walk-in clinic sick complex

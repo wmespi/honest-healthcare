@@ -25,11 +25,13 @@ const andList = (items) => (items.length < 2 ? items.join('')
 
 // `compact` is the results header: choices apply as soon as they're made. Otherwise
 // this is the start card, and nothing happens until the button is pressed.
-export function SearchFields({ services, plans, serviceId, zip, planId, compact, onSearch }) {
+export function SearchFields({ services, families = [], plans, serviceId, zip, planId, compact, onSearch }) {
   const initialService = services.find((s) => s.service_id === serviceId) ?? null;
   const initialPlan = plans.find((p) => p.plan_id === planId) ?? null;
   const [service, setService] = useState(initialService);
   const [serviceText, setServiceText] = useState(initialService?.name ?? '');
+  // The family whose services the picker lists while nothing is typed; none lists the families.
+  const [browsing, setBrowsing] = useState(null);
   const [zipText, setZipText] = useState(zip ?? '');
   const [plan, setPlan] = useState(initialPlan);
   const [planText, setPlanText] = useState(initialPlan ? planLabel(initialPlan) : '');
@@ -42,9 +44,31 @@ export function SearchFields({ services, plans, serviceId, zip, planId, compact,
   const [carrierText, setCarrierText] = useState(carrier ?? '');
   const planChoices = compact || !carrier ? plans : plans.filter((p) => p.carrier === carrier);
 
+  const familyName = (id) => families.find((f) => f.family === id)?.name;
+  const typed = service && serviceText === service.name ? '' : serviceText;
+  const serviceOptions = () => {
+    if (normalize(typed)) {
+      return suggest(services, typed, (s) => `${s.name} ${s.keywords}`,
+        (s) => ({ id: `service:${s.service_id}`, label: s.name, hint: familyName(s.family) }));
+    }
+    if (browsing) {
+      return [
+        { id: 'back', label: 'Back to all families', keepOpen: true },
+        ...services.filter((s) => s.family === browsing)
+          .map((s) => ({ id: `service:${s.service_id}`, label: s.name })),
+      ];
+    }
+    return families
+      .map((f) => ({ family: f, count: services.filter((s) => s.family === f.family).length }))
+      .filter(({ count }) => count > 0)
+      .map(({ family, count }) => ({
+        id: `family:${family.family}`, label: family.name, detail: `${count} ${count === 1 ? 'service' : 'services'}`, keepOpen: true,
+      }));
+  };
+
   const submit = (nextService, nextZip, nextPlan) => {
     if (!nextService) {
-      setError({ field: 'service', message: 'Pick a scan from the list.' });
+      setError({ field: 'service', message: 'Pick a service from the list.' });
     } else if (!ZIP.test(nextZip.trim())) {
       setError({ field: 'zip', message: 'Enter a five-digit ZIP code, such as 30306.' });
     } else if (!nextPlan) {
@@ -59,23 +83,39 @@ export function SearchFields({ services, plans, serviceId, zip, planId, compact,
     <>
       <SuggestInput
         className="col-span-2"
-        label="What scan do you need?"
+        label="What care do you need?"
         hideLabel={compact}
         icon={Search}
-        placeholder="MRI, CT, X-ray..."
+        placeholder="Office visit, lab test, MRI..."
         text={serviceText}
-        options={suggest(services, serviceText === service?.name ? '' : serviceText,
-          (s) => `${s.name} ${s.keywords}`, (s) => ({ id: s.service_id, label: s.name }))}
+        options={serviceOptions()}
         invalid={error?.field === 'service'}
         onTextChange={setServiceText}
+        onEscape={() => {
+          if (!browsing || normalize(typed)) return false;
+          setBrowsing(null);
+          return true;
+        }}
         onPick={(option) => {
-          const picked = services.find((s) => s.service_id === option.id);
+          if (option.id === 'back') {
+            setBrowsing(null);
+            return;
+          }
+          if (option.id.startsWith('family:')) {
+            setBrowsing(option.id.slice('family:'.length));
+            return;
+          }
+          const picked = services.find((s) => s.service_id === option.id.slice('service:'.length));
+          setBrowsing(null);
           setService(picked);
           setServiceText(picked.name);
           setError(null);
           if (compact) submit(picked, zipText, plan);
         }}
-        onBlur={() => setServiceText(service?.name ?? '')}
+        onBlur={() => {
+          setBrowsing(null);
+          setServiceText(service?.name ?? '');
+        }}
       />
       <SuggestInput
         label="What's your ZIP code?"

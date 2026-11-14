@@ -23,6 +23,20 @@ journey can start from one (coverage: `application/frontend/src/findCare/*.test.
 | J2 | Rosa: a knee MRI | Knee MRI → within 10 miles | Places with a whole price first, places missing part of their bill after |
 | J3 | Sam: a brain MRI at a hospital | Brain MRI → ZIP 30303 → their plan → Grady Memorial Hospital | The hospital's fee from the plan's file and the reading add up to the most they'd pay, and the row says what the hospital charges without insurance |
 
+## Flow A — find care with one bill
+
+Each is one service of its family, on Rosa's plan from ZIP 30322.
+Expected for all: the place shows one part at its rate, which is the most she'd pay, no hospital is listed, and her share is the plan's for that kind of care.
+
+| ID | Journey | Clickpath | Expected |
+|---|---|---|---|
+| J5 | Rosa: an office visit | Office visits → Office visit, returning patient, 20 to 29 minutes | The Emory Clinic's visit; her share shown for primary care and for a specialist |
+| J6 | Rosa: a yearly checkup | Yearly checkups → Yearly checkup, returning patient, age 40 to 64 | The Emory Clinic's checkup; her share is preventive care's |
+| J7 | Rosa: urgent care | Urgent care → Urgent care visit, returning patient, 20 to 29 minutes → within 10 miles | Only urgent care centers, Peachtree Immediate Care among them |
+| J8 | Rosa: counseling | Mental health counseling → Talk therapy, about 45 minutes | The Emory Clinic's session |
+| J9 | Rosa: physical therapy | Physical and occupational therapy → Exercise therapy, per 15 minutes | The Emory Clinic's rate for 15 minutes |
+| J10 | Rosa: a lab test | Lab tests → Complete blood count, basic (CBC) | The Emory Clinic's rate for the test |
+
 ## No plan
 
 | ID | Journey | Expected |
@@ -31,8 +45,8 @@ journey can start from one (coverage: `application/frontend/src/findCare/*.test.
 
 ## Flow B — pick a plan (not built; needs multi-payer MRFs + CMS Exchange cost-sharing)
 
-J6 least all-in cost across plans for a knee replacement + two visits · J7 which plans
-cover drug X at what tier · J8 are my three doctors in-network on this plan.
+Least all-in cost across plans for a knee replacement + two visits · which plans
+cover drug X at what tier · are my three doctors in-network on this plan.
 
 ## Adding a journey
 

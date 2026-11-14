@@ -23,7 +23,7 @@ def test_health_says_when_the_build_ran_and_what_it_holds(api):
     assert body["networks"] == [
         {"network_id": "45334-GAN001", "name": "Blue Value Individual Network HMO", **current},
         {"network_id": "49046-GAN008", "name": "Pathway PCP Copay Choice", **current}]
-    assert body["rows"] == {"plans": 3, "services": 2, "places": 5, "prices": 7, "providers": 1}
+    assert body["rows"] == {"plans": 3, "services": 3, "families": 3, "places": 6, "prices": 8, "providers": 1}
 
 
 def test_health_says_which_networks_have_stale_or_no_prices_and_why(api, monkeypatch):
@@ -68,16 +68,27 @@ def test_find_care_plans_run_by_tier_then_deductible_with_what_tells_them_apart(
 
 def test_find_care_services_carry_what_the_screen_says(api):
     body = api.get("/api/services").json()
-    assert [s["service_id"] for s in body] == ["mri-lower-back", "mammogram-screening"]
-    assert body[0]["medicare_rate"] == 180.0 and body[0]["medicare_facility_rate"] == 243.77
-    assert body[1]["preventive_note"] == "Usually $0 in network as preventive care."
+    by_id = {s["service_id"]: s for s in body["services"]}
+    assert [s["name"] for s in body["services"]] == sorted(s["name"] for s in body["services"])
+    assert by_id["mri-lower-back"]["medicare_rate"] == 180.0 and by_id["mri-lower-back"]["medicare_facility_rate"] == 243.77
+    assert by_id["mri-lower-back"]["family"] == "mri"
+    assert by_id["mammogram-screening"]["preventive_note"] == "Usually $0 in network as preventive care."
+
+
+def test_the_catalog_lists_families_in_their_order(api):
+    body = api.get("/api/services").json()
+    assert body["families"] == [{"family": "office_visits", "name": "Office visits"},
+                                {"family": "mammograms", "name": "Mammograms"},
+                                {"family": "mri", "name": "MRI scans"}]
 
 
 def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
     body = api.get("/api/find-care", params=MRI).json()
     # Fewer than 5 places within any radius, so the search takes the widest.
     assert body["radius_mi"] == 50 and body["origin"] == {"zip": "30308", "lat": 33.770959, "lon": -84.377736}
-    assert body["cost_sharing"] == {"copay": None, "coinsurance": 40.0, "after_deductible": True}
+    assert body["cost_sharing"] == [{"benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": None,
+                                     "coinsurance": 40.0, "after_deductible": True,
+                                     "parts": ["all_in", "scan", "reading", "facility"]}]
     assert [(p["place_id"], p["distance_mi"], p["max_rate"]) for p in body["results"]] == [
         ("1000000001", 0.4, 500.0), ("1000000005", 3.5, 500.0), ("1000000002", 23.2, 500.0),
         ("110079", 1.3, None)]  # the hospital's own fee isn't on file
@@ -87,11 +98,17 @@ def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
     assert emory["providers"] == [{"npi": 1000000005, "name": "PAT SMITH",
                                    "specialty": "Diagnostic Radiology Physician", "score": 87.5}]
     grady = body["results"][3]
-    assert grady["kind"] == "hospital" and grady["stars"] == 3 and grady["phone"] == "(404) 555-0100"
-    assert grady["parts"] == [{"part": "facility", "max": None, "source": None},
-                              {"part": "reading", "max": 200.0, "source": "plan"}]
+    assert grady["kind"] == "hospital" and grady["kind_name"] == "Hospital"
+    assert grady["stars"] == 3 and grady["phone"] == "(404) 555-0100"
+    assert emory["kind_name"] == "Medical practice"
+    assert grady["parts"] == [
+        {"part": "facility", "label": "Hospital facility fee", "billing_class": "institutional", "max": None,
+         "source": None, "missing_note": "Missing the hospital's fee", "missing_explain": "Hospitals bill their own fee."},
+        {"part": "reading", "label": "Radiologist's reading", "billing_class": "professional", "max": 200.0,
+         "source": "plan", "missing_note": None, "missing_explain": None}]
     assert grady["cash_price"] == 1450.0 and emory["cash_price"] is None
-    assert emory["parts"] == [{"part": "all_in", "max": 500.0, "source": "plan"}]
+    assert emory["parts"] == [{"part": "all_in", "label": "The scan and its reading", "billing_class": "professional",
+                               "max": 500.0, "source": "plan", "missing_note": None, "missing_explain": None}]
 
 
 def test_find_care_serves_a_hospital_with_its_own_fee_and_no_reading_group(api):
@@ -101,16 +118,17 @@ def test_find_care_serves_a_hospital_with_its_own_fee_and_no_reading_group(api):
     by_id = {p["place_id"]: p for p in body.json()["results"]}
     fee_only = by_id["110001"]
     assert fee_only["name"] == "HAMILTON MEDICAL CENTER" and fee_only["billers"] == [] and fee_only["providers"] == [] and fee_only["max_rate"] is None
-    assert fee_only["parts"] == [{"part": "facility", "max": 165.0, "source": "plan"},
-                                 {"part": "reading", "max": None, "source": None}]
+    assert [(p["part"], p["max"], p["missing_note"], p["missing_explain"]) for p in fee_only["parts"]] == [
+        ("facility", 165.0, None, None),
+        ("reading", None, "Missing the reading", "Ask the hospital who will read yours.")]  # the hospital's wording
     assert fee_only["cash_price"] is None
 
 
 def test_find_care_says_where_a_hospitals_fee_comes_from_and_what_it_charges_uninsured(api):
     body = api.get("/api/find-care", params={**MRI, "service_id": "mammogram-screening"}).json()
     grady = next(p for p in body["results"] if p["place_id"] == "110079")
-    assert grady["parts"] == [{"part": "facility", "max": 210.0, "source": "hospital"},
-                              {"part": "reading", "max": 35.0, "source": "plan"}]
+    assert [(p["part"], p["max"], p["source"]) for p in grady["parts"]] == [
+        ("facility", 210.0, "hospital"), ("reading", 35.0, "plan")]
     assert grady["cash_price"] == 320.0 and grady["max_rate"] == 245.0
 
 
@@ -130,7 +148,24 @@ def test_find_care_with_no_place_near_points_to_the_closest_outside(api):
 
 def test_find_care_charges_preventive_care_nothing(api):
     body = api.get("/api/find-care", params={**MRI, "service_id": "mammogram-screening"}).json()
-    assert body["cost_sharing"] == {"copay": 0.0, "coinsurance": None, "after_deductible": False}
+    assert [(s["benefit"], s["copay"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
+        ("preventive", 0.0, None, False)]
+
+
+def test_find_care_gives_a_service_billed_under_two_benefits_a_share_for_each(api):
+    body = api.get("/api/find-care", params={**MRI, "service_id": "office-visit-established"}).json()
+    assert [(s["benefit"], s["label"], s["copay"], s["parts"]) for s in body["cost_sharing"]] == [
+        ("primary_care", "Primary care visit", 30.0, ["visit"]), ("specialist", "Specialist visit", 60.0, ["visit"])]
+    assert [(p["place_id"], p["max_rate"]) for p in body["results"]] == [("1000000070", 95.0)]
+
+
+def test_a_missing_part_says_what_is_missing_the_hospital_way_only_at_a_hospital(api):
+    # The reading is missing at a hospital (its own wording) and the scan at a practice-like place has none.
+    body = api.get("/api/find-care", params={**MRI, "plan_id": "49046GA0700053", "zip": "30720",
+                                             "service_id": "mammogram-screening"}).json()
+    reading = next(p for p in next(r for r in body["results"] if r["place_id"] == "110001")["parts"]
+                   if p["part"] == "reading")
+    assert reading["missing_explain"] == "Ask the hospital who will read yours."
 
 
 @pytest.mark.parametrize("params, code", [

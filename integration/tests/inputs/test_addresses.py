@@ -34,7 +34,7 @@ def test_openstreetmap_places_a_building_census_located_no_address_in(corpus):
     corpus.geocode("2501 N PATTERSON ST", "VALDOSTA", "316021234", None, 30.86, -83.29, source="openstreetmap")
     assert address(corpus, "2501 N PATTERSON ST") == [("2501 N PATTERSON ST 31602", 30.86, -83.29, "openstreetmap")]
     corpus.build()
-    assert ("1000000003", "SOUTH GEORGIA RADIOLOGY PC", "practice", "2501 N PATTERSON ST", "VALDOSTA",
+    assert ("1000000003", "SOUTH GEORGIA RADIOLOGY PC", "practice", "Medical practice", "2501 N PATTERSON ST", "VALDOSTA",
             30.86, -83.29, None, None) in corpus.rows("places")
     assert corpus.rows("unlocated_places") == []
 

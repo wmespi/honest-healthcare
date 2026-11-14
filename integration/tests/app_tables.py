@@ -10,7 +10,7 @@ import shutil
 import tempfile
 
 from integration.build import build
-from integration.tests.corpus import default_corpus
+from integration.tests.corpus import default_corpus, office_visit_practice
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT = os.path.join(REPO, "data-test", "serving")
@@ -25,7 +25,8 @@ def main():
     os.environ.pop("DUCKDB_TMP", None)
     with tempfile.TemporaryDirectory() as tmp:
         c = default_corpus(f"{tmp}/corpus")
-        rows = build(c.root, OUT, c.services_file, c.hospital_plans_file)
+        office_visit_practice(c)
+        rows = build(c.root, OUT, c.services_file, c.hospital_plans_file, c.families_file)
     print(f"→ the app's test tables in {OUT}: {rows}")
 
 

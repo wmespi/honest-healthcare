@@ -6,18 +6,26 @@ def test_places_are_every_hospital_and_every_practice_with_a_price_on_the_map(co
     assert corpus.build()["places"] == 5
     # South Georgia Radiology, which Census didn't match, isn't one.
     assert corpus.rows("places") == [
-        ("1000000001", "MIDTOWN IMAGING PC", "practice", "550 PEACHTREE ST NE", "ATLANTA",
+        ("1000000001", "MIDTOWN IMAGING PC", "practice", "Medical practice", "550 PEACHTREE ST NE", "ATLANTA",
          33.7712, -84.3853, None, None),
-        ("1000000002", "HIRAM IMAGING LLC", "imaging_center", "4374 ATLANTA HWY", "HIRAM",
+        ("1000000002", "HIRAM IMAGING LLC", "imaging_center", "Imaging center", "4374 ATLANTA HWY", "HIRAM",
          33.8751, -84.7624, None, None),
         # A doctor's own NPI, named after its CMS group.
-        ("1000000005", "EMORY MEDICAL CARE FOUNDATION", "practice", "1365 CLIFTON RD NE", "ATLANTA",
+        ("1000000005", "EMORY MEDICAL CARE FOUNDATION", "practice", "Medical practice", "1365 CLIFTON RD NE", "ATLANTA",
          33.792, -84.323, None, None),
         # Every hospital is a place, priced or not; the reader at Grady's address is Grady.
-        ("110001", "HAMILTON MEDICAL CENTER", "hospital", "1200 MEMORIAL DRIVE", "DALTON",
+        ("110001", "HAMILTON MEDICAL CENTER", "hospital", "Hospital", "1200 MEMORIAL DRIVE", "DALTON",
          34.7698, -84.9702, "(404) 555-0100", 4),
-        ("110079", "GRADY MEMORIAL HOSPITAL", "hospital", "80 JESSE HILL JR DRIVE SE", "ATLANTA",
+        ("110079", "GRADY MEMORIAL HOSPITAL", "hospital", "Hospital", "80 JESSE HILL JR DRIVE SE", "ATLANTA",
          33.7524, -84.382, "(404) 555-0100", 3)]
+
+
+def test_a_place_has_its_kind_and_what_the_screen_calls_it(corpus):
+    corpus.build()
+    assert {r[0]: r[2:4] for r in corpus.rows("places")} == {
+        "1000000001": ("practice", "Medical practice"), "1000000002": ("imaging_center", "Imaging center"),
+        "1000000005": ("practice", "Medical practice"), "110001": ("hospital", "Hospital"),
+        "110079": ("hospital", "Hospital")}
 
 
 def biller(corpus, npi, name, address, city, postal_code, **fields):
@@ -38,13 +46,13 @@ def test_billing_ids_of_one_practice_at_one_address_are_one_place(corpus):
     corpus.geocode("550 PEACHTREE ST NE", "ATLANTA", "303082233", "550 PEACHTREE ST NE, ATLANTA, GA, 30308",
                    33.7712, -84.3853, address_line2="STE 300")
     corpus.build()
-    midtown = [r for r in corpus.rows("places") if r[3].startswith("550 PEACHTREE")]
+    midtown = [r for r in corpus.rows("places") if r[4].startswith("550 PEACHTREE")]
     # The practice keeps its lowest NPI's name and address, and is an imaging
     # center because one of its billers is registered as one.
     assert midtown == [
-        ("1000000001", "MIDTOWN IMAGING PC", "imaging_center", "550 PEACHTREE ST NE", "ATLANTA",
+        ("1000000001", "MIDTOWN IMAGING PC", "imaging_center", "Imaging center", "550 PEACHTREE ST NE", "ATLANTA",
          33.7712, -84.3853, None, None),
-        ("1000000012", "PEACHTREE ORTHOPEDICS LLC", "practice", "550 PEACHTREE ST NE, STE 300", "ATLANTA",
+        ("1000000012", "PEACHTREE ORTHOPEDICS LLC", "practice", "Medical practice", "550 PEACHTREE ST NE, STE 300", "ATLANTA",
          33.7712, -84.3853, None, None)]
     assert corpus.inputs().execute("""
         SELECT biller, place_id FROM biller_places WHERE biller IN ('1000000011', '1000000012')
@@ -86,7 +94,8 @@ def test_a_place_census_cant_put_on_the_map_is_left_off_and_saved(corpus):
     corpus.hospital("110038", "ARCHBOLD MEMORIAL HOSPITAL", "915 GORDON AVENUE & MIMOSA DRIVE", "THOMASVILLE",
                     "31792")
     assert corpus.build()["unlocated_places"] == 2
-    assert ("1000000016", "PEACHTREE CARDIOLOGY", "practice", "550 PEACHTREE ST NE, STE 900", "ATLANTA",
+    assert ("1000000016", "PEACHTREE CARDIOLOGY", "practice", "Medical practice",
+            "550 PEACHTREE ST NE, STE 900", "ATLANTA",
             33.7712, -84.3853, None, None) in corpus.rows("places")
     # No address in South Georgia Radiology's building or Archbold's matched.
     assert corpus.rows("unlocated_places") == [
@@ -118,10 +127,10 @@ def test_a_billers_other_address_is_another_place_with_its_own_phone(corpus):
     # No biller's own record is in the second building, so its ID adds the building's hash.
     other = "1000000018-" + hashlib.md5(b"200 N MAIN ST, ALPHARETTA, GA, 30009").hexdigest()[:8]
     assert [r for r in corpus.rows("places") if r[1] == "DECATUR IMAGING LLC"] == [
-        ("1000000018", "DECATUR IMAGING LLC", "imaging_center", "100 CLAIREMONT AVE", "DECATUR",
+        ("1000000018", "DECATUR IMAGING LLC", "imaging_center", "Imaging center", "100 CLAIREMONT AVE", "DECATUR",
          33.7748, -84.2963, "(404) 555-0118", None),
         # A phone that isn't ten digits is left out.
-        (other, "DECATUR IMAGING LLC", "imaging_center", "200 N MAIN ST", "ALPHARETTA",
+        (other, "DECATUR IMAGING LLC", "imaging_center", "Imaging center", "200 N MAIN ST", "ALPHARETTA",
          34.0778, -84.2954, None, None)]
 
 

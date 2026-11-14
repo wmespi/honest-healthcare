@@ -148,7 +148,7 @@ function NothingNearby({ closest, radiusMi, widerRadiusMi, service, plan, onWide
   if (!closest) {
     return (
       <div className="px-4 py-10 sm:px-6">
-        <h1 className="text-xl font-bold tracking-tight text-slate-900">No prices for this scan on your plan</h1>
+        <h1 className="text-xl font-bold tracking-tight text-slate-900">No prices for this service on your plan</h1>
         <p className="mt-1 text-pretty text-[15px] text-slate-600">
           {plan.name}&rsquo;s file doesn&rsquo;t list a price for {service.name.toLowerCase()} at any place in Georgia we can put on the map.
         </p>
@@ -239,7 +239,7 @@ function Results({ search, service, plan, sort, filterText, setFilterText, selec
           <p>A place missing part of its bill has no &ldquo;most you&rsquo;d pay&rdquo;, so it isn&rsquo;t in the median and comes last when sorted by price.</p>
         )}
         {search.medicareRate !== null && (
-          <p>Medicare is what Medicare pays for the same scan. It doesn&rsquo;t change with your search or your plan.</p>
+          <p>Medicare is what Medicare pays for the same service. It doesn&rsquo;t change with your search or your plan.</p>
         )}
       </div>
     </>
@@ -271,7 +271,7 @@ export default function FindCare() {
 
   useEffect(() => {
     Promise.all([getPlans(), getServices()])
-      .then(([plans, services]) => setCatalog({ plans: plans.data, services: services.data }))
+      .then(([plans, services]) => setCatalog({ plans: plans.data, services: services.data.services, families: services.data.families }))
       .catch(() => setCatalog({ error: true }));
   }, []);
 
@@ -349,6 +349,7 @@ export default function FindCare() {
                 key={`${serviceId}|${zip}|${planId}`}
                 compact
                 services={catalog.services}
+                families={catalog.families}
                 plans={catalog.plans}
                 serviceId={serviceId}
                 zip={zip}
@@ -390,11 +391,11 @@ export default function FindCare() {
                   Know the most you could pay before you go
                 </h1>
                 <p className="mb-6 mt-2 text-pretty text-[15px] text-slate-600">
-                  Compare what your plan has agreed with imaging centers and hospitals near you, and find the cheapest.
+                  Compare what your plan has agreed with doctors, labs, imaging centers and hospitals near you, and find the cheapest.
                 </p>
-                {catalog?.error && <p role="alert" className="text-sm text-rose-700">We couldn&rsquo;t load the scans and plans. Try again in a moment.</p>}
+                {catalog?.error && <p role="alert" className="text-sm text-rose-700">We couldn&rsquo;t load the services and plans. Try again in a moment.</p>}
                 {catalog?.services && (
-                  <SearchFields services={catalog.services} plans={catalog.plans} serviceId={serviceId} zip={zip} planId={planId} onSearch={applySearch} />
+                  <SearchFields services={catalog.services} families={catalog.families} plans={catalog.plans} serviceId={serviceId} zip={zip} planId={planId} onSearch={applySearch} />
                 )}
               </motion.div>
             </div>

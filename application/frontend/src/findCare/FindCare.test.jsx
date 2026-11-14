@@ -17,25 +17,55 @@ const PLANS = [
   { plan_id: '49046GA0700053', name: 'Anthem Bronze Pathway HMO 6000', carrier: 'Anthem Blue Cross and Blue Shield',
     metal_level: 'Expanded Bronze', needs_referral: true, deductible: 6000, tier: 'Bronze', detail: 'Pathway HMO' },
 ];
+const FAMILIES = [{ family: 'mri', name: 'MRI scans' }, { family: 'mammograms', name: 'Mammograms' }];
 const SERVICES = [
-  { service_id: 'mri-lower-back', name: 'Lower-back MRI', keywords: 'lumbar spine', about: 'Magnets and radio waves.',
+  { service_id: 'mri-lower-back', family: 'mri', name: 'Lower-back MRI', keywords: 'lumbar spine', about: 'Magnets and radio waves.',
     could_change: ['Contrast dye'], asks: ['Is this everything?'], preventive_note: null,
     medicare_rate: 180.38, medicare_facility_rate: 243.77 },
-  { service_id: 'mammogram-screening', name: 'Screening mammogram', keywords: 'breast', about: 'A low-dose X-ray.',
+  { service_id: 'mammogram-screening', family: 'mammograms', name: 'Screening mammogram', keywords: 'breast', about: 'A low-dose X-ray.',
     could_change: ['Being billed as diagnostic'], asks: ['Will this be billed as a screening?'],
     preventive_note: 'Screening mammograms are usually $0 in network.', medicare_rate: 118.84,
     medicare_facility_rate: null },
 ];
 const MRI = `?service=mri-lower-back&zip=30322&plan=${SILVER}`;
 
-const part = (name, max, source = 'plan') => ({ part: name, max, source: max === null ? null : source });
+const BILLS = {
+  all_in: { label: 'The scan and its reading', billing_class: 'professional' },
+  scan: {
+    label: 'The scan', billing_class: 'professional', note: 'Missing the cost of the scan',
+    explain: 'Medicare records show this group’s doctors reading scans done at hospitals, so the place that does your scan bills for it separately.',
+  },
+  reading: {
+    label: 'Radiologist’s reading', billing_class: 'professional', note: 'Missing the reading',
+    explain: 'Your plan’s file lists no rate for the reading here, so ask who will read yours.',
+    hospitalExplain: 'Your plan’s file doesn’t show which group reads scans here, so ask the hospital who will read yours.',
+  },
+  facility: {
+    label: 'Hospital facility fee', billing_class: 'institutional', note: 'Missing the hospital’s fee',
+    explain: 'Hospitals bill their own fee for the scan, and your plan’s file doesn’t list it here. Nothing on file confirms the hospital itself is in your network.',
+  },
+};
+
+// A part as the API sends it: the bill's own text, only on a part with no rate.
+const part = (name, max, source = 'plan', hospital = false) => {
+  const bill = BILLS[name];
+  return {
+    part: name, label: bill.label, billing_class: bill.billing_class, max, source: max === null ? null : source,
+    missing_note: max === null ? bill.note : null,
+    missing_explain: max === null ? (hospital && bill.hospitalExplain) || bill.explain : null,
+  };
+};
+
+const share = (benefit, label, copay, coinsurance, afterDeductible, parts = ['all_in']) => (
+  { benefit, label, copay, coinsurance, after_deductible: afterDeductible, parts });
+const IMAGING_SHARE = share('advanced_imaging', 'CT, PET and MRI scans', 300, 50, true);
 
 const provider = (npi, name, score = null) => ({ npi, name, specialty: 'Diagnostic Radiology Physician', score });
 
 function place(id, name, kind, distance, parts, extra = {}) {
   const priced = parts.every((p) => p.max !== null);
   return {
-    place_id: id, name, kind, address: '1365 CLIFTON RD NE', city: 'ATLANTA', lat: 33.79, lon: -84.32,
+    place_id: id, name, kind, kind_name: kind === 'hospital' ? 'Hospital' : 'Medical practice', address: '1365 CLIFTON RD NE', city: 'ATLANTA', lat: 33.79, lon: -84.32,
     phone: null, stars: null, distance_mi: distance, parts, several_rates: false, billers: [name], providers: [],
     max_rate: priced ? parts.reduce((sum, p) => sum + p.max, 0) : null, cash_price: null, ...extra,
   };
@@ -55,7 +85,7 @@ const GRADY = place('110079', 'GRADY MEMORIAL HOSPITAL', 'hospital', 4.2,
   });
 
 const FEE_ONLY = place('110001', 'HAMILTON MEDICAL CENTER', 'hospital', 3.1,
-  [part('facility', 165, 'hospital'), part('reading', null)], {
+  [part('facility', 165, 'hospital'), part('reading', null, 'plan', true)], {
     address: '1200 MEMORIAL DRIVE', stars: 4, billers: [], cash_price: 320,
   });
 
@@ -63,7 +93,7 @@ function answer(results, extra = {}) {
   const priced = results.filter((p) => p.max_rate !== null).sort((a, b) => a.max_rate - b.max_rate);
   return {
     service_id: 'mri-lower-back', plan_id: SILVER, origin: { zip: '30322', lat: 33.79, lon: -84.32 },
-    radius_mi: 5, sort: 'price', cost_sharing: { copay: 300, coinsurance: 50, after_deductible: true },
+    radius_mi: 5, sort: 'price', cost_sharing: [IMAGING_SHARE],
     results, wider_radius_mi: null, closest_outside: null,
     cheapest_place_id: priced[0]?.place_id ?? null,
     closest_place_id: [...results].sort((a, b) => a.distance_mi - b.distance_mi)[0]?.place_id ?? null,
@@ -83,7 +113,7 @@ const row = (name) => screen.getByRole('button', { name }).closest('tr');
 beforeEach(() => {
   vi.resetAllMocks();
   api.getPlans.mockResolvedValue({ data: PLANS });
-  api.getServices.mockResolvedValue({ data: SERVICES });
+  api.getServices.mockResolvedValue({ data: { families: FAMILIES, services: SERVICES } });
   api.getFindCare.mockResolvedValue({ data: answer([EMORY, TRAUB, GRADY]) });
 });
 
@@ -97,7 +127,8 @@ describe('find care', () => {
   it('goes from a scan, a ZIP code and a plan to the cheapest price on the plan', async () => {
     const user = userEvent.setup();
     open();
-    await user.click(await screen.findByLabelText('What scan do you need?'));
+    await user.click(await screen.findByLabelText('What care do you need?'));
+    await user.click(screen.getByRole('option', { name: /MRI scans/ }));
     await user.click(screen.getByRole('option', { name: 'Lower-back MRI' }));
     await user.type(screen.getByLabelText('What\'s your ZIP code?'), '30322');
     await user.click(screen.getByLabelText('What plan do you have?'));
@@ -149,7 +180,8 @@ describe('find care', () => {
   it('asks for a five-digit ZIP code and a plan before searching', async () => {
     const user = userEvent.setup();
     open();
-    await user.click(await screen.findByLabelText('What scan do you need?'));
+    await user.click(await screen.findByLabelText('What care do you need?'));
+    await user.click(screen.getByRole('option', { name: /MRI scans/ }));
     await user.click(screen.getByRole('option', { name: 'Lower-back MRI' }));
     await user.type(screen.getByLabelText('What\'s your ZIP code?'), '3032');
     await user.click(screen.getByRole('button', { name: 'See prices' }));
@@ -183,7 +215,7 @@ describe('find care', () => {
     expect(within(row('Grady Memorial Hospital')).getByText('Incomplete')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Grady Memorial Hospital' }));
     expect(screen.getByText('Not on file')).toBeInTheDocument();
-    expect(screen.getByText(/nothing on file confirms the hospital itself is/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing on file confirms the hospital itself is/)).toBeInTheDocument();
     expect(screen.getByText(/Medicare pays hospitals about \$243.77/)).toBeInTheDocument();
     expect(screen.getByText('Emory Medical Care Foundation and Radiology Associates Of Dekalb PC bill for the reading here.'))
       .toBeInTheDocument();
@@ -199,10 +231,10 @@ describe('find care', () => {
     await user.click(screen.getByRole('button', { name: 'Hamilton Medical Center' }));
     expect(screen.getByText('Hospital facility fee')).toBeInTheDocument();
     expect(screen.getByText('$165')).toBeInTheDocument();
-    expect(screen.getByText(/Your plan’s file doesn’t show which group reads scans here/)).toBeInTheDocument();
+    expect(screen.getByText(/ask the hospital who will read yours/)).toBeInTheDocument();
     expect(screen.queryByText(/for the reading here/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Medicare pays hospitals about/)).not.toBeInTheDocument();
-    expect(screen.queryByText('Who does this scan here')).not.toBeInTheDocument();
+    expect(screen.queryByText('Who provides this here')).not.toBeInTheDocument();
   });
 
   it('says a fee comes from the hospital\'s own price list only when it does', async () => {
@@ -215,7 +247,7 @@ describe('find care', () => {
     own.unmount();
 
     const planFee = place('110001', 'HAMILTON MEDICAL CENTER', 'hospital', 3.1,
-      [part('facility', 165), part('reading', null)], { billers: [] });
+      [part('facility', 165), part('reading', null, 'plan', true)], { billers: [] });
     api.getFindCare.mockResolvedValue({ data: answer([planFee]) });
     open(MRI);
     await user.click(await screen.findByRole('button', { name: 'Hamilton Medical Center' }));
@@ -274,7 +306,7 @@ describe('find care', () => {
   it('says so when the plan has no price for the scan anywhere', async () => {
     api.getFindCare.mockResolvedValue({ data: answer([], { radius_mi: 50, closest_place_id: null }) });
     open(MRI);
-    expect(await screen.findByText('No prices for this scan on your plan')).toBeInTheDocument();
+    expect(await screen.findByText('No prices for this service on your plan')).toBeInTheDocument();
   });
 
   it('never names a place with no full price as the answer', async () => {
@@ -293,7 +325,7 @@ describe('find care', () => {
   it('says when a service is usually free as preventive care, with referral advice only when the plan needs one', async () => {
     const user = userEvent.setup();
     api.getFindCare.mockResolvedValue({ data: answer([EMORY], {
-      service_id: 'mammogram-screening', cost_sharing: { copay: 0, coinsurance: null, after_deductible: false },
+      service_id: 'mammogram-screening', cost_sharing: [share('preventive', 'Preventive care', 0, null, false)],
     }) });
     const screening = open(`?service=mammogram-screening&zip=30322&plan=${SILVER}`);
     expect(await screen.findByText('Screening mammograms are usually $0 in network.')).toBeInTheDocument();
@@ -304,5 +336,69 @@ describe('find care', () => {
     open('?service=mammogram-screening&zip=30322&plan=49046GA0700053');
     await user.click(await screen.findByRole('button', { name: /What to know about/ }));
     expect(screen.getByText(/Anthem Bronze Pathway HMO 6000 needs a referral/)).toBeInTheDocument();
+  });
+
+  it('says each share of a service billed under two benefits, led by its label', async () => {
+    api.getFindCare.mockResolvedValue({ data: answer([EMORY], { cost_sharing: [
+      share('primary_care', 'Primary care visit', 30, null, false), share('specialist', 'Specialist visit', 60, null, false),
+    ] }) });
+    const user = userEvent.setup();
+    open(MRI);
+    await user.click(await screen.findByRole('button', { name: 'The Emory Clinic Inc' }));
+    expect(screen.getByText('Primary care visit:')).toBeInTheDocument();
+    expect(screen.getByText('Specialist visit:')).toBeInTheDocument();
+    expect(screen.getByText('You pay a $30 copay.')).toBeInTheDocument();
+    expect(screen.getByText('You pay a $60 copay.')).toBeInTheDocument();
+  });
+
+  describe('the service picker', () => {
+    const field = () => screen.findByLabelText('What care do you need?');
+
+    it('lists the families with how many services each has, and goes into one and back', async () => {
+      const user = userEvent.setup();
+      open();
+      await user.click(await field());
+      const families = screen.getAllByRole('option');
+      expect(families).toHaveLength(2);
+      expect(families[0]).toHaveTextContent('MRI scans1 service');
+      expect(families[1]).toHaveTextContent('Mammograms1 service');
+      await user.click(families[1]);
+      const inside = screen.getAllByRole('option');
+      expect(inside.map((o) => o.textContent)).toEqual(['Back to all families', 'Screening mammogram']);
+      await user.click(inside[0]);
+      expect(screen.getAllByRole('option')).toHaveLength(2);
+      expect(screen.getByRole('option', { name: /MRI scans/ })).toBeInTheDocument();
+    });
+
+    it('picks a service from inside a family', async () => {
+      const user = userEvent.setup();
+      open();
+      await user.click(await field());
+      await user.click(screen.getByRole('option', { name: /MRI scans/ }));
+      await user.click(screen.getByRole('option', { name: 'Lower-back MRI' }));
+      expect(await field()).toHaveValue('Lower-back MRI');
+    });
+
+    it('works from the keyboard, and Escape inside a family goes back to the families', async () => {
+      const user = userEvent.setup();
+      open();
+      await user.click(await field());
+      await user.keyboard('{ArrowDown}{Enter}');
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Back to all families', 'Lower-back MRI']);
+      await user.keyboard('{Escape}');
+      expect(screen.getAllByRole('option')).toHaveLength(2);
+      expect(screen.getByRole('option', { name: /Mammograms/ })).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    });
+
+    it('searches every service when something is typed, each result naming its family', async () => {
+      const user = userEvent.setup();
+      open();
+      await user.type(await field(), 'breast');
+      const [result] = screen.getAllByRole('option');
+      expect(screen.getAllByRole('option')).toHaveLength(1);
+      expect(result).toHaveTextContent('Screening mammogramMammograms');
+    });
   });
 });

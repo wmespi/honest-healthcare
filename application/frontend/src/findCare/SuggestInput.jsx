@@ -4,7 +4,7 @@ import { clsx } from 'clsx';
 // A text field with a pick list, used for the service, the location and the plan.
 export function SuggestInput({
   label, hideLabel, icon, placeholder, inputMode, text, options, invalid, className, listClassName,
-  onTextChange, onPick, onEnter, onBlur,
+  onTextChange, onPick, onEnter, onEscape, onBlur,
 }) {
   const Icon = icon;
   const id = useId();
@@ -13,6 +13,7 @@ export function SuggestInput({
   const [active, setActive] = useState(-1);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const pointerAt = useRef(null);
   const showList = open && options.length > 0;
 
   // The list stops above the bottom of what's visible, a phone's keyboard included,
@@ -27,8 +28,23 @@ export function SuggestInput({
     setOpen(false);
     setActive(-1);
   };
+  // A list whose options change while it's open, as when a family is opened, starts from its top.
+  const restart = () => {
+    setActive(-1);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  };
+  // The pointer takes the highlight only when it moves: a list that scrolls under a resting
+  // pointer, as the arrow keys make it, sends the same events from where the pointer already is.
+  const onPointer = (event, index) => {
+    const at = `${event.clientX},${event.clientY}`;
+    if (pointerAt.current === at) return;
+    pointerAt.current = at;
+    setActive(index);
+  };
   const pick = (option) => {
-    close();
+    // An option that only narrows the list, such as a family, leaves it open.
+    if (option.keepOpen) restart();
+    else close();
     onPick(option);
   };
 
@@ -40,10 +56,11 @@ export function SuggestInput({
         return;
       }
       const down = event.key === 'ArrowDown';
-      setActive((i) => {
-        if (i === -1) return down ? 0 : options.length - 1;
-        return (i + (down ? 1 : -1) + options.length) % options.length;
-      });
+      const step = down ? 1 : -1;
+      const next = active === -1 ? (down ? 0 : options.length - 1) : (active + step + options.length) % options.length;
+      setActive(next);
+      // A long list scrolls to keep the option the keys are on in view.
+      listRef.current?.children[next]?.scrollIntoView?.({ block: 'nearest' });
     } else if (event.key === 'Enter') {
       event.preventDefault();
       if (showList && options[active]) {
@@ -53,7 +70,9 @@ export function SuggestInput({
         onEnter?.();
       }
     } else if (event.key === 'Escape') {
-      close();
+      // `onEscape` answers true when it took the key, as when it steps back within the list.
+      if (onEscape?.()) restart();
+      else close();
     }
   };
 
@@ -123,7 +142,7 @@ export function SuggestInput({
               role="option"
               aria-selected={index === active}
               onClick={() => pick(option)}
-              onMouseEnter={() => setActive(index)}
+              onMouseMove={(event) => onPointer(event, index)}
               className={clsx(
                 'flex cursor-pointer items-start gap-3 px-3.5 py-2.5 text-[15px] leading-snug text-slate-900',
                 index === active && 'bg-slate-100',

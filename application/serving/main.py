@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from .contract import Problem
 from .data_sources import (
-    NETWORKS_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, SERVING_DIR,
+    FAMILIES_SRC, NETWORKS_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, SERVING_DIR,
     db, manifest, missing_build,
 )
 from .routers import find_care
@@ -27,7 +27,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(find_care.router, prefix="/api")
 
 # The tables /api/health counts, so a glance says what the build holds.
-_COUNTED = {"plans": PLANS_SRC, "services": SERVICES_SRC, "places": PLACES_SRC,
+_COUNTED = {"plans": PLANS_SRC, "services": SERVICES_SRC, "families": FAMILIES_SRC, "places": PLACES_SRC,
             "prices": PRICES_SRC, "providers": PROVIDERS_SRC}
 
 

@@ -34,8 +34,9 @@ class BillerPlaces(Table):
     practice is keyed on the lowest billing NPI whose main address is in the
     building, and takes that biller's name, address and phone. Where none of its
     billers has its main address, the key is the lowest billing NPI and a short
-    hash of the building, so one biller's sites are different places. It's an
-    imaging center if NPPES registers any of its billers as one. Different
+    hash of the building, so one biller's sites are different places. Its kind
+    is the kind of center NPPES registers its billers as (centers), the first in
+    the order of `kinds` where they're registered as two, else `practice`. Different
     practices in one building stay apart, because their prices differ more often
     than one practice's billing IDs do. A doctor's own NPI takes the name of its
     CMS group, and away from a hospital it has no place without one. A biller with
@@ -54,18 +55,20 @@ class BillerPlaces(Table):
     def select(self, data_dir):
         return f"""
             WITH billers AS (
-                SELECT b.biller, n.npi, n.taxonomy_code IN (SELECT taxonomy_code FROM imaging_centers) AS center,
+                SELECT b.biller, n.npi, c.kind AS center, k.position AS center_rank,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name ELSE d.org_name END AS name,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name
                             ELSE coalesce(d.org_name, concat_ws(' ', n.first_name, n.last_name)) END AS biller_name
                 FROM (SELECT DISTINCT biller FROM biller_rates) b
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
+                LEFT JOIN (SELECT DISTINCT taxonomy_code, kind FROM centers) c ON c.taxonomy_code = n.taxonomy_code
+                LEFT JOIN kinds k ON k.kind = c.kind
             ),
             listed AS {listed(data_dir)},
             sites AS (
                 SELECT DISTINCT ON (b.biller, a.building)
-                       b.biller, b.biller_name, b.name, b.center, l.main, a.building, a.lat, a.lon,
+                       b.biller, b.biller_name, b.name, b.center, b.center_rank, l.main, a.building, a.lat, a.lon,
                        concat_ws(', ', l.address_line1, nullif(trim(l.address_line2), '')) AS address,
                        l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone
                 FROM billers b
@@ -77,7 +80,7 @@ class BillerPlaces(Table):
                 SELECT biller, biller_name, main, building,
                        coalesce(min(biller) FILTER (WHERE main) OVER practice, min(biller) OVER practice) AS lowest,
                        bool_or(main) OVER practice AS any_main,
-                       bool_or(center) OVER practice AS any_center
+                       arg_min(center, center_rank) OVER practice AS center
                 FROM sites
                 WHERE name IS NOT NULL AND building NOT IN (SELECT building FROM hospitals)
                 WINDOW practice AS (PARTITION BY building, {practice_name("name")})
@@ -88,7 +91,7 @@ class BillerPlaces(Table):
             UNION ALL
             SELECT p.biller, p.biller_name,
                    CASE WHEN p.any_main THEN p.lowest ELSE p.lowest || '-' || left(md5(p.building), 8) END,
-                   CASE WHEN p.any_center THEN 'imaging_center' ELSE 'practice' END,
+                   coalesce(p.center, 'practice'),
                    o.name, o.address, o.city, o.zip, o.lat, o.lon, o.phone, p.main, p.building
             FROM practices p JOIN sites o ON o.biller = p.lowest AND o.building = p.building
         """
