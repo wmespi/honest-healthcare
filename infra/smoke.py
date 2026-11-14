@@ -74,8 +74,9 @@ def main(base, token):
     check(status == 200 and json.loads(body)["status"] == "ok", "/api/health says the build is complete", body[:200])
 
     plans = json.loads(get("/api/plans")[2])
-    services = json.loads(get("/api/services")[2])
-    check(bool(plans) and bool(services), "/api/plans and /api/services list something")
+    catalog = json.loads(get("/api/services")[2])
+    services = catalog["services"]
+    check(bool(plans) and bool(services) and bool(catalog["families"]), "/api/plans and /api/services list something")
     status, _, body = get("/api/find-care", service_id=services[0]["service_id"], plan_id=plans[0]["plan_id"], zip=ATLANTA)
     check(status == 200 and "results" in json.loads(body), "/api/find-care answers a search", body[:200])
     status, headers, _ = get("/api/nope")
