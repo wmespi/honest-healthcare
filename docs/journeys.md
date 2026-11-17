@@ -30,7 +30,8 @@ Expected for all: the place shows one part at its rate, which is the most she'd 
 
 | ID | Journey | Clickpath | Expected |
 |---|---|---|---|
-| J5 | Rosa: an office visit | Office visits → Office visit, returning patient, 20 to 29 minutes | The Emory Clinic's visit; her share shown for primary care and for a specialist |
+| J5 | Rosa: a primary care visit | Office visits → Office visit, returning patient, 20 to 29 minutes → Primary care | The Emory Clinic's visit; her share is primary care's |
+| J17 | Rosa: a visit with a skin doctor | Office visits → Office visit, returning patient, 20 to 29 minutes → Skin | Dermatology Associates of Georgia's visit; her share is a specialist's |
 | J6 | Rosa: a yearly checkup | Yearly checkups → Yearly checkup, returning patient, age 40 to 64 | The Emory Clinic's checkup; her share is preventive care's |
 | J7 | Rosa: urgent care | Urgent care → Urgent care visit, returning patient, 20 to 29 minutes → within 10 miles | Only urgent care centers, Peachtree Immediate Care among them |
 | J8 | Rosa: counseling | Mental health counseling → Talk therapy, about 45 minutes | The Emory Clinic's session |

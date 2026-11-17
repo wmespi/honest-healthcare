@@ -82,8 +82,9 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 
 - **None of them shows at a hospital.**
   Their families list no hospital bills, so a clinic, lab or urgent care in a hospital's building is left out, and so is the hospital's own fee for one.
-- **An office visit lists every specialty together.**
-  The screen has no specialty filter, and it shows both the primary care and the specialist share because the file doesn't say which a practice's visit falls under.
+- **An office visit is listed under a kind of doctor only where someone there names one.**
+  A place whose clinicians are registered only as general nurse practitioners or physician assistants, and whose billing group names no kind either, such as a medical specialty clinic, is under no kind; `make build` lists the registrations that count as none ([integration/specialties.yaml](../integration/specialties.yaml)).
+  A large system's practice can show under kinds its own doctors don't practice there, because its roster spans the system.
 - **A yearly checkup's evidence is Medicare's wellness visit.**
   Medicare doesn't pay the checkup codes, so a practice shows when Medicare has a doctor of its billing a wellness visit, and children's checkups aren't offered because Medicare has no evidence for them.
 - **Urgent care lists only the centers NPPES registers as urgent care.**

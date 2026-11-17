@@ -68,9 +68,9 @@ def test_a_hospital_with_its_own_fee_and_no_group_on_file_shows_its_fee_alone(co
     rows = {r[:3]: r[3:] for r in corpus.rows("prices") if r[2] == "110001"}
     assert rows == {
         (PATHWAY, "mammogram-screening", "110001"): ([part("facility", 165.0), part("reading", None)], False, [], [],
-                                                     300.0),
+                                                     300.0, []),
         (BV, "mri-lower-back", "110001"): ([part("facility", 1150.0, "hospital"), part("reading", None)], True, [], [],
-                                           1300.0)}
+                                           1300.0, [])}
 
 
 PERCENT = "percent of total billed charges"

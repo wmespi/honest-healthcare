@@ -76,6 +76,7 @@ FAMILIES = {
     "kinds": {"hospital": "Hospital", "imaging_center": "Imaging center", "practice": "Medical practice"},
     "families": [
         {"family": "office_visits", "name": "Office visits", "groups": ["Office E&M - Established"],
+         "asks_specialty": True,
          "benefits": ["primary_care", "specialist"], "about": "A visit with a doctor in an office.",
          "could_change": ["Tests done during the visit"], "asks": ["Is the doctor in my network?"],
          "bills": [{"part": "visit", "label": "The visit", "billing_class": "professional", "modifier": "",
@@ -89,6 +90,14 @@ FAMILIES = {
                               "261QM1200X": "imaging_center"}},
     ],
 }
+# What the corpus's specialties.yaml says: two of the kinds of doctor someone can
+# pick for an office visit, and the NUCC codes that count as each.
+SPECIALTIES = {"specialties": [
+    {"specialty": "primary_care", "name": "Primary care", "benefit": "primary_care",
+     "taxonomies": ["207Q00000X", "207R00000X"]},
+    {"specialty": "heart", "name": "Heart", "benefit": "specialist", "taxonomies": ["207RC0000X"]},
+    {"specialty": "skin", "name": "Skin", "benefit": "specialist", "taxonomies": ["207N00000X"]},
+]}
 GROUPS = {"office_visits": "Office E&M - Established", "mammograms": "Mammography", "mri": "Magnetic Resonance",
           "endoscopy": "Upper GI Endoscopy"}
 # A procedure family, which a test adds with Corpus.add_endoscopy: the doctor's fee
@@ -122,6 +131,9 @@ class Corpus:
         self.families_file = f"{root}/families.yaml"
         self.families = json.loads(json.dumps(FAMILIES))
         self.write_families()
+        self.specialties_file = f"{root}/specialties.yaml"
+        self.specialties = json.loads(json.dumps(SPECIALTIES))
+        self.write_specialties()
         self.shoppable = []
         self.hospital_plans_file = f"{root}/hospital_plans.yaml"
         self.hospital_plans([])
@@ -147,6 +159,11 @@ class Corpus:
         self.scores = []
         self.benefits = {}
         self.pending = {}
+        self.taxonomy("207Q00000X", "Family Medicine", "", "Family Medicine Physician")
+        self.taxonomy("207R00000X", "Internal Medicine", "", "Internal Medicine Physician")
+        self.taxonomy("207N00000X", "Dermatology", "", "Dermatology Physician")
+        self.taxonomy("207RC0000X", "Internal Medicine", "Cardiovascular Disease",
+                      "Cardiovascular Disease Physician")
         self._queue(f"{root}/reference/shoppable_services.parquet", d.SHOPPABLE_SERVICES.columns, self.shoppable)
         # The build reads both of these, so they're written even with no rows.
         self._queue(f"{root}/nppes/ga_locations.parquet", d.NPPES_LOCATIONS.columns, self.locations)
@@ -310,7 +327,8 @@ class Corpus:
         from integration import tables
         self.flush()
         con = tables.connect(f"{self.root}/.spill")
-        for table in tables.inputs(self.services_file, self.hospital_plans_file, self.families_file):
+        for table in tables.inputs(self.services_file, self.hospital_plans_file, self.families_file,
+                                   self.specialties_file):
             table.make(con, self.root)
         return con
 
@@ -363,6 +381,11 @@ class Corpus:
         """Write `self.families`, the model the build reads as families.yaml."""
         with open(self.families_file, "w") as f:
             yaml.safe_dump(copy.deepcopy(self.families), f, sort_keys=False)
+
+    def write_specialties(self):
+        """Write `self.specialties`, the model the build reads as specialties.yaml."""
+        with open(self.specialties_file, "w") as f:
+            yaml.safe_dump(copy.deepcopy(self.specialties), f, sort_keys=False)
 
     def add_endoscopy(self):
         """Add the procedure family (_ENDOSCOPY), the kind of place it has centers
@@ -422,7 +445,7 @@ class Corpus:
         from integration import tables
         self.flush()
         return tables.build(self.root, f"{self.root}/{out}", self.services_file, self.hospital_plans_file,
-                            self.families_file)
+                            self.families_file, self.specialties_file)
 
     def rows(self, table, out="serving"):
         return duckdb.connect().execute(
@@ -544,7 +567,15 @@ def office_visit_practice(c):
           taxonomy="207Q00000X")
     c.geocode("10 PEACHTREE ST NE", "ATLANTA", "303083001", "10 PEACHTREE ST NE, ATLANTA, GA, 30308", 33.7721,
               -84.3855)
-    c.roster(BLUE_VALUE, 70, 70, "1000000070", 2000000070)
+    # Its three clinicians: a family doctor, a cardiologist and a radiologist, whose
+    # specialty counts as no kind of doctor an office visit asks for.
+    for npi, last_name, taxonomy in ((2000000070, "OKAFOR", "207Q00000X"), (2000000071, "HADDAD", "207RC0000X"),
+                                     (2000000072, "REYES", "2085R0202X")):
+        c.npi(npi, last_name, "10 PEACHTREE ST NE", "ATLANTA", "303083001", entity_type="individual",
+              taxonomy=taxonomy)
+        c.practices_at(npi, "10 PEACHTREE ST NE", "ATLANTA", "303083001")
+    c.roster(BLUE_VALUE, 70, 70, "1000000070", 2000000070, 2000000071, 2000000072)
     c.scan_price(BLUE_VALUE, 70, "99213", all_in=95)
-    c.billed(2000000070, "99213", "O")
+    for npi in (2000000070, 2000000071, 2000000072):
+        c.billed(npi, "99213", "O")
     c.flush()

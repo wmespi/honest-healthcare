@@ -16,7 +16,7 @@ FAMILIES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 # A key the build and the screen use: a family, a part, a benefit or a kind.
 KEY = re.compile(r"[a-z][a-z0-9_]*")
 FAMILY_FIELDS = {"family", "name", "groups", "except", "codes", "benefits", "about", "could_change", "asks", "bills",
-                 "hospital", "elsewhere", "centers", "evidence_codes", "place_of_service"}
+                 "hospital", "elsewhere", "centers", "evidence_codes", "place_of_service", "asks_specialty"}
 BILL_FIELDS = {"part", "label", "billing_class", "modifier", "on_site", "benefits", "missing", "place_of_service"}
 MISSING_FIELDS = {"note", "explain", "explain_at_hospital"}
 # The place-of-service codes a family reads when it doesn't say: an office.
@@ -108,7 +108,10 @@ def read_families(path=FAMILIES_PATH):
             if other[1] != kind:
                 stop(f"center {code} is a {kind} for {family} but a {other[1]} for {other[0]}")
         evidence = f.get("evidence_codes")
+        if not isinstance(f.get("asks_specialty", False), bool):
+            stop(f"{family}'s asks_specialty must be true or false")
         families.append({
+            "asks_specialty": f.get("asks_specialty", False),
             "family": family, "name": f.get("name"), "position": position,
             "groups": _codes(f.get("groups") or [], f"{family}'s groups", stop, empty=True),
             "except": _codes(f.get("except") or [], f"{family}'s except", stop, empty=True),
@@ -228,16 +231,18 @@ class FamilyList(FromYaml):
     bills at a hospital (`hospital`, empty for a family not shown at hospitals)
     and elsewhere (`elsewhere`, alternatives in order), the Medicare codes that
     show a doctor does its services (`evidence_codes`, empty for each service's
-    own code), and the place-of-service codes it reads, best first."""
+    own code), the place-of-service codes it reads, best first, and whether it asks
+    which kind of doctor (`asks_specialty`, integration/specialties.yaml)."""
     name = "family_list"
     key = ["family"]
     columns = {"family": "VARCHAR", "name": "VARCHAR", "position": "INTEGER", "groups": "VARCHAR[]",
                "except_groups": "VARCHAR[]", "codes": "VARCHAR[]", "hospital": "VARCHAR[]",
-               "elsewhere": "VARCHAR[][]", "evidence_codes": "VARCHAR[]", "place_of_service": "VARCHAR[]"}
+               "elsewhere": "VARCHAR[][]", "evidence_codes": "VARCHAR[]", "place_of_service": "VARCHAR[]",
+               "asks_specialty": "BOOLEAN"}
 
     def rows(self):
         return [[f["family"], f["name"], f["position"], f["groups"], f["except"], f["codes"], f["hospital"],
-                 f["elsewhere"], f["evidence_codes"], f["place_of_service"]]
+                 f["elsewhere"], f["evidence_codes"], f["place_of_service"], f["asks_specialty"]]
                 for f in read_families(self.path)["families"]]
 
 

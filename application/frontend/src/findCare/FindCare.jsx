@@ -167,6 +167,24 @@ function NothingNearby({ closest, radiusMi, widerRadiusMi, service, plan, onWide
   );
 }
 
+// Which kind of doctor, for a visit every specialty bills with the same code.
+function SpecialtyPicker({ specialties, value, onChange }) {
+  if (specialties.length === 0) return null;
+  return (
+    <div className="px-4 pt-5 sm:px-6">
+      <label htmlFor="specialty" className="mb-1 block text-[13px] font-medium text-slate-700">What kind of doctor?</label>
+      <select
+        id="specialty"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700 sm:max-w-xs"
+      >
+        {specialties.map((s) => <option key={s.specialty} value={s.specialty}>{s.name}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function Message({ title, children }) {
   return (
     <div className="px-4 py-10 sm:px-6">
@@ -176,13 +194,15 @@ function Message({ title, children }) {
   );
 }
 
-function Results({ search, service, plan, sort, filterText, setFilterText, selectedId, hoveredId, onSelect, onHover, update, layoutKey }) {
+function Results({ search, service, plan, specialties, specialty, sort, filterText, setFilterText, selectedId, hoveredId, onSelect, onHover, update, layoutKey }) {
   const radiusMi = search.radiusMi;
   const shown = filterResults(search.results, filterText);
   const preventive = service.preventive_note;
+  const picker = <SpecialtyPicker specialties={specialties} value={specialty?.specialty ?? ''} onChange={(id) => update({ specialty: id })} />;
   if (search.results.length === 0) {
     return (
       <>
+        {picker}
         <NothingNearby
           closest={search.closestOutside}
           radiusMi={radiusMi}
@@ -201,6 +221,8 @@ function Results({ search, service, plan, sort, filterText, setFilterText, selec
   }
   return (
     <>
+      {/* The kind of doctor comes before the answer it changes. */}
+      {picker}
       {search.cheapest
         ? <Answer search={search} radiusMi={radiusMi} plan={plan} preventive={preventive} />
         : <NoFullPrice search={search} radiusMi={radiusMi} plan={plan} preventive={preventive} onWiden={(r) => update({ r })} />}
@@ -284,7 +306,12 @@ export default function FindCare() {
   const service = catalog?.services?.find((s) => s.service_id === serviceId);
   const plan = catalog?.plans?.find((p) => p.plan_id === planId);
   const hasSearch = Boolean(service && plan && ZIP.test(zip ?? ''));
-  const query = hasSearch ? { serviceId, planId, zip, radiusMi: chosenRadius, sort } : null;
+  // Only a family that asks has kinds of doctor; a missing or unknown one falls back to the first.
+  const specialties = catalog?.families?.find((f) => f.family === service?.family)?.specialties ?? [];
+  const specialty = specialties.find((s) => s.specialty === params.get('specialty')) ?? specialties[0] ?? null;
+  const query = hasSearch
+    ? { serviceId, planId, zip, radiusMi: chosenRadius, sort, ...(specialty ? { specialty: specialty.specialty } : {}) }
+    : null;
   const { answer, loading } = useFindCare(query);
 
   const search = useMemo(() => {
@@ -308,7 +335,10 @@ export default function FindCare() {
     setFilterText('');
     // A new service or place starts from its own default area, not the last one chosen.
     const sameArea = nextService === serviceId && nextZip === zip;
-    update({ service: nextService, zip: nextZip, plan: nextPlan, ...(sameArea ? {} : { r: null }) });
+    // The kind of doctor stays only when the new service's family offers it.
+    const nextFamily = catalog.services.find((s) => s.service_id === nextService)?.family;
+    const kept = catalog.families.find((f) => f.family === nextFamily)?.specialties?.some((s) => s.specialty === params.get('specialty'));
+    update({ service: nextService, zip: nextZip, plan: nextPlan, ...(sameArea ? {} : { r: null }), ...(kept ? {} : { specialty: null }) });
   };
   const toggleSelected = (id) => setSelectedId((current) => (current === id ? null : id));
 
@@ -323,6 +353,8 @@ export default function FindCare() {
         search={search}
         service={service}
         plan={plan}
+        specialties={specialties}
+        specialty={specialty}
         sort={sort}
         filterText={filterText}
         setFilterText={setFilterText}

@@ -2,7 +2,8 @@
 
   GET /api/plans       every plan a person can pick
   GET /api/services    every service, with what the screen says about it
-  GET /api/find-care   one service on one plan near one ZIP code, one row per place
+  GET /api/find-care   one service on one plan near one ZIP code, one row per place,
+                       for one kind of doctor when the service's family asks which
 
 FastAPI publishes these models at /api/docs and /api/openapi.json and checks every
 response against them. The routes read the serving tables on #135 as they are,
@@ -27,7 +28,8 @@ METAL_TIERS = ("Platinum", "Gold", "Silver", "Bronze", "Catastrophic")
 class Problem(BaseModel):
     """The body of every 4xx this API sends on purpose, and of a 500, as
     FastAPI's `detail`."""
-    code: Literal["unknown_service", "unknown_plan", "unknown_zip", "internal_error"]
+    code: Literal["unknown_service", "unknown_plan", "unknown_zip", "unknown_specialty", "specialty_not_asked",
+                  "internal_error"]
     message: str
 
 
@@ -86,10 +88,21 @@ class Share(CostSharing):
     parts: list[str] = Field(min_length=1, description="The service's bills under this benefit.")
 
 
+class Specialty(BaseModel):
+    """A kind of doctor someone can pick for a visit, such as Heart."""
+    specialty: str = Field(description="Our own key, such as `primary_care`.")
+    name: str
+    benefit: str = Field(description="The benefit a visit with this kind of doctor falls under, such as "
+                                     "`primary_care` or `specialist`.")
+
+
 class Family(BaseModel):
     """A group of services that the service picker browses by."""
     family: str
     name: str
+    specialties: list[Specialty] = Field(
+        description="The kinds of doctor to pick from first, in order, for a family whose code is the same "
+                    "whatever the doctor's specialty, such as office visits; empty for every other family.")
 
 
 class Service(BaseModel):
@@ -229,6 +242,9 @@ class FindCareQuery(BaseModel):
     radius_mi: Optional[Annotated[RadiusMi, BeforeValidator(_whole_number)]] = Field(
         None, description="Leave it out to get the tightest radius with at least 5 places.")
     sort: Sort = "price"
+    specialty: Optional[str] = Field(
+        None, description="The kind of doctor, from the family's `specialties`: only the places with one, "
+                          "their clinicians of that kind, and that kind's share. Leave it out for all.")
 
 
 def _by_price(p):
@@ -253,6 +269,7 @@ class FindCare(BaseModel):
     origin: Origin
     radius_mi: RadiusMi = Field(description="The radius asked for, or the one chosen when none was.")
     sort: Sort
+    specialty: Optional[str] = Field(None, description="The kind of doctor asked for, if any.")
     cost_sharing: list[Share] = Field(
         min_length=1, description="What the plan charges the member for the service: one share per benefit "
                                   "its bills fall under, in the order the bills come.")

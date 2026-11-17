@@ -19,8 +19,12 @@ def test_services_carry_their_family_text_bills_and_medicare_rates(corpus):
 def test_families_lists_only_the_families_with_a_priced_service(corpus):
     from integration.tests.corpus import office_visit_practice
     corpus.build()
-    assert sorted(corpus.rows("families")) == [("mammograms", "Mammograms", 2), ("mri", "MRI scans", 3)]
+    assert sorted(corpus.rows("families")) == [("mammograms", "Mammograms", 2, []), ("mri", "MRI scans", 3, [])]
     office_visit_practice(corpus)
     corpus.build()
-    assert sorted(corpus.rows("families")) == [("mammograms", "Mammograms", 2), ("mri", "MRI scans", 3),
-                                               ("office_visits", "Office visits", 1)]
+    assert sorted(corpus.rows("families")) == [
+        ("mammograms", "Mammograms", 2, []), ("mri", "MRI scans", 3, []),
+        ("office_visits", "Office visits", 1,
+         [{"specialty": "primary_care", "name": "Primary care", "benefit": "primary_care"},
+          {"specialty": "heart", "name": "Heart", "benefit": "specialist"},
+          {"specialty": "skin", "name": "Skin", "benefit": "specialist"}])]

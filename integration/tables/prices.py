@@ -2,7 +2,7 @@
 the bills a patient there would get."""
 from integration.inputs.biller_places import practice_name
 from integration.inputs.biller_rates import EVIDENCE
-from integration.inputs.datasets import NPPES
+from integration.inputs.datasets import NPPES, NUCC_TAXONOMY
 from integration.table import Table
 
 
@@ -61,12 +61,19 @@ class Prices(Table):
     at any of its places (service_sites.providers). It's empty when Medicare
     shows none, as at an imaging center it has no record of. An organization's
     own NPI isn't a clinician, and neither is a doctor with no Georgia NPPES
-    record as a person."""
+    record as a person. `specialties` is, for a family that asks which kind of
+    doctor (families.yaml `asks_specialty`), the kinds (integration/specialties.yaml)
+    the row's `providers` practice, in that file's order. Where they give none (a
+    generic nurse practitioner, or no clinicians listed), it's the kinds of the
+    NPPES specialty codes of the row's billers' own NPIs, the practice or
+    organization behind the row. It's empty for any other family, and for a row
+    where neither gives a kind."""
     name = "prices"
     key = ["network_id", "service_id", "place_id"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "place_id": "VARCHAR",
                "parts": 'STRUCT(part VARCHAR, max DOUBLE, "source" VARCHAR)[]', "several_rates": "BOOLEAN",
-               "billers": "VARCHAR[]", "providers": "BIGINT[]", "cash_price": "DOUBLE"}
+               "billers": "VARCHAR[]", "providers": "BIGINT[]", "cash_price": "DOUBLE",
+               "specialties": "VARCHAR[]"}
 
     def select(self, data_dir):
         rank = f"list_position({list(EVIDENCE)!r}, r.evidence)"
@@ -77,6 +84,28 @@ class Prices(Table):
                 FROM (SELECT network_id, service_id, place_id, unnest(providers) AS npi FROM service_sites) d
                 JOIN {NPPES.read(data_dir)} n ON n.npi = d.npi AND n.entity_type = 'individual'
                 GROUP BY d.network_id, d.service_id, d.place_id
+            ),
+            kinds AS (
+                SELECT network_id, service_id, place_id, list(specialty ORDER BY position) AS specialties
+                FROM (SELECT DISTINCT c.network_id, c.service_id, c.place_id, k.specialty, s.position
+                      FROM (SELECT network_id, service_id, place_id, unnest(providers) AS npi FROM clinicians) c
+                      JOIN service_list sl ON sl.service_id = c.service_id
+                      JOIN family_list f ON f.family = sl.family AND f.asks_specialty
+                      JOIN {NPPES.read(data_dir)} n ON n.npi = c.npi
+                      JOIN specialty_taxonomies k ON k.taxonomy_code = n.taxonomy_code
+                      JOIN specialties s ON s.specialty = k.specialty)
+                GROUP BY network_id, service_id, place_id
+            ),
+            biller_kinds AS (
+                SELECT network_id, service_id, place_id, list(specialty ORDER BY position) AS specialties
+                FROM (SELECT DISTINCT s.network_id, s.service_id, s.place_id, k.specialty, sp.position
+                      FROM service_sites s
+                      JOIN service_list sl ON sl.service_id = s.service_id
+                      JOIN family_list f ON f.family = sl.family AND f.asks_specialty
+                      JOIN {NPPES.read(data_dir)} n ON n.npi = try_cast(s.biller AS BIGINT)
+                      JOIN specialty_taxonomies k ON k.taxonomy_code = n.taxonomy_code
+                      JOIN specialties sp ON sp.specialty = k.specialty)
+                GROUP BY network_id, service_id, place_id
             ),
             groups AS (
                 SELECT network_id, service_id, place_id, list(name ORDER BY name) AS billers
@@ -155,10 +184,13 @@ class Prices(Table):
             )
             SELECT network_id, service_id, place_id, parts, several_rates,
                    coalesce(g.billers, []::VARCHAR[]) AS billers, coalesce(c.providers, []::BIGINT[]) AS providers,
-                   CASE WHEN hospital THEN h.cash_price END AS cash_price
+                   CASE WHEN hospital THEN h.cash_price END AS cash_price,
+                   coalesce(kn.specialties, bk.specialties, []::VARCHAR[]) AS specialties
             FROM shown
             LEFT JOIN groups g USING (network_id, service_id, place_id)
             LEFT JOIN clinicians c USING (network_id, service_id, place_id)
+            LEFT JOIN kinds kn USING (network_id, service_id, place_id)
+            LEFT JOIN biller_kinds bk USING (network_id, service_id, place_id)
             LEFT JOIN hospital_cash h USING (service_id, place_id)
         """
 
@@ -171,3 +203,26 @@ class Prices(Table):
             """).fetchone()
             if stray:
                 raise SystemExit(f"prices: {column} {stray[0]} isn't in {table}")
+
+        self.note_unmapped(con, data_dir)
+
+    def note_unmapped(self, con, data_dir):
+        """Print the specialty labels of clinicians on rows of a family that asks
+        which kind of doctor and count as none (integration/specialties.yaml), with
+        how many places each is at, and the rows left with no kind at all."""
+        asking = """FROM prices p JOIN service_list s USING (service_id)
+                    JOIN family_list f ON f.family = s.family AND f.asks_specialty"""
+        unmapped = con.execute(f"""
+            SELECT coalesce(t.display_name, n.taxonomy_code, 'no taxonomy') AS label, count(DISTINCT d.place_id) AS places
+            FROM (SELECT p.place_id, unnest(p.providers) AS npi {asking}) d
+            JOIN {NPPES.read(data_dir)} n ON n.npi = d.npi
+            LEFT JOIN {NUCC_TAXONOMY.read(data_dir)} t ON t.taxonomy_code = n.taxonomy_code
+            WHERE n.taxonomy_code IS NULL OR n.taxonomy_code NOT IN (SELECT taxonomy_code FROM specialty_taxonomies)
+            GROUP BY 1 ORDER BY 2 DESC, 1""").fetchall()
+        if unmapped:
+            print(f"  clinicians' specialties that count as no kind of doctor, with their places ({len(unmapped)}): "
+                  + "; ".join(f"{label} {places:,}" for label, places in unmapped))
+        none, total = con.execute(f"""
+            SELECT count(*) FILTER (WHERE len(p.specialties) = 0), count(*) {asking}""").fetchone()
+        if total:
+            print(f"  rows of a family that asks which kind of doctor with no kind: {none:,} of {total:,}")

@@ -151,7 +151,7 @@ def test_fastapi_publishes_the_contract():
 
     @app.get("/services", response_model=Catalog)
     def services():
-        return {"families": [{"family": "mammograms", "name": "Mammograms"}], "services": [{"service_id": "mammogram", "family": "mammograms", "name": "Screening mammogram", "keywords": "breast",
+        return {"families": [{"family": "mammograms", "name": "Mammograms", "specialties": []}], "services": [{"service_id": "mammogram", "family": "mammograms", "name": "Screening mammogram", "keywords": "breast",
                  "about": "A low-dose X-ray.", "could_change": [], "asks": [],
                  "preventive_note": "Usually $0 in network.", "medicare_rate": 98.1,
                  "medicare_facility_rate": None}]}
@@ -163,7 +163,7 @@ def test_fastapi_publishes_the_contract():
     client = TestClient(app)
     schema = client.get("/openapi.json").json()
     params = {p["name"] for p in schema["paths"]["/find-care"]["get"]["parameters"]}
-    assert params == {"service_id", "plan_id", "zip", "radius_mi", "sort"}
+    assert params == {"service_id", "plan_id", "zip", "radius_mi", "sort", "specialty"}
     place_out = next(v for k, v in schema["components"]["schemas"].items() if k.startswith("Place"))
     assert {"max_rate", "several_rates"} <= set(place_out["properties"])
     assert client.get("/plans").status_code == 200 and client.get("/services").status_code == 200
