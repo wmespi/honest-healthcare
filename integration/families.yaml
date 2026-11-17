@@ -58,6 +58,10 @@
 #                     [] means only a center's registration does.
 #   place_of_service  Optional, ["11"] (an office) when not given: the
 #                     place-of-service codes whose rates the family reads, best first.
+#   asks_specialty    Optional, false when not given: true says the screen first asks
+#                     which kind of doctor (integration/specialties.yaml), because the
+#                     code is the same whatever the doctor's specialty. Only office
+#                     visits ask.
 #
 # Which centers count, and for which services, is a product decision (#135,
 # 2026-11-04), so it's NUCC's stable codes, not a match on its labels, which NUCC
@@ -108,6 +112,7 @@ families:
   # which isn't priced for these, so these families aren't shown at hospitals.
   - family: office_visits
     name: Office visits
+    asks_specialty: true
     groups: ["Office E&M - New", "Office E&M - Established"]
     # A plan charges one share for primary care and another for a specialist, and
     # the code doesn't say which the doctor is, so the screen shows both.

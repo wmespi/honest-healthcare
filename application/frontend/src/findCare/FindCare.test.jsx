@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
+import { useEffect } from 'react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../api';
 import App from '../App';
@@ -400,5 +401,70 @@ describe('find care', () => {
       expect(screen.getAllByRole('option')).toHaveLength(1);
       expect(result).toHaveTextContent('Screening mammogramMammograms');
     });
+  });
+});
+
+describe('kind of doctor', () => {
+  const VISIT = `?service=office-visit&zip=30322&plan=${SILVER}`;
+  const SPECIALTIES = [
+    { specialty: 'primary-care', name: 'Primary care', benefit: 'primary_care' },
+    { specialty: 'dermatology', name: 'Dermatology', benefit: 'specialist' },
+  ];
+  const withSpecialties = () => api.getServices.mockResolvedValue({
+    data: {
+      families: [{ family: 'visits', name: 'Visits', specialties: SPECIALTIES }, ...FAMILIES],
+      services: [{ ...SERVICES[0], service_id: 'office-visit', family: 'visits', name: 'Office visit' }, ...SERVICES],
+    },
+  });
+  const lastCall = () => api.getFindCare.mock.calls.at(-1)[0];
+
+  it('shows the picker for a family with specialties, on the first, and says the kind in the headline', async () => {
+    withSpecialties();
+    open(VISIT);
+    const picker = await screen.findByLabelText('What kind of doctor?');
+    expect(picker).toHaveValue('primary-care');
+    expect(lastCall().specialty).toBe('primary-care');
+    expect(await screen.findByText('Cheapest within 5 miles')).toBeInTheDocument();
+  });
+
+  it('asks again with the new kind and keeps it in the URL', async () => {
+    withSpecialties();
+    const user = userEvent.setup();
+    const seen = { search: '' };
+    const Spy = () => {
+      const { search } = useLocation();
+      useEffect(() => { seen.search = search; }, [search]);
+      return null;
+    };
+    render(
+      <MemoryRouter initialEntries={[`/find-care${VISIT}`]}>
+        <FindCare />
+        <Spy />
+      </MemoryRouter>,
+    );
+    await user.selectOptions(await screen.findByLabelText('What kind of doctor?'), 'dermatology');
+    await waitFor(() => expect(lastCall().specialty).toBe('dermatology'));
+    expect(screen.getByLabelText('What kind of doctor?')).toHaveValue('dermatology');
+    expect(new URLSearchParams(seen.search).get('specialty')).toBe('dermatology');
+  });
+
+  it('restores a kind from the URL and falls back to the first for a bad one', async () => {
+    withSpecialties();
+    const first = open(`${VISIT}&specialty=dermatology`);
+    expect(await screen.findByLabelText('What kind of doctor?')).toHaveValue('dermatology');
+    expect(lastCall().specialty).toBe('dermatology');
+    first.unmount();
+    open(`${VISIT}&specialty=nonsense`);
+    expect(await screen.findByLabelText('What kind of doctor?')).toHaveValue('primary-care');
+    expect(lastCall().specialty).toBe('primary-care');
+  });
+
+  it('shows no picker and sends no specialty for a family without any', async () => {
+    withSpecialties();
+    open(`${MRI}&specialty=dermatology`);
+    await screen.findByText(/is the most you’d pay at/);
+    expect(screen.queryByLabelText('What kind of doctor?')).not.toBeInTheDocument();
+    expect(lastCall()).not.toHaveProperty('specialty');
+    expect(headline()).not.toMatch(/primary care/);
   });
 });

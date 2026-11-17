@@ -26,7 +26,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         c = default_corpus(f"{tmp}/corpus")
         office_visit_practice(c)
-        rows = build(c.root, OUT, c.services_file, c.hospital_plans_file, c.families_file)
+        rows = build(c.root, OUT, c.services_file, c.hospital_plans_file, c.families_file,
+                     c.specialties_file)
     print(f"→ the app's test tables in {OUT}: {rows}")
 
 

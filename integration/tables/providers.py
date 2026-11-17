@@ -7,20 +7,23 @@ from integration.table import Table
 class Providers(Table):
     """One row per clinician in a `prices` row's `providers`. The name and
     specialty come from the clinician's own NPPES record, the specialty as
-    NUCC's name for its primary code, and `score` is Medicare's quality (MIPS)
+    NUCC's name for its primary code, `specialty_id` is the kind of doctor
+    (integration/specialties.yaml) its primary code counts as, empty when none, and `score` is Medicare's quality (MIPS)
     score, empty when it has none."""
     name = "providers"
     key = ["npi"]
-    columns = {"npi": "BIGINT", "name": "VARCHAR", "specialty": "VARCHAR", "score": "DOUBLE"}
+    columns = {"npi": "BIGINT", "name": "VARCHAR", "specialty": "VARCHAR", "score": "DOUBLE",
+               "specialty_id": "VARCHAR"}
 
     def select(self, data_dir):
         return f"""
             SELECT n.npi, concat_ws(' ', n.first_name, n.last_name) AS name, t.display_name AS specialty,
-                   m.mips_score AS score
+                   m.mips_score AS score, k.specialty AS specialty_id
             FROM (SELECT DISTINCT unnest(providers) AS npi FROM prices) p
             JOIN {NPPES.read(data_dir)} n ON n.npi = p.npi
             LEFT JOIN {NUCC_TAXONOMY.read(data_dir)} t ON t.taxonomy_code = n.taxonomy_code
             LEFT JOIN {MIPS.read(data_dir)} m ON m.npi = n.npi
+            LEFT JOIN specialty_taxonomies k ON k.taxonomy_code = n.taxonomy_code
         """
 
     def check(self, con, data_dir):

@@ -47,6 +47,10 @@ def _not_found(code, message):
     return HTTPException(404, detail=Problem(code=code, message=message).model_dump())
 
 
+def _bad_param(code, message):
+    return HTTPException(422, detail=Problem(code=code, message=message).model_dump())
+
+
 @router.get("/plans", response_model=list[Plan])
 def get_plans():
     plans = [Plan(**row) for row in _rows(db().execute(
@@ -57,7 +61,7 @@ def get_plans():
 @router.get("/services", response_model=Catalog)
 def get_services():
     conn = db()
-    return {"families": _rows(conn.execute(f"SELECT family, name FROM {FAMILIES_SRC} ORDER BY position, family")),
+    return {"families": _rows(conn.execute(f"SELECT family, name, specialties FROM {FAMILIES_SRC} ORDER BY position, family")),
             "services": _rows(conn.execute(f"""
                 SELECT service_id, family, name, keywords, about, could_change, asks, preventive_note,
                        medicare_rate, medicare_facility_rate
@@ -122,10 +126,12 @@ def wider_radius(places, results) -> Optional[int]:
     return next((r for r in RADIUS_OPTIONS_MI if target["distance_mi"] <= r), None)
 
 
-@router.get("/find-care", response_model=FindCare, responses={404: {"model": Problem}})
+@router.get("/find-care", response_model=FindCare, responses={404: {"model": Problem}, 422: {"model": Problem}})
 def find_care(q: Annotated[FindCareQuery, Query()]):
     conn = db()
-    service = _one(conn, f"SELECT bills FROM {SERVICES_SRC} WHERE service_id = ?", [q.service_id])
+    service = _one(conn, f"""
+        SELECT s.bills, f.specialties FROM {SERVICES_SRC} s JOIN {FAMILIES_SRC} f USING (family)
+        WHERE s.service_id = ?""", [q.service_id])
     if service is None:
         raise _not_found("unknown_service", f"There's no service {q.service_id!r}.")
     plan = _one(conn, f"SELECT network_id FROM {PLANS_SRC} WHERE plan_id = ?", [q.plan_id])
@@ -134,7 +140,15 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
     origin = _one(conn, f"SELECT zip, lat, lon FROM {ZIPS_SRC} WHERE zip = ?", [q.zip])
     if origin is None:
         raise _not_found("unknown_zip", f"There's no ZIP code {q.zip}.")
-    cost_sharing = shares_for(conn, q.plan_id, service["bills"])
+    bills = service["bills"]
+    if q.specialty is not None:
+        if not service["specialties"]:
+            raise _bad_param("specialty_not_asked", f"{q.service_id} isn't priced by kind of doctor.")
+        kind = next((s for s in service["specialties"] if s["specialty"] == q.specialty), None)
+        if kind is None:
+            raise _bad_param("unknown_specialty", f"There's no kind of doctor {q.specialty!r} for {q.service_id}.")
+        bills = [{**b, "benefits": [kind["benefit"]]} for b in bills]
+    cost_sharing = shares_for(conn, q.plan_id, bills)
 
     places = _rows(conn.execute(f"""
         WITH o AS (SELECT ?::DOUBLE AS lat, ?::DOUBLE AS lon)
@@ -142,9 +156,9 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
                {haversine_sql("l.lat", "l.lon", "o.lat", "o.lon")} AS distance_mi,
                p.parts, p.several_rates, p.billers, p.providers
         FROM {PRICES_SRC} p JOIN {PLACES_SRC} l USING (place_id) CROSS JOIN o
-        WHERE p.network_id = ? AND p.service_id = ?
+        WHERE p.network_id = ? AND p.service_id = ? AND (?::VARCHAR IS NULL OR list_contains(p.specialties, ?))
         ORDER BY distance_mi, l.place_id
-    """, [origin["lat"], origin["lon"], plan["network_id"], q.service_id]))
+    """, [origin["lat"], origin["lon"], plan["network_id"], q.service_id, q.specialty, q.specialty]))
     radius = radius_for(places, q.radius_mi)
     results = [p for p in places if p["distance_mi"] <= radius]
     closest_outside = places[0] if places and not results else None
@@ -152,13 +166,15 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
     shown = results + ([closest_outside] if closest_outside else [])
     npis = sorted({npi for p in shown for npi in p["providers"]})
     providers = {r["npi"]: r for r in _rows(conn.execute(
-        f"SELECT npi, name, specialty, score FROM {PROVIDERS_SRC} WHERE list_contains(?::BIGINT[], npi)", [npis]))}
+        f"""SELECT npi, name, specialty, score FROM {PROVIDERS_SRC}
+            WHERE list_contains(?::BIGINT[], npi) AND (?::VARCHAR IS NULL OR specialty_id = ?)""",
+        [npis, q.specialty, q.specialty]))}
 
     def place(p):
         return {**with_bill_text(p, service["bills"]), "distance_mi": round(p["distance_mi"], 1),
-                "providers": sorted((providers[n] for n in p["providers"]), key=lambda v: (v["name"], v["npi"]))}
+                "providers": sorted((providers[n] for n in p["providers"] if n in providers), key=lambda v: (v["name"], v["npi"]))}
 
     return FindCare(service_id=q.service_id, plan_id=q.plan_id, origin=origin, radius_mi=radius, sort=q.sort,
-                    cost_sharing=cost_sharing, results=[place(p) for p in results],
+                    specialty=q.specialty, cost_sharing=cost_sharing, results=[place(p) for p in results],
                     wider_radius_mi=wider_radius(places, results),
                     closest_outside=place(closest_outside) if closest_outside else None)

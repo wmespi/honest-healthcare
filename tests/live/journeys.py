@@ -127,11 +127,11 @@ def j4(api):
     return status == 422, f"no plan -> {status} (want 422: prices depend on the plan)"
 
 
-def one_bill(service_id, part, place_id, rate, shares, radius_mi=None, kind=None):
+def one_bill(service_id, part, place_id, rate, shares, radius_mi=None, kind=None, specialty=None):
     """A journey for a service with one bill: the place shows that one part at the
     rate, no hospital is listed, and the plan's share is under `shares`."""
     def journey(api):
-        body, status = search(api, service_id, radius_mi=radius_mi)
+        body, status = search(api, service_id, radius_mi=radius_mi, specialty=specialty)
         rows = (body or {}).get("results") or []
         if status != 200 or not rows:
             return False, f"/find-care {service_id} returned {status} / {len(rows)} places"
@@ -181,7 +181,8 @@ JOURNEYS = [
     ("J2", "Rosa — knee MRI", j2),
     ("J3", "Sam - brain MRI at a hospital", j3),
     ("J4", "Dana — a search with no plan", j4),
-    ("J5", "Rosa - an office visit", one_bill("visit-return-20", "visit", EMORY_CLINIC, 90.5, ["primary_care", "specialist"])),
+    ("J5", "Rosa - a primary care visit", one_bill("visit-return-20", "visit", EMORY_CLINIC, 90.5, ["primary_care"],
+                                                 specialty="primary_care")),
     ("J6", "Rosa - a yearly checkup", one_bill("checkup-return-40-64", "visit", EMORY_CLINIC, 123.06, ["preventive"])),
     ("J7", "Rosa - urgent care", one_bill("urgent-return-20", "visit", PEACHTREE_IMMEDIATE_CARE, 90.5, ["urgent_care"],
                                          radius_mi=10, kind="urgent_care")),
@@ -202,6 +203,8 @@ JOURNEYS = [
     ("J16", "Sam - gallbladder removal at a hospital", procedure(
         "surgery-gallbladder-scope", GOLD_PATHWAY, EMORY_HOSPITAL,
         [("facility", 4962.02, "hospital"), ("surgeon", None, None)])),
+    ("J17", "Rosa - a visit with a skin doctor", one_bill("visit-return-20", "visit", DERMATOLOGY_ASSOCIATES, 82.05,
+                                                     ["specialist"], specialty="skin")),
 ]
 
 

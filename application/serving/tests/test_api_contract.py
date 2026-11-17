@@ -23,7 +23,7 @@ def test_health_says_when_the_build_ran_and_what_it_holds(api):
     assert body["networks"] == [
         {"network_id": "45334-GAN001", "name": "Blue Value Individual Network HMO", **current},
         {"network_id": "49046-GAN008", "name": "Pathway PCP Copay Choice", **current}]
-    assert body["rows"] == {"plans": 3, "services": 3, "families": 3, "places": 6, "prices": 8, "providers": 1}
+    assert body["rows"] == {"plans": 3, "services": 3, "families": 3, "places": 6, "prices": 8, "providers": 4}
 
 
 def test_health_says_which_networks_have_stale_or_no_prices_and_why(api, monkeypatch):
@@ -77,9 +77,13 @@ def test_find_care_services_carry_what_the_screen_says(api):
 
 def test_the_catalog_lists_families_in_their_order(api):
     body = api.get("/api/services").json()
-    assert body["families"] == [{"family": "office_visits", "name": "Office visits"},
-                                {"family": "mammograms", "name": "Mammograms"},
-                                {"family": "mri", "name": "MRI scans"}]
+    assert body["families"] == [
+        {"family": "office_visits", "name": "Office visits",
+         "specialties": [{"specialty": "primary_care", "name": "Primary care", "benefit": "primary_care"},
+                         {"specialty": "heart", "name": "Heart", "benefit": "specialist"},
+                         {"specialty": "skin", "name": "Skin", "benefit": "specialist"}]},
+        {"family": "mammograms", "name": "Mammograms", "specialties": []},
+        {"family": "mri", "name": "MRI scans", "specialties": []}]
 
 
 def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
@@ -205,3 +209,47 @@ def test_the_app_imports_nothing_from_ingestion_or_integration():
                        cwd=REPO, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "[]"
+
+
+# ── asking which kind of doctor (office visits), over the default corpus's one practice ──
+
+VISIT = {"service_id": "office-visit-established", "plan_id": SILVER, "zip": "30308"}
+
+
+def test_find_care_without_a_specialty_lists_every_row_and_every_clinician(api):
+    body = api.get("/api/find-care", params=VISIT).json()
+    assert body["specialty"] is None
+    (place,) = body["results"]
+    assert [p["name"] for p in place["providers"]] == ["PAT HADDAD", "PAT OKAFOR", "PAT REYES"]
+    assert [s["benefit"] for s in body["cost_sharing"]] == ["primary_care", "specialist"]
+
+
+def test_find_care_for_a_specialty_keeps_its_rows_and_its_clinicians(api):
+    for kind, who in (("primary_care", ["PAT OKAFOR"]), ("heart", ["PAT HADDAD"])):
+        body = api.get("/api/find-care", params={**VISIT, "specialty": kind}).json()
+        assert body["specialty"] == kind
+        (place,) = body["results"]
+        assert [p["name"] for p in place["providers"]] == who
+        assert body["median_max_rate"] == place["max_rate"] == body["results"][0]["max_rate"]
+        assert body["cheapest_place_id"] == body["closest_place_id"] == place["place_id"]
+
+
+def test_find_care_for_a_specialty_shows_only_that_specialtys_share(api):
+    shares = {kind: api.get("/api/find-care", params={**VISIT, "specialty": kind}).json()["cost_sharing"]
+              for kind in ("primary_care", "heart")}
+    assert [(s["benefit"], s["copay"]) for s in shares["primary_care"]] == [("primary_care", 30.0)]
+    assert [(s["benefit"], s["copay"]) for s in shares["heart"]] == [("specialist", 60.0)]
+
+
+def test_find_care_for_a_specialty_nobody_here_has_lists_no_place(api):
+    body = api.get("/api/find-care", params={**VISIT, "specialty": "skin"}).json()
+    assert body["results"] == [] and body["closest_outside"] is None and body["median_max_rate"] is None
+
+
+@pytest.mark.parametrize("params, code", [
+    ({**VISIT, "specialty": "astrology"}, "unknown_specialty"),
+    ({**MRI, "specialty": "heart"}, "specialty_not_asked"),  # an MRI doesn't ask which kind of doctor
+])
+def test_find_care_with_a_specialty_that_does_not_fit_is_a_422_with_the_usual_problem(api, params, code):
+    r = api.get("/api/find-care", params=params)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == code and r.json()["detail"]["message"]
