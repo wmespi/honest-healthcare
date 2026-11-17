@@ -89,7 +89,25 @@ FAMILIES = {
                               "261QM1200X": "imaging_center"}},
     ],
 }
-GROUPS = {"office_visits": "Office E&M - Established", "mammograms": "Mammography", "mri": "Magnetic Resonance"}
+GROUPS = {"office_visits": "Office E&M - Established", "mammograms": "Mammography", "mri": "Magnetic Resonance",
+          "endoscopy": "Upper GI Endoscopy"}
+# A procedure family, which a test adds with Corpus.add_endoscopy: the doctor's fee
+# in an office or, apart, at a hospital or surgery center, and a facility's own fee.
+_ENDOSCOPY = {
+    "family": "endoscopy", "name": "Colonoscopy and upper endoscopy", "groups": ["Upper GI Endoscopy"],
+    "benefits": ["specialist"], "about": "A scope.", "could_change": ["A biopsy"], "asks": ["Where is it done?"],
+    "bills": [
+        {"part": "in_office", "label": "The doctor's fee, room included", "billing_class": "professional",
+         "modifier": "", "place_of_service": ["11"], "on_site": True},
+        {"part": "surgeon", "label": "The doctor's fee", "billing_class": "professional", "modifier": "",
+         "place_of_service": ["22|24", "21"], "on_site": False,
+         "missing": {"note": "Missing the doctor's fee", "explain": "Ask who will do it."}},
+        {"part": "facility", "label": "The facility's fee", "billing_class": "institutional",
+         "missing": {"note": "Missing the facility's fee", "explain": "Ask where and what it charges."}}],
+    "hospital": ["facility", "surgeon"], "elsewhere": [["in_office"], ["facility", "surgeon"]],
+    "centers": {"261QA1903X": "surgery_center", "261QE0800X": "surgery_center"},
+}
+
 
 class Corpus:
     """Payer rates and rosters, Georgia's networks, plans, premiums, cost sharing
@@ -345,6 +363,15 @@ class Corpus:
         """Write `self.families`, the model the build reads as families.yaml."""
         with open(self.families_file, "w") as f:
             yaml.safe_dump(copy.deepcopy(self.families), f, sort_keys=False)
+
+    def add_endoscopy(self):
+        """Add the procedure family (_ENDOSCOPY), the kind of place it has centers
+        of and the NUCC codes that register them."""
+        self.families["kinds"]["surgery_center"] = "Surgery center"
+        self.families["families"].append(copy.deepcopy(_ENDOSCOPY))
+        self.write_families()
+        self.taxonomy("261QA1903X", "Clinic/Center", "Ambulatory Surgical")
+        self.taxonomy("261QE0800X", "Clinic/Center", "Endoscopy")
 
     def family(self, family, **fields):
         """Change `family`'s fields in the families file."""

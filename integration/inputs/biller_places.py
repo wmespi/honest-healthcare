@@ -1,4 +1,5 @@
-"""Build-only: the places each biller in biller_rates is at, if it has any."""
+"""Build-only: the places each biller in biller_rates, and each center with a facility
+fee in facility_rates, is at, if it has any."""
 from integration.inputs.addresses import ADDRESS, _words, listed, suite
 from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES
 from integration.table import Table
@@ -22,7 +23,8 @@ def _phone(digits):
 
 
 class BillerPlaces(Table):
-    """One row per biller and place it's at. A biller is at the address on its
+    """One row per biller and place it's at, for each biller with a rate in
+    biller_rates and each center billing its own fee (facility_rates). A biller is at the address on its
     NPPES record (`main`) and at the other Georgia addresses it lists there,
     never its roster's, and several of those in one building are one site
     (integration/inputs/addresses.py). service_sites says which of a biller's
@@ -63,7 +65,8 @@ class BillerPlaces(Table):
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name ELSE d.org_name END AS name,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name
                             ELSE coalesce(d.org_name, concat_ws(' ', n.first_name, n.last_name)) END AS biller_name
-                FROM (SELECT DISTINCT biller FROM biller_rates) b
+                FROM (SELECT DISTINCT biller FROM biller_rates
+                      UNION SELECT DISTINCT biller FROM facility_rates WHERE center) b
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
                 LEFT JOIN (SELECT DISTINCT taxonomy_code, kind FROM centers) c ON c.taxonomy_code = n.taxonomy_code

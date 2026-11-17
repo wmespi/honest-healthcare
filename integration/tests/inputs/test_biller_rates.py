@@ -138,3 +138,32 @@ def test_a_service_keeps_only_the_best_place_of_service_its_family_lists_that_th
     # The family's other order puts the office first again.
     corpus.family("mri", place_of_service=["11", "20"])
     assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0)]
+
+
+def test_a_bill_with_its_own_place_of_service_ranks_codes_joined_by_a_bar_equal(corpus):
+    corpus.add_endoscopy()
+    corpus.service("egd", "43235", family="endoscopy")
+    for npi, code, rate in [(1000000031, "22", 400), (1000000032, "24", 450), (1000000033, "21", 999),
+                            (1000000034, "11|22", 250), (1000000035, "81", 777)]:
+        corpus.npi(npi, f"GI {npi}", "1 MAIN ST", "ATLANTA", "303082233", taxonomy="261QE0800X")
+        corpus.roster(BV, npi - 1000000000, npi - 1000000000, str(npi), npi)
+        corpus.scan_price(BV, npi - 1000000000, "43235", all_in=rate, service_code=code)
+    got = corpus.inputs().execute(
+        "SELECT biller, part, rate FROM biller_rates WHERE service_id = 'egd' ORDER BY biller, part").fetchall()
+    assert got == [
+        ("1000000031", "surgeon", 400.0),      # 22 and 24 are one rank, so both are kept
+        ("1000000032", "surgeon", 450.0),
+        ("1000000034", "in_office", 250.0),    # a line naming two bills' places counts for both
+        ("1000000034", "surgeon", 250.0)]      # 21 ranks below them, and 81 is neither bill's, so both drop
+
+
+def test_a_bill_with_its_own_place_of_service_ignores_a_family_wide_one(corpus):
+    corpus.add_endoscopy()
+    corpus.family("endoscopy", place_of_service=["81"])
+    corpus.service("egd", "43235", family="endoscopy")
+    corpus.npi(1000000031, "GI 31", "1 MAIN ST", "ATLANTA", "303082233", taxonomy="261QE0800X")
+    corpus.roster(BV, 31, 31, "1000000031", 1000000031)
+    corpus.scan_price(BV, 31, "43235", all_in=400, service_code="22")
+    corpus.scan_price(BV, 31, "43235", all_in=123, service_code="81")
+    assert corpus.inputs().execute("SELECT part, rate FROM biller_rates WHERE service_id = 'egd'").fetchall() == [
+        ("surgeon", 400.0)]

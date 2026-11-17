@@ -20,7 +20,7 @@ from integration.inputs.biller_rates import BillerRates
 from integration.inputs.datasets import check_inputs
 from integration.inputs.families import FAMILIES_PATH, Benefits, Centers, FamilyBills, FamilyList, Kinds
 from integration.inputs.hospital_cash import HospitalCash
-from integration.inputs.hospital_fees import FacilityRates, HospitalFees
+from integration.inputs.facility_fees import FacilityFees, FacilityRates
 from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH, HospitalPlans
 from integration.inputs.hospitals import Hospitals
 from integration.inputs.service_list import SERVICES_PATH, ServiceList
@@ -54,7 +54,7 @@ def inputs(services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
         Hospitals(),
         BillerPlaces(),
         ServiceSites(),
-        HospitalFees(),
+        FacilityFees(),
         HospitalCash(),
     ]
 

@@ -1,0 +1,76 @@
+"""A procedure's bills in prices.parquet (integration/tables/prices.py): the
+facility's own fee at a hospital or a surgery center, and the doctor's fee in an
+office or, apart, at a facility (integration/families.yaml)."""
+BV = "45334-GAN001"
+EGD = "egd"
+SURGERY_CENTER, HOSPITAL_GROUP, OFFICE, FACILITY_ONLY = 1000000021, 1000000022, 1000000023, 1000000024
+HOSPITAL_NPI = 1000000025
+GRADY = "80 JESSE HILL JR DR SE"
+
+
+def part(name, rate, source="plan"):
+    return {"part": name, "max": rate, "source": None if rate is None else source}
+
+
+def place(corpus, npi, name, address, postal_code, taxonomy="2085R0202X", geocoded=False):
+    """A billing organization at an address, which the corpus has geocoded already
+    or this does."""
+    corpus.npi(npi, name, address, "ATLANTA", postal_code, taxonomy=taxonomy)
+    if not geocoded:
+        corpus.geocode(address, "ATLANTA", postal_code, f"{address}, ATLANTA, GA, {postal_code[:5]}", 33.75, -84.38)
+    corpus.roster(BV, npi - 1000000000, npi - 1000000000, str(npi), npi + 1000000000)
+
+
+def procedures(corpus):
+    """The corpus with the procedure family and one service in it, priced by four
+    places on Blue Value, then built: a surgery center with only a facility fee, a
+    group billing at Grady, an office Medicare shows doing it, and an office that
+    only does it in facilities."""
+    corpus.add_endoscopy()
+    corpus.service(EGD, "43235", family="endoscopy", name="Upper endoscopy")
+    place(corpus, SURGERY_CENTER, "PEACHTREE SURGERY CENTER", "10 SURGERY WAY", "303082233", taxonomy="261QA1903X")
+    corpus.facility_price(BV, SURGERY_CENTER - 1000000000, "43235", 900)
+    place(corpus, HOSPITAL_GROUP, "GRADY GI GROUP", GRADY, "303033031", geocoded=True)
+    corpus.scan_price(BV, HOSPITAL_GROUP - 1000000000, "43235", all_in=400, service_code="22")
+    corpus.billed(HOSPITAL_GROUP + 1000000000, "43235", "F")
+    corpus.npi(HOSPITAL_NPI, "GRADY MEMORIAL HOSPITAL", GRADY, "ATLANTA", "303033031", taxonomy="282N00000X")
+    corpus.roster(BV, 25, 25, str(HOSPITAL_NPI), HOSPITAL_NPI)
+    corpus.facility_price(BV, 25, "43235", 1200)
+    place(corpus, OFFICE, "PIEDMONT DIGESTIVE PC", "20 OFFICE WAY", "303082233")
+    corpus.scan_price(BV, OFFICE - 1000000000, "43235", all_in=300, service_code="11")
+    corpus.billed(OFFICE + 1000000000, "43235", "O")
+    place(corpus, FACILITY_ONLY, "MIDTOWN GI PC", "30 CLINIC WAY", "303082233")
+    corpus.scan_price(BV, FACILITY_ONLY - 1000000000, "43235", all_in=500, service_code="22")
+    corpus.billed(FACILITY_ONLY + 1000000000, "43235", "F")
+    corpus.build()
+    return {r[2]: r[3] for r in corpus.rows("prices") if r[:2] == (BV, EGD)}
+
+
+def places(corpus):
+    return {r[0]: (r[1], r[2], r[3]) for r in corpus.rows("places")}
+
+
+def test_a_surgery_center_with_a_facility_fee_shows_it_and_an_empty_doctors_fee(corpus):
+    shown = procedures(corpus)
+    assert shown[str(SURGERY_CENTER)] == [part("facility", 900.0), part("surgeon", None)]
+    assert places(corpus)[str(SURGERY_CENTER)][1:] == ("surgery_center", "Surgery center")
+
+
+def test_a_hospital_shows_its_facility_fee_and_the_doctors_fee_of_a_group_in_its_building(corpus):
+    assert procedures(corpus)["110079"] == [part("facility", 1200.0), part("surgeon", 400.0)]
+
+
+def test_a_practice_medicare_shows_doing_it_in_the_office_shows_that_bill(corpus):
+    shown = procedures(corpus)
+    assert shown[str(OFFICE)] == [part("in_office", 300.0)]
+    assert places(corpus)[str(OFFICE)][1] == "practice"
+
+
+def test_a_practice_that_does_it_only_in_facilities_shows_the_doctors_fee_and_an_empty_facility_fee(corpus):
+    assert procedures(corpus)[str(FACILITY_ONLY)] == [part("facility", None), part("surgeon", 500.0)]
+
+
+def test_a_biller_with_no_place_of_its_own_gets_one_only_as_a_center_billing_a_facility_fee(corpus):
+    procedures(corpus)
+    assert str(HOSPITAL_NPI) not in {r[0] for r in corpus.rows("places")}
+    assert {r[0] for r in corpus.rows("places") if r[2] == "surgery_center"} == {str(SURGERY_CENTER)}

@@ -62,7 +62,7 @@ def suite(line1, line2):
 
 class Addresses(Table):
     """One row per address: the one on the NPPES record of each biller in
-    biller_rates and each hospital billing NPI in facility_rates, and the other
+    biller_rates and each billing NPI in facility_rates, and the other
     places it lists, each hospital's, and each one CMS lists a doctor in
     biller_doctors practicing at.
 

@@ -9,7 +9,7 @@ class Services(Table):
     """Every service in integration/services.yaml with a row in prices, with its
     `family` and its text. `bills` is each bill a patient could get for it, in
     its family's order (integration/families.yaml): its `part`, the `label` the
-    screen shows, its `billing_class` (`institutional` for the hospital's own fee,
+    screen shows, its `billing_class` (`institutional` for a facility's own fee,
     else `professional`), the `benefits` the member's share for it falls under
     (cost_sharing), and what the screen says where it has no rate (`missing_note`,
     `missing_explain`, and `missing_explain_hospital` where that differs at a

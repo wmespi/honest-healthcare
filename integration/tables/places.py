@@ -2,7 +2,8 @@
 a geocoder can put on the map, and unlocated_places.parquet: the ones none can."""
 from integration.table import Table
 
-# Every hospital, and every practice a service is shown at (integration/inputs/service_sites.py).
+# Every hospital, and every practice a service is shown at (integration/inputs/service_sites.py)
+# or a center has its own fee at (integration/inputs/facility_fees.py).
 EVERY_PLACE = """
     SELECT ccn AS place_id, name, 'hospital' AS kind, address, city, left(postal_code, 5) AS zip,
            lat, lon, phone, stars
@@ -10,14 +11,15 @@ EVERY_PLACE = """
     UNION ALL
     SELECT DISTINCT place_id, name, kind, address, city, zip, lat, lon, phone, NULL::INTEGER
     FROM biller_places
-    WHERE kind != 'hospital' AND (biller, place_id) IN (SELECT (biller, place_id) FROM service_sites)
+    WHERE kind != 'hospital' AND ((biller, place_id) IN (SELECT (biller, place_id) FROM service_sites)
+                              OR place_id IN (SELECT place_id FROM facility_fees))
 """
 
 
 class Places(Table):
     """A hospital is keyed on its CCN and has Medicare's star rating and its phone.
     Any other place is a practice with a price: its billers in one building under
-    one name, with the phone NPPES lists there (integration/inputs/biller_places.py).
+    one name, or a center with its own fee, with the phone NPPES lists there (integration/inputs/biller_places.py).
     `kind_name` is what the screen calls its kind (integration/families.yaml).
     Every place has its building's point on the map (integration/inputs/addresses.py).
     One in a building no geocoder located isn't shown, because any other point

@@ -1,5 +1,6 @@
-"""Build-only: a hospital's own fee for a service on a network, from one source:
-the plan's own file, else the hospital's own price file."""
+"""Build-only: a facility's own fee for a service on a network: a hospital's, from
+one source, the plan's own file else the hospital's own price file, and a center's,
+from the plan's own file."""
 from integration.inputs.addresses import ADDRESS, listed
 from integration.inputs.datasets import HOSPITAL_RATES, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first
 from integration.inputs.hospital_plans import plan_name
@@ -25,6 +26,12 @@ FACILITY_PRICED = """r.billing_class = 'institutional' AND r.billing_code_type I
 # institutional bill (integration/families.yaml).
 FEE_SERVICES = """(SELECT service_id, billing_code FROM service_list
                    WHERE family IN (SELECT family FROM family_bills WHERE billing_class = 'institutional'))"""
+
+# The services a center bills its own fee for: those whose family offers the
+# institutional bill away from a hospital, in one of its `elsewhere` choices.
+CENTER_FEE_SERVICES = """(SELECT s.service_id FROM service_list s JOIN family_list f USING (family)
+                          JOIN family_bills b ON b.family = f.family AND b.billing_class = 'institutional'
+                          WHERE list_contains(flatten(f.elsewhere), b.part))"""
 
 
 def facility_lines(r):
@@ -53,48 +60,58 @@ def priced(amount):
 
 
 class FacilityRates(Table):
-    """One row per network, service a hospital bills its own fee for
-    (FEE_SERVICES), hospital billing NPI and institutional rate the network's
-    file lists for the service (FACILITY_PRICED), covering a
-    roster with that billing NPI. A rate under the file's shared labels is kept
-    only where the network's own labels have none for the hospital and service
-    (datasets.own_first). A billing NPI counts only where NPPES registers it as
-    a hospital organization, since a hospital's own fee is what's priced."""
+    """One row per network, service a facility bills its own fee for
+    (FEE_SERVICES), billing NPI and institutional rate the network's file lists
+    for the service (FACILITY_PRICED), covering a roster with that billing NPI. A
+    rate under the file's shared labels is kept only where the network's own
+    labels have none for the biller and service (datasets.own_first). A billing
+    NPI counts only where NPPES registers it as a hospital organization, or as a
+    center of the service's family (centers) where the family offers the fee away
+    from a hospital (CENTER_FEE_SERVICES), which `center` says, since a
+    facility's own fee is what's priced."""
     name = "facility_rates"
     key = ["network_id", "service_id", "biller", "rate"]
-    columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR", "rate": "DOUBLE"}
+    columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR", "rate": "DOUBLE",
+               "center": "BOOLEAN"}
 
     def select(self, data_dir):
         return f"""
-            SELECT DISTINCT network_id, service_id, biller, rate FROM (
+            SELECT DISTINCT network_id, service_id, biller, rate, center FROM (
                 SELECT DISTINCT r.network_id, s.service_id, p.tin_value AS biller, r.negotiated_rate AS rate,
-                       r.own_label
+                       r.own_label, NOT n.is_hospital AS center
                 FROM {PAYER_RATES.read(data_dir)} r
                 JOIN {FEE_SERVICES} s ON s.billing_code = r.billing_code
                 JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
                 JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(p.tin_value AS BIGINT)
-                WHERE {FACILITY_PRICED} AND n.entity_type = 'organization' AND n.is_hospital)
+                WHERE {FACILITY_PRICED} AND n.entity_type = 'organization'
+                  AND (n.is_hospital
+                       OR (s.service_id IN {CENTER_FEE_SERVICES}
+                           AND EXISTS (SELECT 1 FROM service_list v JOIN centers t USING (family)
+                                       WHERE v.service_id = s.service_id AND t.taxonomy_code = n.taxonomy_code))))
             QUALIFY {own_first("network_id", "service_id", "biller")}
         """
 
 
-class HospitalFees(Table):
-    """One row per network, service and hospital (`place_id`, its CCN) with a
-    price for the hospital's own fee, from one source, never a blend of two:
+class FacilityFees(Table):
+    """One row per network, service and place with a price for the place's own
+    fee, from one source, never a blend of two. A place is a hospital (`place_id`,
+    its CCN) or a center a service's family registers, the practice
+    (integration/inputs/biller_places.py) of a billing NPI NPPES registers as one:
 
     - `plan`: the network's own file, wherever a rate in facility_rates covers a
       hospital billing NPI with an NPPES address, its own or another it lists, in
-      the hospital's building (integration/inputs/addresses.py);
+      the hospital's building (integration/inputs/addresses.py), or a center's
+      billing NPI, at each place it has;
     - `hospital`: only where the plan's file prices none there, the hospital's
       own price file, on its fee schedule rows (fee_schedule) for the service's
       code (facility_lines) under a name integration/hospital_plans.yaml says
       means the network, with a negotiated dollar amount that is a price
-      (priced).
+      (priced), which a center has no counterpart of.
 
     `fee` is the highest rate at that source and `rates` how many different ones
     there are, since neither file says which applies."""
-    name = "hospital_fees"
+    name = "facility_fees"
     key = ["network_id", "service_id", "place_id"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "place_id": "VARCHAR", "fee": "DOUBLE",
                "rates": "BIGINT", "source": "VARCHAR"}
@@ -108,7 +125,14 @@ class HospitalFees(Table):
                 JOIN {listed(data_dir)} l ON l.npi = TRY_CAST(f.biller AS BIGINT)
                 JOIN addresses a USING ({ADDRESS})
                 JOIN hospitals h USING (building)
+                WHERE NOT f.center
                 GROUP BY f.network_id, f.service_id, h.ccn
+                UNION ALL
+                SELECT f.network_id, f.service_id, b.place_id, max(f.rate), count(DISTINCT f.rate)
+                FROM facility_rates f
+                JOIN biller_places b ON b.biller = f.biller AND b.kind != 'hospital'
+                WHERE f.center
+                GROUP BY f.network_id, f.service_id, b.place_id
             ),
             own AS (
                 SELECT p.network_id, s.service_id, r.ccn AS place_id, max(r.negotiated_dollar) AS fee,
@@ -129,10 +153,10 @@ class HospitalFees(Table):
     def check(self, con, data_dir):
         """Not a stop: list every hospital billing NPI with an institutional rate
         that has no address in a Georgia hospital's building, so its rates price
-        no hospital's fee."""
+        no hospital's fee. A center's billing NPI isn't listed."""
         ids = [r[0] for r in con.execute(f"""
             SELECT DISTINCT f.biller FROM facility_rates f
-            WHERE NOT EXISTS (SELECT 1 FROM {listed(data_dir)} l
+            WHERE NOT f.center AND NOT EXISTS (SELECT 1 FROM {listed(data_dir)} l
                               JOIN addresses a USING ({ADDRESS}) JOIN hospitals h USING (building)
                               WHERE l.npi = TRY_CAST(f.biller AS BIGINT))
             ORDER BY f.biller

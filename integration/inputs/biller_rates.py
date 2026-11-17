@@ -19,6 +19,7 @@ OTHER_BILLS = {
     "UE": "used equipment",
     "25": "a separate visit on the day of a procedure",
     "59": "a procedure distinct from another the same day",
+    "53": "a procedure stopped before it was finished",
     "32": "a service someone other than the patient requires",
     "95": "a visit by live video",
     "GT": "a visit by live video",
@@ -50,10 +51,12 @@ PRICED = """r.billing_class = 'professional' AND r.setting IN ('outpatient', 'bo
 
 def _rank(place_of_service):
     """SQL for a rate line's place-of-service rank among `place_of_service`, the
-    family's codes, best first: 0 when the line names no place, CSTM-00 or the
+    codes a bill reads, best first: 0 when the line names no place, CSTM-00 or the
     first code, else the position of the first code it names, else one past the
-    last."""
-    names = f"list_transform({place_of_service}, p -> contains('|' || r.service_code || '|', '|' || p || '|'))"
+    last. An entry joining codes with "|" is named by a line that names any of
+    them, and they rank equal."""
+    names = (f"list_transform({place_of_service}, p -> "
+             f"list_has_any(string_split(r.service_code, '|'), string_split(p, '|')))")
     return (f"CASE WHEN coalesce(r.service_code, '') IN ('', 'CSTM-00') THEN 0 "
             f"ELSE coalesce(list_position({names}, true) - 1, len({place_of_service})) END")
 
@@ -66,7 +69,9 @@ def covered(data_dir):
     return f"""
         lines AS (
             SELECT r.network_id, s.service_id, r.group_set_id, b.part, r.negotiated_rate AS rate, r.own_label,
-                   {_rank("f.place_of_service")} AS rank
+                   b.place_of_service IS NOT NULL AS own_places,
+                   {_rank("coalesce(b.place_of_service, f.place_of_service)")} AS rank,
+                   len(coalesce(b.place_of_service, f.place_of_service)) AS places
             FROM {PAYER_RATES.read(data_dir)} r
             JOIN service_list s ON s.billing_code = r.billing_code
             JOIN family_list f USING (family)
@@ -74,9 +79,14 @@ def covered(data_dir):
               ON b.family = s.family AND b.billing_class = 'professional' AND list_contains(b.modifiers, coalesce(r.modifier, ''))
             WHERE {PRICED}
         ),
+        -- A family's place of service ranks every line of a service together, the
+        -- best line winning even when it names none of the codes. A bill with its
+        -- own place_of_service ranks its own lines, and only those naming one of
+        -- its codes count.
         kept AS (
-            SELECT * FROM lines
-            QUALIFY rank = min(rank) OVER (PARTITION BY network_id, service_id)
+            SELECT * EXCLUDE (own_places, places) FROM lines
+            WHERE NOT own_places OR rank < places
+            QUALIFY rank = min(rank) OVER (PARTITION BY network_id, service_id, CASE WHEN own_places THEN part END)
         ),
         medians AS (
             SELECT network_id, service_id, part, median(rate) AS median FROM kept
@@ -102,7 +112,9 @@ class BillerRates(Table):
     service's family that names its modifier (family_bills). A service keeps only its
     lines for the best place of service its family reads that any of them names
     on the network (`place_of_service` in integration/families.yaml, an office
-    unless it says otherwise), and a placeholder rate, at most $1 or 5% of the
+    unless it says otherwise), except that a bill naming its own `place_of_service`
+    keeps only the lines naming one of its codes, the best of them, so a line
+    naming two of its codes' places counts for both bills, and a placeholder rate, at most $1 or 5% of the
     median for that service and part on the network, is dropped. A rate under the
     file's shared labels is used only where the network's own labels have none
     for the biller, service and bill.

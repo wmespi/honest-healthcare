@@ -28,12 +28,21 @@
 #                     rates with its `modifier` ("" for none), or with any of them
 #                     when it lists several, and `on_site` says only a place that
 #                     does the service bills it. The institutional bill, at most one,
-#                     is the hospital's own fee. `missing` is what the screen says
-#                     where the bill has no rate (`explain_at_hospital` at a hospital).
+#                     is the facility's own fee: a hospital's, or a center's where
+#                     `elsewhere` names it. A professional bill may name its own
+#                     `place_of_service`, the codes whose rates it reads in place of
+#                     the family's, best first, each entry joining codes with "|" to
+#                     rank them equal ("22|24"); only lines naming one of them count,
+#                     and a line naming two bills' codes counts for both, so two bills
+#                     may share a modifier when each names its own. `missing` is what
+#                     the screen says where the bill has no rate (`explain_at_hospital`
+#                     at a hospital).
 #   hospital          The bills at a hospital, in order. A family without it isn't
 #                     shown at hospitals.
 #   elsewhere         The bills anywhere else, as alternatives in order: a place
 #                     shows the first it has a rate for every bill of, else the last.
+#                     It may name the institutional bill when `centers` has a kind
+#                     of place that bills its own fee.
 #   centers           The NPPES primary specialty codes that register a biller as a
 #                     center doing this family's services, each with its kind of place.
 #   evidence_codes    Optional: the Medicare codes whose billing shows a doctor does
@@ -66,10 +75,13 @@ benefits:
   mental_health: {name: "Mental/Behavioral Health Outpatient Services", label: "Outpatient mental health"}
   therapy: {name: "Rehabilitative Occupational and Rehabilitative Physical Therapy", label: "Physical and occupational therapy"}
   lab: {name: "Laboratory Outpatient and Professional Services", label: "Lab tests"}
+  outpatient_facility: {name: "Outpatient Facility Fee (e.g., Ambulatory Surgery Center)", label: "Outpatient facility fee"}
+  outpatient_surgery: {name: "Outpatient Surgery Physician/Surgical Services", label: "Outpatient surgery, the doctor's fee"}
 
 kinds:
   hospital: Hospital
   imaging_center: Imaging center
+  surgery_center: Surgery center
   urgent_care: Urgent care center
   lab: Lab
   practice: Medical practice
@@ -317,3 +329,52 @@ families:
     centers:
       <<: *radiology_centers
       261QM1200X: imaging_center  # MRI center
+
+  - family: endoscopy
+    name: Colonoscopy and upper endoscopy
+    groups: ["Colonoscopy - Lesion Removal", "Lower GI Endoscopy - Other", "Upper GI Endoscopy"]
+    # The plan's file has a share for the doctor's fee and one for the facility's,
+    # and the doctor's fee is billed the same way in an office as in a facility.
+    benefits: [outpatient_surgery]
+    about: A doctor uses a thin, flexible tube with a camera to look inside your colon or your upper digestive tract. Most people go home the same day, and you usually need someone to take you. Your doctor will tell you how to prepare, which can mean changing what you eat and drink the day before.
+    could_change:
+      - A biopsy or a polyp removed during the procedure, which can make it a different procedure with a different price
+      - A lab’s bill for testing what was removed
+      - The anesthesia, which is often billed by a separate group
+      - Your plan not covering it, for example if a required approval was missed
+    asks:
+      - Where will the procedure happen, and is that place in my network?
+      - Is the doctor, and whoever gives the anesthesia, in my network?
+      - What happens to the bill if a polyp is removed or a biopsy is taken?
+      - Does my plan need to approve this first?
+    bills:
+      - part: in_office
+        label: The doctor’s fee, room included
+        billing_class: professional
+        modifier: ""
+        place_of_service: ["11"]
+        on_site: true
+      - part: surgeon
+        label: The doctor’s fee
+        billing_class: professional
+        modifier: ""
+        place_of_service: ["22|24", "21"]
+        on_site: false
+        missing:
+          note: Missing the doctor’s fee
+          explain: This group bills for procedures done at a hospital or a surgery center, and your plan’s file lists no rate for it at one. Ask who will do your procedure, where, whether they’re in your network and what they charge.
+      - part: facility
+        label: The facility’s fee
+        billing_class: institutional
+        benefits: [outpatient_facility]
+        missing:
+          note: Missing the facility’s fee
+          explain: The place where your procedure happens bills its own fee, and your plan’s file doesn’t list it here. Ask where it would happen and what that place charges.
+          explain_at_hospital: Hospitals and surgery centers bill their own fee for the procedure, and your plan’s file doesn’t list it here. Nothing on file confirms the place itself is in your network. Ask whether it is and what it would charge before you book.
+    hospital: [facility, surgeon]
+    elsewhere: [[in_office], [facility, surgeon]]
+    # Surgery centers and endoscopy centers bill their own facility fee, apart from
+    # the doctor's.
+    centers:
+      261QA1903X: surgery_center  # ambulatory surgical center
+      261QE0800X: surgery_center  # endoscopy center

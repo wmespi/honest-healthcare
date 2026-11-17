@@ -1,4 +1,4 @@
-"""The build-only hospital_fees table (integration/inputs/hospital_fees.py): a
+"""The build-only facility_fees table (integration/inputs/facility_fees.py): a
 hospital's own fee for a service on a network, from the plan's own file, else the
 hospital's own price file."""
 BV, PATHWAY = "45334-GAN001", "49046-GAN008"
@@ -9,7 +9,7 @@ PLANS = {"hospitals": [GRADY], "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"]
 
 
 def fees(corpus, service_id=None):
-    rows = corpus.inputs().execute("SELECT * FROM hospital_fees ORDER BY ALL").fetchall()
+    rows = corpus.inputs().execute("SELECT * FROM facility_fees ORDER BY ALL").fetchall()
     return [r for r in rows if service_id in (None, r[1])]
 
 
@@ -93,3 +93,18 @@ def test_a_hospitals_own_label_fee_wins_over_a_higher_shared_label_fee_which_is_
     corpus.facility_price(PATHWAY, 51, "77067", 700, own_label=False)
     assert fees(corpus, MRI) == [(PATHWAY, MRI, HAMILTON, 900.0, 1, "plan")]
     assert [r[3] for r in fees(corpus, MAMMOGRAM) if r[0] == PATHWAY and r[2] == HAMILTON] == [700.0]
+
+
+def test_a_surgery_centers_fee_comes_from_the_plans_file_at_its_own_place_and_a_hospital_npi_is_not_a_center(corpus):
+    corpus.add_endoscopy()
+    corpus.service("egd", "43235", family="endoscopy")
+    corpus.npi(1000000041, "PEACHTREE SURGERY CENTER", "10 SURGERY WAY", "ATLANTA", "303082233", taxonomy="261QA1903X")
+    corpus.geocode("10 SURGERY WAY", "ATLANTA", "303082233", "10 SURGERY WAY, ATLANTA, GA, 30308", 33.75, -84.38)
+    corpus.roster(BV, 41, 41, "1000000041", 1000000041)
+    corpus.facility_price(BV, 41, "43235", 900)
+    corpus.facility_price(BV, 41, "43235", 950)
+    # An imaging center's institutional rate for a scan isn't a fee the scan family offers away from a hospital.
+    corpus.facility_price(BV, 41, "77067", 150)
+    assert [r for r in fees(corpus) if r[1] == "egd"] == [(BV, "egd", "1000000041", 950.0, 2, "plan")]
+    assert fees(corpus, "mammogram-screening")[0][2] == GRADY
+    assert all(r[2] != "1000000041" for r in fees(corpus, "mammogram-screening"))

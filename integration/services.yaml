@@ -34,6 +34,7 @@ shared:
   - &limited "A smaller, limited scan instead of a complete one, which is billed as a different scan"
   - &outside_network "Someone outside your network taking part, such as whoever reads the scan. Federal law limits most of these bills."
   - &not_covered "Your plan not covering it, for example if a required approval was missed"
+  - &free_screening "A screening colonoscopy is usually $0 in network because it counts as preventive care. If a polyp is removed or a biopsy is taken, the plan may bill that part as surgery."
   - &free_checkup "Yearly checkups are usually $0 in network because they count as preventive care. The most you would pay matters if a health problem is also treated and billed as an office visit."
 
 xrays:
@@ -970,3 +971,92 @@ urgent_care:
     billing_code: "99215"
     name: Urgent care visit, returning patient, 40 to 54 minutes
     keywords: walk-in clinic sick complex
+
+endoscopy:
+  - service_id: scope-upper
+    billing_code: "43235"
+    name: Upper endoscopy, diagnostic
+    keywords: egd gastroscopy stomach esophagus swallowing reflux heartburn
+
+  - service_id: scope-upper-biopsy
+    billing_code: "43239"
+    name: Upper endoscopy with biopsy
+    keywords: egd gastroscopy stomach esophagus tissue sample
+
+  - service_id: colonoscopy
+    billing_code: "45378"
+    name: Colonoscopy, screening or diagnostic
+    keywords: colon screening colorectal cancer scope
+    preventive_note: *free_screening
+
+  - service_id: colonoscopy-foreign-object
+    billing_code: "45379"
+    name: Colonoscopy with foreign object removal
+    keywords: colon scope
+
+  - service_id: colonoscopy-biopsy
+    billing_code: "45380"
+    name: Colonoscopy with biopsy
+    keywords: colon scope tissue sample
+
+  - service_id: colonoscopy-injection
+    billing_code: "45381"
+    name: Colonoscopy with injection to lift the lining
+    keywords: colon scope
+
+  - service_id: colonoscopy-bleeding
+    billing_code: "45382"
+    name: Colonoscopy with bleeding control
+    keywords: colon scope
+
+  - service_id: colonoscopy-polyp-cautery
+    billing_code: "45384"
+    name: Colonoscopy with polyp removal, forceps or cautery
+    keywords: colon scope polypectomy
+
+  - service_id: colonoscopy-polyp-snare
+    billing_code: "45385"
+    name: Colonoscopy with polyp removal, snare
+    keywords: colon scope polypectomy
+
+  - service_id: colonoscopy-stretch
+    billing_code: "45386"
+    name: Colonoscopy with stretching of a narrowed area
+    keywords: colon scope dilation balloon stricture
+
+  - service_id: colonoscopy-tumor
+    billing_code: "45388"
+    name: Colonoscopy with tumor destruction
+    keywords: colon scope ablation
+
+  - service_id: colonoscopy-larger-growth
+    billing_code: "45390"
+    name: Colonoscopy with removal of a larger growth from the lining
+    keywords: colon scope mucosal resection
+
+  - service_id: colonoscopy-ultrasound
+    billing_code: "45391"
+    name: Colonoscopy with ultrasound
+    keywords: colon scope
+
+  - service_id: colonoscopy-ultrasound-needle
+    billing_code: "45392"
+    name: Colonoscopy with ultrasound and needle biopsy
+    keywords: colon scope
+
+  - service_id: colonoscopy-banding
+    billing_code: "45398"
+    name: Colonoscopy with banding of tissue
+    keywords: colon scope ligation
+
+  - service_id: colonoscopy-screening-high-risk
+    billing_code: "G0105"
+    name: Colonoscopy, screening for people at high risk
+    keywords: colon colorectal cancer scope
+    preventive_note: *free_screening
+
+  - service_id: colonoscopy-screening-average-risk
+    billing_code: "G0121"
+    name: Colonoscopy, screening for people at average risk
+    keywords: colon colorectal cancer scope
+    preventive_note: *free_screening
