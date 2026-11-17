@@ -16,11 +16,12 @@ FAMILIES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 # A key the build and the screen use: a family, a part, a benefit or a kind.
 KEY = re.compile(r"[a-z][a-z0-9_]*")
 FAMILY_FIELDS = {"family", "name", "groups", "except", "codes", "benefits", "about", "could_change", "asks", "bills",
-                 "hospital", "elsewhere", "centers", "evidence_codes", "place_of_service", "asks_specialty"}
+                 "hospital", "elsewhere", "centers", "evidence_codes", "place_of_service", "asks_specialty",
+                 "empty_note"}
 BILL_FIELDS = {"part", "label", "billing_class", "modifier", "on_site", "benefits", "missing", "place_of_service"}
 MISSING_FIELDS = {"note", "explain", "explain_at_hospital"}
 # The bills a patient gets without choosing who bills them (`extra_bills`).
-EXTRA_PARTS = ("anesthesia", "pathology")
+EXTRA_PARTS = ("anesthesia", "pathology", "doctor")
 # The place-of-service codes a family reads when it doesn't say: an office.
 OFFICE = ["11"]
 
@@ -117,6 +118,8 @@ def read_families(path=FAMILIES_PATH):
             if other[1] != kind:
                 stop(f"center {code} is a {kind} for {family} but a {other[1]} for {other[0]}")
         evidence = f.get("evidence_codes")
+        if "empty_note" in f and not _text(f["empty_note"]):
+            stop(f"{family}'s empty_note must be quoted text")
         if not isinstance(f.get("asks_specialty", False), bool):
             stop(f"{family}'s asks_specialty must be true or false")
         families.append({
@@ -130,6 +133,7 @@ def read_families(path=FAMILIES_PATH):
             "evidence_codes": None if evidence is None else _codes(evidence, f"{family}'s evidence_codes", stop,
                                                                    empty=True),
             "place_of_service": _codes(f.get("place_of_service", OFFICE), f"{family}'s place_of_service", stop),
+            "empty_note": f.get("empty_note"),
         })
         if not _text(families[-1]["name"]):
             stop(f"{family} has no name")
@@ -224,7 +228,7 @@ class Benefits(FromYaml):
 
 
 class ExtraBillParts(FromYaml):
-    """One row per extra bill part (`anesthesia`, `pathology`), with its `label`, its
+    """One row per extra bill part (`anesthesia`, `pathology`, `doctor`), with its `label`, its
     `note` and the `missing` note for a plan whose file lists no rate for it."""
     name = "extra_bill_parts"
     key = ["part"]
@@ -253,17 +257,19 @@ class FamilyList(FromYaml):
     and elsewhere (`elsewhere`, alternatives in order), the Medicare codes that
     show a doctor does its services (`evidence_codes`, empty for each service's
     own code), the place-of-service codes it reads, best first, and whether it asks
-    which kind of doctor (`asks_specialty`, integration/specialties.yaml)."""
+    which kind of doctor (`asks_specialty`, integration/specialties.yaml), and
+    what the screen says when no place shows a price (`empty_note`, empty for the
+    screen's own wording)."""
     name = "family_list"
     key = ["family"]
     columns = {"family": "VARCHAR", "name": "VARCHAR", "position": "INTEGER", "groups": "VARCHAR[]",
                "except_groups": "VARCHAR[]", "codes": "VARCHAR[]", "hospital": "VARCHAR[]",
                "elsewhere": "VARCHAR[][]", "evidence_codes": "VARCHAR[]", "place_of_service": "VARCHAR[]",
-               "asks_specialty": "BOOLEAN"}
+               "asks_specialty": "BOOLEAN", "empty_note": "VARCHAR"}
 
     def rows(self):
         return [[f["family"], f["name"], f["position"], f["groups"], f["except"], f["codes"], f["hospital"],
-                 f["elsewhere"], f["evidence_codes"], f["place_of_service"], f["asks_specialty"]]
+                 f["elsewhere"], f["evidence_codes"], f["place_of_service"], f["asks_specialty"], f["empty_note"]]
                 for f in read_families(self.path)["families"]]
 
 

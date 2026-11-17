@@ -9,7 +9,7 @@ PLANS = {"hospitals": [GRADY], "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"]
 
 
 def fees(corpus, service_id=None):
-    rows = corpus.inputs().execute("SELECT * FROM facility_fees ORDER BY ALL").fetchall()
+    rows = corpus.inputs().execute("SELECT network_id, service_id, place_id, fee, rates, source FROM facility_fees ORDER BY ALL").fetchall()
     return [r for r in rows if service_id in (None, r[1])]
 
 

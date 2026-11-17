@@ -25,6 +25,14 @@
 #                    comes with the service, whose plan rate `extra_bills` lists.
 #   pathology        Optional: the CPT code of the lab exam of removed or sampled
 #                    tissue that may come with the service.
+#   doctor           Optional: the CPT code of the doctor's whole fee for a hospital
+#                    stay (a delivery package, a joint replacement), billed apart
+#                    from the hospital, whose plan rate `extra_bills` lists.
+#   code_type        Optional, CPT or HCPCS when not given: `MS-DRG` says the
+#                    `billing_code` is a three-digit MS-DRG, which a hospital stay
+#                    is priced by. A family that names no groups or codes holds
+#                    only services that declare one, and two of its services may
+#                    share a DRG when their `doctor` codes differ.
 #
 # A code is one service in a family, and may be a service in each of two families.
 # `make build` lists each family's shoppable codes that have a rate and no name
@@ -1633,3 +1641,38 @@ other_procedures:
     anesthesia: "00120"
     name: Ear tube placement under general anesthesia
     keywords: tympanostomy children
+
+stays:
+  - service_id: stay-vaginal-delivery
+    billing_code: "807"
+    code_type: MS-DRG
+    doctor: "59400"
+    anesthesia: "01967"
+    benefits: [maternity_stay]
+    name: Having a baby, vaginal delivery, no complications
+    keywords: birth maternity labor delivery pregnancy childbirth
+
+  - service_id: stay-c-section
+    billing_code: "788"
+    code_type: MS-DRG
+    doctor: "59510"
+    anesthesia: "01968"
+    benefits: [maternity_stay]
+    name: Having a baby by C-section, no complications
+    keywords: birth maternity cesarean caesarean delivery pregnancy childbirth
+
+  - service_id: stay-knee-replacement
+    billing_code: "470"
+    code_type: MS-DRG
+    doctor: "27447"
+    anesthesia: "01402"
+    name: Knee replacement, hospital stay
+    keywords: joint arthroplasty orthopedic
+
+  - service_id: stay-hip-replacement
+    billing_code: "470"
+    code_type: MS-DRG
+    doctor: "27130"
+    anesthesia: "01214"
+    name: Hip replacement, hospital stay
+    keywords: joint arthroplasty orthopedic

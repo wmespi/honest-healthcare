@@ -51,6 +51,21 @@ function PriceComparison({ difference }) {
   return <span className="text-slate-500">{money(difference)} above median</span>;
 }
 
+// A hospital stay paid per day or as a share of its charges has terms, not a dollar amount.
+function TermsPrice({ parts }) {
+  const known = parts.reduce((sum, part) => sum + (part.amount ?? 0), 0);
+  return (
+    <>
+      {known > 0 && <div className="text-[17px] font-semibold leading-6 tabular-nums text-slate-900">{money(known)}</div>}
+      {parts.filter((part) => part.terms).map((part) => (
+        <div key={part.label} className="text-[13px] font-semibold leading-6 text-slate-700 sm:text-sm">
+          {known > 0 && '+ '}{part.terms}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function IncompletePrice({ parts }) {
   const known = parts.reduce((sum, part) => sum + (part.amount ?? 0), 0);
   return (
@@ -63,25 +78,27 @@ function IncompletePrice({ parts }) {
 
 const listed = (names) => new Intl.ListFormat('en').format(names);
 
-function Breakdown({ parts, total }) {
+function Breakdown({ parts, total, termsOnly }) {
   return (
     <div>
       <h3 className="text-[13px] font-semibold text-slate-900">
-        {total === null ? 'What we know so far' : `What makes up ${money(total)}`}
+        {total === null ? (termsOnly ? 'What makes up the price' : 'What we know so far') : `What makes up ${money(total)}`}
       </h3>
       <dl className="mt-1.5 text-sm leading-6 text-slate-600">
         {parts.map((part) => (
           <div key={part.label} className="flex justify-between gap-4">
             <dt>{part.label}</dt>
-            {part.amount === null
+            {part.amount === null && part.terms
+              ? <dd className="font-medium text-slate-900">{part.terms}</dd>
+              : part.amount === null
               ? <dd className="font-medium text-amber-800">Not on file</dd>
               : <dd className="tabular-nums">{money(part.amount)}</dd>}
           </div>
         ))}
-        <div className="mt-1 flex justify-between gap-4 border-t border-slate-300 pt-1 font-semibold text-slate-900">
+        {!termsOnly && <div className="mt-1 flex justify-between gap-4 border-t border-slate-300 pt-1 font-semibold text-slate-900">
           <dt>Most you&rsquo;d pay</dt>
           <dd className="tabular-nums">{total === null ? 'Not known' : money(total)}</dd>
-        </div>
+        </div>}
       </dl>
     </div>
   );
@@ -240,7 +257,7 @@ function LocationRow({ location, plan, costSharing, selected, highlighted, layou
           {miles(location.distanceMi)}
         </td>
         <td className="whitespace-nowrap py-3.5 pl-2 pr-4 text-right align-top sm:pr-6">
-          {location.maxRate === null ? <IncompletePrice parts={location.parts} /> : (
+          {location.maxRate === null ? (location.termsOnly ? <TermsPrice parts={location.parts} /> : <IncompletePrice parts={location.parts} />) : (
             <>
               <div className="text-[17px] font-semibold leading-6 tabular-nums text-slate-900">{money(location.maxRate)}</div>
               <div className="mt-0.5 hidden text-[13px] tabular-nums sm:block">
@@ -264,7 +281,7 @@ function LocationRow({ location, plan, costSharing, selected, highlighted, layou
                 <div className="px-4 pb-4 sm:px-6">
                   <div className="grid gap-4 sm:grid-cols-2 sm:gap-8">
                     <div className="space-y-4">
-                      <Breakdown parts={location.parts} total={location.maxRate} />
+                      <Breakdown parts={location.parts} total={location.maxRate} termsOnly={location.termsOnly} />
                       <YourShare plan={plan} costSharing={costSharing} />
                       {location.missing && <MissingBillNote location={location} />}
                       {location.severalRates && <SeveralRatesNote />}

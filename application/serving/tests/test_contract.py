@@ -8,7 +8,7 @@ from fastapi import FastAPI, Query
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from application.serving.contract import Catalog, FindCare, FindCareQuery, Place, Plan, plan_order
+from application.serving.contract import Catalog, FindCare, FindCareQuery, Part, Place, Plan, plan_order
 
 
 LABELS = {"all_in": "The scan and its reading", "scan": "The scan", "reading": "Radiologist's reading",
@@ -177,3 +177,15 @@ def test_fastapi_publishes_the_contract():
     near = {"service_id": "mri-brain", "plan_id": "blue-value", "zip": "30322"}
     assert client.get("/find-care", params={**near, "radius_mi": 25}).json()["radius_mi"] == 25
     assert client.get("/find-care", params={**near, "radius_mi": 15}).status_code == 422
+
+
+def test_a_part_priced_by_the_day_has_terms_and_a_source_but_no_max():
+    part = dict(part="stay", label="Stay", billing_class="institutional", max=None, terms="$2,472 a day",
+                source="plan", missing_note=None, missing_explain=None)
+    assert Part(**part).terms == "$2,472 a day"
+    with pytest.raises(ValueError, match="a part has a source exactly when it has a rate or terms"):
+        Part(**{**part, "source": None})
+    with pytest.raises(ValueError, match="a rate or terms, not both"):
+        Part(**{**part, "max": 5000.0})
+    with pytest.raises(ValueError, match="no missing text"):
+        Part(**{**part, "missing_note": "Missing"})

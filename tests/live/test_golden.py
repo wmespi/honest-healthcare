@@ -66,7 +66,7 @@ def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 11, "services": 280, "families": 16, "places": 5445, "prices": 72198,
+    assert root["rows"] == {"plans": 11, "services": 284, "families": 17, "places": 5445, "prices": 72318,
                             "providers": 13017}
 
 
@@ -75,7 +75,7 @@ def test_the_families_are_in_the_screens_order(client):
     assert [f["family"] for f in catalog["families"]] == [
         "office_visits", "preventive_visits", "urgent_care", "mental_health", "therapy", "lab_tests", "xrays",
         "mammograms", "ultrasound", "ct", "mri", "endoscopy", "eye_procedures", "bone_joint_procedures",
-        "skin_procedures", "other_procedures"]
+        "skin_procedures", "other_procedures", "stays"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
 
 
@@ -88,7 +88,7 @@ def test_a_brain_mri_near_emory_on_silver_4000(client):
     assert clinic["parts"][0]["label"] == "The scan and its reading" and clinic["kind_name"] == "Medical practice"
     assert body["median_max_rate"] == 180.49
     assert body["cost_sharing"] == [{
-        "benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": 300.0, "coinsurance": 50.0,
+        "benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": 300.0, "copay_per": None, "coinsurance": 50.0,
         "after_deductible": True, "parts": ["all_in", "scan", "reading", "facility"]}]
 
 
@@ -149,7 +149,9 @@ def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
     # Emory, and it lists no facility's fee, so many procedures (children's,
     # pregnancy, rare variants) have no row.
     gaps = unpriced(client, SILVER)
-    assert len(gaps) == 53
+    assert len(gaps) == 57
+    # Nor does its file price a hospital stay.
+    assert {"stay-vaginal-delivery", "stay-c-section", "stay-knee-replacement", "stay-hip-replacement"} <= set(gaps)
     assert {"checkup-return-18-39", "counseling-family-with", "counseling-family-without", "counseling-group",
             "therapy-iontophoresis", "surgery-tonsils-adult", "surgery-vasectomy"} <= set(gaps)
     assert not {"colonoscopy", "eye-cataract", "joint-knee-scope-meniscus", "surgery-gallbladder-scope",

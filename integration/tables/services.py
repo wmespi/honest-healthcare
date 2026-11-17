@@ -37,10 +37,10 @@ class Services(Table):
     def select(self, data_dir):
         return f"""
             WITH office AS (
-                SELECT billing_code, round(median(medicare_allowed), 2) AS medicare_rate
+                SELECT billing_code, billing_code_type, round(median(medicare_allowed), 2) AS medicare_rate
                 FROM {MPFS.read(data_dir)}
                 WHERE pos = 'nonfacility' AND coalesce(modifier, '') = '' AND medicare_allowed IS NOT NULL
-                GROUP BY billing_code
+                GROUP BY billing_code, billing_code_type
             ),
             bills AS (
                 SELECT service_id,
@@ -65,7 +65,8 @@ class Services(Table):
             FROM service_list s
             JOIN bills b USING (service_id)
             LEFT JOIN extras e USING (service_id)
-            LEFT JOIN office o USING (billing_code)
-            LEFT JOIN {OPPS.read(data_dir)} f USING (billing_code)
+            LEFT JOIN office o ON o.billing_code = s.billing_code AND list_contains(s.code_types, o.billing_code_type)
+            LEFT JOIN {OPPS.read(data_dir)} f
+              ON f.billing_code = s.billing_code AND list_contains(s.code_types, f.billing_code_type)
             WHERE s.service_id IN (SELECT service_id FROM prices)
         """

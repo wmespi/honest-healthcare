@@ -7,7 +7,7 @@ from integration.table import Table
 # Georgia's wording for the member's share in network: a copay such as "$65.00" or
 # "$300.00 Copay after deductible", a coinsurance such as "40.00% Coinsurance after
 # deductible", or "No Charge", with or without " after deductible".
-COPAY = r"^(?:\$([0-9,]+(?:\.[0-9]+)?)(?: Copay)?|No Charge)( after deductible)?$"
+COPAY = r"^(?:\$([0-9,]+(?:\.[0-9]+)?)(?: Copay)?(?: per (?:Day|Stay))?|No Charge)( after deductible)?$"
 COINSURANCE = r"^(?:([0-9]+(?:\.[0-9]+)?)%(?: Coinsurance)?|No Charge)( after deductible)?$"
 
 
@@ -36,22 +36,23 @@ class CostSharing(Table):
     (integration/families.yaml), from Georgia's benefits and cost-sharing file,
     for the plan's standard version (ingestion/reference/exchange-plans.md).
     `benefit` is our key for it, as services' `bills` name it, and `label` what
-    the screen calls it. `copay` is in dollars and `coinsurance` is a percent of
-    the rate, each empty when the plan doesn't charge one, and "No Charge" is a
+    the screen calls it. `copay` is in dollars (`copay_per` says `day` or `stay` when it is charged for each) and
+    `coinsurance` is a percent of the rate, each empty when the plan doesn't charge one, and "No Charge" is a
     $0 copay. With both, the member pays the copay and then the coinsurance, as
     the plans' summaries of benefits word it. `after_deductible` says the member
     pays the whole rate until the deductible is met."""
     name = "cost_sharing"
     key = ["plan_id", "benefit"]
     columns = {"plan_id": "VARCHAR", "benefit": "VARCHAR", "label": "VARCHAR", "copay": "DOUBLE",
-               "coinsurance": "DOUBLE", "after_deductible": "BOOLEAN"}
+               "coinsurance": "DOUBLE", "after_deductible": "BOOLEAN", "copay_per": "VARCHAR"}
 
     def select(self, data_dir):
         return f"""
             SELECT plan_id, benefit, label, {_amount("copay", COPAY)} AS copay,
                    {_amount("coinsurance", COINSURANCE)} AS coinsurance,
                    coalesce(copay LIKE '% after deductible' OR coinsurance LIKE '% after deductible', false)
-                       AS after_deductible
+                       AS after_deductible,
+                   nullif(lower(regexp_extract(copay, ' per (Day|Stay)', 1)), '') AS copay_per
             FROM ({_worded(data_dir)})
         """
 

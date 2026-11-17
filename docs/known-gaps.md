@@ -61,6 +61,14 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **A generic ambulatory surgery center's fee shows only where such a group works in it**, since its contract prices every code whether it does the procedure or not.
 - **A surgery done only at a facility is often listed under the office's place of service alone**, and that rate is read as the doctor's fee where the file lists none for a facility.
 
+## Hospital stays
+
+- **Blue Value's file lists no hospital's price for a stay, and no hospital's own file names its plan**, so a stay shows no hospital on it, only the doctor's fee and anesthesia as the plan usually pays them.
+- **Only the stay without complications is priced**; complications move it to another MS-DRG with another price, which the screen says.
+- **A stay paid per day or as a percent of charges is said in words, with no total**, and CMS's typical length of stay per MS-DRG isn't shown yet.
+- **Some plan amounts are left out**: a payer's own estimate (`derived`), a bundle, and an amount a hospital gives more than 25 DRGs, which is a default, not that stay's price ([integration/build.md](../integration/build.md)).
+- **The doctor's fee for a stay is the plan's usual range, not the doctor's**, since Medicare shows no one delivering babies and the files list these codes on nearly every roster.
+
 ## Quality
 
 - **No public measure fits visits, checkups, urgent care, counseling, therapy, lab tests, X-rays, ultrasound or MRI**, so the screen says places aren't compared on quality there ([integration/measures.yaml](../integration/measures.yaml)).
