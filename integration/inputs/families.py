@@ -19,6 +19,8 @@ FAMILY_FIELDS = {"family", "name", "groups", "except", "codes", "benefits", "abo
                  "hospital", "elsewhere", "centers", "evidence_codes", "place_of_service", "asks_specialty"}
 BILL_FIELDS = {"part", "label", "billing_class", "modifier", "on_site", "benefits", "missing", "place_of_service"}
 MISSING_FIELDS = {"note", "explain", "explain_at_hospital"}
+# The bills a patient gets without choosing who bills them (`extra_bills`).
+EXTRA_PARTS = ("anesthesia", "pathology")
 # The place-of-service codes a family reads when it doesn't say: an office.
 OFFICE = ["11"]
 
@@ -54,10 +56,17 @@ def read_families(path=FAMILIES_PATH):
     def stop(why):
         raise SystemExit(f"{path}: {why}")
 
-    extra = sorted(set(model) - {"shared", "benefits", "kinds", "facilities", "families"})
+    extra = sorted(set(model) - {"shared", "benefits", "extra_bills", "kinds", "facilities", "families"})
     if extra:
         stop(f"has sections the build doesn't use: {extra}")
     benefits, kinds = model.get("benefits") or {}, model.get("kinds") or {}
+    extra_bills = model.get("extra_bills") or {}
+    if set(extra_bills) != set(EXTRA_PARTS):
+        stop(f"extra_bills needs exactly the parts {list(EXTRA_PARTS)}")
+    for part, bill in extra_bills.items():
+        if not isinstance(bill, dict) or set(bill) != {"label", "note", "missing"} or not all(
+                _text(v) for v in bill.values()):
+            stop(f"extra_bills {part} needs a label, a note and a missing note, and nothing else")
     for key, benefit in benefits.items():
         if (not KEY.fullmatch(str(key)) or not isinstance(benefit, dict) or set(benefit) != {"name", "label"}
                 or not all(_text(v) for v in benefit.values())):
@@ -126,7 +135,8 @@ def read_families(path=FAMILIES_PATH):
             stop(f"{family} has no name")
     if not families:
         stop("lists no families")
-    return {"benefits": benefits, "kinds": kinds, "facilities": facilities, "families": families}
+    return {"benefits": benefits, "extra_bills": extra_bills, "kinds": kinds, "facilities": facilities,
+            "families": families}
 
 
 def _bills(f, benefits, stop):
@@ -211,6 +221,17 @@ class Benefits(FromYaml):
 
     def rows(self):
         return [[k, b["name"], b["label"]] for k, b in read_families(self.path)["benefits"].items()]
+
+
+class ExtraBillParts(FromYaml):
+    """One row per extra bill part (`anesthesia`, `pathology`), with its `label`, its
+    `note` and the `missing` note for a plan whose file lists no rate for it."""
+    name = "extra_bill_parts"
+    key = ["part"]
+    columns = {"part": "VARCHAR", "label": "VARCHAR", "note": "VARCHAR", "missing": "VARCHAR"}
+
+    def rows(self):
+        return [[p, b["label"], b["note"], b["missing"]] for p, b in read_families(self.path)["extra_bills"].items()]
 
 
 class Kinds(FromYaml):

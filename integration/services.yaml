@@ -21,6 +21,10 @@
 #                    service falls under, in place of what its family says.
 #   preventive_note  Optional. Shown first when the service is usually free as
 #                    preventive care.
+#   anesthesia       Optional: the CPT code (00100 to 01999) of the anesthesia that
+#                    comes with the service, whose plan rate `extra_bills` lists.
+#   pathology        Optional: the CPT code of the lab exam of removed or sampled
+#                    tissue that may come with the service.
 #
 # A code is one service in a family, and may be a service in each of two families.
 # `make build` lists each family's shoppable codes that have a rate and no name
@@ -975,88 +979,112 @@ urgent_care:
 endoscopy:
   - service_id: scope-upper
     billing_code: "43235"
+    anesthesia: "00731"
     name: Upper endoscopy, diagnostic
     keywords: egd gastroscopy stomach esophagus swallowing reflux heartburn
 
   - service_id: scope-upper-biopsy
     billing_code: "43239"
+    anesthesia: "00731"
+    pathology: "88305"
     name: Upper endoscopy with biopsy
     keywords: egd gastroscopy stomach esophagus tissue sample
 
   - service_id: colonoscopy
     billing_code: "45378"
+    anesthesia: "00811"
     name: Colonoscopy, screening or diagnostic
     keywords: colon screening colorectal cancer scope
     preventive_note: *free_screening
 
   - service_id: colonoscopy-foreign-object
     billing_code: "45379"
+    anesthesia: "00811"
     name: Colonoscopy with foreign object removal
     keywords: colon scope
 
   - service_id: colonoscopy-biopsy
     billing_code: "45380"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy with biopsy
     keywords: colon scope tissue sample
 
   - service_id: colonoscopy-injection
     billing_code: "45381"
+    anesthesia: "00811"
     name: Colonoscopy with injection to lift the lining
     keywords: colon scope
 
   - service_id: colonoscopy-bleeding
     billing_code: "45382"
+    anesthesia: "00811"
     name: Colonoscopy with bleeding control
     keywords: colon scope
 
   - service_id: colonoscopy-polyp-cautery
     billing_code: "45384"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy with polyp removal, forceps or cautery
     keywords: colon scope polypectomy
 
   - service_id: colonoscopy-polyp-snare
     billing_code: "45385"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy with polyp removal, snare
     keywords: colon scope polypectomy
 
   - service_id: colonoscopy-stretch
     billing_code: "45386"
+    anesthesia: "00811"
     name: Colonoscopy with stretching of a narrowed area
     keywords: colon scope dilation balloon stricture
 
   - service_id: colonoscopy-tumor
     billing_code: "45388"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy with tumor destruction
     keywords: colon scope ablation
 
   - service_id: colonoscopy-larger-growth
     billing_code: "45390"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy with removal of a larger growth from the lining
     keywords: colon scope mucosal resection
 
   - service_id: colonoscopy-ultrasound
     billing_code: "45391"
+    anesthesia: "00811"
     name: Colonoscopy with ultrasound
     keywords: colon scope
 
   - service_id: colonoscopy-ultrasound-needle
     billing_code: "45392"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy with ultrasound and needle biopsy
     keywords: colon scope
 
   - service_id: colonoscopy-banding
     billing_code: "45398"
+    anesthesia: "00811"
     name: Colonoscopy with banding of tissue
     keywords: colon scope ligation
 
   - service_id: colonoscopy-screening-high-risk
     billing_code: "G0105"
+    anesthesia: "00811"
     name: Colonoscopy, screening for people at high risk
     keywords: colon colorectal cancer scope
     preventive_note: *free_screening
 
   - service_id: colonoscopy-screening-average-risk
     billing_code: "G0121"
+    anesthesia: "00811"
     name: Colonoscopy, screening for people at average risk
     keywords: colon colorectal cancer scope
     preventive_note: *free_screening
@@ -1069,6 +1097,7 @@ eye_procedures:
 
   - service_id: eye-cataract
     billing_code: "66984"
+    anesthesia: "00142"
     name: Cataract removal with a new lens
     keywords: eye vision lens
 
@@ -1080,61 +1109,73 @@ eye_procedures:
 bone_joint_procedures:
   - service_id: joint-knee-replace-shin
     billing_code: "27440"
+    anesthesia: "01402"
     name: Knee replacement of the shin-bone surface
     keywords: knee arthroplasty
 
   - service_id: joint-knee-replace-shin-cleanup
     billing_code: "27441"
+    anesthesia: "01402"
     name: Knee replacement of the shin-bone surface, with cleanup of the joint
     keywords: knee arthroplasty
 
   - service_id: joint-knee-replace-thigh
     billing_code: "27442"
+    anesthesia: "01402"
     name: Knee replacement of the thigh-bone surface
     keywords: knee arthroplasty
 
   - service_id: joint-knee-replace-thigh-cleanup
     billing_code: "27443"
+    anesthesia: "01402"
     name: Knee replacement of the thigh-bone surface, with cleanup of the joint
     keywords: knee arthroplasty
 
   - service_id: joint-knee-replace-hinged
     billing_code: "27445"
+    anesthesia: "01402"
     name: Knee replacement with a hinged implant
     keywords: knee arthroplasty
 
   - service_id: joint-knee-replace-partial
     billing_code: "27446"
+    anesthesia: "01402"
     name: Partial knee replacement, one side of the joint
     keywords: knee arthroplasty
 
   - service_id: joint-knee-scope-meniscus-both
     billing_code: "29880"
+    anesthesia: "01382"
     name: Knee scope with meniscus removal, both sides
     keywords: knee arthroscopy cartilage
 
   - service_id: joint-knee-scope-meniscus
     billing_code: "29881"
+    anesthesia: "01382"
     name: Knee scope with meniscus removal, one side
     keywords: knee arthroscopy cartilage
 
   - service_id: joint-knee-scope-acl
     billing_code: "29888"
+    anesthesia: "01382"
     name: Knee scope with ACL ligament repair
     keywords: knee arthroscopy ligament
 
   - service_id: joint-knee-scope-loose-body
     billing_code: "G0289"
+    anesthesia: "01382"
     name: Knee scope with loose piece or cartilage removal
     keywords: knee arthroscopy
 
   - service_id: joint-shoulder-scope
     billing_code: "29826"
+    anesthesia: "01630"
     name: Shoulder scope, bone spur release
     keywords: shoulder arthroscopy
 
   - service_id: joint-wrist-scope
     billing_code: "29848"
+    anesthesia: "01830"
     name: Wrist scope, carpal tunnel release
     keywords: wrist arthroscopy hand
 
@@ -1155,6 +1196,7 @@ bone_joint_procedures:
 
   - service_id: joint-back-disc
     billing_code: "63030"
+    anesthesia: "00630"
     name: Lower-back disc surgery through a small opening
     keywords: spine laminotomy sciatica herniated
 
@@ -1296,26 +1338,31 @@ skin_procedures:
 
   - service_id: skin-biopsy
     billing_code: "11102"
+    pathology: "88305"
     name: Skin biopsy, one spot, shaved
     keywords: mole lesion
 
   - service_id: skin-biopsy-more
     billing_code: "11103"
+    pathology: "88305"
     name: Skin biopsy, each additional spot, shaved
     keywords: mole lesion
 
   - service_id: skin-growth-small-trunk
     billing_code: "11401"
+    pathology: "88305"
     name: Removal of a benign growth on the trunk, arm or leg, 0.6 to 1 cm
     keywords: mole lesion excision
 
   - service_id: skin-growth-medium-head
     billing_code: "11422"
+    pathology: "88305"
     name: Removal of a benign growth on the scalp, neck or hands, 1.1 to 2 cm
     keywords: mole lesion excision
 
   - service_id: skin-cancer-growth-trunk
     billing_code: "11602"
+    pathology: "88305"
     name: Removal of a cancerous skin growth on the trunk, arm or leg, 1.1 to 2 cm
     keywords: skin cancer excision
 
@@ -1332,51 +1379,63 @@ skin_procedures:
 other_procedures:
   - service_id: surgery-gallbladder-scope
     billing_code: "47562"
+    anesthesia: "00790"
     name: Gallbladder removal by scope
     keywords: cholecystectomy laparoscopic
 
   - service_id: surgery-gallbladder-scope-xray
     billing_code: "47563"
+    anesthesia: "00790"
     name: Gallbladder removal by scope, with an X-ray of the bile ducts
     keywords: cholecystectomy laparoscopic
 
   - service_id: surgery-hernia-groin-scope
     billing_code: "49650"
+    anesthesia: "00830"
     name: Groin hernia repair by scope
     keywords: inguinal laparoscopic
 
   - service_id: surgery-hernia-groin-open
     billing_code: "49505"
+    anesthesia: "00830"
     name: Groin hernia repair, open surgery, age 5 or older
     keywords: inguinal
 
   - service_id: surgery-hernia-belly-button
     billing_code: "49585"
+    anesthesia: "00832"
     name: Belly-button hernia repair
     keywords: umbilical
 
   - service_id: surgery-colonoscopy-stoma
     billing_code: "44388"
+    anesthesia: "00811"
     name: Colonoscopy through an opening in the belly
     keywords: colostomy
 
   - service_id: surgery-colonoscopy-stoma-biopsy
     billing_code: "44389"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy through an opening in the belly, with biopsy
     keywords: colostomy
 
   - service_id: surgery-colonoscopy-stoma-polyp
     billing_code: "44394"
+    anesthesia: "00811"
+    pathology: "88305"
     name: Colonoscopy through an opening in the belly, with polyp removal
     keywords: colostomy polypectomy
 
   - service_id: surgery-breast-lump
     billing_code: "19120"
+    pathology: "88305"
     name: Breast lump removal
     keywords: biopsy
 
   - service_id: surgery-heart-cath
     billing_code: "93452"
+    anesthesia: "01920"
     name: Heart catheterization, left side, with imaging of the heart chamber
     keywords: cardiac angiogram
 
@@ -1387,11 +1446,13 @@ other_procedures:
 
   - service_id: surgery-vein-radiofrequency
     billing_code: "36475"
+    anesthesia: "01520"
     name: Varicose vein closure by heat from a probe, first vein
     keywords: radiofrequency ablation
 
   - service_id: surgery-vein-laser
     billing_code: "36478"
+    anesthesia: "01520"
     name: Varicose vein closure by laser, first vein
     keywords: ablation
 
@@ -1402,16 +1463,19 @@ other_procedures:
 
   - service_id: surgery-bladder-scope-remove
     billing_code: "52310"
+    anesthesia: "00910"
     name: Bladder scope with removal of a stent or small object
     keywords: cystoscopy
 
   - service_id: surgery-bladder-scope
     billing_code: "52000"
+    anesthesia: "00910"
     name: Bladder scope, diagnostic
     keywords: cystoscopy
 
   - service_id: surgery-bladder-scope-stent
     billing_code: "52332"
+    anesthesia: "00910"
     name: Bladder scope with placing a stent in the ureter
     keywords: cystoscopy
 
@@ -1422,21 +1486,25 @@ other_procedures:
 
   - service_id: surgery-sinus-scope-tissue
     billing_code: "31237"
+    anesthesia: "00160"
     name: Nasal and sinus scope with tissue removal
     keywords: sinus endoscopy
 
   - service_id: surgery-needle-biopsy-imaging
     billing_code: "10005"
+    pathology: "88305"
     name: Needle biopsy of a lump, with imaging
     keywords: fine needle aspiration
 
   - service_id: surgery-needle-biopsy
     billing_code: "10021"
+    pathology: "88305"
     name: Needle biopsy of a lump, without imaging
     keywords: fine needle aspiration
 
   - service_id: surgery-septum
     billing_code: "30520"
+    anesthesia: "00160"
     name: Nasal septum repair
     keywords: deviated septum
 
@@ -1447,16 +1515,19 @@ other_procedures:
 
   - service_id: surgery-tonsils-adenoids-child
     billing_code: "42820"
+    anesthesia: "00170"
     name: Tonsil and adenoid removal, under age 12
     keywords: tonsillectomy
 
   - service_id: surgery-tonsils-adult
     billing_code: "42826"
+    anesthesia: "00170"
     name: Tonsil removal, age 12 or older
     keywords: tonsillectomy
 
   - service_id: surgery-adenoids-child
     billing_code: "42830"
+    anesthesia: "00170"
     name: Adenoid removal, under age 12
     keywords: adenoidectomy
 
@@ -1467,11 +1538,13 @@ other_procedures:
 
   - service_id: surgery-prostate-biopsy
     billing_code: "55700"
+    pathology: "88305"
     name: Prostate biopsy
     keywords: urology
 
   - service_id: surgery-prostate-removal-robotic
     billing_code: "55866"
+    anesthesia: "00865"
     name: Prostate removal by robotic scope surgery
     keywords: prostatectomy cancer
 
@@ -1487,46 +1560,56 @@ other_procedures:
 
   - service_id: surgery-cervix-biopsy-scope
     billing_code: "57454"
+    pathology: "88305"
     name: Cervix exam with biopsy, using a scope
     keywords: colposcopy
 
   - service_id: surgery-uterus-lining-biopsy
     billing_code: "58100"
+    pathology: "88305"
     name: Uterine lining biopsy
     keywords: endometrial
 
   - service_id: surgery-uterus-scope-biopsy
     billing_code: "58558"
+    anesthesia: "00952"
+    pathology: "88305"
     name: Uterus scope with biopsy and removal of growths
     keywords: hysteroscopy polyp
 
   - service_id: surgery-uterus-scope-lining
     billing_code: "58563"
+    anesthesia: "00952"
     name: Uterus scope with destruction of the lining
     keywords: hysteroscopy ablation
 
   - service_id: surgery-uterus-scope-sterilize
     billing_code: "58565"
+    anesthesia: "00952"
     name: Uterus scope with blocking of the tubes
     keywords: hysteroscopy sterilization
 
   - service_id: surgery-hysterectomy-scope
     billing_code: "58571"
+    anesthesia: "00840"
     name: Hysterectomy by scope, with tubes and ovaries removed, smaller uterus
     keywords: laparoscopic
 
   - service_id: surgery-pelvic-scope-ovary
     billing_code: "58661"
+    anesthesia: "00840"
     name: Pelvic scope with removal of an ovary or tube
     keywords: laparoscopy
 
   - service_id: surgery-pelvic-scope-growths
     billing_code: "58662"
+    anesthesia: "00840"
     name: Pelvic scope with removal of growths
     keywords: laparoscopy cyst endometriosis
 
   - service_id: surgery-pelvic-scope-tubes
     billing_code: "58671"
+    anesthesia: "00840"
     name: Pelvic scope with blocking of the tubes
     keywords: laparoscopy sterilization
 
@@ -1547,5 +1630,6 @@ other_procedures:
 
   - service_id: surgery-ear-tubes
     billing_code: "69436"
+    anesthesia: "00120"
     name: Ear tube placement under general anesthesia
     keywords: tympanostomy children

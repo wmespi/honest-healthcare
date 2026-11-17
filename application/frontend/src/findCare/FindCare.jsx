@@ -10,6 +10,7 @@ import { ResultsTable } from './ResultsTable';
 import { SearchFields } from './SearchFields';
 import { miles, money } from './format';
 import { UnmeasuredNote } from './Quality';
+import { ExtraBills } from './ExtraBills';
 import { filterResults, searchView } from './view';
 
 // The radii the contract offers (application/serving/contract.py RADIUS_OPTIONS_MI).
@@ -228,6 +229,7 @@ function Results({ search, service, plan, measured, specialties, specialty, sort
         ? <Answer search={search} radiusMi={radiusMi} plan={plan} preventive={preventive} />
         : <NoFullPrice search={search} radiusMi={radiusMi} plan={plan} preventive={preventive} onWiden={(r) => update({ r })} />}
       <AboutService service={service} plan={plan} />
+      <ExtraBills bills={search.extraBills} />
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 sm:px-6">
         <span className="text-[13px] text-slate-500">
           {shown.length !== search.results.length && `${shown.length} of `}

@@ -196,6 +196,26 @@ def j18(api):
     return (not bad), ("; ".join(bad) if bad else f"OP-32 {first['shown']} · doctors' counts {counts[:3]}")
 
 
+def j19(api):
+    """Both plans: the bills a colonoscopy with biopsy also brings, outside the places' prices."""
+    got = {}
+    for who, plan in (("Sam", GOLD_PATHWAY), ("Rosa", SILVER)):
+        body, status = get(api, "/find-care", service_id="colonoscopy-biopsy", plan_id=plan, zip="30322")
+        if status != 200:
+            return False, f"/find-care colonoscopy-biopsy for {who} returned {status}"
+        got[who] = {e["part"]: e for e in body.get("extra_bills") or []}
+    sam, rosa = got["Sam"], got["Rosa"]
+    checks = [
+        (sam.get("anesthesia", {}).get("typical") == 232.5, f"Sam's anesthesia is {sam.get('anesthesia')} (want usually 232.5)"),
+        (sam.get("pathology", {}).get("typical") == 98.95, f"Sam's lab exam is {sam.get('pathology')} (want usually 98.95)"),
+        (rosa.get("pathology", {}).get("typical") == 48.78, f"Rosa's lab exam is {rosa.get('pathology')} (want usually 48.78)"),
+        (rosa.get("anesthesia", {}).get("typical", 0) is None and "no rate" in rosa.get("anesthesia", {}).get("note", ""),
+         "Rosa's plan lists no anesthesia rate, and says so"),
+    ]
+    bad = [msg for ok, msg in checks if not ok]
+    return (not bad), ("; ".join(bad) if bad else "Sam: anesthesia ~$232, lab ~$99 · Rosa: lab ~$49, no anesthesia rate")
+
+
 JOURNEYS = [
     ("J1", "Rosa — brain MRI price near Emory", j1),
     ("J2", "Rosa — knee MRI", j2),
@@ -226,6 +246,7 @@ JOURNEYS = [
     ("J17", "Rosa - a visit with a skin doctor", one_bill("visit-return-20", "visit", DERMATOLOGY_ASSOCIATES, 82.05,
                                                      ["specialist"], specialty="skin")),
     ("J18", "Sam - quality next to a colonoscopy", j18),
+    ("J19", "Both - what else a colonoscopy with biopsy brings", j19),
 ]
 
 

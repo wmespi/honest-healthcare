@@ -2,7 +2,7 @@
 the screen says about it, its bills and what Medicare pays for it."""
 from integration.inputs.biller_rates import OWN_FEE_FAMILIES
 from integration.inputs.datasets import MPFS, OPPS
-from integration.inputs.service_list import SERVICE_BILLS
+from integration.inputs.service_list import SERVICE_BILLS, SERVICE_EXTRA_BILLS
 from integration.table import Table
 
 
@@ -17,7 +17,10 @@ class Services(Table):
     hospital). `medicare_rate` is what Medicare pays for the whole service in an
     office, empty for a family whose facility bills its own fee, since Medicare's
     physician rate covers only the doctor's part, the median of Georgia's payment areas (ingestion/reference/mpfs.md).
-    `medicare_facility_rate` is Medicare's national hospital outpatient rate
+    `extra_bills` is the bills it brings that the patient doesn't choose who
+    bills, anesthesia and a lab's exam of removed tissue, each with its `part`,
+    `label`, `note`, the `missing` note for a plan with no rate, and the `code`
+    (extra_bills prices them). `medicare_facility_rate` is Medicare's national hospital outpatient rate
     (ingestion/reference/opps.md), empty for a service Medicare doesn't pay that
     way, such as a mammogram."""
     name = "services"
@@ -27,6 +30,8 @@ class Services(Table):
                "preventive_note": "VARCHAR",
                "bills": "STRUCT(part VARCHAR, \"label\" VARCHAR, billing_class VARCHAR, benefits VARCHAR[], "
                         "missing_note VARCHAR, missing_explain VARCHAR, missing_explain_hospital VARCHAR)[]",
+               "extra_bills": "STRUCT(part VARCHAR, \"label\" VARCHAR, note VARCHAR, missing VARCHAR, "
+                              "code VARCHAR)[]",
                "medicare_rate": "DOUBLE", "medicare_facility_rate": "DOUBLE"}
 
     def select(self, data_dir):
@@ -44,12 +49,22 @@ class Services(Table):
                               'missing_explain_hospital': missing_explain_hospital}} ORDER BY position) AS bills
                 FROM ({SERVICE_BILLS})
                 GROUP BY service_id
+            ),
+            extras AS (
+                SELECT service_id,
+                       list({{'part': part, 'label': label, 'note': note, 'missing': missing, 'code': code}}
+                            ORDER BY part) AS extra_bills
+                FROM ({SERVICE_EXTRA_BILLS})
+                GROUP BY service_id
             )
             SELECT s.service_id, s.billing_code, s.family, s.name, s.keywords, s.about, s.could_change, s.asks,
-                   s.preventive_note, b.bills, CASE WHEN s.family NOT IN {OWN_FEE_FAMILIES} THEN o.medicare_rate END AS medicare_rate,
+                   s.preventive_note, b.bills,
+                   coalesce(e.extra_bills, []::STRUCT(part VARCHAR, "label" VARCHAR, note VARCHAR, missing VARCHAR, code VARCHAR)[]) AS extra_bills,
+                   CASE WHEN s.family NOT IN {OWN_FEE_FAMILIES} THEN o.medicare_rate END AS medicare_rate,
                    f.payment_rate AS medicare_facility_rate
             FROM service_list s
             JOIN bills b USING (service_id)
+            LEFT JOIN extras e USING (service_id)
             LEFT JOIN office o USING (billing_code)
             LEFT JOIN {OPPS.read(data_dir)} f USING (billing_code)
             WHERE s.service_id IN (SELECT service_id FROM prices)

@@ -63,6 +63,13 @@
 #                     code is the same whatever the doctor's specialty. Only office
 #                     visits ask.
 #
+# extra_bills The bills a patient gets without choosing who bills them, one entry
+#            per part (`anesthesia`, `pathology`), each with the `label` the screen
+#            shows, a `note` saying what the bill is and where the range comes from,
+#            and a `missing` note for a plan whose file lists no rate for it. A
+#            service names the code in services.yaml, and the plan's usual range
+#            for it is extra_bills.parquet.
+#
 # Which centers count, and for which services, is a product decision (#135,
 # 2026-11-04), so it's NUCC's stable codes, not a match on its labels, which NUCC
 # edits.
@@ -97,6 +104,16 @@ benefits:
 # that service works there.
 facilities:
   261QA1903X: surgery_center  # ambulatory surgical center
+
+extra_bills:
+  anesthesia:
+    label: Anesthesia
+    note: The facility’s anesthesia group bills it, and you don’t choose it. This is what your plan usually pays, covering about the first 15 minutes, so longer anesthesia costs more. If the group is out of network at an in-network facility, the No Surprises Act limits you to your in-network share.
+    missing: Your plan’s file lists no rate for anesthesia, so ask the facility which group they use and whether it’s in your network.
+  pathology:
+    label: Lab exam of removed tissue
+    note: Only if tissue is removed or sampled. The lab your doctor sends it to bills it. This is what your plan usually pays.
+    missing: Your plan’s file lists no rate for the lab exam, so ask your doctor which lab they send tissue to and whether it’s in your network.
 
 kinds:
   hospital: Hospital

@@ -57,6 +57,7 @@ Expected for all: the place shows the facility's fee and the doctor's as separat
 | ID | Journey | Clickpath | Expected |
 |---|---|---|---|
 | J18 | Sam: is this place any good for a colonoscopy? | Colonoscopy, screening or diagnostic → their plan → Emory University Hospital Midtown | Its hospital visits within 7 days after a colonoscopy, compared with the national rate, with the period and source, and how many colonoscopies its doctors have done |
+| J19 | Sam and Rosa: what else will I be billed? | Colonoscopy with biopsy → each plan | Outside the places' prices: on Sam's plan the usual anesthesia and lab-exam rates; on Rosa's the lab exam, and a note that her plan lists no anesthesia rate |
 
 ## No plan
 

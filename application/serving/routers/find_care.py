@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..contract import RADIUS_OPTIONS_MI, Catalog, FindCare, FindCareQuery, Plan, Problem, plan_order
 from ..data_sources import (
-    COST_SHARING_SRC, FAMILIES_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, QUALITY_SRC, SERVICES_SRC, ZIPS_SRC, db,
+    COST_SHARING_SRC, EXTRA_BILLS_SRC, FAMILIES_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, QUALITY_SRC, SERVICES_SRC, ZIPS_SRC, db,
 )
 
 router = APIRouter()
@@ -131,7 +131,7 @@ def wider_radius(places, results) -> Optional[int]:
 def find_care(q: Annotated[FindCareQuery, Query()]):
     conn = db()
     service = _one(conn, f"""
-        SELECT s.bills, f.specialties FROM {SERVICES_SRC} s JOIN {FAMILIES_SRC} f USING (family)
+        SELECT s.bills, s.extra_bills, f.specialties FROM {SERVICES_SRC} s JOIN {FAMILIES_SRC} f USING (family)
         WHERE s.service_id = ?""", [q.service_id])
     if service is None:
         raise _not_found("unknown_service", f"There's no service {q.service_id!r}.")
@@ -150,6 +150,14 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
             raise _bad_param("unknown_specialty", f"There's no kind of doctor {q.specialty!r} for {q.service_id}.")
         bills = [{**b, "benefits": [kind["benefit"]]} for b in bills]
     cost_sharing = shares_for(conn, q.plan_id, bills)
+
+    rates = {r["part"]: r for r in _rows(conn.execute(
+        f"SELECT part, low, typical, high FROM {EXTRA_BILLS_SRC} WHERE network_id = ? AND service_id = ?",
+        [plan["network_id"], q.service_id]))}
+    extra_bills = [{"part": e["part"], "label": e["label"],
+                    "note": e["note"] if e["part"] in rates else e["missing"],
+                    **{k: rates.get(e["part"], {}).get(k) for k in ("low", "typical", "high")}}
+                   for e in service["extra_bills"]]
 
     places = _rows(conn.execute(f"""
         WITH o AS (SELECT ?::DOUBLE AS lat, ?::DOUBLE AS lon)
@@ -187,6 +195,6 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
                 "quality": quality.get(("place", p["place_id"]), [])}
 
     return FindCare(service_id=q.service_id, plan_id=q.plan_id, origin=origin, radius_mi=radius, sort=q.sort,
-                    specialty=q.specialty, cost_sharing=cost_sharing, results=[place(p) for p in results],
+                    specialty=q.specialty, cost_sharing=cost_sharing, extra_bills=extra_bills, results=[place(p) for p in results],
                     wider_radius_mi=wider_radius(places, results),
                     closest_outside=place(closest_outside) if closest_outside else None)

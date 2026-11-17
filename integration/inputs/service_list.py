@@ -11,7 +11,7 @@ from integration.inputs.families import FAMILIES_PATH, FromYaml, benefit_keys, m
 SERVICES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "services.yaml")
 SERVICE_FIELDS = {"service_id", "billing_code", "name", "keywords", "about", "could_change", "asks", "benefits",
-                  "preventive_note"}
+                  "preventive_note", "anesthesia", "pathology"}
 
 # Each named service's bills, from its family (family_bills), each with the
 # benefits the member's share for it falls under: the service's own, else the
@@ -20,6 +20,15 @@ SERVICE_BILLS = """
     SELECT s.service_id, b.part, b.position, b.label, b.billing_class, coalesce(s.benefits, b.benefits) AS benefits,
            b.missing_note, b.missing_explain, b.missing_explain_hospital
     FROM service_list s JOIN family_bills b USING (family)"""
+
+# Each extra bill a service names (`anesthesia`, `pathology`), with its part's text
+# (extra_bill_parts): a bill a patient gets without choosing who bills it.
+SERVICE_EXTRA_BILLS = """
+    SELECT s.service_id, x.part, x.code, p.label, p.note, p.missing
+    FROM service_list s
+    CROSS JOIN LATERAL (VALUES ('anesthesia', s.anesthesia), ('pathology', s.pathology)) x(part, code)
+    JOIN extra_bill_parts p USING (part)
+    WHERE x.code IS NOT NULL"""
 
 
 def read_services(path=SERVICES_PATH, families_path=FAMILIES_PATH):
@@ -59,12 +68,14 @@ class ServiceList(FromYaml):
     may be a service in each of two. Every service has a name, keywords and
     text about it, and at least one thing that could change the bill and one
     question to ask, its own or its family's. `benefits` is the service's own,
-    for every one of its bills, and empty where it names none."""
+    for every one of its bills, and empty where it names none. `anesthesia` is a
+    five-character code from 00100 to 01999 and `pathology` a five-character code,
+    each empty where the service has none (extra_bills)."""
     name = "service_list"
     key = ["service_id"]
     columns = {"service_id": "VARCHAR", "billing_code": "VARCHAR", "family": "VARCHAR", "name": "VARCHAR",
                "keywords": "VARCHAR", "about": "VARCHAR", "could_change": "VARCHAR[]", "asks": "VARCHAR[]",
-               "preventive_note": "VARCHAR", "benefits": "VARCHAR[]"}
+               "preventive_note": "VARCHAR", "benefits": "VARCHAR[]", "anesthesia": "VARCHAR", "pathology": "VARCHAR"}
 
     def __init__(self, path=SERVICES_PATH, families_path=FAMILIES_PATH):
         self.path, self.families_path = path, families_path
@@ -93,6 +104,18 @@ class ServiceList(FromYaml):
         """).fetchone()
         if bad:
             raise SystemExit(f"service_list: {bad[0]}'s billing_code {bad[1]!r} isn't a five-character code")
+        bad = con.execute("""
+            SELECT service_id, 'anesthesia', anesthesia FROM service_list
+            WHERE anesthesia IS NOT NULL AND NOT (regexp_full_match(anesthesia, '[0-9]{5}')
+                                                  AND anesthesia BETWEEN '00100' AND '01999')
+            UNION ALL
+            SELECT service_id, 'pathology', pathology FROM service_list
+            WHERE pathology IS NOT NULL AND NOT regexp_full_match(pathology, '[0-9A-Z]{5}')
+            ORDER BY 1, 2
+        """).fetchone()
+        if bad:
+            raise SystemExit(f"service_list: {bad[0]}'s {bad[1]} code {bad[2]!r} isn't a five-character code"
+                             + (" from 00100 to 01999" if bad[1] == "anesthesia" else ""))
         shared = con.execute("""
             SELECT family, billing_code, list(service_id ORDER BY service_id) FROM service_list
             GROUP BY family, billing_code HAVING count(*) > 1 ORDER BY family, billing_code

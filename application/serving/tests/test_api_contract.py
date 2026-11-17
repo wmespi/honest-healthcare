@@ -287,3 +287,29 @@ def test_the_catalog_says_which_families_have_a_measure(api):
     body = api.get("/api/services").json()
     assert {f["family"]: f["measured"] for f in body["families"]} == {
         "office_visits": False, "mammograms": True, "mri": True}
+
+
+# ── extra bills: what the plan usually pays for a bill the patient doesn't choose who sends ──
+
+def test_find_care_gives_a_service_the_plans_usual_range_for_the_bills_it_brings(api):
+    body = api.get("/api/find-care", params=MRI).json()
+    assert body["extra_bills"] == [
+        {"part": "anesthesia", "label": "Anesthesia", "note": "Ask the facility which group they use.",
+         "low": None, "typical": None, "high": None},
+        {"part": "pathology", "label": "Lab exam of removed tissue", "note": "The lab bills it.",
+         "low": 32.0, "typical": 40.0, "high": 48.0}]
+    # The range is not part of any place's most you'd pay.
+    assert [p["max_rate"] for p in body["results"]][:1] == [500.0]
+
+
+def test_find_care_extra_bills_follow_the_plans_network(api):
+    body = api.get("/api/find-care", params={**MRI, "plan_id": "49046GA0700053"}).json()
+    anesthesia, pathology = body["extra_bills"]
+    assert (anesthesia["part"], anesthesia["note"], anesthesia["low"], anesthesia["typical"], anesthesia["high"]) == (
+        "anesthesia", "The facility's group bills it.", 220.0, 300.0, 380.0)
+    assert (pathology["note"], pathology["typical"]) == ("Ask your doctor which lab they use.", None)
+
+
+def test_find_care_extra_bills_are_empty_for_a_service_that_names_none(api):
+    body = api.get("/api/find-care", params={"service_id": "mammogram-screening", "plan_id": SILVER, "zip": "30308"}).json()
+    assert body["extra_bills"] == []

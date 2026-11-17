@@ -55,6 +55,9 @@ export function searchView(body, service) {
     closestOutside: body.closest_outside ? placeView(body.closest_outside, context) : null,
     widerRadiusMi: body.wider_radius_mi,
     costSharing: body.cost_sharing,
+    extraBills: (body.extra_bills ?? []).map((bill) => ({
+      part: bill.part, label: bill.label, note: bill.note, low: bill.low ?? null, typical: bill.typical ?? null, high: bill.high ?? null,
+    })),
   };
 }
 

@@ -8,8 +8,11 @@ def test_services_carry_their_family_text_bills_and_medicare_rates(corpus):
     mammogram, mri = rows["mammogram-screening"], rows["mri-lower-back"]
     assert mammogram[1:10] == ("77067", "mammograms", "Screening mammogram", "scan", "A scan.", ["Contrast dye"],
                                ["Is this everything?"], "Usually $0 in network as preventive care.", mammogram[9])
-    assert (mammogram[10], mammogram[11]) == (115.0, None) and (mri[10], mri[11]) == (180.0, 243.77)
+    assert (mammogram[11], mammogram[12]) == (115.0, None) and (mri[11], mri[12]) == (180.0, 243.77)
+    assert mammogram[10] == []
     assert mri[2] == "mri" and mri[8] is None
+    assert [(e["part"], e["label"], e["code"]) for e in mri[10]] == [
+        ("anesthesia", "Anesthesia", "00811"), ("pathology", "Lab exam of removed tissue", "88305")]
     # A service's own benefits beat its bill's and its family's.
     assert {tuple(b["benefits"]) for b in mammogram[9]} == {("preventive",)}
     assert {tuple(b["benefits"]) for b in mri[9]} == {("advanced_imaging",)}

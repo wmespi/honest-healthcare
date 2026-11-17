@@ -240,6 +240,19 @@ class Place(BaseModel):
         return round(sum(p.max for p in self.parts), 2)
 
 
+class ExtraBill(BaseModel):
+    """A bill the service brings that the patient doesn't choose who bills, such
+    as anesthesia, with what the plan usually pays for it. Never part of a place's
+    most you'd pay."""
+    part: str = Field(description="`anesthesia` or `pathology`.")
+    label: str
+    note: str = Field(description="What the bill is and where the range comes from, or the plan has no rate: "
+                                  "the part's missing note, when `typical` is empty.")
+    low: Optional[float] = Field(description="The plan's 10th percentile for it. Empty when the plan lists no rate.")
+    typical: Optional[float] = Field(description="The plan's median for it. Empty when the plan lists no rate.")
+    high: Optional[float] = Field(description="The plan's 90th percentile for it. Empty when the plan lists no rate.")
+
+
 class Origin(BaseModel):
     """Where the search measures from: the center of the ZIP code."""
     zip: str = Field(pattern=r"^\d{5}$")
@@ -291,6 +304,11 @@ class FindCare(BaseModel):
     cost_sharing: list[Share] = Field(
         min_length=1, description="What the plan charges the member for the service: one share per benefit "
                                   "its bills fall under, in the order the bills come.")
+    extra_bills: list[ExtraBill] = Field(
+        description="The bills the service brings that the patient doesn't choose who bills, one per part it "
+                    "names (anesthesia, a lab's exam of removed tissue), what the plan usually pays for each "
+                    "(`low`, `typical`, `high`, all empty and the `note` saying so when the plan lists no rate). "
+                    "Not part of any place's `max_rate`. Empty for a service that names none.")
     results: list[Place]
     wider_radius_mi: Optional[RadiusMi] = Field(
         description="When no result has a `max_rate`, the smallest radius that reaches the nearest place with one, "

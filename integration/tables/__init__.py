@@ -18,7 +18,9 @@ from integration.inputs.biller_doctors import BillerDoctors
 from integration.inputs.biller_places import BillerPlaces
 from integration.inputs.biller_rates import BillerRates
 from integration.inputs.datasets import check_inputs
-from integration.inputs.families import FAMILIES_PATH, Benefits, Centers, Facilities, FamilyBills, FamilyList, Kinds
+from integration.inputs.families import (
+    FAMILIES_PATH, Benefits, Centers, ExtraBillParts, Facilities, FamilyBills, FamilyList, Kinds,
+)
 from integration.inputs.hospital_cash import HospitalCash
 from integration.inputs.facility_fees import FacilityFees, FacilityRates
 from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH, HospitalPlans
@@ -28,6 +30,7 @@ from integration.inputs.specialties import SPECIALTIES_PATH, Specialties, Specia
 from integration.inputs.service_list import SERVICES_PATH, ServiceList
 from integration.inputs.service_sites import ServiceSites
 from integration.tables.cost_sharing import CostSharing
+from integration.tables.extra_bills import ExtraBills
 from integration.tables.families import Families
 from integration.tables.networks import Networks
 from integration.tables.places import Places, UnlocatedPlaces
@@ -45,6 +48,7 @@ def inputs(services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
     """The build-only tables, in the order they're made."""
     return [
         Benefits(families_path),
+        ExtraBillParts(families_path),
         Kinds(families_path),
         FamilyList(families_path),
         FamilyBills(families_path),
@@ -80,6 +84,7 @@ def serving():
         UnlocatedPlaces(),
         Prices(),
         Services(),
+        ExtraBills(),
         Families(),
         Providers(),
         Quality(),
