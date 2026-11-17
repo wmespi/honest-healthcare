@@ -23,7 +23,8 @@
 #                     shoppable services (RBCS) whose codes are in this family, less
 #                     the ones in `except`, plus any `codes` it lists
 #                     (reference/shoppable_services.parquet). A service's code must
-#                     be one of them.
+#                     be one of them, unless the family names no groups or codes, in
+#                     which case each of its services declares a `code_type` instead.
 #   benefits          What the member's share for each bill falls under, unless the
 #                     bill or the service names its own.
 #   about, could_change, asks
@@ -58,13 +59,16 @@
 #                     [] means only a center's registration does.
 #   place_of_service  Optional, ["11"] (an office) when not given: the
 #                     place-of-service codes whose rates the family reads, best first.
+#   empty_note        Optional: what the screen says when the plan has no place with a
+#                     price for a service of the family at any distance, in place of
+#                     its own wording.
 #   asks_specialty    Optional, false when not given: true says the screen first asks
 #                     which kind of doctor (integration/specialties.yaml), because the
 #                     code is the same whatever the doctor's specialty. Only office
 #                     visits ask.
 #
 # extra_bills The bills a patient gets without choosing who bills them, one entry
-#            per part (`anesthesia`, `pathology`), each with the `label` the screen
+#            per part (`anesthesia`, `pathology`, `doctor`), each with the `label` the screen
 #            shows, a `note` saying what the bill is and where the range comes from,
 #            and a `missing` note for a plan whose file lists no rate for it. A
 #            service names the code in services.yaml, and the plan's usual range
@@ -96,6 +100,8 @@ benefits:
   lab: {name: "Laboratory Outpatient and Professional Services", label: "Lab tests"}
   outpatient_facility: {name: "Outpatient Facility Fee (e.g., Ambulatory Surgery Center)", label: "Outpatient facility fee"}
   outpatient_surgery: {name: "Outpatient Surgery Physician/Surgical Services", label: "Outpatient surgery, the doctor's fee"}
+  inpatient_stay: {name: "Inpatient Hospital Services (e.g., Hospital Stay)", label: "Hospital stay"}
+  maternity_stay: {name: "Delivery and All Inpatient Services for Maternity Care", label: "Delivery and hospital care for maternity"}
 
 # Kinds of place that bill their own fee for any family whose `elsewhere` names the
 # institutional bill, each by NPPES primary specialty code. Unlike a center, whose
@@ -108,12 +114,17 @@ facilities:
 extra_bills:
   anesthesia:
     label: Anesthesia
-    note: The facility’s anesthesia group bills it, and you don’t choose it. This is what your plan usually pays, covering about the first 15 minutes, so longer anesthesia costs more. If the group is out of network at an in-network facility, the No Surprises Act limits you to your in-network share.
+    note: The facility’s anesthesia group bills it, and you don’t choose it. This is what your plan usually pays, covering about the first 15 minutes. Anesthesia is billed by time, so a long procedure or hours of labor can cost several times this. If the group is out of network at an in-network facility, the No Surprises Act limits you to your in-network share.
     missing: Your plan’s file lists no rate for anesthesia, so ask the facility which group they use and whether it’s in your network.
   pathology:
     label: Lab exam of removed tissue
     note: Only if tissue is removed or sampled. The lab your doctor sends it to bills it. This is what your plan usually pays.
     missing: Your plan’s file lists no rate for the lab exam, so ask your doctor which lab they send tissue to and whether it’s in your network.
+
+  doctor:
+    label: The doctor’s fee
+    note: Your doctor bills separately from the hospital. This is what your plan usually pays doctors for it, so ask yours what they charge.
+    missing: Your plan’s file lists no rate for the doctor’s fee, so ask your doctor what they charge and whether they are in your network.
 
 kinds:
   hospital: Hospital
@@ -497,3 +508,31 @@ families:
     bills: *procedure_bills
     hospital: *procedure_at_hospital
     elsewhere: *procedure_elsewhere
+
+  - family: stays
+    name: Hospital stays
+    # CMS's classification names no codes for a stay, so each service declares its
+    # own code type (MS-DRG) in services.yaml, and the doctor's and anesthesia's
+    # codes. Only a hospital bills a stay, so there is no `elsewhere`.
+    benefits: [inpatient_stay]
+    about: A stay in the hospital, such as having a baby or a joint replaced. Hospitals are paid for a stay by its diagnosis group (MS-DRG), either one amount, a rate for each day, or a share of what the hospital charges. The doctor and anesthesia bill separately.
+    could_change:
+      - Complications or other conditions, which move the stay to a different diagnosis group with a different price
+      - A longer stay than usual, which adds to a price paid by the day
+      - The baby’s own hospital bill, which is separate from the parent’s
+      - The doctor’s fee, which covers checkups before the birth, the delivery and care after it, or the surgery and its follow-up, and is billed apart from the hospital
+    asks:
+      - Which doctor and which hospital will it be, and are both in my network?
+      - What happens to the price if there are complications or I stay longer?
+      - Is the hospital’s price a set amount for the stay, or by the day?
+      - Does my plan need to approve this first?
+    bills:
+      - part: stay
+        label: The hospital’s bill for the stay
+        billing_class: institutional
+        missing:
+          note: Missing the hospital’s price for the stay
+          explain: The hospital bills for the stay, and your plan’s file doesn’t list a price for it here. Ask the hospital what it would charge and whether it is in your network.
+    hospital: [stay]
+    evidence_codes: []
+    empty_note: Your plan’s file doesn’t list what hospitals are paid for a stay, so no hospital shows a price here.

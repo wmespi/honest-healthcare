@@ -33,9 +33,10 @@ def test_the_services_file_passes_its_checks():
     services = read_services()
     families = {f["family"] for f in read_families()["families"]}
     assert services and all(s["family"] in families for s in services)
-    assert all(re.fullmatch("[0-9A-Z]{5}", s["billing_code"]) for s in services)
+    assert all(re.fullmatch("[0-9]{3}" if s["code_types"] == ["MS-DRG"] else "[0-9A-Z]{5}", s["billing_code"])
+               for s in services)
     assert len({s["service_id"] for s in services}) == len(services)
-    assert len({(s["family"], s["billing_code"]) for s in services}) == len(services)
+    assert len({(s["family"], s["billing_code"], s.get("doctor")) for s in services}) == len(services)
 
 
 def bill_benefits(corpus, service_id):

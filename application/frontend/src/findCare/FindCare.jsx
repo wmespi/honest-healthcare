@@ -146,7 +146,15 @@ function Answer({ search, radiusMi, plan, preventive }) {
   );
 }
 
-function NothingNearby({ closest, radiusMi, widerRadiusMi, service, plan, onWiden }) {
+function NothingNearby({ emptyNote, closest, radiusMi, widerRadiusMi, service, plan, onWiden }) {
+  if (emptyNote) {
+    return (
+      <div className="px-4 py-10 sm:px-6">
+        <h1 className="text-xl font-bold tracking-tight text-slate-900">No prices for this service on your plan</h1>
+        <p className="mt-1 text-pretty text-[15px] text-slate-600">{emptyNote}</p>
+      </div>
+    );
+  }
   if (!closest) {
     return (
       <div className="px-4 py-10 sm:px-6">
@@ -206,6 +214,7 @@ function Results({ search, service, plan, measured, specialties, specialty, sort
       <>
         {picker}
         <NothingNearby
+          emptyNote={search.emptyNote}
           closest={search.closestOutside}
           radiusMi={radiusMi}
           widerRadiusMi={search.widerRadiusMi}
@@ -213,7 +222,8 @@ function Results({ search, service, plan, measured, specialties, specialty, sort
           plan={plan}
           onWiden={(r) => update({ r })}
         />
-        {search.closestOutside && (
+        <ExtraBills bills={search.extraBills} pricesBelow={false} />
+        {!search.emptyNote && search.closestOutside && (
           <div className="px-4 sm:px-6">
             <RadiusPicker radiusMi={radiusMi} onChange={(r) => update({ r })} />
           </div>

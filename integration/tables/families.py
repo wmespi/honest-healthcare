@@ -9,12 +9,14 @@ class Families(Table):
     (`specialties`, in integration/specialties.yaml's order, with the benefit
     each one's visit falls under), empty for one that doesn't, and `measures`, the ids
     of the quality measures (integration/measures.yaml) that fit any of its services,
-    in that file's order, empty when none does."""
+    in that file's order, empty when none does, and `empty_note`, what the screen
+    says when the plan has no place with a price for one of its services, empty for
+    the screen's own wording."""
     name = "families"
     key = ["family"]
     columns = {"family": "VARCHAR", "name": "VARCHAR", "position": "INTEGER",
                "specialties": 'STRUCT(specialty VARCHAR, "name" VARCHAR, benefit VARCHAR)[]',
-               "measures": "VARCHAR[]"}
+               "measures": "VARCHAR[]", "empty_note": "VARCHAR"}
 
     def select(self, data_dir):
         return """
@@ -26,7 +28,8 @@ class Families(Table):
                         ELSE []::STRUCT(specialty VARCHAR, name VARCHAR, benefit VARCHAR)[] END AS specialties,
                    coalesce((SELECT list(m.measure ORDER BY m.position) FROM measures m
                              WHERE m.measure IN (SELECT x.measure FROM measure_fits x WHERE x.family = f.family)),
-                            []::VARCHAR[]) AS measures
+                            []::VARCHAR[]) AS measures,
+                   f.empty_note
             FROM family_list f
             WHERE f.family IN (SELECT family FROM services)
         """

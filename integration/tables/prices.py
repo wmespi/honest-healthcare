@@ -47,7 +47,10 @@ class Prices(Table):
 
     Each part says where its rate is from (`source`): `plan` for the plan's own
     file, `hospital` for a hospital's own fee from its own file, and nothing
-    when the part has no rate.
+    when the part has no rate. A hospital stay's fee a hospital prices only per
+    day or as a percent of its charges (facility_fees) has `max` empty and
+    `terms` say it, "$2,472 a day" or "39% of the hospital’s charges", and the
+    hospital still has a row; `terms` is empty on every other part.
 
     `several_rates` says a part shown has more than one rate with that evidence,
     or at that source for a facility's fee, so someone should ask which they'd
@@ -71,7 +74,7 @@ class Prices(Table):
     name = "prices"
     key = ["network_id", "service_id", "place_id"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "place_id": "VARCHAR",
-               "parts": 'STRUCT(part VARCHAR, max DOUBLE, "source" VARCHAR)[]', "several_rates": "BOOLEAN",
+               "parts": 'STRUCT(part VARCHAR, max DOUBLE, terms VARCHAR, "source" VARCHAR)[]', "several_rates": "BOOLEAN",
                "billers": "VARCHAR[]", "providers": "BIGINT[]", "cash_price": "DOUBLE",
                "specialties": "VARCHAR[]"}
 
@@ -155,6 +158,12 @@ class Prices(Table):
                        CASE WHEN b.billing_class = 'institutional' THEN f.fee WHEN {counts} THEN r.max END AS max,
                        CASE WHEN b.billing_class = 'institutional' THEN f.rates WHEN {counts} THEN r.rates END
                            AS rates,
+                       CASE WHEN b.billing_class = 'institutional' AND f.fee IS NULL THEN
+                                CASE WHEN f.per_day IS NOT NULL
+                                     THEN '$' || format('{{:,.0f}}', f.per_day) || ' a day'
+                                     WHEN f.percent IS NOT NULL
+                                     THEN format('{{:.0f}}', f.percent) || '% of the hospital’s charges' END
+                       END AS terms,
                        CASE WHEN b.billing_class = 'institutional' THEN f.source ELSE 'plan' END AS source
                 FROM rows w
                 JOIN service_list s USING (service_id)
@@ -168,19 +177,21 @@ class Prices(Table):
             chosen AS (
                 SELECT network_id, service_id, place_id, coalesce(min(choice) FILTER (WHERE whole), max(choice))
                     AS choice
-                FROM (SELECT network_id, service_id, place_id, choice, bool_and(max IS NOT NULL) AS whole
+                FROM (SELECT network_id, service_id, place_id, choice,
+                             bool_and(max IS NOT NULL OR terms IS NOT NULL) AS whole
                       FROM offered
                       GROUP BY network_id, service_id, place_id, choice)
                 GROUP BY network_id, service_id, place_id
             ),
             shown AS (
                 SELECT network_id, service_id, place_id, any_value(hospital) AS hospital,
-                       list({{'part': part, 'max': max, 'source': CASE WHEN max IS NOT NULL THEN source END}}
+                       list({{'part': part, 'max': max, 'terms': terms,
+                              'source': CASE WHEN max IS NOT NULL OR terms IS NOT NULL THEN source END}}
                             ORDER BY position) AS parts,
                        bool_or(coalesce(rates, 0) > 1) AS several_rates
                 FROM offered JOIN chosen USING (network_id, service_id, place_id, choice)
                 GROUP BY network_id, service_id, place_id
-                HAVING bool_or(max IS NOT NULL)
+                HAVING bool_or(max IS NOT NULL OR terms IS NOT NULL)
             )
             SELECT network_id, service_id, place_id, parts, several_rates,
                    coalesce(g.billers, []::VARCHAR[]) AS billers, coalesce(c.providers, []::BIGINT[]) AS providers,

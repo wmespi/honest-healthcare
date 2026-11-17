@@ -72,6 +72,8 @@ FAMILIES = {
                        "missing": "Ask the facility which group they use."},
         "pathology": {"label": "Lab exam of removed tissue", "note": "The lab bills it.",
                       "missing": "Ask your doctor which lab they use."},
+        "doctor": {"label": "The doctor's fee", "note": "Your doctor bills separately.",
+                   "missing": "Ask your doctor what they charge."},
     },
     "benefits": {
         "advanced_imaging": {"name": IMAGING, "label": "CT, PET and MRI scans"},
@@ -122,6 +124,14 @@ MEASURES = {"measures": [
 ]}
 GROUPS = {"office_visits": "Office E&M - Established", "mammograms": "Mammography", "mri": "Magnetic Resonance",
           "endoscopy": "Upper GI Endoscopy"}
+# A hospital-stay family, which a test adds with Corpus.add_stays.
+_STAYS = {
+    "family": "stays", "name": "Hospital stays", "benefits": ["primary_care"], "about": "A stay.",
+    "could_change": ["Complications"], "asks": ["Which hospital?"],
+    "bills": [{"part": "stay", "label": "The hospital's bill for the stay", "billing_class": "institutional",
+               "missing": {"note": "Missing the hospital's price", "explain": "Ask the hospital."}}],
+    "hospital": ["stay"], "evidence_codes": [], "empty_note": "No hospital shows a price for a stay.",
+}
 # A procedure family, which a test adds with Corpus.add_endoscopy: the doctor's fee
 # in an office or, apart, at a hospital or surgery center, and a facility's own fee.
 _ENDOSCOPY = {
@@ -243,10 +253,10 @@ class Corpus:
         self._write_rates()
 
     def facility_price(self, network_id, group_set, code, rate, modifier="", setting="outpatient",
-                       negotiated_type="fee schedule", arrangement="ffs", own_label=True):
+                       negotiated_type="fee schedule", arrangement="ffs", own_label=True, code_type="CPT"):
         """Add the payer's institutional rate for `code` on `network_id`, a
         hospital's own fee, covering the rosters in `group_set`."""
-        self.rates.append((network_id, group_set, "CPT", code, arrangement, negotiated_type, float(rate),
+        self.rates.append((network_id, group_set, code_type, code, arrangement, negotiated_type, float(rate),
                            "9999-12-31", "22", "institutional", modifier, setting, own_label))
         self._write_rates()
 
@@ -263,12 +273,12 @@ class Corpus:
 
     def hospital_price(self, ccn, code, payer=None, plan=None, negotiated=None, cash=None, gross=None,
                        setting="outpatient", billing_class="facility", modifiers=None, code_type="CPT",
-                       methodology="fee schedule"):
+                       methodology="fee schedule", percentage=None):
         """Add a row for `code` to hospital `ccn`'s own price file: its rate for
         `payer` and `plan` by `methodology`, or with neither, only its charges."""
         self.hospital_rates.setdefault(ccn, []).append(
-            (ccn, code_type, code, setting, billing_class, modifiers, payer, plan, gross, cash, negotiated, None,
-             None if negotiated is None else methodology))
+            (ccn, code_type, code, setting, billing_class, modifiers, payer, plan, gross, cash, negotiated,
+             percentage, None if negotiated is None and percentage is None else methodology))
         self._queue(f"{self.root}/hospital_rates/{ccn}.parquet", d.HOSPITAL_RATES.columns,
                     self.hospital_rates[ccn])
 
@@ -460,6 +470,17 @@ class Corpus:
                                     ("clinician_volume_ga", d.CLINICIAN_VOLUME, self.clinician_volume)):
             self._queue(f"{self.root}/reference/{name}.parquet", dataset.columns, rows)
 
+    def add_stays(self):
+        """Add the stays family, a hospital's bill for a stay with no `elsewhere`, and
+        its four services: two deliveries, a knee and a hip replacement."""
+        self.families["families"].append(_STAYS)
+        self.write_families()
+        for service_id, drg, doctor, anesthesia in [("stay-vaginal-delivery", "807", "59400", "01967"),
+                                                    ("stay-c-section", "788", "59510", "01968"),
+                                                    ("stay-knee-replacement", "470", "27447", "01402"),
+                                                    ("stay-hip-replacement", "470", "27130", "01214")]:
+            self.service(service_id, drg, family="stays", code_type="MS-DRG", doctor=doctor, anesthesia=anesthesia)
+
     def add_endoscopy(self):
         """Add the procedure family (_ENDOSCOPY), the kind of place it has centers
         of, a generic surgery center as a facility, and the NUCC codes that register
@@ -482,15 +503,19 @@ class Corpus:
         the corpus has one."""
         self.services.append((family, {"service_id": service_id, "billing_code": billing_code,
                                        "name": f"Service {service_id}", "keywords": "scan", **fields}))
+        self.write_services()
+        if "code_type" not in fields and billing_code not in [r[0] for r in self.shoppable]:
+            self.shoppable.append((billing_code, "CPT", "Radiology", GROUPS[family], GROUPS[family]))
+            self._queue(f"{self.root}/reference/shoppable_services.parquet", d.SHOPPABLE_SERVICES.columns,
+                        self.shoppable)
+
+    def write_services(self):
+        """Write `self.services`, the model the build reads as services.yaml."""
         listed = {}
         for fam, entry in self.services:
             listed.setdefault(fam, []).append(entry)
         with open(self.services_file, "w") as f:
             yaml.safe_dump(listed, f, sort_keys=False)
-        if billing_code not in [r[0] for r in self.shoppable]:
-            self.shoppable.append((billing_code, "CPT", "Radiology", GROUPS[family], GROUPS[family]))
-            self._queue(f"{self.root}/reference/shoppable_services.parquet", d.SHOPPABLE_SERVICES.columns,
-                        self.shoppable)
 
     def medicare(self, billing_code, office, facility=None):
         """Medicare's office rate for `billing_code` in each of Georgia's two payment

@@ -70,6 +70,9 @@ class CostSharing(BaseModel):
     standard version does. With both a copay and a coinsurance, the member pays
     the copay and then the coinsurance."""
     copay: Optional[float] = Field(ge=0)
+    copay_per: Optional[Literal["day", "stay"]] = Field(
+        None, description="Set when the copay is charged for each day or each stay, as a hospital stay's is; "
+                          "empty for a copay charged once.")
     coinsurance: Optional[float] = Field(ge=0, le=100, description="A percent of the rate.")
     after_deductible: bool = Field(description="The member pays the whole rate until the deductible is met.")
 
@@ -153,22 +156,29 @@ class Part(BaseModel):
     label: str
     billing_class: Literal["professional", "institutional"]
     max: Optional[float]
+    terms: Optional[str] = Field(
+        None, description="For a hospital stay's fee that is a day's rate or a share of the hospital's charges "
+                    "rather than a dollar amount for the stay, what it is in words, such as `$2,472 a day` or "
+                    "`39% of the hospital’s charges`; then `max` is empty. Empty on every other part.")
     source: Optional[Literal["plan", "hospital"]] = Field(
         description="Where the rate comes from: the plan's own file, or a hospital's own price list. "
-                    "Empty exactly when there is no rate.")
+                    "Empty exactly when there is no rate and no terms.")
     missing_note: Optional[str] = Field(description="Said of a part with no rate: what is missing.")
     missing_explain: Optional[str] = Field(description="Said of a part with no rate: why, and who bills it.")
 
     @model_validator(mode="after")
     def _source_goes_with_a_rate(self):
-        if (self.source is None) != (self.max is None):
-            raise ValueError("a part has a source exactly when it has a rate")
+        if (self.source is None) != (self.max is None and self.terms is None):
+            raise ValueError("a part has a source exactly when it has a rate or terms")
+        if self.max is not None and self.terms is not None:
+            raise ValueError("a part has a rate or terms, not both")
         return self
 
     @model_validator(mode="after")
     def _a_rate_has_nothing_missing(self):
-        if self.max is not None and (self.missing_note is not None or self.missing_explain is not None):
-            raise ValueError("a part with a rate has no missing text")
+        if (self.max is not None or self.terms is not None) and (
+                self.missing_note is not None or self.missing_explain is not None):
+            raise ValueError("a part with a rate or terms has no missing text")
         return self
 
 
@@ -244,7 +254,7 @@ class ExtraBill(BaseModel):
     """A bill the service brings that the patient doesn't choose who bills, such
     as anesthesia, with what the plan usually pays for it. Never part of a place's
     most you'd pay."""
-    part: str = Field(description="`anesthesia` or `pathology`.")
+    part: str = Field(description="`anesthesia`, `pathology` or `doctor`.")
     label: str
     note: str = Field(description="What the bill is and where the range comes from, or the plan has no rate: "
                                   "the part's missing note, when `typical` is empty.")
@@ -306,7 +316,7 @@ class FindCare(BaseModel):
                                   "its bills fall under, in the order the bills come.")
     extra_bills: list[ExtraBill] = Field(
         description="The bills the service brings that the patient doesn't choose who bills, one per part it "
-                    "names (anesthesia, a lab's exam of removed tissue), what the plan usually pays for each "
+                    "names (anesthesia, a lab's exam of removed tissue, the doctor's fee for a hospital stay), what the plan usually pays for each "
                     "(`low`, `typical`, `high`, all empty and the `note` saying so when the plan lists no rate). "
                     "Not part of any place's `max_rate`. Empty for a service that names none.")
     results: list[Place]
@@ -315,6 +325,10 @@ class FindCare(BaseModel):
                     "or with no results at all, the nearest place. Empty when that is beyond every radius.")
     closest_outside: Optional[Place] = Field(
         description="When there are no results: the nearest place on the plan that does the service.")
+    empty_note: Optional[str] = Field(
+        None, description="What the family says when its plan has no place with a price for the service at "
+                          "any distance, so there is no closest place either. Empty otherwise, and for a "
+                          "family that says nothing of its own.")
 
     @model_validator(mode="after")
     def _in_order(self):
@@ -322,6 +336,8 @@ class FindCare(BaseModel):
         priced = any(p.max_rate is not None for p in self.results)
         if self.closest_outside is not None and self.results:
             raise ValueError("closest_outside is only for a search with no results")
+        if self.empty_note is not None and (self.results or self.closest_outside is not None):
+            raise ValueError("empty_note is only for a search with no place at any distance")
         if self.wider_radius_mi is not None and priced:
             raise ValueError("wider_radius_mi is only for a search with no priced result")
         return self

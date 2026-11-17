@@ -20,7 +20,7 @@ class HospitalCash(Table):
         return f"""
             SELECT s.service_id, r.ccn AS place_id, max(r.cash_price) AS cash_price
             FROM {HOSPITAL_RATES.read(data_dir)} r
-            JOIN {FEE_SERVICES} s ON s.billing_code = r.code
+            JOIN {FEE_SERVICES} s ON s.billing_code = r.code AND list_contains(s.code_types, r.code_type)
             WHERE {facility_lines("r")} AND {priced("r.cash_price")}
               AND r.ccn IN (SELECT ccn FROM hospitals)
             GROUP BY s.service_id, r.ccn

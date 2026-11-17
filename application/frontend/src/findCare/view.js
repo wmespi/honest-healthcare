@@ -6,7 +6,7 @@ const round2 = (amount) => Math.round(amount * 100) / 100;
 
 export function placeView(place, { cheapestId, closestId, median, facilityRate }) {
   // A place with a part the plan doesn't price has no "most you'd pay", only what's known so far.
-  const missingPart = place.parts.find((part) => part.max === null);
+  const missingPart = place.parts.find((part) => part.max === null && !part.terms);
   const facility = place.parts.find((part) => part.billing_class === 'institutional');
   return {
     id: place.place_id,
@@ -21,8 +21,9 @@ export function placeView(place, { cheapestId, closestId, median, facilityRate }
     lon: place.lon,
     distanceMi: place.distance_mi,
     maxRate: place.max_rate,
-    parts: place.parts.map((part) => ({ label: part.label, amount: part.max })),
+    parts: place.parts.map((part) => ({ label: part.label, amount: part.max, terms: part.terms ?? null })),
     missing: missingPart ? { rowNote: missingPart.missing_note, explain: missingPart.missing_explain } : null,
+    termsOnly: place.max_rate === null && !missingPart && place.parts.some((part) => part.terms),
     severalRates: place.several_rates,
     billers: place.billers.map(displayName),
     providers: place.providers.map((p) => ({ ...p, name: displayName(p.name), quality: p.quality ?? [] })),
@@ -55,6 +56,7 @@ export function searchView(body, service) {
     closestOutside: body.closest_outside ? placeView(body.closest_outside, context) : null,
     widerRadiusMi: body.wider_radius_mi,
     costSharing: body.cost_sharing,
+    emptyNote: body.empty_note ?? null,
     extraBills: (body.extra_bills ?? []).map((bill) => ({
       part: bill.part, label: bill.label, note: bill.note, low: bill.low ?? null, typical: bill.typical ?? null, high: bill.high ?? null,
     })),
@@ -72,10 +74,12 @@ export function shareLines(costSharing, deductible) {
 }
 
 // What the member pays of a place's rate on their plan, as one sentence.
-export function shareText({ copay, coinsurance, after_deductible: afterDeductible }, deductible) {
+export function shareText({ copay, copay_per: copayPer, coinsurance, after_deductible: afterDeductible }, deductible) {
+  // A hospital stay's copay can be per day or per stay, which changes what it adds up to.
+  const per = copayPer === 'day' ? ' a day' : copayPer === 'stay' ? ' for the stay' : '';
   let share;
-  if (copay && coinsurance) share = `a ${money(copay)} copay and then ${coinsurance}% of the rest`;
-  else if (copay) share = `a ${money(copay)} copay`;
+  if (copay && coinsurance) share = `a ${money(copay)} copay${per} and then ${coinsurance}% of the rest`;
+  else if (copay) share = `a ${money(copay)} copay${per}`;
   else if (coinsurance) share = `${coinsurance}% of the rate`;
   else share = 'nothing';
   if (!afterDeductible) return `You pay ${share}.`;

@@ -18,8 +18,8 @@ def person(corpus, npi, last_name):
     corpus.npi(npi, last_name, "1 DOCTOR WAY", "ATLANTA", "303082233", entity_type="individual")
 
 
-def part(name, rate, source="plan"):
-    return {"part": name, "max": rate, "source": None if rate is None else source}
+def part(name, rate, source="plan", terms=None):
+    return {"part": name, "max": rate, "terms": terms, "source": None if rate is None and terms is None else source}
 
 
 def biller(corpus, npi, name, address, postal_code, place_of_service, **rates):

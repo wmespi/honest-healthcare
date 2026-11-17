@@ -10,7 +10,7 @@ GRADY = "80 JESSE HILL JR DR SE"
 
 
 def part(name, rate, source="plan"):
-    return {"part": name, "max": rate, "source": None if rate is None else source}
+    return {"part": name, "max": rate, "terms": None, "source": None if rate is None else source}
 
 
 def place(corpus, npi, name, address, postal_code, taxonomy="2085R0202X", geocoded=False):

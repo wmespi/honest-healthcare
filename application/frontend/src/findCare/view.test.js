@@ -24,6 +24,10 @@ describe('find care wording', () => {
     expect(shareText({ copay: null, coinsurance: 40, after_deductible: true }, 6000)).toBe(
       'You pay the whole rate until you’ve met your $6,000 deductible. After that, you pay 40% of the rate.');
     expect(shareText({ copay: 65, coinsurance: null, after_deductible: false }, 4000)).toBe('You pay a $65 copay.');
+    expect(shareText({ copay: 250, copay_per: 'day', coinsurance: null, after_deductible: false }, 4000)).toBe(
+      'You pay a $250 copay a day.');
+    expect(shareText({ copay: 500, copay_per: 'stay', coinsurance: 20, after_deductible: false }, 4000)).toBe(
+      'You pay a $500 copay for the stay and then 20% of the rest.');
     expect(shareText({ copay: 0, coinsurance: null, after_deductible: false }, 4000)).toBe('You pay nothing.');
     expect(shareText({ copay: 0, coinsurance: null, after_deductible: true }, 10600)).toBe(
       'You pay the whole rate until you’ve met your $10,600 deductible. After that, you pay nothing.');

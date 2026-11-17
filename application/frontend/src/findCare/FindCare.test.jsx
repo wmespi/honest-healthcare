@@ -499,3 +499,28 @@ describe('also billed separately', () => {
     expect(screen.queryByRole('region', { name: 'Also billed separately' })).not.toBeInTheDocument();
   });
 });
+
+describe('stays paid by terms', () => {
+  const terms = (label, text) => ({ part: 'stay', label, billing_class: 'institutional', max: null, source: 'plan', terms: text, missing_note: null, missing_explain: null });
+  const STAY = place('110010', 'EMORY HOSPITAL', 'hospital', 2.0, [terms('Hospital stay', '$2,472 a day')], { address: '1 MAIN ST' });
+  const MIXED = place('110011', 'PIEDMONT HOSPITAL', 'hospital', 3.0, [part('reading', 67.07), terms('Hospital stay', '39% of the hospital’s charges')], { address: '2 MAIN ST' });
+
+  it('shows the terms where the amount would be, with no Incomplete', async () => {
+    api.getFindCare.mockResolvedValue({ data: answer([EMORY, STAY, MIXED]) });
+    open(MRI);
+    await screen.findByRole('table');
+    expect(within(row('Emory Hospital')).getByText('$2,472 a day')).toBeInTheDocument();
+    expect(within(row('Emory Hospital')).queryByText('Incomplete')).not.toBeInTheDocument();
+    expect(within(row('Piedmont Hospital')).getByText('$67.07')).toBeInTheDocument();
+    expect(within(row('Piedmont Hospital')).getByText(/39% of the hospital’s charges/)).toBeInTheDocument();
+  });
+
+  it('shows the empty note and the extra bills when no place has a price', async () => {
+    const bill = { part: 'doctor', label: 'The doctor’s fee', note: 'Billed by the surgeon.', low: null, typical: null, high: null };
+    api.getFindCare.mockResolvedValue({ data: answer([], { radius_mi: 50, closest_place_id: null, empty_note: 'Your plan’s file lists no stay prices.', extra_bills: [bill] }) });
+    open(MRI);
+    expect(await screen.findByText('Your plan’s file lists no stay prices.')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing within/)).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Also billed separately' })).toHaveTextContent('The doctor’s fee');
+  });
+});

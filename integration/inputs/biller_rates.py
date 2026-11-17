@@ -82,7 +82,7 @@ def covered(data_dir):
                    {_rank("coalesce(b.place_of_service, f.place_of_service)")} AS rank,
                    len(coalesce(b.place_of_service, f.place_of_service)) AS places
             FROM {PAYER_RATES.read(data_dir)} r
-            JOIN service_list s ON s.billing_code = r.billing_code
+            JOIN service_list s ON s.billing_code = r.billing_code AND list_contains(s.code_types, r.billing_code_type)
             JOIN family_list f USING (family)
             JOIN family_bills b
               ON b.family = s.family AND b.billing_class = 'professional' AND list_contains(b.modifiers, coalesce(r.modifier, ''))
@@ -212,7 +212,7 @@ class BillerRates(Table):
             SELECT DISTINCT modifier
             FROM (SELECT unnest(string_split(coalesce(r.modifier, ''), '|')) AS modifier
                   FROM {PAYER_RATES.read(data_dir)} r
-                  JOIN service_list s ON s.billing_code = r.billing_code
+                  JOIN service_list s ON s.billing_code = r.billing_code AND list_contains(s.code_types, r.billing_code_type)
                   WHERE {PRICED})
             WHERE modifier NOT IN ({known})
             ORDER BY modifier

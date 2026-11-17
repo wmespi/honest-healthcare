@@ -10,12 +10,12 @@ function usual({ low, typical, high }) {
 
 // Bills a procedure brings that the patient doesn't choose, priced as the plan's usual range
 // rather than at a place, so none of it is in the prices below.
-export function ExtraBills({ bills }) {
+export function ExtraBills({ bills, pricesBelow = true }) {
   if (!bills || bills.length === 0) return null;
   return (
     <section aria-label="Also billed separately" className="mx-4 mb-4 rounded-xl border border-slate-200 px-4 py-3 sm:mx-6">
       <h3 className="text-[13px] font-semibold text-slate-900">Also billed separately</h3>
-      <p className="mt-0.5 text-[13px] leading-5 text-slate-500">These aren&rsquo;t in the prices below.</p>
+      {pricesBelow && <p className="mt-0.5 text-[13px] leading-5 text-slate-500">These aren&rsquo;t in the prices below.</p>}
       <ul className="mt-2 space-y-2">
         {bills.map((bill) => (
           <li key={bill.part} className="text-sm leading-5 text-slate-900">

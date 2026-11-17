@@ -216,6 +216,39 @@ def j19(api):
     return (not bad), ("; ".join(bad) if bad else "Sam: anesthesia ~$232, lab ~$99 · Rosa: lab ~$49, no anesthesia rate")
 
 
+def j20(api):
+    """Sam: having a baby, at hospitals priced per stay or per day."""
+    body, status = get(api, "/find-care", service_id="stay-vaginal-delivery", plan_id=GOLD_PATHWAY, zip="30303",
+                       radius_mi=10)
+    rows = {r["place_id"]: r for r in (body or {}).get("results") or []}
+    midtown, grady = rows.get(EMORY_MIDTOWN), rows.get(GRADY)
+    if status != 200 or not midtown or not grady:
+        return False, f"/find-care stay-vaginal-delivery returned {status}, Midtown {bool(midtown)}, Grady {bool(grady)}"
+    stay = lambda r: (r["parts"][0]["part"], r["parts"][0]["max"], r["parts"][0]["source"], r["parts"][0]["terms"])
+    parts = {e["part"] for e in body.get("extra_bills") or []}
+    checks = [
+        (stay(midtown) == ("stay", 9268.87, "plan", None), f"Emory Midtown's stay is {stay(midtown)}"),
+        (stay(grady) == ("stay", None, "hospital", "$8,000 a day") and grady["max_rate"] is None,
+         f"Grady's stay is {stay(grady)} (want $8,000 a day, from its own price list, no total)"),
+        (parts == {"doctor", "anesthesia"}, f"also billed: {sorted(parts)} (want the doctor and anesthesia)"),
+    ]
+    bad = [msg for ok, msg in checks if not ok]
+    return (not bad), ("; ".join(bad) if bad else "Midtown $9,268.87 · Grady $8,000 a day · doctor and anesthesia apart")
+
+
+def j21(api):
+    """Rosa: having a baby on a plan whose file lists no hospital's stay price."""
+    body, status = get(api, "/find-care", service_id="stay-vaginal-delivery", plan_id=SILVER, zip="30322")
+    extra = {e["part"]: e["typical"] for e in (body or {}).get("extra_bills") or []}
+    checks = [
+        (status == 200 and not body["results"] and body.get("closest_outside") is None, "no hospital shows a price"),
+        (bool(body.get("empty_note")), "the screen says why"),
+        (extra == {"doctor": 2217.89, "anesthesia": 253.41}, f"also billed: {extra} (want the doctor ~$2,218, epidural ~$253)"),
+    ]
+    bad = [msg for ok, msg in checks if not ok]
+    return (not bad), ("; ".join(bad) if bad else "no stay prices, says why · doctor ~$2,218 · epidural ~$253")
+
+
 JOURNEYS = [
     ("J1", "Rosa — brain MRI price near Emory", j1),
     ("J2", "Rosa — knee MRI", j2),
@@ -247,6 +280,8 @@ JOURNEYS = [
                                                      ["specialist"], specialty="skin")),
     ("J18", "Sam - quality next to a colonoscopy", j18),
     ("J19", "Both - what else a colonoscopy with biopsy brings", j19),
+    ("J20", "Sam - having a baby", j20),
+    ("J21", "Rosa - having a baby", j21),
 ]
 
 

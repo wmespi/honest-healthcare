@@ -79,7 +79,7 @@ def with_bill_text(place, bills):
     parts = []
     for p in place["parts"]:
         bill = by_part[p["part"]]
-        missing = p["max"] is None
+        missing = p["max"] is None and p.get("terms") is None
         parts.append({**p, "label": bill["label"], "billing_class": bill["billing_class"],
                       "missing_note": bill["missing_note"] if missing else None,
                       "missing_explain": ((bill["missing_explain_hospital"] if hospital else None)
@@ -96,7 +96,7 @@ def shares_for(conn, plan_id, bills):
             parts_by_benefit.setdefault(benefit, []).append(b["part"])
     benefits = list(parts_by_benefit)
     rows = {r["benefit"]: r for r in _rows(conn.execute(f"""
-        SELECT benefit, label, copay, coinsurance, after_deductible FROM {COST_SHARING_SRC}
+        SELECT benefit, label, copay, copay_per, coinsurance, after_deductible FROM {COST_SHARING_SRC}
         WHERE plan_id = ? AND list_contains(?::VARCHAR[], benefit)
     """, [plan_id, benefits]))}
     return [{**rows[b], "parts": parts_by_benefit[b]} for b in benefits if b in rows]
@@ -131,7 +131,7 @@ def wider_radius(places, results) -> Optional[int]:
 def find_care(q: Annotated[FindCareQuery, Query()]):
     conn = db()
     service = _one(conn, f"""
-        SELECT s.bills, s.extra_bills, f.specialties FROM {SERVICES_SRC} s JOIN {FAMILIES_SRC} f USING (family)
+        SELECT s.bills, s.extra_bills, f.specialties, f.empty_note FROM {SERVICES_SRC} s JOIN {FAMILIES_SRC} f USING (family)
         WHERE s.service_id = ?""", [q.service_id])
     if service is None:
         raise _not_found("unknown_service", f"There's no service {q.service_id!r}.")
@@ -197,4 +197,5 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
     return FindCare(service_id=q.service_id, plan_id=q.plan_id, origin=origin, radius_mi=radius, sort=q.sort,
                     specialty=q.specialty, cost_sharing=cost_sharing, extra_bills=extra_bills, results=[place(p) for p in results],
                     wider_radius_mi=wider_radius(places, results),
+                    empty_note=None if places else service["empty_note"],
                     closest_outside=place(closest_outside) if closest_outside else None)
