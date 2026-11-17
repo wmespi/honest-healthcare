@@ -468,3 +468,34 @@ describe('kind of doctor', () => {
     expect(headline()).not.toMatch(/primary care/);
   });
 });
+
+describe('also billed separately', () => {
+  const ANESTHESIA = { part: 'anesthesia', label: 'Anesthesia', note: 'The facility’s anesthesia group bills this.', low: 153, typical: 180, high: 331 };
+  const PATHOLOGY = { part: 'pathology', label: 'Pathology', note: 'Your plan’s file lists no rate for pathology.', low: null, typical: null, high: null };
+
+  it('shows the usual range and the note, and leaves the prices alone', async () => {
+    api.getFindCare.mockResolvedValue({ data: answer([EMORY, TRAUB, GRADY], { extra_bills: [ANESTHESIA] }) });
+    open(MRI);
+    const section = await screen.findByRole('region', { name: 'Also billed separately' });
+    expect(section).toHaveTextContent('Anesthesia: usually $180, most between $153 and $331');
+    expect(section).toHaveTextContent('The facility’s anesthesia group bills this.');
+    expect(section).toHaveTextContent('aren’t in the prices below');
+    expect(headline()).toBe('$177.21 is the most you’d pay at The Emory Clinic Inc');
+  });
+
+  it('shows only the note when the plan lists no rate', async () => {
+    api.getFindCare.mockResolvedValue({ data: answer([EMORY], { extra_bills: [PATHOLOGY] }) });
+    open(MRI);
+    const section = await screen.findByRole('region', { name: 'Also billed separately' });
+    expect(section).toHaveTextContent('Pathology');
+    expect(section).toHaveTextContent('lists no rate for pathology');
+    expect(section).not.toHaveTextContent('usually');
+  });
+
+  it('is absent when there are none', async () => {
+    api.getFindCare.mockResolvedValue({ data: answer([EMORY], { extra_bills: [] }) });
+    open(MRI);
+    await screen.findByText(/is the most you’d pay at/);
+    expect(screen.queryByRole('region', { name: 'Also billed separately' })).not.toBeInTheDocument();
+  });
+});

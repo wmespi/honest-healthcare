@@ -53,7 +53,7 @@ def search(results, **extra):
     return {
         "service_id": "mri-brain", "plan_id": "blue-value",
         "origin": {"zip": "30322", "lat": 33.79, "lon": -84.32}, "radius_mi": 10, "sort": "price",
-        "cost_sharing": [SHARE],
+        "cost_sharing": [SHARE], "extra_bills": [],
         "results": results, "wider_radius_mi": None, "closest_outside": None, **extra,
     }
 

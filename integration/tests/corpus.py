@@ -67,6 +67,12 @@ _SCAN = {"about": "A scan.", "could_change": ["Contrast dye"], "asks": ["Is this
 # What the corpus's families.yaml says: the imaging families the tests were
 # written for, and one one-bill family, office visits, not shown at hospitals.
 FAMILIES = {
+    "extra_bills": {
+        "anesthesia": {"label": "Anesthesia", "note": "The facility's group bills it.",
+                       "missing": "Ask the facility which group they use."},
+        "pathology": {"label": "Lab exam of removed tissue", "note": "The lab bills it.",
+                      "missing": "Ask your doctor which lab they use."},
+    },
     "benefits": {
         "advanced_imaging": {"name": IMAGING, "label": "CT, PET and MRI scans"},
         "preventive": {"name": PREVENTIVE, "label": "Preventive care"},
@@ -242,6 +248,13 @@ class Corpus:
         hospital's own fee, covering the rosters in `group_set`."""
         self.rates.append((network_id, group_set, "CPT", code, arrangement, negotiated_type, float(rate),
                            "9999-12-31", "22", "institutional", modifier, setting, own_label))
+        self._write_rates()
+
+    def extra_price(self, network_id, code, rate, modifier="", setting="inpatient", negotiated_type="fee schedule"):
+        """Add one professional line for `code` on `network_id` that a service's extra bill
+        (anesthesia, a lab's exam) reads: a fee schedule line for no doctor in particular."""
+        self.rates.append((network_id, 999, "CPT", code, "ffs", negotiated_type, float(rate), "9999-12-31", "21",
+                           "professional", modifier, setting, True))
         self._write_rates()
 
     def _write_rates(self):
@@ -541,11 +554,20 @@ def default_corpus(root):
     c.zip("37421", 35.030393, -85.159553)
     c.zip("31602", 30.8774, -83.2799)
     c.zip("30720", 34.7698, -84.9702)
-    c.service("mri-lower-back", "72148", name="Lower-back MRI")
+    c.service("mri-lower-back", "72148", name="Lower-back MRI", anesthesia="00811", pathology="88305")
     c.service("mammogram-screening", "77067", family="mammograms", name="Screening mammogram",
               benefits=["preventive"], preventive_note="Usually $0 in network as preventive care.")
     c.service("office-visit-established", "99213", family="office_visits", name="Office visit")
     c.medicare("72148", office=(170.0, 190.0), facility=243.77)
+    # Pathway's file lists anesthesia, a unit count among it and a both-sides line; Blue Value's
+    # lists only the lab's exam, with a percentage and a line with a modifier.
+    for rate in (200, 250, 300, 350, 400, 6):
+        c.extra_price(PATHWAY, "00811", rate)
+    c.extra_price(PATHWAY, "00811", 450, modifier="50")
+    c.extra_price(PATHWAY, "00811", 50, negotiated_type="percentage")
+    for rate in (30, 40, 50):
+        c.extra_price(BLUE_VALUE, "88305", rate, setting="outpatient")
+    c.extra_price(BLUE_VALUE, "88305", 20, modifier="26", setting="outpatient")
     c.medicare("77067", office=(110.0, 120.0))
     c.medicare("99213", office=(90.0, 95.0))
     # 1000000001 does the MRI in an office. 1000000002 is a registered imaging
