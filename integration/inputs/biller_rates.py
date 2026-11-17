@@ -17,6 +17,8 @@ OTHER_BILLS = {
     "RR": "rented equipment",
     "NU": "new equipment",
     "UE": "used equipment",
+    "22": "a procedure harder or longer than usual",
+    "55": "only the care after a surgery",
     "25": "a separate visit on the day of a procedure",
     "59": "a procedure distinct from another the same day",
     "53": "a procedure stopped before it was finished",
@@ -99,18 +101,24 @@ def covered(data_dir):
             SELECT network_id, service_id, part, median(rate) AS median FROM kept
             GROUP BY network_id, service_id, part
         ),
+        -- The centers and facilities billing their own fee for a service, whose
+        -- professional lines price no part of it.
+        own_fee AS (
+            SELECT DISTINCT v.service_id, n.npi
+            FROM service_list v
+            JOIN (SELECT family, taxonomy_code FROM centers
+                  UNION SELECT f.family, t.taxonomy_code FROM family_list f, facilities t) c USING (family)
+            JOIN {NPPES.read(data_dir)} n ON n.taxonomy_code = c.taxonomy_code
+            WHERE v.family IN {OWN_FEE_FAMILIES}
+        ),
         real AS (
             SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, p.tin_value AS biller, p.npi, k.own_label
             FROM kept k
             JOIN medians m USING (network_id, service_id, part)
             JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
             JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
+            ANTI JOIN own_fee o ON o.service_id = k.service_id AND o.npi = TRY_CAST(p.tin_value AS BIGINT)
             WHERE k.rate > greatest(1, 0.05 * m.median)
-              AND NOT EXISTS (
-                  SELECT 1 FROM service_list v JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(p.tin_value AS BIGINT)
-                  WHERE v.service_id = k.service_id AND v.family IN {OWN_FEE_FAMILIES}
-                    AND n.taxonomy_code IN (SELECT taxonomy_code FROM centers WHERE family = v.family
-                                            UNION SELECT taxonomy_code FROM facilities))
         ),
         covered AS (
             SELECT DISTINCT network_id, service_id, part, rate, biller, npi FROM real

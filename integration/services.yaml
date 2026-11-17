@@ -1060,3 +1060,492 @@ endoscopy:
     name: Colonoscopy, screening for people at average risk
     keywords: colon colorectal cancer scope
     preventive_note: *free_screening
+
+eye_procedures:
+  - service_id: eye-laser-after-cataract
+    billing_code: "66821"
+    name: Laser treatment after cataract surgery, to clear cloudy vision
+    keywords: eye vision capsulotomy
+
+  - service_id: eye-cataract
+    billing_code: "66984"
+    name: Cataract removal with a new lens
+    keywords: eye vision lens
+
+  - service_id: eye-injection
+    billing_code: "67028"
+    name: Eye injection, into the back of the eye
+    keywords: eye macular degeneration avastin eylea
+
+bone_joint_procedures:
+  - service_id: joint-knee-replace-shin
+    billing_code: "27440"
+    name: Knee replacement of the shin-bone surface
+    keywords: knee arthroplasty
+
+  - service_id: joint-knee-replace-shin-cleanup
+    billing_code: "27441"
+    name: Knee replacement of the shin-bone surface, with cleanup of the joint
+    keywords: knee arthroplasty
+
+  - service_id: joint-knee-replace-thigh
+    billing_code: "27442"
+    name: Knee replacement of the thigh-bone surface
+    keywords: knee arthroplasty
+
+  - service_id: joint-knee-replace-thigh-cleanup
+    billing_code: "27443"
+    name: Knee replacement of the thigh-bone surface, with cleanup of the joint
+    keywords: knee arthroplasty
+
+  - service_id: joint-knee-replace-hinged
+    billing_code: "27445"
+    name: Knee replacement with a hinged implant
+    keywords: knee arthroplasty
+
+  - service_id: joint-knee-replace-partial
+    billing_code: "27446"
+    name: Partial knee replacement, one side of the joint
+    keywords: knee arthroplasty
+
+  - service_id: joint-knee-scope-meniscus-both
+    billing_code: "29880"
+    name: Knee scope with meniscus removal, both sides
+    keywords: knee arthroscopy cartilage
+
+  - service_id: joint-knee-scope-meniscus
+    billing_code: "29881"
+    name: Knee scope with meniscus removal, one side
+    keywords: knee arthroscopy cartilage
+
+  - service_id: joint-knee-scope-acl
+    billing_code: "29888"
+    name: Knee scope with ACL ligament repair
+    keywords: knee arthroscopy ligament
+
+  - service_id: joint-knee-scope-loose-body
+    billing_code: "G0289"
+    name: Knee scope with loose piece or cartilage removal
+    keywords: knee arthroscopy
+
+  - service_id: joint-shoulder-scope
+    billing_code: "29826"
+    name: Shoulder scope, bone spur release
+    keywords: shoulder arthroscopy
+
+  - service_id: joint-wrist-scope
+    billing_code: "29848"
+    name: Wrist scope, carpal tunnel release
+    keywords: wrist arthroscopy hand
+
+  - service_id: joint-injection-small
+    billing_code: "20600"
+    name: Small joint injection or fluid draw, such as a finger or toe
+    keywords: shot cortisone
+
+  - service_id: joint-injection-medium
+    billing_code: "20605"
+    name: Medium joint injection or fluid draw, such as a wrist or elbow
+    keywords: shot cortisone
+
+  - service_id: joint-injection-large
+    billing_code: "20610"
+    name: Large joint injection or fluid draw, such as a knee or shoulder
+    keywords: shot cortisone hip
+
+  - service_id: joint-back-disc
+    billing_code: "63030"
+    name: Lower-back disc surgery through a small opening
+    keywords: spine laminotomy sciatica herniated
+
+  - service_id: joint-spine-injection
+    billing_code: "62322"
+    name: Lower-back injection of pain medicine, no imaging
+    keywords: epidural spine steroid
+
+  - service_id: joint-spine-injection-imaging
+    billing_code: "62323"
+    name: Lower-back injection of pain medicine, with imaging
+    keywords: epidural spine steroid
+
+  - service_id: joint-nerve-block-back
+    billing_code: "64483"
+    name: Lower-back nerve block injection, one level, with imaging
+    keywords: epidural spine steroid sciatica
+
+  - service_id: joint-facet-injection
+    billing_code: "64493"
+    name: Lower-back facet joint injection, one level
+    keywords: spine steroid arthritis
+
+  - service_id: joint-tendon-sheath-injection
+    billing_code: "20550"
+    name: Injection into a tendon sheath, such as trigger finger
+    keywords: shot cortisone
+
+  - service_id: joint-tendon-attachment-injection
+    billing_code: "20551"
+    name: Injection where a tendon attaches, such as tennis elbow
+    keywords: shot cortisone
+
+  - service_id: joint-trigger-point-injection
+    billing_code: "20553"
+    name: Trigger point injections, three or more muscles
+    keywords: shot muscle pain
+
+  - service_id: joint-ganglion-drain
+    billing_code: "20612"
+    name: Ganglion cyst drainage
+    keywords: wrist cyst aspiration
+
+  - service_id: joint-bunion
+    billing_code: "28296"
+    name: Bunion repair
+    keywords: foot surgery bunionectomy
+
+  - service_id: joint-carpal-tunnel
+    billing_code: "64721"
+    name: Carpal tunnel release
+    keywords: wrist hand nerve
+
+skin_procedures:
+  - service_id: skin-dead-skin-large
+    billing_code: "11000"
+    name: Removal of dead skin over a large area of the body
+    keywords: debridement
+
+  - service_id: skin-wound-cleaning
+    billing_code: "97597"
+    name: Wound cleaning and dead tissue removal, first 20 square centimeters
+    keywords: debridement ulcer
+
+  - service_id: skin-freeze-first
+    billing_code: "17000"
+    name: Freezing a precancerous skin spot, the first
+    keywords: actinic keratosis liquid nitrogen
+
+  - service_id: skin-freeze-more
+    billing_code: "17003"
+    name: Freezing a precancerous skin spot, each of the second to 14th
+    keywords: actinic keratosis liquid nitrogen
+
+  - service_id: skin-wart-up-to-14
+    billing_code: "17110"
+    name: Wart or small growth destruction, up to 14
+    keywords: freezing removal
+
+  - service_id: skin-wart-15-plus
+    billing_code: "17111"
+    name: Wart or small growth destruction, 15 or more
+    keywords: freezing removal
+
+  - service_id: skin-chemical-treatment
+    billing_code: "17250"
+    name: Chemical treatment of overgrown tissue
+    keywords: wound granulation
+
+  - service_id: skin-mohs
+    billing_code: "17311"
+    name: Mohs skin cancer surgery, head or neck, first stage
+    keywords: skin cancer
+
+  - service_id: skin-nails-trim
+    billing_code: "11721"
+    name: Nail trimming or cleaning, six or more nails
+    keywords: fungus podiatry
+
+  - service_id: skin-nail-removal
+    billing_code: "11730"
+    name: Removal of a nail, partial or complete
+    keywords: ingrown toenail
+
+  - service_id: skin-abscess-simple
+    billing_code: "10060"
+    name: Draining a skin abscess, simple
+    keywords: boil
+
+  - service_id: skin-fluid-drain
+    billing_code: "10140"
+    name: Draining a fluid collection under the skin
+    keywords: hematoma cyst
+
+  - service_id: skin-abscess-needle
+    billing_code: "10160"
+    name: Needle drainage of an abscess or cyst
+    keywords: boil
+
+  - service_id: skin-steroid-shots
+    billing_code: "11900"
+    name: Steroid injections into skin spots, up to seven
+    keywords: keloid
+
+  - service_id: skin-acne
+    billing_code: "10040"
+    name: Acne treatment, opening and draining of blemishes
+    keywords: pimples
+
+  - service_id: skin-corns-2-4
+    billing_code: "11056"
+    name: Trimming corns or calluses, two to four
+    keywords: podiatry foot
+
+  - service_id: skin-skin-tags
+    billing_code: "11200"
+    name: Skin tag removal, up to 15
+    keywords: growth
+
+  - service_id: skin-biopsy
+    billing_code: "11102"
+    name: Skin biopsy, one spot, shaved
+    keywords: mole lesion
+
+  - service_id: skin-biopsy-more
+    billing_code: "11103"
+    name: Skin biopsy, each additional spot, shaved
+    keywords: mole lesion
+
+  - service_id: skin-growth-small-trunk
+    billing_code: "11401"
+    name: Removal of a benign growth on the trunk, arm or leg, 0.6 to 1 cm
+    keywords: mole lesion excision
+
+  - service_id: skin-growth-medium-head
+    billing_code: "11422"
+    name: Removal of a benign growth on the scalp, neck or hands, 1.1 to 2 cm
+    keywords: mole lesion excision
+
+  - service_id: skin-cancer-growth-trunk
+    billing_code: "11602"
+    name: Removal of a cancerous skin growth on the trunk, arm or leg, 1.1 to 2 cm
+    keywords: skin cancer excision
+
+  - service_id: skin-stitches-simple
+    billing_code: "12001"
+    name: Stitching a simple wound, up to 2.5 cm
+    keywords: laceration cut
+
+  - service_id: skin-stitches-simple-face
+    billing_code: "12011"
+    name: Stitching a simple wound on the face, up to 2.5 cm
+    keywords: laceration cut
+
+other_procedures:
+  - service_id: surgery-gallbladder-scope
+    billing_code: "47562"
+    name: Gallbladder removal by scope
+    keywords: cholecystectomy laparoscopic
+
+  - service_id: surgery-gallbladder-scope-xray
+    billing_code: "47563"
+    name: Gallbladder removal by scope, with an X-ray of the bile ducts
+    keywords: cholecystectomy laparoscopic
+
+  - service_id: surgery-hernia-groin-scope
+    billing_code: "49650"
+    name: Groin hernia repair by scope
+    keywords: inguinal laparoscopic
+
+  - service_id: surgery-hernia-groin-open
+    billing_code: "49505"
+    name: Groin hernia repair, open surgery, age 5 or older
+    keywords: inguinal
+
+  - service_id: surgery-hernia-belly-button
+    billing_code: "49585"
+    name: Belly-button hernia repair
+    keywords: umbilical
+
+  - service_id: surgery-colonoscopy-stoma
+    billing_code: "44388"
+    name: Colonoscopy through an opening in the belly
+    keywords: colostomy
+
+  - service_id: surgery-colonoscopy-stoma-biopsy
+    billing_code: "44389"
+    name: Colonoscopy through an opening in the belly, with biopsy
+    keywords: colostomy
+
+  - service_id: surgery-colonoscopy-stoma-polyp
+    billing_code: "44394"
+    name: Colonoscopy through an opening in the belly, with polyp removal
+    keywords: colostomy polypectomy
+
+  - service_id: surgery-breast-lump
+    billing_code: "19120"
+    name: Breast lump removal
+    keywords: biopsy
+
+  - service_id: surgery-heart-cath
+    billing_code: "93452"
+    name: Heart catheterization, left side, with imaging of the heart chamber
+    keywords: cardiac angiogram
+
+  - service_id: surgery-vein-injection
+    billing_code: "36471"
+    name: Varicose vein treatment by injection, several veins in one leg
+    keywords: sclerotherapy
+
+  - service_id: surgery-vein-radiofrequency
+    billing_code: "36475"
+    name: Varicose vein closure by heat from a probe, first vein
+    keywords: radiofrequency ablation
+
+  - service_id: surgery-vein-laser
+    billing_code: "36478"
+    name: Varicose vein closure by laser, first vein
+    keywords: ablation
+
+  - service_id: surgery-kidney-stone-shockwave
+    billing_code: "50590"
+    name: Kidney stone breakup with shock waves
+    keywords: lithotripsy
+
+  - service_id: surgery-bladder-scope-remove
+    billing_code: "52310"
+    name: Bladder scope with removal of a stent or small object
+    keywords: cystoscopy
+
+  - service_id: surgery-bladder-scope
+    billing_code: "52000"
+    name: Bladder scope, diagnostic
+    keywords: cystoscopy
+
+  - service_id: surgery-bladder-scope-stent
+    billing_code: "52332"
+    name: Bladder scope with placing a stent in the ureter
+    keywords: cystoscopy
+
+  - service_id: surgery-nasal-scope
+    billing_code: "31231"
+    name: Nasal scope, diagnostic
+    keywords: sinus endoscopy
+
+  - service_id: surgery-sinus-scope-tissue
+    billing_code: "31237"
+    name: Nasal and sinus scope with tissue removal
+    keywords: sinus endoscopy
+
+  - service_id: surgery-needle-biopsy-imaging
+    billing_code: "10005"
+    name: Needle biopsy of a lump, with imaging
+    keywords: fine needle aspiration
+
+  - service_id: surgery-needle-biopsy
+    billing_code: "10021"
+    name: Needle biopsy of a lump, without imaging
+    keywords: fine needle aspiration
+
+  - service_id: surgery-septum
+    billing_code: "30520"
+    name: Nasal septum repair
+    keywords: deviated septum
+
+  - service_id: surgery-voice-box-scope
+    billing_code: "31575"
+    name: Voice box scope, flexible, diagnostic
+    keywords: laryngoscopy throat
+
+  - service_id: surgery-tonsils-adenoids-child
+    billing_code: "42820"
+    name: Tonsil and adenoid removal, under age 12
+    keywords: tonsillectomy
+
+  - service_id: surgery-tonsils-adult
+    billing_code: "42826"
+    name: Tonsil removal, age 12 or older
+    keywords: tonsillectomy
+
+  - service_id: surgery-adenoids-child
+    billing_code: "42830"
+    name: Adenoid removal, under age 12
+    keywords: adenoidectomy
+
+  - service_id: surgery-vasectomy
+    billing_code: "55250"
+    name: Vasectomy
+    keywords: sterilization
+
+  - service_id: surgery-prostate-biopsy
+    billing_code: "55700"
+    name: Prostate biopsy
+    keywords: urology
+
+  - service_id: surgery-prostate-removal-robotic
+    billing_code: "55866"
+    name: Prostate removal by robotic scope surgery
+    keywords: prostatectomy cancer
+
+  - service_id: surgery-drain-after-birth
+    billing_code: "57022"
+    name: Draining a blood collection in the vagina after birth
+    keywords: obstetric hematoma
+
+  - service_id: surgery-sling-women
+    billing_code: "57288"
+    name: Sling surgery for urine leakage, women
+    keywords: incontinence
+
+  - service_id: surgery-cervix-biopsy-scope
+    billing_code: "57454"
+    name: Cervix exam with biopsy, using a scope
+    keywords: colposcopy
+
+  - service_id: surgery-uterus-lining-biopsy
+    billing_code: "58100"
+    name: Uterine lining biopsy
+    keywords: endometrial
+
+  - service_id: surgery-uterus-scope-biopsy
+    billing_code: "58558"
+    name: Uterus scope with biopsy and removal of growths
+    keywords: hysteroscopy polyp
+
+  - service_id: surgery-uterus-scope-lining
+    billing_code: "58563"
+    name: Uterus scope with destruction of the lining
+    keywords: hysteroscopy ablation
+
+  - service_id: surgery-uterus-scope-sterilize
+    billing_code: "58565"
+    name: Uterus scope with blocking of the tubes
+    keywords: hysteroscopy sterilization
+
+  - service_id: surgery-hysterectomy-scope
+    billing_code: "58571"
+    name: Hysterectomy by scope, with tubes and ovaries removed, smaller uterus
+    keywords: laparoscopic
+
+  - service_id: surgery-pelvic-scope-ovary
+    billing_code: "58661"
+    name: Pelvic scope with removal of an ovary or tube
+    keywords: laparoscopy
+
+  - service_id: surgery-pelvic-scope-growths
+    billing_code: "58662"
+    name: Pelvic scope with removal of growths
+    keywords: laparoscopy cyst endometriosis
+
+  - service_id: surgery-pelvic-scope-tubes
+    billing_code: "58671"
+    name: Pelvic scope with blocking of the tubes
+    keywords: laparoscopy sterilization
+
+  - service_id: surgery-amniotic-fluid
+    billing_code: "59000"
+    name: Amniotic fluid sampling
+    keywords: amniocentesis pregnancy
+
+  - service_id: surgery-fetal-test
+    billing_code: "59025"
+    name: Fetal heart rate test without stress
+    keywords: non-stress pregnancy
+
+  - service_id: surgery-ear-wax
+    billing_code: "69210"
+    name: Ear wax removal by a doctor
+    keywords: cerumen
+
+  - service_id: surgery-ear-tubes
+    billing_code: "69436"
+    name: Ear tube placement under general anesthesia
+    keywords: tympanostomy children
