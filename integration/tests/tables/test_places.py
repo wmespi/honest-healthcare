@@ -148,3 +148,70 @@ def test_a_billers_other_address_in_its_practices_building_or_a_hospitals_joins_
     corpus.build()
     assert ("1000000019", "MIDTOWN IMAGING, P.C.", "practice", "9 BILLING OFFICE WAY", "ATLANTA",
             "30309") in corpus.rows("unlocated_places")
+
+
+def places_at(corpus, street):
+    return [(r[0], r[1]) for r in corpus.rows("places") if r[4].startswith(street)]
+
+
+def test_billers_with_different_names_at_one_office_are_one_place(corpus):
+    # Four companies of one emergency group, the suite written two ways.
+    biller(corpus, 1000000083, "EMERGINET HENRY, LLC", "235 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="STE 2100")
+    biller(corpus, 1000000081, "EMERGINET, LLC", "235 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="NORTH TOWER, SUITE 2100")
+    biller(corpus, 1000000082, "CHEROKEE EMERGENCY SERVICES, LLC", "235 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="SUITE 2100")
+    corpus.geocode("235 PEACHTREE ST NE", "ATLANTA", "303032200", "235 PEACHTREE ST NE, ATLANTA, GA, 30303",
+                   33.7589, -84.3875, address_line2="STE 2100")
+    corpus.build()
+    assert places_at(corpus, "235 PEACHTREE") == [("1000000081", "EMERGINET, LLC")]
+
+
+def test_billers_at_different_suites_of_one_building_are_different_places(corpus):
+    biller(corpus, 1000000084, "ALPHA CARDIOLOGY LLC", "300 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="STE 100")
+    biller(corpus, 1000000085, "BETA UROLOGY LLC", "300 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="STE 200")
+    corpus.geocode("300 PEACHTREE ST NE", "ATLANTA", "303032200", "300 PEACHTREE ST NE, ATLANTA, GA, 30303",
+                   33.76, -84.388, address_line2="STE 100")
+    corpus.build()
+    assert [p[0] for p in places_at(corpus, "300 PEACHTREE")] == ["1000000084", "1000000085"]
+
+
+def test_billers_with_no_suite_at_one_street_address_are_one_place(corpus):
+    biller(corpus, 1000000086, "GAMMA CLINIC LLC", "400 PEACHTREE ST NE", "ATLANTA", "303032200")
+    biller(corpus, 1000000087, "DELTA SERVICES INC", "400 PEACHTREE ST NE", "ATLANTA", "303032200")
+    corpus.geocode("400 PEACHTREE ST NE", "ATLANTA", "303032200", "400 PEACHTREE ST NE, ATLANTA, GA, 30303",
+                   33.761, -84.389)
+    corpus.build()
+    assert places_at(corpus, "400 PEACHTREE") == [("1000000086", "GAMMA CLINIC LLC")]
+
+
+def test_a_name_match_and_a_suite_match_chain_into_one_place(corpus):
+    # A and B share a name, B and C share a suite, D is elsewhere in the building.
+    biller(corpus, 1000000088, "OMEGA HEALTH LLC", "500 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="STE 10")
+    biller(corpus, 1000000089, "OMEGA HEALTH PC", "500 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="STE 20")
+    biller(corpus, 1000000090, "SIGMA GROUP LLC", "500 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="SUITE 20")
+    biller(corpus, 1000000091, "TAU GROUP LLC", "500 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="STE 30")
+    corpus.geocode("500 PEACHTREE ST NE", "ATLANTA", "303032200", "500 PEACHTREE ST NE, ATLANTA, GA, 30303",
+                   33.762, -84.39, address_line2="STE 10")
+    corpus.build()
+    assert [p[0] for p in places_at(corpus, "500 PEACHTREE")] == ["1000000088", "1000000091"]
+
+
+def test_a_practice_takes_the_name_of_its_biller_with_rates_for_the_most_services(corpus):
+    # The lower NPI prices one service and the higher one two, at the same office.
+    biller(corpus, 1000000092, "SUMMIT MACON LLC", "600 PEACHTREE ST NE", "ATLANTA", "303032200")
+    biller(corpus, 1000000093, "EMERGINET, LLC", "600 PEACHTREE ST NE", "ATLANTA", "303032200")
+    corpus.service("mri-brain", "70551", name="Brain MRI")
+    corpus.scan_price("45334-GAN001", 93, "70551", all_in=100)
+    corpus.billed(2000000093, "70551", "O")
+    corpus.geocode("600 PEACHTREE ST NE", "ATLANTA", "303032200", "600 PEACHTREE ST NE, ATLANTA, GA, 30303",
+                   33.763, -84.391)
+    corpus.build()
+    assert places_at(corpus, "600 PEACHTREE") == [("1000000092", "EMERGINET, LLC")]

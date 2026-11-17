@@ -66,8 +66,8 @@ def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 11, "services": 168, "families": 11, "places": 6073, "prices": 62784,
-                            "providers": 12727}
+    assert root["rows"] == {"plans": 11, "services": 168, "families": 11, "places": 5410, "prices": 58886,
+                            "providers": 12734}
 
 
 def test_the_families_are_in_the_screens_order(client):
@@ -98,6 +98,16 @@ def test_an_office_visit_near_emory_shows_one_bill_and_both_shares(client):
     assert all(p["kind"] != "hospital" for p in body["results"])
     assert [(s["benefit"], s["parts"]) for s in body["cost_sharing"]] == [
         ("primary_care", ["visit"]), ("specialist", ["visit"])]
+
+
+def test_companies_billing_from_one_office_are_one_place(client):
+    # Related companies list one suite downtown as their address, and the place
+    # takes the name of the one with rates for the most services.
+    office = [p for p in find_care(client, "visit-return-20")["results"]
+              if p["address"] == "235 PEACHTREE ST NE, NORTH TOWER, SUITE 2100"]
+    assert [(p["place_id"], p["name"]) for p in office] == [("1104875913", "EMERGINET SRMC, LLC")]
+    assert office[0]["billers"] == ["CHEROKEE EMERGENCY SERVICES, LLC", "EMERGINET HENRY, LLC",
+                                    "EMERGINET SRMC, LLC", "EMERGINET, LLC"]
 
 
 def test_a_hospital_on_blue_value_shows_its_readers_and_no_fee_of_its_own(client):
