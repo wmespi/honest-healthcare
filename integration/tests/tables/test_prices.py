@@ -129,7 +129,7 @@ def test_a_reading_group_with_no_reading_rate_has_no_row(corpus):
 
 
 def test_a_place_that_lists_no_all_in_rate_shows_the_scan_and_the_reading(corpus):
-    biller(corpus, 1000000020, "SPLIT BILL IMAGING", "550 PEACHTREE ST NE", "303082233", "O",
+    biller(corpus, 1000000020, "SPLIT BILL IMAGING", "550 PEACHTREE ST NE, STE 900", "303082233", "O",
            scan=320, reading=180)
     assert prices(corpus)["1000000020"] == ([part("scan", 320.0), part("reading", 180.0)], False,
                                             ["SPLIT BILL IMAGING"])

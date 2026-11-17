@@ -52,7 +52,7 @@ class Prices(Table):
     get, and `billers` lists the names of the billing groups behind the row
     (biller_places.biller_name), which at a hospital are the groups reading
     there. Names that match once punctuation and company endings are dropped are
-    one group, under its lowest billing NPI's spelling, as a practice is.
+    one group, under its lowest billing NPI's spelling, as a practice's name is.
     `providers` lists the clinicians Medicare shows billing the service for those
     billers, never the whole roster (#135 step 1): the ones CMS lists practicing
     in the building, or all of them at a biller's main place when it lists none

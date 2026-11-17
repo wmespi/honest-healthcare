@@ -57,8 +57,9 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   Every address on a hospital's street is in the hospital's building.
   The point is Census's for an address in the building, the hospital's own first, or OpenStreetMap's when Census located none ([geocode.md](../ingestion/reference/geocode.md)).
 - [`biller_places`](inputs/biller_places.py) puts each biller at every building NPPES lists it in, its main address and its secondary locations: the hospital in that building, or the practice there under its name.
-  A practice takes the address and phone of its lowest NPI's record there, and the kind of center its billers are registered as, the first in the order of `kinds` where they're two.
-  Billers in one building whose names match without punctuation or endings like LLC are one practice, keyed on the lowest NPI, and different practices in one building stay apart ([what one place is](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6643172584)).
+  A practice takes the address and phone of its lowest NPI's record there, the name of the biller with rates for the most services (the lowest NPI where two tie), and the kind of center its billers are registered as, the first in the order of `kinds` where they're two.
+  Billers in one building are one practice when their names match without punctuation or endings like LLC, or when they are at the same office (the same suite, or neither lists one), and billers linked through others are one too.
+  A practice is keyed on the lowest NPI, and billers in different suites with different names stay apart ([what one place is](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6643172584)).
   A doctor's own NPI takes its CMS group's name, and away from a hospital it has no place without one.
   A biller with no Georgia record has none either.
   Every billing ID in Anthem's files is an NPI, and the build stops if a file lists a tax ID instead, since NPPES can't place it.

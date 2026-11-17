@@ -1,5 +1,5 @@
 """Build-only: the places each biller in biller_rates is at, if it has any."""
-from integration.inputs.addresses import ADDRESS, _words, listed
+from integration.inputs.addresses import ADDRESS, _words, listed, suite
 from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES
 from integration.table import Table
 
@@ -30,15 +30,19 @@ class BillerPlaces(Table):
 
     A site in a Georgia hospital's building is that hospital, keyed on its CCN.
     Any other site belongs to a practice: the billers with a site in the building
-    whose names match once punctuation and company endings are dropped. A
-    practice is keyed on the lowest billing NPI whose main address is in the
-    building, and takes that biller's name, address and phone. Where none of its
-    billers has its main address, the key is the lowest billing NPI and a short
-    hash of the building, so one biller's sites are different places. Its kind
-    is the kind of center NPPES registers its billers as (centers), the first in
-    the order of `kinds` where they're registered as two, else `practice`. Different
-    practices in one building stay apart, because their prices differ more often
-    than one practice's billing IDs do. A doctor's own NPI takes the name of its
+    whose names match once punctuation and company endings are dropped, or who
+    are at the same office (the same suite, or none listed), and the billers
+    linked to those through others. Related companies often bill from one
+    office under different names. A practice is keyed on the lowest billing NPI
+    whose main address is in the building, and takes that biller's address and
+    phone, and the name of the one with rates for the most services, the lowest
+    NPI where two tie. Where none of its billers has its main address, the key is the
+    lowest billing NPI and a short hash of the building, so one biller's sites
+    are different places. Its kind is the kind of center NPPES registers its
+    billers as (centers), the first in the order of `kinds` where they're
+    registered as two, else `practice`. Billers with different names in
+    different suites of a building stay apart, because their prices differ more
+    often than one practice's billing IDs do. A doctor's own NPI takes the name of its
     CMS group, and away from a hospital it has no place without one. A biller with
     no Georgia NPPES record has no place either (#135 step 8).
 
@@ -54,7 +58,7 @@ class BillerPlaces(Table):
 
     def select(self, data_dir):
         return f"""
-            WITH billers AS (
+            WITH RECURSIVE billers AS (
                 SELECT b.biller, n.npi, c.kind AS center, k.position AS center_rank,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name ELSE d.org_name END AS name,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name
@@ -70,20 +74,44 @@ class BillerPlaces(Table):
                 SELECT DISTINCT ON (b.biller, a.building)
                        b.biller, b.biller_name, b.name, b.center, b.center_rank, l.main, a.building, a.lat, a.lon,
                        concat_ws(', ', l.address_line1, nullif(trim(l.address_line2), '')) AS address,
-                       l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone
+                       l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone,
+                       {suite("l.address_line1", "l.address_line2")} AS suite
                 FROM billers b
                 JOIN listed l USING (npi)
                 JOIN addresses a USING ({ADDRESS})
                 ORDER BY b.biller, a.building, NOT l.main, {", ".join(f"l.{c}" for c in ADDRESS.split(", "))}
             ),
+            -- Two sites in a building are one practice when their names match or they
+            -- share an office (a suite, or no suite); `linked` chains those, so `together`
+            -- reaches every site of a practice and its lowest biller labels the group.
+            candidates AS (
+                SELECT *, {practice_name("name")} AS practice
+                FROM sites
+                WHERE name IS NOT NULL AND building NOT IN (SELECT building FROM hospitals)
+            ),
+            linked AS (
+                SELECT a.biller AS a, b.biller AS b, a.building
+                FROM candidates a JOIN candidates b ON a.building = b.building
+                 AND (a.practice = b.practice OR a.suite = b.suite)
+            ),
+            together(a, b, building) AS (
+                SELECT a, b, building FROM linked
+                UNION
+                SELECT t.a, l.b, t.building FROM together t JOIN linked l ON t.b = l.a AND t.building = l.building
+            ),
+            groups AS (
+                SELECT a AS biller, building, min(b) AS grp FROM together GROUP BY a, building
+            ),
             practices AS (
                 SELECT biller, biller_name, main, building,
                        coalesce(min(biller) FILTER (WHERE main) OVER practice, min(biller) OVER practice) AS lowest,
                        bool_or(main) OVER practice AS any_main,
-                       arg_min(center, center_rank) OVER practice AS center
-                FROM sites
-                WHERE name IS NOT NULL AND building NOT IN (SELECT building FROM hospitals)
-                WINDOW practice AS (PARTITION BY building, {practice_name("name")})
+                       arg_min(center, center_rank) OVER practice AS center,
+                       arg_min(biller, (-coalesce(n.services, 0), biller)) OVER practice AS named
+                FROM candidates JOIN groups USING (biller, building)
+                LEFT JOIN (SELECT biller, count(DISTINCT service_id) AS services FROM biller_rates GROUP BY biller) n
+                    USING (biller)
+                WINDOW practice AS (PARTITION BY building, grp)
             )
             SELECT s.biller, s.biller_name, h.ccn AS place_id, 'hospital' AS kind, h.name, h.address, h.city,
                    left(h.postal_code, 5) AS zip, h.lat, h.lon, h.phone, s.main, s.building
@@ -92,8 +120,9 @@ class BillerPlaces(Table):
             SELECT p.biller, p.biller_name,
                    CASE WHEN p.any_main THEN p.lowest ELSE p.lowest || '-' || left(md5(p.building), 8) END,
                    coalesce(p.center, 'practice'),
-                   o.name, o.address, o.city, o.zip, o.lat, o.lon, o.phone, p.main, p.building
+                   nm.name, o.address, o.city, o.zip, o.lat, o.lon, o.phone, p.main, p.building
             FROM practices p JOIN sites o ON o.biller = p.lowest AND o.building = p.building
+            JOIN sites nm ON nm.biller = p.named AND nm.building = p.building
         """
 
     def check(self, con, data_dir):

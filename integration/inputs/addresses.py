@@ -49,6 +49,17 @@ def street(line):
     return f"regexp_replace({spelled}, '^(\\S+ \\S+.*?) (?:{'|'.join(UNITS)})(?: .*)?$', '\\1')"
 
 
+def suite(line1, line2):
+    """SQL for where in its building an address is: the words from the first unit
+    word on, across both lines, with each unit word spelled one way, so "NORTH
+    TOWER, SUITE 2100" and "STE 2100" are both "STE 2100", and '' for no suite."""
+    short = {"SUITE": "STE", "FLOOR": "FL", "BUILDING": "BLDG", "ROOM": "RM"}
+    words = ", ".join(f"'{word}': '{s}'" for word, s in short.items())
+    text = f"regexp_replace(concat_ws(' ', {line1}, {line2}), '#', ' STE ', 'g')"
+    spelled = f"array_to_string(list_transform({_words(text)}, w -> coalesce(MAP {{{words}}}[w], w)), ' ')"
+    return f"regexp_extract(' ' || {spelled}, ' ((?:{'|'.join(sorted(set(short.values()) | set(UNITS)))})(?: .*)?)$', 1)"
+
+
 class Addresses(Table):
     """One row per address: the one on the NPPES record of each biller in
     biller_rates and each hospital billing NPI in facility_rates, and the other
