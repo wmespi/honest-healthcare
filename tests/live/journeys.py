@@ -176,6 +176,26 @@ def procedure(service_id, plan_id, place_id, parts, radius_mi=None):
     return journey
 
 
+def j18(api):
+    """Sam: quality next to a colonoscopy's price, at a hospital and for its doctors."""
+    body, status = get(api, "/find-care", service_id="colonoscopy", plan_id=GOLD_PATHWAY, zip="30322")
+    rows = (body or {}).get("results") or []
+    midtown = next((r for r in rows if r["place_id"] == EMORY_MIDTOWN), None)
+    if status != 200 or midtown is None:
+        return False, f"/find-care colonoscopy returned {status}, Emory Midtown {'listed' if midtown else 'missing'}"
+    first = midtown["quality"][0] if midtown["quality"] else {}
+    counts = [q["shown"] for c in midtown["providers"] for q in c["quality"]]
+    checks = [
+        ((first.get("measure"), first.get("shown"), first.get("compared")) ==
+         ("OP-32", "12.9 per 1,000", "No different than the national rate"),
+         f"Emory Midtown's first measure is {first} (want OP-32, 12.9 per 1,000, no different)"),
+        (bool(first.get("period")) and bool(first.get("source")), "the measure says its period and source"),
+        (bool(counts), "a doctor there shows how many colonoscopies they've done"),
+    ]
+    bad = [msg for ok, msg in checks if not ok]
+    return (not bad), ("; ".join(bad) if bad else f"OP-32 {first['shown']} · doctors' counts {counts[:3]}")
+
+
 JOURNEYS = [
     ("J1", "Rosa — brain MRI price near Emory", j1),
     ("J2", "Rosa — knee MRI", j2),
@@ -205,6 +225,7 @@ JOURNEYS = [
         [("facility", 4962.02, "hospital"), ("surgeon", None, None)])),
     ("J17", "Rosa - a visit with a skin doctor", one_bill("visit-return-20", "visit", DERMATOLOGY_ASSOCIATES, 82.05,
                                                      ["specialist"], specialty="skin")),
+    ("J18", "Sam - quality next to a colonoscopy", j18),
 ]
 
 

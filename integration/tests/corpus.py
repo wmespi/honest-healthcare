@@ -98,6 +98,22 @@ SPECIALTIES = {"specialties": [
     {"specialty": "heart", "name": "Heart", "benefit": "specialist", "taxonomies": ["207RC0000X"]},
     {"specialty": "skin", "name": "Skin", "benefit": "specialist", "taxonomies": ["207N00000X"]},
 ]}
+# What the corpus's measures.yaml says: a hospital measure with a national value, an
+# ASC measure CMS labels, one it doesn't, and a clinician's volume.
+MEASURES = {"measures": [
+    {"measure": "OP-32", "name": "Hospital visits after a colonoscopy", "about": "Lower is better.",
+     "subject": "place", "source": "hospital-measures", "unit": "per_1000", "fits": [{"family": "mri"}]},
+    {"measure": "OP-39", "name": "Screening recalls", "about": "Normally 5 to 12 percent.", "subject": "place",
+     "source": "hospital-measures", "unit": "percent", "fits": [{"family": "mammograms"}]},
+    {"measure": "ASC-12", "name": "Hospital visits after a colonoscopy", "about": "Lower is better.",
+     "subject": "place", "source": "asc-measures", "unit": "per_1000",
+     "fits": [{"family": "mri", "services": ["mri-lower-back"]}]},
+    {"measure": "ASC-11", "name": "Better vision", "about": "Higher is better.", "subject": "place",
+     "source": "asc-measures", "unit": "percent", "fits": [{"family": "mammograms"}]},
+    {"measure": "volume-colonoscopy", "name": "Colonoscopies done", "about": "More suggests practice.",
+     "subject": "clinician", "source": "clinician-volume", "unit": "procedures", "category": "Colonoscopy",
+     "fits": [{"family": "mri"}]},
+]}
 GROUPS = {"office_visits": "Office E&M - Established", "mammograms": "Mammography", "mri": "Magnetic Resonance",
           "endoscopy": "Upper GI Endoscopy"}
 # A procedure family, which a test adds with Corpus.add_endoscopy: the doctor's fee
@@ -134,6 +150,14 @@ class Corpus:
         self.specialties_file = f"{root}/specialties.yaml"
         self.specialties = json.loads(json.dumps(SPECIALTIES))
         self.write_specialties()
+        self.measures_file = f"{root}/measures.yaml"
+        self.measures = json.loads(json.dumps(MEASURES))
+        self.write_measures()
+        self.hospital_measures = []
+        self.hospital_measures_national = []
+        self.asc_measures = []
+        self.asc_measures_national = []
+        self.clinician_volume = []
         self.shoppable = []
         self.hospital_plans_file = f"{root}/hospital_plans.yaml"
         self.hospital_plans([])
@@ -169,6 +193,7 @@ class Corpus:
         self._queue(f"{root}/nppes/ga_locations.parquet", d.NPPES_LOCATIONS.columns, self.locations)
         self._queue(f"{root}/reference/dac_locations_ga.parquet", d.CLINICIAN_LOCATIONS.columns,
                     self.clinician_locations)
+        self._write_measure_files()
 
     def _queue(self, path, schema, rows):
         """Write `rows` to `path` at the next flush, which build() and inputs() do."""
@@ -328,7 +353,7 @@ class Corpus:
         self.flush()
         con = tables.connect(f"{self.root}/.spill")
         for table in tables.inputs(self.services_file, self.hospital_plans_file, self.families_file,
-                                   self.specialties_file):
+                                   self.specialties_file, self.measures_file):
             table.make(con, self.root)
         return con
 
@@ -386,6 +411,41 @@ class Corpus:
         """Write `self.specialties`, the model the build reads as specialties.yaml."""
         with open(self.specialties_file, "w") as f:
             yaml.safe_dump(copy.deepcopy(self.specialties), f, sort_keys=False)
+
+    def write_measures(self):
+        """Write `self.measures`, the model the build reads as measures.yaml."""
+        with open(self.measures_file, "w") as f:
+            yaml.safe_dump(copy.deepcopy(self.measures), f, sort_keys=False)
+
+    def hospital_measure(self, ccn, measure, score, compared=None, national=None, start="2022-01-01",
+                         end="2024-12-31"):
+        """Add a CMS measure for hospital `ccn`, and `measure`'s national value when given."""
+        self.hospital_measures.append((ccn, measure, score, compared, 100, start, end))
+        if national is not None and measure not in [r[0] for r in self.hospital_measures_national]:
+            self.hospital_measures_national.append((measure, national, start, end))
+        self._write_measure_files()
+
+    def asc_measure(self, npi, measure, score, compared=None, national=None, period="2025"):
+        """Add a CMS surgery center measure for `npi`, and `measure`'s national value when given."""
+        self.asc_measures.append((npi, "11C0001234", measure, score, compared, 100, period))
+        if national is not None and measure not in [r[0] for r in self.asc_measures_national]:
+            self.asc_measures_national.append((measure, national, None, period))
+        self._write_measure_files()
+
+    def volume(self, npi, category, count, displayed=True):
+        """Set CMS's procedure volume for clinician `npi` in `category`, `count` as CMS writes it."""
+        self.clinician_volume = [r for r in self.clinician_volume if r[:2] != (npi, category)]
+        self.clinician_volume.append((npi, category, count, None, displayed, "2026-10-15"))
+        self._write_measure_files()
+
+    def _write_measure_files(self):
+        for name, dataset, rows in (("hospital_measures_ga", d.HOSPITAL_MEASURES, self.hospital_measures),
+                                    ("hospital_measures_national", d.HOSPITAL_MEASURES_NATIONAL,
+                                     self.hospital_measures_national),
+                                    ("asc_measures_ga", d.ASC_MEASURES, self.asc_measures),
+                                    ("asc_measures_national", d.ASC_MEASURES_NATIONAL, self.asc_measures_national),
+                                    ("clinician_volume_ga", d.CLINICIAN_VOLUME, self.clinician_volume)):
+            self._queue(f"{self.root}/reference/{name}.parquet", dataset.columns, rows)
 
     def add_endoscopy(self):
         """Add the procedure family (_ENDOSCOPY), the kind of place it has centers
@@ -445,7 +505,7 @@ class Corpus:
         from integration import tables
         self.flush()
         return tables.build(self.root, f"{self.root}/{out}", self.services_file, self.hospital_plans_file,
-                            self.families_file, self.specialties_file)
+                            self.families_file, self.specialties_file, self.measures_file)
 
     def rows(self, table, out="serving"):
         return duckdb.connect().execute(
@@ -555,6 +615,20 @@ def default_corpus(root):
           taxonomy="282N00000X")
     c.roster(PATHWAY, 60, 60, "1000000060", 1000000060)
     c.facility_price(PATHWAY, 60, "77067", 165)
+    # CMS's measures: Grady's visits after a colonoscopy with CMS's label, its recalls with only
+    # the national value, a hospital with too few cases to say anything, a surgery center that
+    # bills as Midtown Imaging, one that bills from Grady's building, and one no biller of ours.
+    c.hospital_measure("110079", "OP-32", 13.9, "No Different Than the National Rate")
+    c.hospital_measure("110079", "OP-39", 9.5, national=9.0)
+    c.hospital_measure("110001", "OP-32", None, "Number of cases too small")
+    c.asc_measure(1000000001, "ASC-12", 8.2, "Better Than the National Rate", national=9.9)
+    c.asc_measure(1000000001, "ASC-11", 93.0, national=78.8)
+    c.asc_measure(1000000004, "ASC-12", 11.0, "No Different Than the National Rate")
+    c.asc_measure(1000000999, "ASC-12", 7.0, "Better Than the National Rate")
+    c.volume(1000000005, "Colonoscopy", "57")
+    c.volume(1000000005, "Hip replacement", "34")
+    c.volume(2000000001, "Colonoscopy", "1-10", displayed=False)
+    c.volume(3000000001, "Colonoscopy", "20")
     c.flush()
     return c
 

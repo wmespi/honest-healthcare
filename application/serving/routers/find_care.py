@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..contract import RADIUS_OPTIONS_MI, Catalog, FindCare, FindCareQuery, Plan, Problem, plan_order
 from ..data_sources import (
-    COST_SHARING_SRC, FAMILIES_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, SERVICES_SRC, ZIPS_SRC, db,
+    COST_SHARING_SRC, FAMILIES_SRC, PLACES_SRC, PLANS_SRC, PRICES_SRC, PROVIDERS_SRC, QUALITY_SRC, SERVICES_SRC, ZIPS_SRC, db,
 )
 
 router = APIRouter()
@@ -61,7 +61,8 @@ def get_plans():
 @router.get("/services", response_model=Catalog)
 def get_services():
     conn = db()
-    return {"families": _rows(conn.execute(f"SELECT family, name, specialties FROM {FAMILIES_SRC} ORDER BY position, family")),
+    return {"families": _rows(conn.execute(f"SELECT family, name, specialties, len(measures) > 0 AS measured FROM {FAMILIES_SRC} "
+                f"ORDER BY position, family")),
             "services": _rows(conn.execute(f"""
                 SELECT service_id, family, name, keywords, about, could_change, asks, preventive_note,
                        medicare_rate, medicare_facility_rate
@@ -170,9 +171,20 @@ def find_care(q: Annotated[FindCareQuery, Query()]):
             WHERE list_contains(?::BIGINT[], npi) AND (?::VARCHAR IS NULL OR specialty_id = ?)""",
         [npis, q.specialty, q.specialty]))}
 
+    quality = {}
+    for r in _rows(conn.execute(f"""
+            SELECT subject, subject_kind, measure, name, about, shown, compared, period, source FROM {QUALITY_SRC}
+            WHERE list_contains(?::VARCHAR[], subject) AND list_contains(services, ?)
+            ORDER BY position""",
+            [sorted({p["place_id"] for p in shown} | {str(n) for n in providers}), q.service_id])):
+        quality.setdefault((r["subject_kind"], r["subject"]), []).append(
+            {k: v for k, v in r.items() if k not in ("subject", "subject_kind")})
+
     def place(p):
+        who = sorted((providers[n] for n in p["providers"] if n in providers), key=lambda v: (v["name"], v["npi"]))
         return {**with_bill_text(p, service["bills"]), "distance_mi": round(p["distance_mi"], 1),
-                "providers": sorted((providers[n] for n in p["providers"] if n in providers), key=lambda v: (v["name"], v["npi"]))}
+                "providers": [{**v, "quality": quality.get(("clinician", str(v["npi"])), [])} for v in who],
+                "quality": quality.get(("place", p["place_id"]), [])}
 
     return FindCare(service_id=q.service_id, plan_id=q.plan_id, origin=origin, radius_mi=radius, sort=q.sort,
                     specialty=q.specialty, cost_sharing=cost_sharing, results=[place(p) for p in results],

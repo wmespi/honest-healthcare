@@ -96,6 +96,18 @@ class Specialty(BaseModel):
                                      "`primary_care` or `specialist`.")
 
 
+class Quality(BaseModel):
+    """One of CMS's quality measures for a place or a clinician, as it reads."""
+    measure: str = Field(description="Our id for it: CMS's own, such as `OP-32`, or `volume-` and a slug.")
+    name: str
+    about: str = Field(description="One plain sentence on what it counts and whether lower or higher is better.")
+    shown: Optional[str] = Field(description="How the value reads, such as `8.2 per 1,000` or `51 to 100 "
+                                             "procedures`. Empty when CMS gives only a comparison.")
+    compared: Optional[str] = Field(description="CMS's own comparison in plain words, or the national value.")
+    period: Optional[str] = Field(description="The years it covers, such as `2022 to 2024`; empty for a volume.")
+    source: str = Field(description="A plain label for the dataset, such as `CMS surgery center measures`.")
+
+
 class Family(BaseModel):
     """A group of services that the service picker browses by."""
     family: str
@@ -103,6 +115,8 @@ class Family(BaseModel):
     specialties: list[Specialty] = Field(
         description="The kinds of doctor to pick from first, in order, for a family whose code is the same "
                     "whatever the doctor's specialty, such as office visits; empty for every other family.")
+    measured: bool = Field(description="Whether any quality measure fits its services, so the screen can say "
+                                       "when nothing does.")
 
 
 class Service(BaseModel):
@@ -165,6 +179,8 @@ class Provider(BaseModel):
     name: str
     specialty: str
     score: Optional[float] = Field(description="Medicare's clinician quality score (MIPS), 0 to 100.")
+    quality: list[Quality] = Field(description="The measures that fit this service, in a fixed order; empty "
+                                               "where none fits or CMS has nothing for the clinician.")
 
 
 class Place(BaseModel):
@@ -201,6 +217,8 @@ class Place(BaseModel):
     providers: list[Provider] = Field(
         description="Who Medicare shows billing the service here, never the whole roster. "
                     "Empty when Medicare shows no one, as at an imaging center it has no record of.")
+    quality: list[Quality] = Field(description="The measures that fit this service, in a fixed order; empty "
+                                               "where none fits or CMS has nothing for the place.")
 
     @model_validator(mode="after")
     def _stars_are_for_hospitals(self):

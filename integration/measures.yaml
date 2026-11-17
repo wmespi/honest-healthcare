@@ -1,0 +1,322 @@
+# The quality measures the find-care screen shows beside a place or a clinician, and
+# the services each one fits. `make build` reads this into quality.parquet
+# (integration/build.md), from the CMS datasets ingestion lands under
+# data/ingestion/reference/.
+#
+# Each measure, in the order the screen lists them, has:
+#   measure   Its id: CMS's own for a hospital or surgery center measure, `volume-` and
+#             a slug for a clinician's procedure volume.
+#   name      What the screen calls it, in plain words.
+#   about     One plain sentence on what it counts and whether lower or higher is better.
+#   subject   `place` (a hospital, or a surgery center's place) or `clinician`.
+#   source    The dataset it comes from: `hospital-measures`, `asc-measures` or
+#             `clinician-volume`.
+#   unit      How its number reads: `percent`, `per_1000`, `ratio`, `stars` or `procedures`.
+#   category  Volume only: CMS's own text for the procedure, which must be in
+#             reference/clinician_volume_ga.parquet.
+#   fits      The families it fits, each with `family`, and `services` (service ids in
+#             that family) to fit only some of them. [] fits no family yet.
+measures:
+  - measure: OP-32
+    name: Hospital visits within 7 days after a colonoscopy
+    about: How many outpatient colonoscopy patients per 1,000 end up at a hospital within 7 days, so lower is better.
+    subject: place
+    source: hospital-measures
+    unit: per_1000
+    fits:
+      - family: endoscopy
+  - measure: OP-29
+    name: Colonoscopy follow-up interval for normal results
+    about: The share of normal screening colonoscopies where the patient is told to wait the recommended 10 years before the next one, so higher is better.
+    subject: place
+    source: hospital-measures
+    unit: percent
+    fits:
+      - family: endoscopy
+  - measure: ASC-12
+    name: Hospital visits within 7 days after a colonoscopy
+    about: How many colonoscopy patients per 1,000 end up at a hospital within 7 days, so lower is better.
+    subject: place
+    source: asc-measures
+    unit: per_1000
+    fits:
+      - family: endoscopy
+  - measure: ASC-9
+    name: Colonoscopy follow-up interval for normal results
+    about: The share of normal screening colonoscopies where the patient is told to wait the recommended 10 years before the next one, so higher is better.
+    subject: place
+    source: asc-measures
+    unit: percent
+    fits:
+      - family: endoscopy
+  - measure: volume-colonoscopy
+    name: Colonoscopies this doctor has done
+    about: How many colonoscopies Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Colonoscopy
+    fits:
+      - family: endoscopy
+        services: &colonoscopies
+          - colonoscopy
+          - colonoscopy-foreign-object
+          - colonoscopy-biopsy
+          - colonoscopy-injection
+          - colonoscopy-bleeding
+          - colonoscopy-polyp-cautery
+          - colonoscopy-polyp-snare
+          - colonoscopy-stretch
+          - colonoscopy-tumor
+          - colonoscopy-larger-growth
+          - colonoscopy-ultrasound
+          - colonoscopy-ultrasound-needle
+          - colonoscopy-banding
+          - colonoscopy-screening-high-risk
+          - colonoscopy-screening-average-risk
+  - measure: volume-upper-endoscopy
+    name: Upper endoscopies this doctor has done
+    about: How many upper endoscopies, a scope down the throat for acid reflux and similar problems, Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Upper gastrointestinal (GI) endoscopy for acid reflux
+    fits:
+      - family: endoscopy
+        services: [scope-upper, scope-upper-biopsy]
+  - measure: OP-31
+    name: Better vision after cataract surgery
+    about: The share of cataract surgery patients whose vision improved enough to see well, so higher is better.
+    subject: place
+    source: hospital-measures
+    unit: percent
+    fits:
+      - family: eye_procedures
+  - measure: ASC-11
+    name: Better vision after cataract surgery
+    about: The share of cataract surgery patients whose vision improved enough to see well, so higher is better.
+    subject: place
+    source: asc-measures
+    unit: percent
+    fits:
+      - family: eye_procedures
+  - measure: volume-cataract
+    name: Cataract surgeries this doctor has done
+    about: How many cataract surgeries Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Cataract surgery
+    fits:
+      - family: eye_procedures
+        services: [eye-cataract]
+  - measure: OP-36
+    name: Hospital visits within 7 days after surgery
+    about: How the number of outpatient surgery patients who end up at a hospital within 7 days compares with what is expected for the hospital's patients, so lower is better.
+    subject: place
+    source: hospital-measures
+    unit: ratio
+    fits:
+      - family: bone_joint_procedures
+      - family: other_procedures
+  - measure: ASC-17
+    name: Hospital visits within 7 days after bone and joint surgery
+    about: How many orthopedic surgery patients per 1,000 end up at a hospital within 7 days, so lower is better.
+    subject: place
+    source: asc-measures
+    unit: per_1000
+    fits:
+      - family: bone_joint_procedures
+  - measure: ASC-18
+    name: Hospital visits within 7 days after urology surgery
+    about: How many urology surgery patients per 1,000 end up at a hospital within 7 days, so lower is better.
+    subject: place
+    source: asc-measures
+    unit: per_1000
+    fits:
+      - family: other_procedures
+        services: [surgery-kidney-stone-shockwave, surgery-bladder-scope-remove, surgery-bladder-scope, surgery-bladder-scope-stent,
+                   surgery-vasectomy, surgery-prostate-biopsy, surgery-prostate-removal-robotic, surgery-sling-women]
+  - measure: ASC-19
+    name: Hospital visits within 7 days after surgery
+    about: How the number of surgery patients who end up at a hospital within 7 days compares with what is expected, so lower is better.
+    subject: place
+    source: asc-measures
+    unit: ratio
+    fits:
+      - family: other_procedures
+  - measure: volume-knee-replacement
+    name: Knee replacements this doctor has done
+    about: How many knee replacements Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Knee replacement
+    fits:
+      - family: bone_joint_procedures
+        services: [joint-knee-replace-shin, joint-knee-replace-shin-cleanup, joint-knee-replace-thigh,
+                   joint-knee-replace-thigh-cleanup, joint-knee-replace-hinged, joint-knee-replace-partial]
+  - measure: volume-upper-limb-arthroscopy
+    name: Shoulder and wrist scopes this doctor has done
+    about: How many arm joint scopes Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Upper limb (arm) arthroscopy (minimally invasive joint repair)
+    fits:
+      - family: bone_joint_procedures
+        services: [joint-shoulder-scope, joint-wrist-scope]
+  - measure: volume-lower-limb-arthroscopy
+    name: Knee scopes this doctor has done
+    about: How many leg joint scopes Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Lower limb (leg) arthroscopy (minimally invasive joint repair)
+    fits:
+      - family: bone_joint_procedures
+        services: [joint-knee-scope-meniscus-both, joint-knee-scope-meniscus, joint-knee-scope-acl,
+                   joint-knee-scope-loose-body]
+  - measure: volume-laminectomy
+    name: Lower-back disc surgeries this doctor has done
+    about: How many laminectomies and laminotomies, which remove part of the spine bone to relieve pressure, Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Laminectomy or laminotomy (partial removal of spine bones)
+    fits:
+      - family: bone_joint_procedures
+        services: [joint-back-disc]
+  - measure: volume-skin-biopsy
+    name: Skin biopsies this doctor has done
+    about: How many skin biopsies Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Skin biopsy
+    fits:
+      - family: skin_procedures
+        services: [skin-biopsy, skin-biopsy-more]
+  - measure: volume-skin-growth
+    name: Skin growth removals this doctor has done
+    about: How many removals or shavings of skin growths Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Removal or shaving of skin growth
+    fits:
+      - family: skin_procedures
+        services: [skin-growth-small-trunk, skin-growth-medium-head, skin-skin-tags]
+  - measure: volume-skin-lesions
+    name: Skin lesion removals this doctor has done
+    about: How many removals of skin lesions, such as warts and precancerous spots, Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Removal of skin lesions
+    fits:
+      - family: skin_procedures
+        services: [skin-wart-up-to-14, skin-wart-15-plus, skin-freeze-first, skin-freeze-more]
+  - measure: volume-melanoma
+    name: Melanoma excisions this doctor has done
+    about: How many skin cancer excisions Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Melanoma (skin cancer) excision
+    fits:
+      - family: skin_procedures
+        services: [skin-cancer-growth-trunk, skin-mohs]
+  - measure: volume-skin-cancer
+    name: Skin cancer removals this doctor has done
+    about: How many skin cancer removals Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Removal of skin cancer
+    fits:
+      - family: skin_procedures
+        services: [skin-cancer-growth-trunk, skin-mohs]
+  - measure: volume-nail-removal
+    name: Nail removals this doctor has done
+    about: How many removals of nail tissue Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Removal of nail tissue
+    fits:
+      - family: skin_procedures
+        services: [skin-nail-removal]
+  - measure: volume-debridement
+    name: Dead tissue removals this doctor has done
+    about: How many removals of dead tissue from skin and wounds Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Removal of tissue
+    fits:
+      - family: skin_procedures
+        services: [skin-wound-cleaning, skin-dead-skin-large]
+  - measure: volume-hernia-scope
+    name: Hernia repairs by scope this doctor has done
+    about: How many minimally invasive hernia repairs Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Hernia repair (minimally invasive)
+    fits:
+      - family: other_procedures
+        services: [surgery-hernia-groin-scope]
+  - measure: volume-hernia-open
+    name: Open groin hernia repairs this doctor has done
+    about: How many open groin hernia repairs Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Hernia repair - groin (open)
+    fits:
+      - family: other_procedures
+        services: [surgery-hernia-groin-open]
+  - measure: volume-hysterectomy
+    name: Hysterectomies this doctor has done
+    about: How many removals of the uterus Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Removal of the uterus
+    fits:
+      - family: other_procedures
+        services: [surgery-hysterectomy-scope]
+  - measure: volume-varicose-vein
+    name: Varicose vein removals this doctor has done
+    about: How many varicose vein removals Medicare shows this doctor doing in a year, so more suggests more practice.
+    subject: clinician
+    source: clinician-volume
+    unit: procedures
+    category: Varicose vein removal
+    fits:
+      - family: other_procedures
+        services: [surgery-vein-injection, surgery-vein-radiofrequency, surgery-vein-laser]
+  - measure: OP-10
+    name: Abdomen CT scans done with and without contrast
+    about: The share of outpatient abdomen CT scans done both with and without contrast dye, which means extra radiation, so lower is better.
+    subject: place
+    source: hospital-measures
+    unit: percent
+    fits:
+      - family: ct
+  - measure: OP-39
+    name: Screening mammograms that call the patient back
+    about: The share of screening mammograms where the patient is called back for more imaging, which is common and normally somewhere between 5 and 12 percent.
+    subject: place
+    source: hospital-measures
+    unit: percent
+    fits:
+      - family: mammograms
+  - measure: H_STAR_RATING
+    name: Patient survey rating
+    about: CMS's one-to-five star summary of what patients say about their hospital stay, so more stars is better.
+    subject: place
+    source: hospital-measures
+    unit: stars
+    fits: []

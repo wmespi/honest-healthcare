@@ -9,6 +9,7 @@ import { PriceMap } from './PriceMap';
 import { ResultsTable } from './ResultsTable';
 import { SearchFields } from './SearchFields';
 import { miles, money } from './format';
+import { UnmeasuredNote } from './Quality';
 import { filterResults, searchView } from './view';
 
 // The radii the contract offers (application/serving/contract.py RADIUS_OPTIONS_MI).
@@ -194,7 +195,7 @@ function Message({ title, children }) {
   );
 }
 
-function Results({ search, service, plan, specialties, specialty, sort, filterText, setFilterText, selectedId, hoveredId, onSelect, onHover, update, layoutKey }) {
+function Results({ search, service, plan, measured, specialties, specialty, sort, filterText, setFilterText, selectedId, hoveredId, onSelect, onHover, update, layoutKey }) {
   const radiusMi = search.radiusMi;
   const shown = filterResults(search.results, filterText);
   const preventive = service.preventive_note;
@@ -232,6 +233,7 @@ function Results({ search, service, plan, specialties, specialty, sort, filterTe
           {shown.length !== search.results.length && `${shown.length} of `}
           {search.results.length} {search.results.length === 1 ? 'place' : 'places'}
           <span className="hidden sm:inline"> on your plan</span>
+          {!measured && <><br /><UnmeasuredNote /></>}
         </span>
         <ResultFilter text={filterText} onChange={setFilterText} />
         <RadiusPicker radiusMi={radiusMi} onChange={(r) => update({ r })} />
@@ -308,6 +310,8 @@ export default function FindCare() {
   const hasSearch = Boolean(service && plan && ZIP.test(zip ?? ''));
   // Only a family that asks has kinds of doctor; a missing or unknown one falls back to the first.
   const specialties = catalog?.families?.find((f) => f.family === service?.family)?.specialties ?? [];
+  // A missing flag is treated as measured, so the note only shows when the API says none fits.
+  const measured = catalog?.families?.find((f) => f.family === service?.family)?.measured !== false;
   const specialty = specialties.find((s) => s.specialty === params.get('specialty')) ?? specialties[0] ?? null;
   const query = hasSearch
     ? { serviceId, planId, zip, radiusMi: chosenRadius, sort, ...(specialty ? { specialty: specialty.specialty } : {}) }
@@ -353,6 +357,7 @@ export default function FindCare() {
         search={search}
         service={service}
         plan={plan}
+        measured={measured}
         specialties={specialties}
         specialty={specialty}
         sort={sort}

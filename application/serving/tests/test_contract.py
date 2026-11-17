@@ -33,7 +33,9 @@ def place(place_id="1000000010", kind="imaging_center", parts=None, stars=None, 
         "parts": parts if parts is not None else [part("scan", 340), part("reading", 70)],
         "several_rates": several_rates,
         "billers": ["Dogwood Imaging"],
-        "providers": [{"npi": 1000000004, "name": "Frank Diaz", "specialty": "Diagnostic Radiology", "score": 91.0}],
+        "providers": [{"npi": 1000000004, "name": "Frank Diaz", "specialty": "Diagnostic Radiology", "score": 91.0,
+                       "quality": []}],
+        "quality": [],
     }
 
 
@@ -64,7 +66,7 @@ def test_the_most_youd_pay_is_the_parts_added_up():
 
 def test_a_hospital_with_its_own_fee_needs_no_reading_group():
     fee_only = place("110011", "hospital", [part("facility", 210, "hospital"), part("reading")],
-                     cash_price=320.0, distance_mi=1.0) | {"billers": [], "providers": []}
+                     cash_price=320.0, distance_mi=1.0) | {"billers": [], "providers": [], "quality": []}
     dumped = Place.model_validate(fee_only).model_dump()
     assert dumped["billers"] == [] and dumped["max_rate"] is None and dumped["cash_price"] == 320.0
     assert dumped["parts"][0]["source"] == "hospital" and dumped["parts"][1]["source"] is None
@@ -151,7 +153,7 @@ def test_fastapi_publishes_the_contract():
 
     @app.get("/services", response_model=Catalog)
     def services():
-        return {"families": [{"family": "mammograms", "name": "Mammograms", "specialties": []}], "services": [{"service_id": "mammogram", "family": "mammograms", "name": "Screening mammogram", "keywords": "breast",
+        return {"families": [{"family": "mammograms", "name": "Mammograms", "specialties": [], "measured": False}], "services": [{"service_id": "mammogram", "family": "mammograms", "name": "Screening mammogram", "keywords": "breast",
                  "about": "A low-dose X-ray.", "could_change": [], "asks": [],
                  "preventive_note": "Usually $0 in network.", "medicare_rate": 98.1,
                  "medicare_facility_rate": None}]}

@@ -27,7 +27,7 @@ def main():
         c = default_corpus(f"{tmp}/corpus")
         office_visit_practice(c)
         rows = build(c.root, OUT, c.services_file, c.hospital_plans_file, c.families_file,
-                     c.specialties_file)
+                     c.specialties_file, c.measures_file)
     print(f"→ the app's test tables in {OUT}: {rows}")
 
 

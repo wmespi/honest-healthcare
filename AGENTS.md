@@ -142,6 +142,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | Which plans we parse files for | [ingestion/etl/targets.yaml](ingestion/etl/targets.yaml) |
 | The families of services the find-care screen offers: each one's codes, bills, benefits, kinds of place and what the screen says | [integration/families.yaml](integration/families.yaml) |
 | The services in each family, by our own names | [integration/services.yaml](integration/services.yaml) |
+| The quality measures shown beside a place or clinician, and the services each fits | [integration/measures.yaml](integration/measures.yaml) |
 | The kinds of doctor someone picks for an office visit: each one's NUCC codes and the benefit its visit falls under | [integration/specialties.yaml](integration/specialties.yaml) |
 | NPPES Georgia provider subset | [ingestion/etl/nppes.md](ingestion/etl/nppes.md) |
 | NUCC specialty labels | [ingestion/reference/taxonomy-labels.md](ingestion/reference/taxonomy-labels.md) |

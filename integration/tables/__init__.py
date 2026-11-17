@@ -23,6 +23,7 @@ from integration.inputs.hospital_cash import HospitalCash
 from integration.inputs.facility_fees import FacilityFees, FacilityRates
 from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH, HospitalPlans
 from integration.inputs.hospitals import Hospitals
+from integration.inputs.measures import MEASURES_PATH, MeasureFits, Measures
 from integration.inputs.specialties import SPECIALTIES_PATH, Specialties, SpecialtyTaxonomies
 from integration.inputs.service_list import SERVICES_PATH, ServiceList
 from integration.inputs.service_sites import ServiceSites
@@ -34,12 +35,13 @@ from integration.tables.prices import Prices
 from integration.tables.plans import Plans
 from integration.tables.premiums import Premiums
 from integration.tables.providers import Providers
+from integration.tables.quality import Quality
 from integration.tables.services import Services
 from integration.tables.zips import Zips
 
 
 def inputs(services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH, families_path=FAMILIES_PATH,
-           specialties_path=SPECIALTIES_PATH):
+           specialties_path=SPECIALTIES_PATH, measures_path=MEASURES_PATH):
     """The build-only tables, in the order they're made."""
     return [
         Benefits(families_path),
@@ -51,6 +53,8 @@ def inputs(services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
         Specialties(specialties_path, families_path),
         SpecialtyTaxonomies(specialties_path, families_path),
         ServiceList(services_path, families_path),
+        Measures(measures_path, families_path),
+        MeasureFits(measures_path, families_path),
         HospitalPlans(hospital_plans_path),
         BillerDoctors(),
         BillerRates(),
@@ -78,11 +82,12 @@ def serving():
         Services(),
         Families(),
         Providers(),
+        Quality(),
     ]
 
 
 def make(con, data_dir, services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
-         families_path=FAMILIES_PATH, specialties_path=SPECIALTIES_PATH):
+         families_path=FAMILIES_PATH, specialties_path=SPECIALTIES_PATH, measures_path=MEASURES_PATH):
     """Make every input and serving table in `con` from the inputs under
     `data_dir`, writing nothing; returns the serving tables.
 
@@ -91,13 +96,13 @@ def make(con, data_dir, services_path=SERVICES_PATH, hospital_plans_path=HOSPITA
     read the ones above it."""
     tables = serving()
     check_inputs(con, data_dir)
-    for table in inputs(services_path, hospital_plans_path, families_path, specialties_path) + tables:
+    for table in inputs(services_path, hospital_plans_path, families_path, specialties_path, measures_path) + tables:
         table.make(con, data_dir)
     return tables
 
 
 def build(data_dir, serving_dir, services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
-          families_path=FAMILIES_PATH, specialties_path=SPECIALTIES_PATH):
+          families_path=FAMILIES_PATH, specialties_path=SPECIALTIES_PATH, measures_path=MEASURES_PATH):
     """Write every serving table under `serving_dir` from the inputs under
     `data_dir` (`data`, or `data-test` for a test build); returns {table: rows}.
 
@@ -109,7 +114,8 @@ def build(data_dir, serving_dir, services_path=SERVICES_PATH, hospital_plans_pat
     spill = os.getenv("DUCKDB_TMP") or f"{serving_dir}/.spill"
     con = connect(spill)
     try:
-        tables = make(con, data_dir, services_path, hospital_plans_path, families_path, specialties_path)
+        tables = make(con, data_dir, services_path, hospital_plans_path, families_path, specialties_path,
+                      measures_path)
         rows = {}
         try:
             for table in tables:
