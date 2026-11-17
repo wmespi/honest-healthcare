@@ -26,7 +26,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **Only the services in `integration/services.yaml` have prices.**
   A family in `integration/families.yaml` takes its codes from CMS's shoppable services, and a code shows once the file names it.
   `make build` lists each family's codes a plan prices that have no name yet.
-  Procedures and hospital stays have no family ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
+  Hospital stays have no family, and a procedure's anesthesia and pathology are no part of it yet ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
 - **Prices are outpatient professional fee-for-service only.** `biller_rates`
   ([integration/build.md](../integration/build.md#the-find-care-tables)) keeps fee-schedule or
   negotiated dollar rates for an outpatient professional visit. Excluded but still in the
@@ -52,6 +52,14 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   are excluded, so `billed: False` is weak; ~2-year lag; single year, so "stopped
   doing it" looks like "never"; Georgia has no all-payer claims database to widen
   it ([#14](https://github.com/wmespi/honest-healthcare/issues/14)).
+
+## Procedures
+
+- **Blue Value's file lists no facility's fee**, so its procedure rows show the doctor's fee alone.
+  A procedure no doctor near the search is shown billing Medicare for, such as a child's tonsils, pregnancy care or a rare variant, has no row on it; `make test-live` counts them.
+- **A doctor's fee at a hospital or surgery center needs a group whose doctors CMS lists in its building**, and most surgeons' groups are listed at their own offices, so most hospital rows show the facility's fee with the doctor's missing ([build.md](../integration/build.md)).
+- **A generic ambulatory surgery center's fee shows only where such a group works in it**, since its contract prices every code whether it does the procedure or not.
+- **A surgery done only at a facility is often listed under the office's place of service alone**, and that rate is read as the doctor's fee where the file lists none for a facility.
 
 ## Scale / performance
 
@@ -122,14 +130,14 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   Clinicians), and away from a hospital a doctor with no group there has no place, even when
   they do run their own office.
 - **Blue Value has no open source for a hospital's fee.**
-  Its file's institutional lines are all revenue codes, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-hospitals-own-fee)).
+  Its file's institutional lines are all revenue codes, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-facilitys-own-fee)).
   A hospital on that network shows the reading and Medicare's hospital outpatient rate as a rough guide ([opps.md](../ingestion/reference/opps.md)), and mammography has no Medicare rate.
-- **A hospital paid a percentage of its charges or a per diem shows no fee**, from either source, and a case rate in a hospital's own file is not read as a fee ([build.md](../integration/build.md#a-hospitals-own-fee)).
+- **A hospital paid a percentage of its charges or a per diem shows no fee**, from either source, and a case rate in a hospital's own file is not read as a fee ([build.md](../integration/build.md#a-facilitys-own-fee)).
 - **Some hosts refuse a non-browser client, so their hospitals have no price file:** Northside's asset host, `sghs.org`, `adventhealth.com`, and Phoebe, whose links go through a link-rewriting service ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
 - **`ingestion/etl/hospitals.yaml` lists only some of Georgia's hospitals**, and some locations in listed systems' indexes match no CCN in the hospital reference: Emory Hospital Perry, Piedmont Macon, Piedmont McDuffie, Wellstar Windy Hill and NGMC Braselton ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
 - **Some hospital billing NPIs with institutional rates in Pathway's file price no hospital's fee**, because they match no hospital's building, and the build prints them.
   Shepherd Center and Children's Healthcare of Atlanta at Hughes Spalding are not in the hospital reference.
-  Wayne Memorial, Memorial Health University Medical Center, Polk Medical Center and Mountain Lakes Medical Center have a billing address that differs from the hospital reference's ([build.md](../integration/build.md#a-hospitals-own-fee)).
+  Wayne Memorial, Memorial Health University Medical Center, Polk Medical Center and Mountain Lakes Medical Center have a billing address that differs from the hospital reference's ([build.md](../integration/build.md#a-facilitys-own-fee)).
 - **Which labels price a plan beyond its own is hand-written, and the order between them is a rule we chose.**
   A target's `shared_patterns` name the labels in its file that price the plan's members without its name, and the build shows a rate under one only where the plan's own label has none for the biller, service and bill ([parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
   Nothing in the file states that order, and no hospital's own file lists a professional rate to test it against.

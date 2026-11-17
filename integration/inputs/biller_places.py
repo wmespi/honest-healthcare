@@ -1,4 +1,5 @@
-"""Build-only: the places each biller in biller_rates is at, if it has any."""
+"""Build-only: the places each biller in biller_rates, and each center with a facility
+fee in facility_rates, is at, if it has any."""
 from integration.inputs.addresses import ADDRESS, _words, listed, suite
 from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES
 from integration.table import Table
@@ -22,7 +23,8 @@ def _phone(digits):
 
 
 class BillerPlaces(Table):
-    """One row per biller and place it's at. A biller is at the address on its
+    """One row per biller and place it's at, for each biller with a rate in
+    biller_rates and each center billing its own fee (facility_rates). A biller is at the address on its
     NPPES record (`main`) and at the other Georgia addresses it lists there,
     never its roster's, and several of those in one building are one site
     (integration/inputs/addresses.py). service_sites says which of a biller's
@@ -34,13 +36,16 @@ class BillerPlaces(Table):
     are at the same office (the same suite, or none listed), and the billers
     linked to those through others. Related companies often bill from one
     office under different names. A practice is keyed on the lowest billing NPI
-    whose main address is in the building, and takes that biller's address and
-    phone, and the name of the one with rates for the most services, the lowest
-    NPI where two tie. Where none of its billers has its main address, the key is the
-    lowest billing NPI and a short hash of the building, so one biller's sites
+    with a doctor's rate (biller_rates) whose main address is in the building,
+    and only a practice with none of those is keyed on its centers' billers the
+    same way. The key's biller gives the practice its address and
+    phone, and the one with rates for the most services gives its name, the lowest
+    NPI where two tie. Where none of the key's candidates has its main address, the key is the
+    lowest of them and a short hash of the building, so one biller's sites
     are different places. Its kind is the kind of center NPPES registers its
     billers as (centers), the first in the order of `kinds` where they're
-    registered as two, else `practice`. Billers with different names in
+    registered as two, else a generic surgery center (facilities) when none of
+    its billers has a doctor's rate, else `practice`. Billers with different names in
     different suites of a building stay apart, because their prices differ more
     often than one practice's billing IDs do. A doctor's own NPI takes the name of its
     CMS group, and away from a hospital it has no place without one. A biller with
@@ -59,20 +64,23 @@ class BillerPlaces(Table):
     def select(self, data_dir):
         return f"""
             WITH RECURSIVE billers AS (
-                SELECT b.biller, n.npi, c.kind AS center, k.position AS center_rank,
+                SELECT b.biller, n.npi, c.kind AS center, k.position AS center_rank, c.generic AS generic,
+                       b.biller IN (SELECT biller FROM biller_rates) AS rated,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name ELSE d.org_name END AS name,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name
                             ELSE coalesce(d.org_name, concat_ws(' ', n.first_name, n.last_name)) END AS biller_name
-                FROM (SELECT DISTINCT biller FROM biller_rates) b
+                FROM (SELECT DISTINCT biller FROM biller_rates
+                      UNION SELECT DISTINCT biller FROM facility_rates WHERE center) b
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
-                LEFT JOIN (SELECT DISTINCT taxonomy_code, kind FROM centers) c ON c.taxonomy_code = n.taxonomy_code
+                LEFT JOIN (SELECT taxonomy_code, kind, false AS generic FROM centers
+                            UNION SELECT taxonomy_code, kind, true FROM facilities) c ON c.taxonomy_code = n.taxonomy_code
                 LEFT JOIN kinds k ON k.kind = c.kind
             ),
             listed AS {listed(data_dir)},
             sites AS (
                 SELECT DISTINCT ON (b.biller, a.building)
-                       b.biller, b.biller_name, b.name, b.center, b.center_rank, l.main, a.building, a.lat, a.lon,
+                       b.biller, b.biller_name, b.name, b.center, b.center_rank, b.generic, b.rated, l.main, a.building, a.lat, a.lon,
                        concat_ws(', ', l.address_line1, nullif(trim(l.address_line2), '')) AS address,
                        l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone,
                        {suite("l.address_line1", "l.address_line2")} AS suite
@@ -102,13 +110,22 @@ class BillerPlaces(Table):
             groups AS (
                 SELECT a AS biller, building, min(b) AS grp FROM together GROUP BY a, building
             ),
+            members AS (
+                SELECT c.*, g.grp, bool_or(c.rated) OVER (PARTITION BY c.building, g.grp) AS any_rated
+                FROM candidates c JOIN groups g USING (biller, building)
+            ),
+            keyed AS (
+                SELECT *, rated OR NOT any_rated AS keys
+                FROM members
+            ),
             practices AS (
                 SELECT biller, biller_name, main, building,
-                       coalesce(min(biller) FILTER (WHERE main) OVER practice, min(biller) OVER practice) AS lowest,
-                       bool_or(main) OVER practice AS any_main,
-                       arg_min(center, center_rank) OVER practice AS center,
+                       coalesce(min(biller) FILTER (WHERE main AND keys) OVER practice,
+                                min(biller) FILTER (WHERE keys) OVER practice) AS lowest,
+                       coalesce(bool_or(main) FILTER (WHERE keys) OVER practice, false) AS any_main,
+                       arg_min(center, CASE WHEN generic AND any_rated THEN NULL ELSE center_rank END) OVER practice AS center,
                        arg_min(biller, (-coalesce(n.services, 0), biller)) OVER practice AS named
-                FROM candidates JOIN groups USING (biller, building)
+                FROM keyed
                 LEFT JOIN (SELECT biller, count(DISTINCT service_id) AS services FROM biller_rates GROUP BY biller) n
                     USING (biller)
                 WINDOW practice AS (PARTITION BY building, grp)

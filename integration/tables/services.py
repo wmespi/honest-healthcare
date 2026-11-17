@@ -1,5 +1,6 @@
 """services.parquet: one row per service someone can find a price for, with what
 the screen says about it, its bills and what Medicare pays for it."""
+from integration.inputs.biller_rates import OWN_FEE_FAMILIES
 from integration.inputs.datasets import MPFS, OPPS
 from integration.inputs.service_list import SERVICE_BILLS
 from integration.table import Table
@@ -9,12 +10,13 @@ class Services(Table):
     """Every service in integration/services.yaml with a row in prices, with its
     `family` and its text. `bills` is each bill a patient could get for it, in
     its family's order (integration/families.yaml): its `part`, the `label` the
-    screen shows, its `billing_class` (`institutional` for the hospital's own fee,
+    screen shows, its `billing_class` (`institutional` for a facility's own fee,
     else `professional`), the `benefits` the member's share for it falls under
     (cost_sharing), and what the screen says where it has no rate (`missing_note`,
     `missing_explain`, and `missing_explain_hospital` where that differs at a
     hospital). `medicare_rate` is what Medicare pays for the whole service in an
-    office, the median of Georgia's payment areas (ingestion/reference/mpfs.md).
+    office, empty for a family whose facility bills its own fee, since Medicare's
+    physician rate covers only the doctor's part, the median of Georgia's payment areas (ingestion/reference/mpfs.md).
     `medicare_facility_rate` is Medicare's national hospital outpatient rate
     (ingestion/reference/opps.md), empty for a service Medicare doesn't pay that
     way, such as a mammogram."""
@@ -44,7 +46,8 @@ class Services(Table):
                 GROUP BY service_id
             )
             SELECT s.service_id, s.billing_code, s.family, s.name, s.keywords, s.about, s.could_change, s.asks,
-                   s.preventive_note, b.bills, o.medicare_rate, f.payment_rate AS medicare_facility_rate
+                   s.preventive_note, b.bills, CASE WHEN s.family NOT IN {OWN_FEE_FAMILIES} THEN o.medicare_rate END AS medicare_rate,
+                   f.payment_rate AS medicare_facility_rate
             FROM service_list s
             JOIN bills b USING (service_id)
             LEFT JOIN office o USING (billing_code)

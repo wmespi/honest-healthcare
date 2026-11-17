@@ -10,8 +10,8 @@ class Prices(Table):
     """One row per network, service and place on the map where the place's
     billers have a rate for the service (integration/inputs/biller_rates.py) and
     it's one of their places for it (integration/inputs/service_sites.py), plus
-    one per network, service and hospital on the map with its own fee for the
-    service (integration/inputs/hospital_fees.py). Which bills a row shows is the
+    one per network, service and place on the map with its own fee for the
+    service, a hospital's or a center's (integration/inputs/facility_fees.py). Which bills a row shows is the
     service's family's (integration/families.yaml), and each is one part, with
     the rate that has the strongest evidence there (biller_rates.EVIDENCE), and
     the highest of those when several tie, since the file doesn't say which of
@@ -22,7 +22,7 @@ class Prices(Table):
       such as a scan's reading. The hospital is on the list where those groups
       have a rate (decided on #135), or where it has a fee, since a fee is
       evidence the hospital itself is in network. The fee is from one source,
-      never a blend (hospital_fees): the plan's own file where it prices the
+      never a blend (facility_fees): the plan's own file where it prices the
       hospital, else the hospital's own price file under a name the reviewed
       list says is the network's. Only where the fee is empty does nothing on
       file confirm the hospital itself is in network, so the screen says so. An
@@ -33,7 +33,9 @@ class Prices(Table):
       service when no plan pays (hospital_cash), and it's empty at every other
       place. A family with no `hospital` bills isn't shown at hospitals;
     - any other place shows the first of the family's `elsewhere` alternatives
-      it has a rate for every bill of, else the last. An `on_site` bill counts
+      it has a rate for every bill of, else the last. A center, such as a surgery
+      center, shows its own fee where the plan's file has one, even with no
+      professional rate, and the doctor's fee empty. An `on_site` bill counts
       only where the place does the service (biller_rates.on_site) and is
       empty elsewhere. For a scan, a place that does it shows its all-in rate,
       which covers the reading, or the scan and the reading when it lists no
@@ -48,7 +50,7 @@ class Prices(Table):
     when the part has no rate.
 
     `several_rates` says a part shown has more than one rate with that evidence,
-    or at that source for a hospital's fee, so someone should ask which they'd
+    or at that source for a facility's fee, so someone should ask which they'd
     get, and `billers` lists the names of the billing groups behind the row
     (biller_places.biller_name), which at a hospital are the groups reading
     there. Names that match once punctuation and company endings are dropped are
@@ -105,10 +107,10 @@ class Prices(Table):
                 FROM rated
                 GROUP BY network_id, service_id, place_id
                 UNION ALL BY NAME
-                SELECT network_id, service_id, place_id, true AS hospital, false AS on_site
-                FROM hospital_fees
-                WHERE place_id IN (SELECT place_id FROM places)
-                  AND (network_id, service_id, place_id) NOT IN (SELECT (network_id, service_id, place_id) FROM rated)
+                SELECT f.network_id, f.service_id, f.place_id, p.kind = 'hospital' AS hospital, false AS on_site
+                FROM facility_fees f JOIN places p USING (place_id)
+                WHERE (f.network_id, f.service_id, f.place_id) NOT IN (
+                    SELECT (network_id, service_id, place_id) FROM rated)
             ),
             choices AS (
                 SELECT family, true AS hospital, 1 AS choice, generate_subscripts(hospital, 1) AS position,
@@ -131,7 +133,7 @@ class Prices(Table):
                 JOIN family_bills b ON b.family = c.family AND b.part = c.part
                 LEFT JOIN rates r ON r.network_id = w.network_id AND r.service_id = w.service_id
                                  AND r.place_id = w.place_id AND r.part = c.part
-                LEFT JOIN hospital_fees f ON f.network_id = w.network_id AND f.service_id = w.service_id
+                LEFT JOIN facility_fees f ON f.network_id = w.network_id AND f.service_id = w.service_id
                                          AND f.place_id = w.place_id
             ),
             chosen AS (

@@ -107,7 +107,7 @@ function MissingBillNote({ location }) {
     <div className="space-y-1.5 text-pretty text-[13px] leading-5 text-slate-600">
       <p>{location.missing.explain}</p>
       {location.facilityEstimate !== null && (
-        <p>As a rough guide, Medicare pays hospitals about {money(location.facilityEstimate)} for this scan. That isn&rsquo;t your plan&rsquo;s rate, so it isn&rsquo;t counted here.</p>
+        <p>As a rough guide, Medicare pays hospitals about {money(location.facilityEstimate)} for this service. That isn&rsquo;t your plan&rsquo;s rate, so it isn&rsquo;t counted here.</p>
       )}
     </div>
   );
@@ -121,13 +121,13 @@ function SeveralRatesNote() {
   );
 }
 
-// A hospital's own name says nothing about who reads the scan there, so its row names
-// the groups that bill for it. At any other place they're the place itself.
+// A hospital's own name says nothing about which doctors bill there, so its row names
+// their groups. At any other place they're the place itself.
 function BilledHere({ billers }) {
   if (billers.length === 0) return null;
   return (
     <p className="text-pretty text-[13px] leading-5 text-slate-600">
-      {listed(billers)} {billers.length === 1 ? 'bills' : 'bill'} for the reading here.
+      {listed(billers)} {billers.length === 1 ? 'bills' : 'bill'} the doctor&rsquo;s fee here.
     </p>
   );
 }
@@ -143,7 +143,7 @@ function HospitalPriceList({ location }) {
       )}
       {location.cashPrice !== null && (
         <p className="text-pretty text-[13px] leading-5 text-slate-600">
-          Without insurance, this hospital&rsquo;s price list says it charges {money(location.cashPrice)} for the scan. The reading may be billed separately.
+          Without insurance, this hospital&rsquo;s price list says it charges {money(location.cashPrice)} for this service. The doctor&rsquo;s fee may be billed separately.
         </p>
       )}
     </>

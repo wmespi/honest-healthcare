@@ -17,7 +17,7 @@ FAMILIES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 KEY = re.compile(r"[a-z][a-z0-9_]*")
 FAMILY_FIELDS = {"family", "name", "groups", "except", "codes", "benefits", "about", "could_change", "asks", "bills",
                  "hospital", "elsewhere", "centers", "evidence_codes", "place_of_service"}
-BILL_FIELDS = {"part", "label", "billing_class", "modifier", "on_site", "benefits", "missing"}
+BILL_FIELDS = {"part", "label", "billing_class", "modifier", "on_site", "benefits", "missing", "place_of_service"}
 MISSING_FIELDS = {"note", "explain", "explain_at_hospital"}
 # The place-of-service codes a family reads when it doesn't say: an office.
 OFFICE = ["11"]
@@ -54,7 +54,7 @@ def read_families(path=FAMILIES_PATH):
     def stop(why):
         raise SystemExit(f"{path}: {why}")
 
-    extra = sorted(set(model) - {"shared", "benefits", "kinds", "families"})
+    extra = sorted(set(model) - {"shared", "benefits", "kinds", "facilities", "families"})
     if extra:
         stop(f"has sections the build doesn't use: {extra}")
     benefits, kinds = model.get("benefits") or {}, model.get("kinds") or {}
@@ -68,6 +68,10 @@ def read_families(path=FAMILIES_PATH):
     missing = sorted({"hospital", "practice"} - set(kinds))
     if missing:
         stop(f"kinds doesn't declare {missing}, the kinds of place that aren't centers")
+    facilities = model.get("facilities") or {}
+    for code, kind in facilities.items():
+        if kind not in kinds or kind == "hospital":
+            stop(f"facility {code} is a {kind!r}, which kinds doesn't declare or is a hospital")
     families, center_kinds = [], {}
     for position, f in enumerate(model.get("families") or [], 1):
         family = f.get("family")
@@ -89,14 +93,17 @@ def read_families(path=FAMILIES_PATH):
             for part in listed:
                 if part not in parts:
                     stop(f"{family}'s {where} names {part!r}, which isn't one of its bills")
-                if where == "elsewhere" and part in institutional:
-                    stop(f"{family}'s elsewhere names {part}, the hospital's own fee, which only a hospital bills")
+                if where == "elsewhere" and part in institutional and not (f.get("centers") or facilities):
+                    stop(f"{family}'s elsewhere names {part}, a facility's own fee, but the family has no centers "
+                         f"and the file no facilities to bill it")
         centers = f.get("centers") or {}
         for code, kind in centers.items():
             if kind not in kinds:
                 stop(f"{family}'s center {code} is a {kind!r}, which kinds doesn't declare")
             if kind == "hospital":
                 stop(f"{family}'s center {code} is a hospital, but only a hospital's own building is one")
+            if code in facilities:
+                stop(f"{code} is a center for {family} and also a facility, which is for every family")
             other = center_kinds.setdefault(code, (family, kind))
             if other[1] != kind:
                 stop(f"center {code} is a {kind} for {family} but a {other[1]} for {other[0]}")
@@ -116,7 +123,7 @@ def read_families(path=FAMILIES_PATH):
             stop(f"{family} has no name")
     if not families:
         stop("lists no families")
-    return {"benefits": benefits, "kinds": kinds, "families": families}
+    return {"benefits": benefits, "kinds": kinds, "facilities": facilities, "families": families}
 
 
 def _bills(f, benefits, stop):
@@ -134,7 +141,9 @@ def _bills(f, benefits, stop):
             stop(f"{family} has two {part} bills")
         if not _text(b.get("label")):
             stop(f"{family}'s {part} bill has no label")
-        listed = []
+        listed, own_places = [], None
+        if "place_of_service" in b:
+            own_places = _codes(b["place_of_service"], f"{family}'s {part} bill's place_of_service", stop)
         if billing_class == "professional":
             listed = b.get("modifier")
             listed = [listed] if isinstance(listed, str) else listed
@@ -143,14 +152,16 @@ def _bills(f, benefits, stop):
                 stop(f"{family}'s {part} bill is professional, so it needs a quoted modifier, \"\" for none, "
                      f"or a list of them, none repeated")
             for modifier in listed:
-                if modifier in modifiers:
-                    stop(f"{family}'s {modifiers[modifier]} and {part} bills both have modifier {modifier!r}")
-                modifiers[modifier] = part
+                if modifier in modifiers and (own_places is None or modifiers[modifier][1] is None):
+                    stop(f"{family}'s {modifiers[modifier][0]} and {part} bills both have modifier {modifier!r}, "
+                         f"which needs each to name its own place_of_service")
+                modifiers[modifier] = (part, own_places)
         elif billing_class == "institutional":
-            if "modifier" in b or "on_site" in b:
-                stop(f"{family}'s {part} bill is the hospital's own fee, so it has no modifier or on_site")
+            if "modifier" in b or "on_site" in b or own_places is not None:
+                stop(f"{family}'s {part} bill is a facility's own fee, so it has no modifier, on_site or "
+                     f"place_of_service")
             if any(c["billing_class"] == "institutional" for c in bills):
-                stop(f"{family} has two institutional bills, but a hospital bills one fee of its own")
+                stop(f"{family} has two institutional bills, but a facility bills one fee of its own")
         else:
             stop(f"{family}'s {part} bill has billing_class {billing_class!r}, not professional or institutional")
         missing = b.get("missing") or {}
@@ -159,7 +170,7 @@ def _bills(f, benefits, stop):
             stop(f"{family}'s {part} bill: missing needs a note and an explain, and may have an explain_at_hospital")
         bills.append({
             "part": part, "position": position, "label": b["label"], "billing_class": billing_class,
-            "modifiers": listed, "on_site": bool(b.get("on_site", False)),
+            "modifiers": listed, "place_of_service": own_places, "on_site": bool(b.get("on_site", False)),
             "benefits": benefit_keys(b.get("benefits", f.get("benefits")), benefits,
                                      f"{family}'s {part} bill", stop),
             "missing_note": missing.get("note"), "missing_explain": missing.get("explain"),
@@ -235,13 +246,16 @@ class FamilyBills(FromYaml):
     `professional` bill is priced from the plan's rates with one of its
     `modifiers` ("" is a rate with none), and
     `on_site` says only a place that does the service bills it; the
-    `institutional` one is the hospital's own fee (hospital_fees). `benefits` is
+    `institutional` one is a facility's own fee (facility_fees). `place_of_service`
+    is the codes whose rates the bill reads in place of the family's, none when
+    it reads the family's, and each entry may join several codes with "|", which
+    rank equal. `benefits` is
     what the member's share for it falls under, unless a service names its own
     (service_list.SERVICE_BILLS)."""
     name = "family_bills"
     key = ["family", "part"]
     columns = {"family": "VARCHAR", "part": "VARCHAR", "position": "INTEGER", "label": "VARCHAR",
-               "billing_class": "VARCHAR", "modifiers": "VARCHAR[]", "on_site": "BOOLEAN", "benefits": "VARCHAR[]",
+               "billing_class": "VARCHAR", "modifiers": "VARCHAR[]", "place_of_service": "VARCHAR[]", "on_site": "BOOLEAN", "benefits": "VARCHAR[]",
                "missing_note": "VARCHAR", "missing_explain": "VARCHAR", "missing_explain_hospital": "VARCHAR"}
 
     def rows(self):
@@ -269,6 +283,27 @@ class Centers(FromYaml):
             ORDER BY 1""").fetchall()]
         if missing:
             raise SystemExit(f"centers: NUCC no longer lists {missing}; decide what replaces them")
+
+
+class Facilities(FromYaml):
+    """One row per NPPES primary specialty code that registers a biller as a kind
+    of facility that bills its own fee for any family offering that bill away from
+    a hospital, with its kind of place. A facility's code isn't evidence it does a
+    family's services, so its fee is shown only where a group with evidence works
+    (integration/inputs/facility_fees.py)."""
+    name = "facilities"
+    key = ["taxonomy_code"]
+    columns = {"taxonomy_code": "VARCHAR", "kind": "VARCHAR"}
+
+    def rows(self):
+        return [[code, kind] for code, kind in read_families(self.path)["facilities"].items()]
+
+    def check(self, con, data_dir):
+        missing = [c for (c,) in con.execute(f"""
+            SELECT taxonomy_code FROM facilities
+            WHERE taxonomy_code NOT IN (SELECT taxonomy_code FROM {NUCC_TAXONOMY.read(data_dir)}) ORDER BY 1""").fetchall()]
+        if missing:
+            raise SystemExit(f"facilities: NUCC no longer lists {missing}; decide what replaces them")
 
 
 def members(data_dir):
