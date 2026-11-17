@@ -374,7 +374,10 @@ families:
         label: The doctor’s fee
         billing_class: professional
         modifier: ""
-        place_of_service: ["22|24", "21"]
+        # A file lists a surgery done only at a facility, which Medicare prices the
+        # same anywhere, under the office's code alone, so that rate is the doctor's
+        # fee where the file has none for a facility.
+        place_of_service: ["22|24", "21", "11"]
         on_site: false
         missing:
           note: Missing the doctor’s fee

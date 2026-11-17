@@ -26,7 +26,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **Only the services in `integration/services.yaml` have prices.**
   A family in `integration/families.yaml` takes its codes from CMS's shoppable services, and a code shows once the file names it.
   `make build` lists each family's codes a plan prices that have no name yet.
-  Procedures and hospital stays have no family ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
+  Hospital stays have no family, and a procedure's anesthesia and pathology are no part of it yet ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
 - **Prices are outpatient professional fee-for-service only.** `biller_rates`
   ([integration/build.md](../integration/build.md#the-find-care-tables)) keeps fee-schedule or
   negotiated dollar rates for an outpatient professional visit. Excluded but still in the
@@ -52,6 +52,14 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   are excluded, so `billed: False` is weak; ~2-year lag; single year, so "stopped
   doing it" looks like "never"; Georgia has no all-payer claims database to widen
   it ([#14](https://github.com/wmespi/honest-healthcare/issues/14)).
+
+## Procedures
+
+- **Blue Value's file lists no facility's fee**, so its procedure rows show the doctor's fee alone.
+  A procedure no doctor near the search is shown billing Medicare for, such as a child's tonsils, pregnancy care or a rare variant, has no row on it; `make test-live` counts them.
+- **A doctor's fee at a hospital or surgery center needs a group whose doctors CMS lists in its building**, and most surgeons' groups are listed at their own offices, so most hospital rows show the facility's fee with the doctor's missing ([build.md](../integration/build.md)).
+- **A generic ambulatory surgery center's fee shows only where such a group works in it**, since its contract prices every code whether it does the procedure or not.
+- **A surgery done only at a facility is often listed under the office's place of service alone**, and that rate is read as the doctor's fee where the file lists none for a facility.
 
 ## Scale / performance
 

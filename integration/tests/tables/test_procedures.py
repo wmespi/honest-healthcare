@@ -69,8 +69,9 @@ def test_a_generic_surgery_center_with_a_fee_and_no_group_with_evidence_has_no_r
 
 def test_a_surgery_center_with_a_group_with_evidence_in_its_building_shows_its_fee_and_theirs(corpus):
     shown = procedures(corpus)
-    assert shown[str(ASC)] == [part("facility", 950.0), part("surgeon", 420.0)]
-    assert places(corpus)[str(ASC)][1:] == ("surgery_center", "Surgery center")
+    assert shown[str(ASC_GROUP)] == [part("facility", 950.0), part("surgeon", 420.0)]
+    assert places(corpus)[str(ASC_GROUP)][1:] == ("practice", "Medical practice")
+    assert str(ASC) not in places(corpus)
 
 
 def test_an_endoscopy_center_with_a_fee_and_no_doctor_shows_the_facility_fee(corpus):
@@ -95,4 +96,31 @@ def test_a_practice_that_does_it_only_in_facilities_shows_the_doctors_fee_and_an
 def test_a_biller_with_no_place_of_its_own_gets_one_only_as_a_center_billing_a_facility_fee(corpus):
     procedures(corpus)
     assert str(HOSPITAL_NPI) not in {r[0] for r in corpus.rows("places")}
-    assert {r[0] for r in corpus.rows("places") if r[2] == "surgery_center"} == {str(ASC), str(ENDO_CENTER)}
+    assert {r[0] for r in corpus.rows("places") if r[2] == "surgery_center"} == {str(ENDO_CENTER)}
+
+
+def test_a_group_and_a_lower_generic_surgery_center_npi_at_one_address_are_one_practice_keyed_on_the_group(corpus):
+    procedures(corpus)
+    low, group = 1000000009, 1000000030
+    place(corpus, group, "THE EMORY CLINIC INC", "60 CLINIC WAY", "303082233")
+    corpus.scan_price(BV, group - 1000000000, "43235", all_in=330, service_code="22")
+    corpus.billed(group + 1000000000, "43235", "F")
+    place(corpus, low, "THE EMORY CLINIC INC", "60 CLINIC WAY", "303082233", taxonomy="261QA1903X", geocoded=True)
+    corpus.facility_price(BV, low - 1000000000, "43235", 640)
+    corpus.build()
+    assert str(low) not in places(corpus)
+    assert places(corpus)[str(group)][1:] == ("practice", "Medical practice")
+    assert {r[2]: r[3] for r in corpus.rows("prices") if r[:2] == (BV, EGD)}[str(group)] == [
+        part("facility", 640.0), part("surgeon", 330.0)]
+
+
+def test_an_endoscopy_center_merged_with_a_group_stays_a_surgery_center(corpus):
+    procedures(corpus)
+    group, center = 1000000031, 1000000032
+    place(corpus, group, "RIVER GI", "70 RIVER WAY", "303082233")
+    corpus.scan_price(BV, group - 1000000000, "43235", all_in=330, service_code="11")
+    corpus.billed(group + 1000000000, "43235", "O")
+    place(corpus, center, "RIVER GI", "70 RIVER WAY", "303082233", taxonomy="261QE0800X", geocoded=True)
+    corpus.facility_price(BV, center - 1000000000, "43235", 640)
+    corpus.build()
+    assert places(corpus)[str(group)][1] == "surgery_center"

@@ -66,15 +66,16 @@ def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 11, "services": 168, "families": 11, "places": 5410, "prices": 58886,
-                            "providers": 12734}
+    assert root["rows"] == {"plans": 11, "services": 280, "families": 16, "places": 5445, "prices": 72198,
+                            "providers": 13017}
 
 
 def test_the_families_are_in_the_screens_order(client):
     catalog = client.get("/services").json()
     assert [f["family"] for f in catalog["families"]] == [
         "office_visits", "preventive_visits", "urgent_care", "mental_health", "therapy", "lab_tests", "xrays",
-        "mammograms", "ultrasound", "ct", "mri"]
+        "mammograms", "ultrasound", "ct", "mri", "endoscopy", "eye_procedures", "bone_joint_procedures",
+        "skin_procedures", "other_procedures"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
 
 
@@ -143,11 +144,16 @@ def test_every_service_has_a_price_on_pathway_within_50_miles(client):
     assert unpriced(client, GOLD_PATHWAY) == []
 
 
-def test_blue_value_prices_all_but_five_services_within_50_miles(client):
-    # Its file has a rate for each, but no doctor Medicare shows billing it near Emory.
-    assert unpriced(client, SILVER) == [
-        "checkup-return-18-39", "counseling-family-with", "counseling-family-without", "counseling-group",
-        "therapy-iontophoresis"]
+def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
+    # Its file has a rate for each, but no doctor Medicare shows billing it near
+    # Emory, and it lists no facility's fee, so many procedures (children's,
+    # pregnancy, rare variants) have no row.
+    gaps = unpriced(client, SILVER)
+    assert len(gaps) == 53
+    assert {"checkup-return-18-39", "counseling-family-with", "counseling-family-without", "counseling-group",
+            "therapy-iontophoresis", "surgery-tonsils-adult", "surgery-vasectomy"} <= set(gaps)
+    assert not {"colonoscopy", "eye-cataract", "joint-knee-scope-meniscus", "surgery-gallbladder-scope",
+                "skin-biopsy"} & set(gaps)
 
 
 def test_a_search_needs_a_plan(client):

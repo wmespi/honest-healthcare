@@ -37,6 +37,20 @@ Expected for all: the place shows one part at its rate, which is the most she'd 
 | J9 | Rosa: physical therapy | Physical and occupational therapy → Exercise therapy, per 15 minutes | The Emory Clinic's rate for 15 minutes |
 | J10 | Rosa: a lab test | Lab tests → Complete blood count, basic (CBC) | The Emory Clinic's rate for the test |
 
+## Flow A - find a procedure
+
+Each is one service of its family, from ZIP 30322.
+Expected for all: the place shows the facility's fee and the doctor's as separate bills, each saying where its rate is from, the most they'd pay is their sum only when neither is missing, and the share is the plan's for outpatient surgery and the outpatient facility.
+
+| ID | Journey | Clickpath | Expected |
+|---|---|---|---|
+| J11 | Sam: a colonoscopy at a hospital | Colonoscopy and upper endoscopy → Colonoscopy, screening or diagnostic → their plan | Emory University Hospital Midtown's fee from its own price list and the doctor's fee from the plan's file add up to the most they'd pay |
+| J12 | Rosa: a colonoscopy | Colonoscopy and upper endoscopy → Colonoscopy, screening or diagnostic → her plan | The Emory Clinic's doctor's fee, with the facility's fee missing, since her plan's file lists none |
+| J13 | Sam: cataract surgery | Eye surgery and injections → Cataract removal with a new lens → their plan | Eye Physicians and Surgeons, a surgery center, with its own fee and the doctor's, both from the plan's file |
+| J14 | Sam: a knee scope | Bone, joint and spine procedures → Knee scope with meniscus removal, one side → their plan | Emory University Hospital's fee from its own price list, with the doctor's fee missing |
+| J15 | Rosa: a skin biopsy | Skin procedures → Skin biopsy, one spot, shaved → her plan | Dermatology Associates of Georgia's office rate, which includes the room, as the one bill |
+| J16 | Sam: gallbladder removal | Other surgery → Gallbladder removal by scope → their plan | Emory University Hospital's fee from its own price list, with the doctor's fee missing |
+
 ## No plan
 
 | ID | Journey | Expected |

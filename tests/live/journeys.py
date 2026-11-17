@@ -39,6 +39,10 @@ CANARY_70551 = 180.49  # brain MRI at The Emory Clinic on Blue Value — must no
 EMORY_CLINIC = "1396798229"
 GOLD_PATHWAY = "49046GA0700055"  # Anthem Gold Pathway PCP Copay Choice HMO 1200, Sam's plan here
 GRADY = "110079"
+EMORY_MIDTOWN = "110078"
+EMORY_HOSPITAL = "110010"
+EYE_PHYSICIANS = "1720011422"  # Eye Physicians and Surgeons, a surgery center
+DERMATOLOGY_ASSOCIATES = "1063560803"  # Dermatology Associates of Georgia
 GRADY_70551 = 1287.28  # brain MRI at Grady on Pathway: the hospital's fee in the plan's file plus the reading
 PEACHTREE_IMMEDIATE_CARE = "1235573841"
 SLOW_CALL_MS = 1500   # a single API call slower than this gets flagged (not a failure)
@@ -146,6 +150,32 @@ def one_bill(service_id, part, place_id, rate, shares, radius_mi=None, kind=None
     return journey
 
 
+def procedure(service_id, plan_id, place_id, parts, radius_mi=None):
+    """A journey for a procedure: the place shows its bills in order as (part,
+    rate, source), the most you'd pay is their sum only when none is missing, and
+    the plan's share is under its outpatient surgery and facility benefits."""
+    def journey(api):
+        body, status = get(api, "/find-care", service_id=service_id, plan_id=plan_id, zip="30322",
+                            radius_mi=radius_mi)
+        rows = (body or {}).get("results") or []
+        if status != 200 or not rows:
+            return False, f"/find-care {service_id} returned {status} / {len(rows)} places"
+        place = next((r for r in rows if r["place_id"] == place_id), None)
+        got = place and [(p["part"], p["max"], p["source"]) for p in place["parts"]]
+        rates = [rate for _, rate, _ in parts]
+        whole = None if None in rates else round(sum(rates), 2)
+        benefits = [s["benefit"] for s in body.get("cost_sharing") or []]
+        checks = [
+            (place is not None, f"place {place_id} listed"),
+            (got == parts, f"{place_id} shows {got} (want {parts})"),
+            (place and place["max_rate"] == whole, f"the most you'd pay is {place and place['max_rate']} (want {whole})"),
+            (benefits == ["outpatient_surgery", "outpatient_facility"], f"the plan's share is under {benefits}"),
+        ]
+        bad = [msg for ok, msg in checks if not ok]
+        return (not bad), ("; ".join(bad) if bad else f"{len(rows)} places · {place['name']} {got}")
+    return journey
+
+
 JOURNEYS = [
     ("J1", "Rosa — brain MRI price near Emory", j1),
     ("J2", "Rosa — knee MRI", j2),
@@ -158,6 +188,20 @@ JOURNEYS = [
     ("J8", "Rosa - counseling", one_bill("counseling-45", "session", EMORY_CLINIC, 111.03, ["mental_health"])),
     ("J9", "Rosa - physical therapy", one_bill("therapy-exercise", "therapy", EMORY_CLINIC, 27.64, ["therapy"])),
     ("J10", "Rosa - a lab test", one_bill("lab-cbc-basic", "test", EMORY_CLINIC, 6.47, ["lab"])),
+    ("J11", "Sam - a colonoscopy at a hospital", procedure(
+        "colonoscopy", GOLD_PATHWAY, EMORY_MIDTOWN, [("facility", 2678.54, "hospital"), ("surgeon", 594.1, "plan")])),
+    ("J12", "Rosa - a colonoscopy", procedure(
+        "colonoscopy", SILVER, EMORY_CLINIC, [("facility", None, None), ("surgeon", 162.46, "plan")])),
+    ("J13", "Sam - cataract surgery at a surgery center", procedure(
+        "eye-cataract", GOLD_PATHWAY, EYE_PHYSICIANS, [("facility", 830.0, "plan"), ("surgeon", 643.57, "plan")])),
+    ("J14", "Sam - a knee scope at a hospital", procedure(
+        "joint-knee-scope-meniscus", GOLD_PATHWAY, EMORY_HOSPITAL,
+        [("facility", 3514.53, "hospital"), ("surgeon", None, None)])),
+    ("J15", "Rosa - a skin biopsy in the office", procedure(
+        "skin-biopsy", SILVER, DERMATOLOGY_ASSOCIATES, [("in_office", 85.47, "plan")])),
+    ("J16", "Sam - gallbladder removal at a hospital", procedure(
+        "surgery-gallbladder-scope", GOLD_PATHWAY, EMORY_HOSPITAL,
+        [("facility", 4962.02, "hospital"), ("surgeon", None, None)])),
 ]
 
 
