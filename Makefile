@@ -84,7 +84,7 @@ parse: ## Stream the files ingestion/etl/targets.yaml names into Parquet when th
 	  $(if $(TARGETS),--targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),--test,)
 
-reference: ## Build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, ZIP centroids, exchange plans, hospitals, hospital price files), skipping what exists except geocode, which looks up only new addresses, and hospital-rates, which fetches only the hospitals with no rates yet. STEP=<name> · FORCE=1 · ARGS="--flag v"
+reference: ## Build every reference dataset (NPPES, labels, CMS, MPFS, OPPS, geocode, MIPS, hospital/ASC/clinician quality measures, ZIP centroids, exchange plans, hospitals, hospital price files), skipping what exists except geocode, which looks up only new addresses, and hospital-rates, which fetches only the hospitals with no rates yet. STEP=<name> · FORCE=1 · ARGS="--flag v"
 	@bash scripts/reference.sh
 
 build: ## What ingestion delivered (data/ingestion/) -> the find-care tables in data/serving/. TEST=1
