@@ -14,6 +14,7 @@ from integration.inputs.biller_rates import EVIDENCE, covered
 from integration.inputs.families import FAMILIES_PATH
 from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH
 from integration.inputs.service_list import SERVICES_PATH
+from integration.inputs.measures import MEASURES_PATH
 from integration.inputs.specialties import SPECIALTIES_PATH
 
 # Each step of the funnel, in order, and what it counts. A pair is a service and
@@ -118,13 +119,13 @@ def show(rows, by_service=False):
 
 
 def coverage(data_dir, by_service=False, services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
-             families_path=FAMILIES_PATH, specialties_path=SPECIALTIES_PATH):
+             families_path=FAMILIES_PATH, specialties_path=SPECIALTIES_PATH, measures_path=MEASURES_PATH):
     """Make the build's tables from `data_dir` in a connection of its own and
     return the funnel's rows."""
     spill = os.getenv("DUCKDB_TMP") or tempfile.mkdtemp(prefix="coverage-")
     con = tables.connect(spill)
     try:
-        tables.make(con, data_dir, services_path, hospital_plans_path, families_path, specialties_path)
+        tables.make(con, data_dir, services_path, hospital_plans_path, families_path, specialties_path, measures_path)
         return report(con, data_dir, by_service)
     finally:
         con.close()

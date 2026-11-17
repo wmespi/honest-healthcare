@@ -61,6 +61,14 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **A generic ambulatory surgery center's fee shows only where such a group works in it**, since its contract prices every code whether it does the procedure or not.
 - **A surgery done only at a facility is often listed under the office's place of service alone**, and that rate is read as the doctor's fee where the file lists none for a facility.
 
+## Quality
+
+- **No public measure fits visits, checkups, urgent care, counseling, therapy, lab tests, X-rays, ultrasound or MRI**, so the screen says places aren't compared on quality there ([integration/measures.yaml](../integration/measures.yaml)).
+  CMS's lab certification file is keyed by address, not NPI, so labs' accreditation isn't shown.
+- **Measures are shown, not ranked**, since one rank across them would need a home-made score ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
+- **A clinician's procedure count is for Medicare patients only**, and CMS's file gives its release date, not the period it covers.
+- **A surgery center's measures show only where its NPI bills at one of our places**, and the hospital patient-experience star lands but shows nowhere until hospital stays have a family.
+
 ## Scale / performance
 
 - **`make build` is a full rebuild, not incremental**, and is not auto-triggered:

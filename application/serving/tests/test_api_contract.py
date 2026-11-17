@@ -81,9 +81,10 @@ def test_the_catalog_lists_families_in_their_order(api):
         {"family": "office_visits", "name": "Office visits",
          "specialties": [{"specialty": "primary_care", "name": "Primary care", "benefit": "primary_care"},
                          {"specialty": "heart", "name": "Heart", "benefit": "specialist"},
-                         {"specialty": "skin", "name": "Skin", "benefit": "specialist"}]},
-        {"family": "mammograms", "name": "Mammograms", "specialties": []},
-        {"family": "mri", "name": "MRI scans", "specialties": []}]
+                         {"specialty": "skin", "name": "Skin", "benefit": "specialist"}],
+         "measured": False},
+        {"family": "mammograms", "name": "Mammograms", "specialties": [], "measured": True},
+        {"family": "mri", "name": "MRI scans", "specialties": [], "measured": True}]
 
 
 def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
@@ -99,8 +100,8 @@ def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
     assert body["cheapest_place_id"] == "1000000001" and body["closest_place_id"] == "1000000001"
     emory = body["results"][1]
     assert emory["name"] == "EMORY MEDICAL CARE FOUNDATION" and emory["billers"] == ["EMORY MEDICAL CARE FOUNDATION"]
-    assert emory["providers"] == [{"npi": 1000000005, "name": "PAT SMITH",
-                                   "specialty": "Diagnostic Radiology Physician", "score": 87.5}]
+    assert [{k: v for k, v in p.items() if k != "quality"} for p in emory["providers"]] == [
+        {"npi": 1000000005, "name": "PAT SMITH", "specialty": "Diagnostic Radiology Physician", "score": 87.5}]
     grady = body["results"][3]
     assert grady["kind"] == "hospital" and grady["kind_name"] == "Hospital"
     assert grady["stars"] == 3 and grady["phone"] == "(404) 555-0100"
@@ -253,3 +254,36 @@ def test_find_care_for_a_specialty_nobody_here_has_lists_no_place(api):
 def test_find_care_with_a_specialty_that_does_not_fit_is_a_422_with_the_usual_problem(api, params, code):
     r = api.get("/api/find-care", params=params)
     assert r.status_code == 422 and r.json()["detail"]["code"] == code and r.json()["detail"]["message"]
+
+
+def measures(rows):
+    return [m["measure"] for m in rows]
+
+
+def test_find_care_gives_each_place_and_clinician_only_the_measures_that_fit_the_service(api):
+    body = api.get("/api/find-care", params=MRI).json()
+    by_id = {p["place_id"]: p for p in body["results"]}
+    assert measures(by_id["110079"]["quality"]) == ["OP-32"]  # the hospital's OP-39 is a mammogram measure
+    assert by_id["110079"]["quality"][0] == {
+        "measure": "OP-32", "name": "Hospital visits after a colonoscopy", "about": "Lower is better.",
+        "shown": "13.9 per 1,000", "compared": "No different than the national rate", "period": "2022 to 2024",
+        "source": "CMS hospital outpatient measures"}
+    assert measures(by_id["1000000001"]["quality"]) == ["ASC-12"]
+    assert by_id["1000000001"]["quality"][0]["source"] == "CMS surgery center measures"
+    (smith,) = by_id["1000000005"]["providers"]
+    assert smith["quality"] == [{
+        "measure": "volume-colonoscopy", "name": "Colonoscopies done", "about": "More suggests practice.",
+        "shown": "57 procedures", "compared": None, "period": None, "source": "CMS Doctors and Clinicians"}]
+    assert by_id["1000000002"]["quality"] == []  # no measure for it
+
+
+def test_find_care_for_a_service_a_measure_doesnt_fit_has_empty_quality(api):
+    body = api.get("/api/find-care", params=VISIT).json()
+    (place,) = body["results"]
+    assert place["quality"] == [] and all(p["quality"] == [] for p in place["providers"])
+
+
+def test_the_catalog_says_which_families_have_a_measure(api):
+    body = api.get("/api/services").json()
+    assert {f["family"]: f["measured"] for f in body["families"]} == {
+        "office_visits": False, "mammograms": True, "mri": True}

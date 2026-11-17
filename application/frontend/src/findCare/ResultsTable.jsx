@@ -4,6 +4,7 @@ import { clsx } from 'clsx';
 import { ArrowDown, Navigation, Phone } from 'lucide-react';
 import { miles, money } from './format';
 import { shareLines } from './view';
+import { ClinicianQuality, QualityLine, QualityList } from './Quality';
 
 const PROVIDERS_SHOWN = 4;
 
@@ -164,6 +165,7 @@ function ProvidersHere({ providers }) {
             <div className="min-w-0">
               <div className="truncate text-slate-900">{provider.name}</div>
               <div className="truncate text-[13px] text-slate-500">{provider.specialty}</div>
+              <ClinicianQuality quality={provider.quality} />
             </div>
             <div className="shrink-0 text-[13px] tabular-nums text-slate-600">{score(provider.score)}</div>
           </li>
@@ -226,6 +228,7 @@ function LocationRow({ location, plan, costSharing, selected, highlighted, layou
           <div className="mt-0.5 text-[13px] text-slate-500">
             {location.kindLabel}, <span className="inline-block">{location.address}</span>
           </div>
+          <QualityLine quality={location.quality} />
           {location.matchedProvider && (
             <div className="mt-0.5 text-[13px] font-medium text-emerald-800">{location.matchedProvider} works here</div>
           )}
@@ -267,6 +270,7 @@ function LocationRow({ location, plan, costSharing, selected, highlighted, layou
                       {location.severalRates && <SeveralRatesNote />}
                       {location.kind === 'hospital' && <BilledHere billers={location.billers} />}
                       <HospitalPriceList location={location} />
+                      <QualityList quality={location.quality} />
                     </div>
                     <div className="flex flex-col gap-3">
                       <div className="text-sm leading-6 text-slate-600">

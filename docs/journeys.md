@@ -52,6 +52,12 @@ Expected for all: the place shows the facility's fee and the doctor's as separat
 | J15 | Rosa: a skin biopsy | Skin procedures → Skin biopsy, one spot, shaved → her plan | Dermatology Associates of Georgia's office rate, which includes the room, as the one bill |
 | J16 | Sam: gallbladder removal | Other surgery → Gallbladder removal by scope → their plan | Emory University Hospital's fee from its own price list, with the doctor's fee missing |
 
+## Quality
+
+| ID | Journey | Clickpath | Expected |
+|---|---|---|---|
+| J18 | Sam: is this place any good for a colonoscopy? | Colonoscopy, screening or diagnostic → their plan → Emory University Hospital Midtown | Its hospital visits within 7 days after a colonoscopy, compared with the national rate, with the period and source, and how many colonoscopies its doctors have done |
+
 ## No plan
 
 | ID | Journey | Expected |

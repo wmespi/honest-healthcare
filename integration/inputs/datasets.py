@@ -166,7 +166,25 @@ SHOPPABLE_SERVICES = Dataset("reference/shoppable_services.parquet", "make refer
     "billing_code": V, "billing_code_type": V, "rbcs_category": V, "rbcs_subcategory": V, "rbcs_family": V},
     key=["billing_code_type", "billing_code"])
 
+# CMS quality measures: each Georgia hospital's by CCN and each ASC's by NPI, with the national
+# values, and each Georgia clinician's procedure volume by NPI and CMS category.
+HOSPITAL_MEASURES = Dataset("reference/hospital_measures_ga.parquet", "make reference STEP=hospital-measures", {
+    "ccn": V, "measure": V, "score": D, "compared": V, "sample": B, "start_date": "DATE", "end_date": "DATE"},
+    key=["ccn", "measure"])
+HOSPITAL_MEASURES_NATIONAL = Dataset(
+    "reference/hospital_measures_national.parquet", "make reference STEP=hospital-measures", {
+        "measure": V, "score": D, "start_date": "DATE", "end_date": "DATE"}, key=["measure"])
+ASC_MEASURES = Dataset("reference/asc_measures_ga.parquet", "make reference STEP=asc-measures", {
+    "npi": B, "ccn": V, "measure": V, "score": D, "compared": V, "sample": B, "period": V},
+    key=["npi", "ccn", "measure"])
+ASC_MEASURES_NATIONAL = Dataset("reference/asc_measures_national.parquet", "make reference STEP=asc-measures", {
+    "measure": V, "national": D, "median": D, "period": V}, key=["measure"])
+CLINICIAN_VOLUME = Dataset("reference/clinician_volume_ga.parquet", "make reference STEP=clinician-volume", {
+    "npi": B, "category": V, "count": V, "percentile": I, "displayed": F, "published": "DATE"},
+    key=["npi", "category"])
+
 DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, PAYER_NETWORKS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
             EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, NPPES_LOCATIONS, MEDICARE_BILLING,
             NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, MIPS, HOSPITALS, HOSPITAL_RATES, GEOCODES,
-            ZIP_CENTROIDS, SHOPPABLE_SERVICES]
+            ZIP_CENTROIDS, SHOPPABLE_SERVICES, HOSPITAL_MEASURES, HOSPITAL_MEASURES_NATIONAL, ASC_MEASURES,
+            ASC_MEASURES_NATIONAL, CLINICIAN_VOLUME]

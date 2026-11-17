@@ -156,5 +156,13 @@ def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
                 "skin-biopsy"} & set(gaps)
 
 
+def test_quality_shows_only_where_a_cms_measure_fits(client):
+    measured = {f["family"] for f in client.get("/services").json()["families"] if f["measured"]}
+    assert measured == {"mammograms", "ct", "endoscopy", "eye_procedures", "bone_joint_procedures", "skin_procedures",
+                        "other_procedures"}
+    body = find_care(client, "visit-return-20", specialty="primary_care")
+    assert all(p["quality"] == [] for p in body["results"])
+
+
 def test_a_search_needs_a_plan(client):
     assert client.get("/find-care", params={"service_id": "mri-brain", "zip": "30322"}).status_code == 422

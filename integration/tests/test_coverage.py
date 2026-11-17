@@ -9,7 +9,7 @@ BV, PATHWAY = "45334-GAN001", "49046-GAN008"
 def funnel(corpus, by_service=False):
     corpus.flush()
     return coverage(corpus.root, by_service, corpus.services_file, corpus.hospital_plans_file,
-                    corpus.families_file, corpus.specialties_file)
+                    corpus.families_file, corpus.specialties_file, corpus.measures_file)
 
 
 def test_the_funnel_counts_what_each_step_keeps_and_writes_nothing(corpus):
