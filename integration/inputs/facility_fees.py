@@ -66,19 +66,21 @@ class FacilityRates(Table):
     rate under the file's shared labels is kept only where the network's own
     labels have none for the biller and service (datasets.own_first). A billing
     NPI counts only where NPPES registers it as a hospital organization, or as a
-    center of the service's family (centers) where the family offers the fee away
+    center of the service's family (centers), or as a facility (`generic`, whose
+    fee counts only where service_sites shows a group with evidence at the place), where the family offers the fee away
     from a hospital (CENTER_FEE_SERVICES), which `center` says, since a
     facility's own fee is what's priced."""
     name = "facility_rates"
     key = ["network_id", "service_id", "biller", "rate"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR", "rate": "DOUBLE",
-               "center": "BOOLEAN"}
+               "center": "BOOLEAN", "generic": "BOOLEAN"}
 
     def select(self, data_dir):
         return f"""
-            SELECT DISTINCT network_id, service_id, biller, rate, center FROM (
+            SELECT DISTINCT network_id, service_id, biller, rate, center, generic FROM (
                 SELECT DISTINCT r.network_id, s.service_id, p.tin_value AS biller, r.negotiated_rate AS rate,
-                       r.own_label, NOT n.is_hospital AS center
+                       r.own_label, NOT n.is_hospital AS center,
+                       n.taxonomy_code IN (SELECT taxonomy_code FROM facilities) AS generic
                 FROM {PAYER_RATES.read(data_dir)} r
                 JOIN {FEE_SERVICES} s ON s.billing_code = r.billing_code
                 JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
@@ -87,8 +89,9 @@ class FacilityRates(Table):
                 WHERE {FACILITY_PRICED} AND n.entity_type = 'organization'
                   AND (n.is_hospital
                        OR (s.service_id IN {CENTER_FEE_SERVICES}
-                           AND EXISTS (SELECT 1 FROM service_list v JOIN centers t USING (family)
-                                       WHERE v.service_id = s.service_id AND t.taxonomy_code = n.taxonomy_code))))
+                           AND (n.taxonomy_code IN (SELECT taxonomy_code FROM facilities)
+                                OR EXISTS (SELECT 1 FROM service_list v JOIN centers t USING (family)
+                                           WHERE v.service_id = s.service_id AND t.taxonomy_code = n.taxonomy_code)))))
             QUALIFY {own_first("network_id", "service_id", "biller")}
         """
 
@@ -131,7 +134,8 @@ class FacilityFees(Table):
                 SELECT f.network_id, f.service_id, b.place_id, max(f.rate), count(DISTINCT f.rate)
                 FROM facility_rates f
                 JOIN biller_places b ON b.biller = f.biller AND b.kind != 'hospital'
-                WHERE f.center
+                WHERE f.center AND (NOT f.generic OR (f.network_id, f.service_id, b.place_id) IN (
+                    SELECT (network_id, service_id, place_id) FROM service_sites))
                 GROUP BY f.network_id, f.service_id, b.place_id
             ),
             own AS (

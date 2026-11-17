@@ -49,6 +49,13 @@ PRICED = """r.billing_class = 'professional' AND r.setting IN ('outpatient', 'bo
               AND r.negotiated_type IN ('fee schedule', 'negotiated')"""
 
 
+# The families whose `elsewhere` offers the institutional bill, so a facility bills
+# its own fee for them.
+OWN_FEE_FAMILIES = """(SELECT f.family FROM family_list f
+                       JOIN family_bills b ON b.family = f.family AND b.billing_class = 'institutional'
+                       WHERE list_contains(flatten(f.elsewhere), b.part))"""
+
+
 def _rank(place_of_service):
     """SQL for a rate line's place-of-service rank among `place_of_service`, the
     codes a bill reads, best first: 0 when the line names no place, CSTM-00 or the
@@ -99,6 +106,11 @@ def covered(data_dir):
             JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
             JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
             WHERE k.rate > greatest(1, 0.05 * m.median)
+              AND NOT EXISTS (
+                  SELECT 1 FROM service_list v JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(p.tin_value AS BIGINT)
+                  WHERE v.service_id = k.service_id AND v.family IN {OWN_FEE_FAMILIES}
+                    AND n.taxonomy_code IN (SELECT taxonomy_code FROM centers WHERE family = v.family
+                                            UNION SELECT taxonomy_code FROM facilities))
         ),
         covered AS (
             SELECT DISTINCT network_id, service_id, part, rate, biller, npi FROM real
@@ -118,6 +130,11 @@ class BillerRates(Table):
     median for that service and part on the network, is dropped. A rate under the
     file's shared labels is used only where the network's own labels have none
     for the biller, service and bill.
+
+    A biller NPPES registers as a center of a family, or as a facility, whose
+    `elsewhere` offers the institutional bill has no professional rate for its
+    services: the fee schedule on its NPI is not a doctor's fee, and its own fee
+    is the institutional bill (integration/inputs/facility_fees.py).
 
     A rate's roster is the provider groups its group set lists, on the rate's
     network.

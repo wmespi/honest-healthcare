@@ -54,7 +54,7 @@ def read_families(path=FAMILIES_PATH):
     def stop(why):
         raise SystemExit(f"{path}: {why}")
 
-    extra = sorted(set(model) - {"shared", "benefits", "kinds", "families"})
+    extra = sorted(set(model) - {"shared", "benefits", "kinds", "facilities", "families"})
     if extra:
         stop(f"has sections the build doesn't use: {extra}")
     benefits, kinds = model.get("benefits") or {}, model.get("kinds") or {}
@@ -68,6 +68,10 @@ def read_families(path=FAMILIES_PATH):
     missing = sorted({"hospital", "practice"} - set(kinds))
     if missing:
         stop(f"kinds doesn't declare {missing}, the kinds of place that aren't centers")
+    facilities = model.get("facilities") or {}
+    for code, kind in facilities.items():
+        if kind not in kinds or kind == "hospital":
+            stop(f"facility {code} is a {kind!r}, which kinds doesn't declare or is a hospital")
     families, center_kinds = [], {}
     for position, f in enumerate(model.get("families") or [], 1):
         family = f.get("family")
@@ -89,15 +93,17 @@ def read_families(path=FAMILIES_PATH):
             for part in listed:
                 if part not in parts:
                     stop(f"{family}'s {where} names {part!r}, which isn't one of its bills")
-                if where == "elsewhere" and part in institutional and not f.get("centers"):
+                if where == "elsewhere" and part in institutional and not (f.get("centers") or facilities):
                     stop(f"{family}'s elsewhere names {part}, a facility's own fee, but the family has no centers "
-                         f"to bill it")
+                         f"and the file no facilities to bill it")
         centers = f.get("centers") or {}
         for code, kind in centers.items():
             if kind not in kinds:
                 stop(f"{family}'s center {code} is a {kind!r}, which kinds doesn't declare")
             if kind == "hospital":
                 stop(f"{family}'s center {code} is a hospital, but only a hospital's own building is one")
+            if code in facilities:
+                stop(f"{code} is a center for {family} and also a facility, which is for every family")
             other = center_kinds.setdefault(code, (family, kind))
             if other[1] != kind:
                 stop(f"center {code} is a {kind} for {family} but a {other[1]} for {other[0]}")
@@ -117,7 +123,7 @@ def read_families(path=FAMILIES_PATH):
             stop(f"{family} has no name")
     if not families:
         stop("lists no families")
-    return {"benefits": benefits, "kinds": kinds, "families": families}
+    return {"benefits": benefits, "kinds": kinds, "facilities": facilities, "families": families}
 
 
 def _bills(f, benefits, stop):
@@ -277,6 +283,27 @@ class Centers(FromYaml):
             ORDER BY 1""").fetchall()]
         if missing:
             raise SystemExit(f"centers: NUCC no longer lists {missing}; decide what replaces them")
+
+
+class Facilities(FromYaml):
+    """One row per NPPES primary specialty code that registers a biller as a kind
+    of facility that bills its own fee for any family offering that bill away from
+    a hospital, with its kind of place. A facility's code isn't evidence it does a
+    family's services, so its fee is shown only where a group with evidence works
+    (integration/inputs/facility_fees.py)."""
+    name = "facilities"
+    key = ["taxonomy_code"]
+    columns = {"taxonomy_code": "VARCHAR", "kind": "VARCHAR"}
+
+    def rows(self):
+        return [[code, kind] for code, kind in read_families(self.path)["facilities"].items()]
+
+    def check(self, con, data_dir):
+        missing = [c for (c,) in con.execute(f"""
+            SELECT taxonomy_code FROM facilities
+            WHERE taxonomy_code NOT IN (SELECT taxonomy_code FROM {NUCC_TAXONOMY.read(data_dir)}) ORDER BY 1""").fetchall()]
+        if missing:
+            raise SystemExit(f"facilities: NUCC no longer lists {missing}; decide what replaces them")
 
 
 def members(data_dir):

@@ -69,7 +69,7 @@ class BillerPlaces(Table):
                       UNION SELECT DISTINCT biller FROM facility_rates WHERE center) b
                 JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(b.biller AS BIGINT)
                 LEFT JOIN {DOCTORS_CLINICIANS.read(data_dir)} d ON d.npi = n.npi
-                LEFT JOIN (SELECT DISTINCT taxonomy_code, kind FROM centers) c ON c.taxonomy_code = n.taxonomy_code
+                LEFT JOIN (SELECT taxonomy_code, kind FROM centers UNION SELECT taxonomy_code, kind FROM facilities) c ON c.taxonomy_code = n.taxonomy_code
                 LEFT JOIN kinds k ON k.kind = c.kind
             ),
             listed AS {listed(data_dir)},

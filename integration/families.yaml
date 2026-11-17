@@ -8,6 +8,14 @@
 #            priority order: a place whose billers are registered as centers of
 #            two kinds is the first. A place that is neither a hospital nor a
 #            center is a practice.
+# facilities Our key for each NPPES specialty code that registers a biller as a kind
+#            of place billing its own fee for any family whose `elsewhere` names
+#            the institutional bill, with its kind (`kinds`), like `centers` but
+#            not evidence it does the service: its fee shows only where a group
+#            with evidence for the service works at the place. Its own NPI's
+#            professional rates, and a center's of a family offering the fee
+#            away from a hospital, are left out, since its own fee is the
+#            institutional bill.
 # families   In the order the screen lists them, each with:
 #   family            Our key for it.
 #   name              What the screen calls it.
@@ -77,6 +85,14 @@ benefits:
   lab: {name: "Laboratory Outpatient and Professional Services", label: "Lab tests"}
   outpatient_facility: {name: "Outpatient Facility Fee (e.g., Ambulatory Surgery Center)", label: "Outpatient facility fee"}
   outpatient_surgery: {name: "Outpatient Surgery Physician/Surgical Services", label: "Outpatient surgery, the doctor's fee"}
+
+# Kinds of place that bill their own fee for any family whose `elsewhere` names the
+# institutional bill, each by NPPES primary specialty code. Unlike a center, whose
+# registration is evidence it does a family's services, a facility has a contract fee
+# for every code, so its fee shows at a place only where a group with evidence for
+# that service works there.
+facilities:
+  261QA1903X: surgery_center  # ambulatory surgical center
 
 kinds:
   hospital: Hospital
@@ -373,8 +389,7 @@ families:
           explain_at_hospital: Hospitals and surgery centers bill their own fee for the procedure, and your plan’s file doesn’t list it here. Nothing on file confirms the place itself is in your network. Ask whether it is and what it would charge before you book.
     hospital: [facility, surgeon]
     elsewhere: [[in_office], [facility, surgeon]]
-    # Surgery centers and endoscopy centers bill their own facility fee, apart from
-    # the doctor's.
+    # An endoscopy center bills its own facility fee, apart from the doctor's. A
+    # generic surgery center does too, but it is a `facilities` taxonomy.
     centers:
-      261QA1903X: surgery_center  # ambulatory surgical center
       261QE0800X: surgery_center  # endoscopy center

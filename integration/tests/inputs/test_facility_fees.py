@@ -98,7 +98,7 @@ def test_a_hospitals_own_label_fee_wins_over_a_higher_shared_label_fee_which_is_
 def test_a_surgery_centers_fee_comes_from_the_plans_file_at_its_own_place_and_a_hospital_npi_is_not_a_center(corpus):
     corpus.add_endoscopy()
     corpus.service("egd", "43235", family="endoscopy")
-    corpus.npi(1000000041, "PEACHTREE SURGERY CENTER", "10 SURGERY WAY", "ATLANTA", "303082233", taxonomy="261QA1903X")
+    corpus.npi(1000000041, "PEACHTREE SURGERY CENTER", "10 SURGERY WAY", "ATLANTA", "303082233", taxonomy="261QE0800X")
     corpus.geocode("10 SURGERY WAY", "ATLANTA", "303082233", "10 SURGERY WAY, ATLANTA, GA, 30308", 33.75, -84.38)
     corpus.roster(BV, 41, 41, "1000000041", 1000000041)
     corpus.facility_price(BV, 41, "43235", 900)

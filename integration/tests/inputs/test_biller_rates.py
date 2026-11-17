@@ -145,8 +145,9 @@ def test_a_bill_with_its_own_place_of_service_ranks_codes_joined_by_a_bar_equal(
     corpus.service("egd", "43235", family="endoscopy")
     for npi, code, rate in [(1000000031, "22", 400), (1000000032, "24", 450), (1000000033, "21", 999),
                             (1000000034, "11|22", 250), (1000000035, "81", 777)]:
-        corpus.npi(npi, f"GI {npi}", "1 MAIN ST", "ATLANTA", "303082233", taxonomy="261QE0800X")
+        corpus.npi(npi, f"GI {npi}", "1 MAIN ST", "ATLANTA", "303082233")
         corpus.roster(BV, npi - 1000000000, npi - 1000000000, str(npi), npi)
+        corpus.billed(npi, "43235", "F")
         corpus.scan_price(BV, npi - 1000000000, "43235", all_in=rate, service_code=code)
     got = corpus.inputs().execute(
         "SELECT biller, part, rate FROM biller_rates WHERE service_id = 'egd' ORDER BY biller, part").fetchall()
@@ -161,9 +162,22 @@ def test_a_bill_with_its_own_place_of_service_ignores_a_family_wide_one(corpus):
     corpus.add_endoscopy()
     corpus.family("endoscopy", place_of_service=["81"])
     corpus.service("egd", "43235", family="endoscopy")
-    corpus.npi(1000000031, "GI 31", "1 MAIN ST", "ATLANTA", "303082233", taxonomy="261QE0800X")
+    corpus.npi(1000000031, "GI 31", "1 MAIN ST", "ATLANTA", "303082233")
     corpus.roster(BV, 31, 31, "1000000031", 1000000031)
+    corpus.billed(1000000031, "43235", "F")
     corpus.scan_price(BV, 31, "43235", all_in=400, service_code="22")
     corpus.scan_price(BV, 31, "43235", all_in=123, service_code="81")
     assert corpus.inputs().execute("SELECT part, rate FROM biller_rates WHERE service_id = 'egd'").fetchall() == [
         ("surgeon", 400.0)]
+
+
+def test_a_center_npis_professional_lines_price_no_part_but_a_doctors_do(corpus):
+    corpus.add_endoscopy()
+    corpus.service("egd", "43235", family="endoscopy")
+    for npi, taxonomy in [(1000000051, "261QA1903X"), (1000000052, "261QE0800X"), (1000000053, "2085R0202X")]:
+        corpus.npi(npi, f"GI {npi}", "1 MAIN ST", "ATLANTA", "303082233", taxonomy=taxonomy)
+        corpus.roster(BV, npi - 1000000000, npi - 1000000000, str(npi), npi)
+        corpus.scan_price(BV, npi - 1000000000, "43235", all_in=291, service_code="11")
+        corpus.billed(npi, "43235", "O")
+    got = corpus.inputs().execute("SELECT DISTINCT biller FROM biller_rates WHERE service_id = 'egd'").fetchall()
+    assert got == [("1000000053",)]

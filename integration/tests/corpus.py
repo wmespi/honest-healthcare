@@ -105,7 +105,7 @@ _ENDOSCOPY = {
         {"part": "facility", "label": "The facility's fee", "billing_class": "institutional",
          "missing": {"note": "Missing the facility's fee", "explain": "Ask where and what it charges."}}],
     "hospital": ["facility", "surgeon"], "elsewhere": [["in_office"], ["facility", "surgeon"]],
-    "centers": {"261QA1903X": "surgery_center", "261QE0800X": "surgery_center"},
+    "centers": {"261QE0800X": "surgery_center"},
 }
 
 
@@ -366,8 +366,10 @@ class Corpus:
 
     def add_endoscopy(self):
         """Add the procedure family (_ENDOSCOPY), the kind of place it has centers
-        of and the NUCC codes that register them."""
+        of, a generic surgery center as a facility, and the NUCC codes that register
+        them."""
         self.families["kinds"]["surgery_center"] = "Surgery center"
+        self.families["facilities"] = {"261QA1903X": "surgery_center"}
         self.families["families"].append(copy.deepcopy(_ENDOSCOPY))
         self.write_families()
         self.taxonomy("261QA1903X", "Clinic/Center", "Ambulatory Surgical")
