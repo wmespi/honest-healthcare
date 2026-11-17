@@ -14,7 +14,7 @@ function NoteList({ title, items }) {
   );
 }
 
-// What a person should know about the scan itself, whichever place they pick.
+// What a person should know about the service itself, whichever place they pick.
 export function AboutService({ service, plan }) {
   const [open, setOpen] = useState(false);
   const referral = plan.needs_referral

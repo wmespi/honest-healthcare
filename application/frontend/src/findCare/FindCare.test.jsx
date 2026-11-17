@@ -217,7 +217,7 @@ describe('find care', () => {
     expect(screen.getByText('Not on file')).toBeInTheDocument();
     expect(screen.getByText(/Nothing on file confirms the hospital itself is/)).toBeInTheDocument();
     expect(screen.getByText(/Medicare pays hospitals about \$243.77/)).toBeInTheDocument();
-    expect(screen.getByText('Emory Medical Care Foundation and Radiology Associates Of Dekalb PC bill for the reading here.'))
+    expect(screen.getByText('Emory Medical Care Foundation and Radiology Associates Of Dekalb PC bill the doctor’s fee here.'))
       .toBeInTheDocument();
     expect(screen.getByText('Medicare hospital rating: 3 of 5 stars')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /\(404\) 616-1000/ })).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe('find care', () => {
     expect(screen.getByText('Hospital facility fee')).toBeInTheDocument();
     expect(screen.getByText('$165')).toBeInTheDocument();
     expect(screen.getByText(/ask the hospital who will read yours/)).toBeInTheDocument();
-    expect(screen.queryByText(/for the reading here/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/the doctor’s fee here/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Medicare pays hospitals about/)).not.toBeInTheDocument();
     expect(screen.queryByText('Who provides this here')).not.toBeInTheDocument();
   });
@@ -259,7 +259,7 @@ describe('find care', () => {
     api.getFindCare.mockResolvedValue({ data: answer([FEE_ONLY]) });
     open(MRI);
     await user.click(await screen.findByRole('button', { name: 'Hamilton Medical Center' }));
-    expect(screen.getByText('Without insurance, this hospital’s price list says it charges $320 for the scan. The reading may be billed separately.'))
+    expect(screen.getByText('Without insurance, this hospital’s price list says it charges $320 for this service. The doctor’s fee may be billed separately.'))
       .toBeInTheDocument();
   });
 
