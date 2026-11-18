@@ -24,6 +24,9 @@ API_URL = os.environ.get("API_URL", "http://localhost:8000/api")
 BLUE_VALUE = "45334-GAN001"
 SILVER = "45334GA0020002"  # Anthem Silver Blue Value HMO 4000
 GOLD_PATHWAY = "49046GA0700055"  # Anthem Gold Pathway PCP Copay Choice HMO 1200
+GOLD_OPEN_PATHWAY = "49046GA0700021"  # Anthem Gold Pathway HMO 1350, on 49046-GAN001
+GOLD_GUIDED_ACCESS = "49046GA0700019"  # Anthem Gold Pathway Guided Access HMO 1350, on 49046-GAN003
+CATASTROPHIC_PATHWAY = "49046GA0700001"  # Anthem Catastrophic Pathway HMO 10600 First 3 PCP Visits $40
 NEAR_EMORY = {"plan_id": SILVER, "zip": "30322"}
 
 
@@ -65,9 +68,9 @@ def unpriced(client, plan_id):
 def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
-        (BLUE_VALUE, "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 11, "services": 284, "families": 17, "places": 5445, "prices": 72318,
-                            "providers": 13017}
+        (BLUE_VALUE, "current"), ("49046-GAN001", "current"), ("49046-GAN003", "current"), ("49046-GAN008", "current")]
+    assert root["rows"] == {"plans": 35, "services": 284, "families": 17, "places": 5529, "prices": 171515,
+                            "providers": 13619}
 
 
 def test_the_families_are_in_the_screens_order(client):
@@ -136,13 +139,31 @@ def test_a_hospital_the_plans_file_leaves_out_shows_the_fee_in_its_own_price_lis
     assert emory["max_rate"] is None and emory["billers"] == [] and emory["cash_price"] == 289.0
 
 
+@pytest.mark.parametrize("plan_id", [GOLD_OPEN_PATHWAY, GOLD_GUIDED_ACCESS])
+def test_every_pathway_network_has_the_hospitals_fees(client, plan_id):
+    # Its own file gives Grady's fee, and Emory's own file gives Emory's under the
+    # name it uses for every Pathway network.
+    grady = next(p for p in find_care(client, "mri-brain", plan_id=plan_id)["results"] if p["place_id"] == "110079")
+    assert rates(grady) == [("facility", 1171.15, "plan"), ("reading", 116.13, "plan")]
+    emory = next(p for p in find_care(client, "xray-chest", plan_id=plan_id)["results"] if p["place_id"] == "110010")
+    assert rates(emory) == [("facility", 34.58, "hospital"), ("reading", None, None)]
+
+
+def test_a_catastrophic_plan_charges_its_copay_for_its_first_visits_only(client):
+    body = find_care(client, "visit-return-20", plan_id=CATASTROPHIC_PATHWAY, specialty="primary_care")
+    assert body["cost_sharing"] == [{
+        "benefit": "primary_care", "label": "Primary care visit", "copay": 40.0, "copay_per": None, "coinsurance": 0.0,
+        "after_deductible": True, "copay_limited": True, "parts": ["visit"]}]
+
+
 def test_a_brain_mri_carries_medicares_rates(client):
     brain = next(s for s in client.get("/services").json()["services"] if s["service_id"] == "mri-brain")
     assert brain["medicare_rate"] == 185.25 and brain["medicare_facility_rate"] == 243.77
 
 
-def test_every_service_has_a_price_on_pathway_within_50_miles(client):
-    assert unpriced(client, GOLD_PATHWAY) == []
+@pytest.mark.parametrize("plan_id", [GOLD_PATHWAY, GOLD_OPEN_PATHWAY, GOLD_GUIDED_ACCESS])
+def test_every_service_has_a_price_on_pathway_within_50_miles(client, plan_id):
+    assert unpriced(client, plan_id) == []
 
 
 def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):

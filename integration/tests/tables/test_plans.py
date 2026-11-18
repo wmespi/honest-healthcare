@@ -1,13 +1,40 @@
 """plans.parquet (integration/tables/plans.py)."""
+import pytest
+
+SILVER = "Anthem Silver Blue Value HMO 4000"
 
 
 def test_plans_are_every_plan_on_a_priced_network(corpus):
     assert corpus.build()["plans"] == 3
     assert corpus.rows("plans") == [
         ("45334GA0020002", "Anthem Silver Blue Value HMO 4000", "Anthem Blue Cross and Blue Shield",
-         "Silver", False, "45334-GAN001", 4000.0),
+         "Silver", False, "45334-GAN001", 4000.0, ["45334GA0020002"]),
         ("45334GA0020008", "Anthem Bronze Blue Value HMO 5000", "Anthem Blue Cross and Blue Shield",
-         "Expanded Bronze", False, "45334-GAN001", 5000.0),
+         "Expanded Bronze", False, "45334-GAN001", 5000.0, ["45334GA0020008"]),
         ("49046GA0700053", "Anthem Bronze Pathway PCP Copay Choice HMO 6000",
-         "Anthem Blue Cross and Blue Shield", "Expanded Bronze", False, "49046-GAN008", 6000.0)]
+         "Anthem Blue Cross and Blue Shield", "Expanded Bronze", False, "49046-GAN008", 6000.0, ["49046GA0700053"])]
 
+
+
+def test_one_design_sold_in_two_service_areas_is_one_plan(corpus):
+    corpus.plan("45334GA0020001", "45334-GAN001", SILVER)
+    corpus.premium("45334GA0020001", 1)
+    assert corpus.build()["plans"] == 3
+    row = [r for r in corpus.rows("plans") if r[1] == SILVER][0]
+    assert row[0] == "45334GA0020001"
+    assert row[7] == ["45334GA0020001", "45334GA0020002"]
+    assert {r[0] for r in corpus.rows("premiums")} >= {"45334GA0020001", "45334GA0020002"}
+
+
+def test_the_same_name_on_another_network_is_its_own_plan(corpus):
+    corpus.plan("49046GA0700001", "49046-GAN008", SILVER)
+    corpus.premium("49046GA0700001", 1)
+    assert corpus.build()["plans"] == 4
+
+
+def test_a_design_whose_plan_ids_differ_in_cost_sharing_stops_the_build(corpus):
+    corpus.plan("45334GA0020001", "45334-GAN001", SILVER)
+    corpus.premium("45334GA0020001", 1)
+    corpus.cost_sharing("45334GA0020001", "Specialist Visit", "$75.00 Copay", "Not Applicable")
+    with pytest.raises(SystemExit, match=r"plans: .*Silver Blue Value HMO 4000.* differ .*'Specialist Visit'"):
+        corpus.build()

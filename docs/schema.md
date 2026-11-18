@@ -109,7 +109,7 @@ table here is a `503` from `GET /api/health`, never a fallback to what ingestion
 | Table | Columns |
 |---|---|
 | `networks.parquet` | `network_id`, `name`, `prices_status`, `prices_as_of`, `prices_reason`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
-| `plans.parquet` | `plan_id`, `name`, `carrier`, `metal_level`, `needs_referral`, `network_id`, `deductible`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
+| `plans.parquet` | `plan_id`, `name`, `carrier`, `metal_level`, `needs_referral`, `network_id`, `deductible`, `plan_ids`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `premiums.parquet` | `plan_id`, `rating_area`, `age`, `premium`, `tobacco_premium`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `zips.parquet` | `zip`, `lat`, `lon`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
 | `services.parquet` | `service_id`, `billing_code`, `family`, `name`, `keywords`, `about`, `could_change`, `asks`, `preventive_note`, `bills` (a list of `part`, `label`, `billing_class`, `benefits`, `missing_note`, `missing_explain`, `missing_explain_hospital`, in screen order), `code_types` (`CPT`, `HCPCS`, or `MS-DRG`), `extra_bills` (a list of `part`, `label`, `note`, `missing`, `code`), `medicare_rate`, `medicare_facility_rate`: a find-care table ([build.md](../integration/build.md#the-find-care-tables)) |
