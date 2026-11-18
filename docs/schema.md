@@ -7,7 +7,7 @@ Everything is **Parquet** under `data/`, and there is no database.
 `du -sh data/*/*` gives the current inventory.
 `data/` has one folder for each layer's output, and each layer's container mounts only the folders it reads and writes ([architecture.md](architecture.md#layers)):
 
-- `data/raw/` is ingestion's own: Anthem's file list, parse records and rates as filed (`raw/anthem/`), and every public dataset's download (`raw/downloads/`). Only ingestion reads it.
+- `data/raw/` is ingestion's own: each payer's file list, parse records and rates as filed (`raw/anthem/`, `raw/ambetter/`), and every public dataset's download (`raw/downloads/`). Only ingestion reads it.
   `raw/hospital_rates/` holds a hospital's price file only while `etl hospital-rates` reads it ([hospital-rates.md](../ingestion/etl/hospital-rates.md#the-formats)).
 - `data/ingestion/` is what ingestion delivers, the contract integration reads: the payer rates, NPPES, the reference datasets and CMS billing.
 - `data/serving/` is what integration delivers, the find-care tables the app reads.
@@ -18,7 +18,9 @@ smaller for repetitive rate data, DuckDB scans only the columns a query needs, a
 neither side needs a server process.
 
 ---
-## Parquet: `data/raw/anthem/` (ingestion's own: `make parse` turns it into the payer rates below)
+## Parquet: `data/raw/<payer>/` (ingestion's own: `make parse` turns it into the payer rates below)
+
+One folder per payer (`anthem`, `ambetter`), each with the files below.
 
 | File | Columns |
 |---|---|
@@ -49,13 +51,14 @@ roster per file. `prices ⨝ group_sets` reproduces every original
 | `codes/{name}.parquet` | `billing_code_type`, `billing_code`, `name`, `description` |
 | `index_files.parquet` | `file_id`, `name`, `address`, `location` |
 | `index_file_plans.parquet` | `file_id`, `plan_id` |
-| `parses/{name}.parquet` | `file_id`, `name`, `address`, `status`, `reason`, `anthem_updated_at`, `rates_updated_at`, `finished_at`, `compressed_bytes`, `price_rows`, `provider_rows`, `price_rows_dropped`, `provider_rows_dropped` |
+| `parses/{name}.parquet` | `file_id`, `name`, `address`, `status`, `reason`, `updated_at`, `rates_updated_at`, `finished_at`, `compressed_bytes`, `price_rows`, `provider_rows`, `price_rows_dropped`, `provider_rows_dropped` |
 
-`{name}` is the file's name in Anthem's index without `.json.gz` (`GA_JBNKMED0001`), and `file_id` is its ID, a hash of its address ([ingestion/etl/discover.md](../ingestion/etl/discover.md#a-files-id)).
+`{name}` is the file's name in the payer's index without `.json.gz` or `.json` (`GA_JBNKMED0001`), and `file_id` is its ID, a hash of its address ([ingestion/etl/discover.md](../ingestion/etl/discover.md#a-files-id)).
 
 `tin_value` is the billing entity's tax id — in Anthem's files it's an **NPI**
 (`tin_type` is always `'npi'`), usually an organization's and sometimes a doctor's
-own, so it doubles as a stable practice key: one real
+own, and in Ambetter's an **EIN** (`tin_type` `'ein'`), published as the file gives it.
+Either doubles as a stable practice key: one real
 practice recurs across the MRF as many file-local `provider_group_id`s but keeps
 one `tin_value`, and it resolves to a name via NPPES (`npi = tin_value`).
 The find-care build calls it the biller ([integration/build.md](../integration/build.md#the-find-care-tables)).
@@ -85,7 +88,7 @@ network's rates by this label ([integration/build.md](../integration/build.md#th
 ## Parquet: `data/ingestion/payer_rates/<payer>/` (the payer rates `make build` reads)
 
 What ingestion hands integration: each target network's rates, keyed on Georgia's exchange network ID, in the same columns for every payer.
-`make parse` writes Anthem's ([ingestion/etl/parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
+`make parse` writes one folder for each payer ([ingestion/etl/parse.md](../ingestion/etl/parse.md#publishing-the-rates-by-network)).
 `integration/inputs/datasets.py` declares the columns and key the build checks before reading them, as it does for every dataset in the sections below, which may have more columns than it reads.
 
 | File | Columns |
@@ -95,7 +98,7 @@ What ingestion hands integration: each target network's rates, keyed on Georgia'
 | `rosters.parquet` | `network_id`, `provider_group_id`, `npi`, `tin_type`, `tin_value` |
 | `networks.parquet` | `network_id`, unique, `status`, `file`, `file_updated_at`, `reason`: one row per target network, with or without rates |
 
-The columns keep CMS's Transparency in Coverage names, as `data/raw/anthem/` has them.
+The columns keep CMS's Transparency in Coverage names, as `data/raw/<payer>/` has them.
 `networks` says whether a network's rates are `current`, from the payer's latest copy of `file`; `stale`, from an earlier copy, because the latest failed to parse or was skipped; or `missing`, when it has none in the other three files and `file` is empty.
 `file_updated_at` is when the payer updated the copy they're from, and `reason` says why they aren't current.
 A rate's `group_set_id` lists the provider groups it covers in `rate_groups`, and each group's roster lists its doctors (`npi`) and its billing ID (`tin_value`, an NPI or EIN by `tin_type`).

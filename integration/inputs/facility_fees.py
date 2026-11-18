@@ -2,7 +2,7 @@
 one source, the plan's own file else the hospital's own price file, and a center's,
 from the plan's own file."""
 from integration.inputs.addresses import ADDRESS, listed
-from integration.inputs.datasets import HOSPITAL_RATES, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first
+from integration.inputs.datasets import HOSPITAL_RATES, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first, roster_biller
 from integration.inputs.hospital_plans import PLAN_NETWORKS, plan_name
 from integration.table import Table
 
@@ -101,18 +101,18 @@ class FacilityRates(Table):
     def select(self, data_dir):
         return f"""
             SELECT DISTINCT network_id, service_id, biller, rate, per_day, center, generic FROM (
-                SELECT DISTINCT r.network_id, s.service_id, p.tin_value AS biller, r.negotiated_rate AS rate,
+                SELECT DISTINCT r.network_id, s.service_id, {roster_biller('p')} AS biller, r.negotiated_rate AS rate,
                        r.negotiated_type = 'per diem' AS per_day, r.own_label, NOT n.is_hospital AS center,
                        n.taxonomy_code IN (SELECT taxonomy_code FROM facilities) AS generic
                 FROM {PAYER_RATES.read(data_dir)} r
                 JOIN {FEE_SERVICES} s ON s.billing_code = r.billing_code AND list_contains(s.code_types, r.billing_code_type)
                 JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
                 JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
-                JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST(p.tin_value AS BIGINT)
+                JOIN {NPPES.read(data_dir)} n ON n.npi = TRY_CAST({roster_biller('p')} AS BIGINT)
                 WHERE ({FACILITY_PRICED} OR ({STAY_PRICED}
                         AND (r.negotiated_type = 'per diem'
-                             OR (r.network_id, p.tin_value, r.negotiated_rate) NOT IN
-                                (SELECT (r2.network_id, p2.tin_value, r2.negotiated_rate)
+                             OR (r.network_id, {roster_biller('p')}, r.negotiated_rate) NOT IN
+                                (SELECT (r2.network_id, {roster_biller('p2')}, r2.negotiated_rate)
                                  FROM {PAYER_RATES.read(data_dir)} r2
                                  JOIN {PAYER_RATE_GROUPS.read(data_dir)} g2 USING (network_id, group_set_id)
                                  JOIN {PAYER_ROSTERS.read(data_dir)} p2 USING (network_id, provider_group_id)

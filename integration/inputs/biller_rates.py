@@ -1,6 +1,6 @@
 """Build-only: each rate a network's file lists for a service, by the biller it
 covers, with the evidence that the biller does or reads that service."""
-from integration.inputs.datasets import NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first
+from integration.inputs.datasets import NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first, roster_biller
 from integration.table import Table
 
 # Modifiers that make a rate a different bill from the service's own, so a rate
@@ -112,12 +112,12 @@ def covered(data_dir):
             WHERE v.family IN {OWN_FEE_FAMILIES}
         ),
         real AS (
-            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, p.tin_value AS biller, p.npi, k.own_label
+            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, {roster_biller('p')} AS biller, p.npi, k.own_label
             FROM kept k
             JOIN medians m USING (network_id, service_id, part)
             JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
             JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
-            ANTI JOIN own_fee o ON o.service_id = k.service_id AND o.npi = TRY_CAST(p.tin_value AS BIGINT)
+            ANTI JOIN own_fee o ON o.service_id = k.service_id AND o.npi = TRY_CAST({roster_biller('p')} AS BIGINT)
             WHERE k.rate > greatest(1, 0.05 * m.median)
         ),
         covered AS (
@@ -202,9 +202,9 @@ class BillerRates(Table):
     def check(self, con, data_dir):
         """Every modifier on a service's rates is one the build has a rule for.
 
-        A biller is found by its NPI, which is what Anthem lists as every billing
-        ID. Rates that list a tax ID (EIN) instead stop the build here, rather
-        than every biller in them landing on the no-NPPES-record list."""
+        A biller is found by its NPI: a roster row's billing NPI, or, where it bills
+        under a tax ID (EIN), its own NPI (datasets.roster_biller). A billing ID of
+        any other type, or an EIN of the wrong shape, stops the build here."""
         bills = [m for (m,) in con.execute(
             "SELECT DISTINCT unnest(modifiers) FROM family_bills WHERE billing_class = 'professional'").fetchall()]
         known = ", ".join(f"'{m}'" for m in (*bills, *OTHER_BILLS))
@@ -223,9 +223,17 @@ class BillerRates(Table):
                              f"OTHER_BILLS in integration/inputs/biller_rates.py")
         other = con.execute(f"""
             SELECT tin_type, count(*) FROM {PAYER_ROSTERS.read(data_dir)}
-            WHERE tin_type IS DISTINCT FROM 'npi'
+            WHERE tin_type IS DISTINCT FROM 'npi' AND tin_type IS DISTINCT FROM 'ein'
             GROUP BY tin_type ORDER BY 2 DESC
         """).fetchone()
         if other:
-            raise SystemExit(f"biller_rates: {other[1]:,} roster rows bill under a {other[0]!r} ID, not an NPI, "
-                             f"so NPPES can't say where they are")
+            raise SystemExit(f"biller_rates: {other[1]:,} roster rows bill under a {other[0]!r} ID, which is "
+                             f"neither an NPI nor a tax ID (ein)")
+        bad = con.execute(f"""
+            SELECT tin_value, count(*) FROM {PAYER_ROSTERS.read(data_dir)}
+            WHERE tin_type = 'ein' AND NOT regexp_full_match(coalesce(tin_value, ''), '[0-9]{{2}}-[0-9]{{7}}')
+            GROUP BY tin_value ORDER BY 2 DESC
+        """).fetchone()
+        if bad:
+            raise SystemExit(f"biller_rates: {bad[1]:,} roster rows bill under the tax ID {bad[0]!r}, which "
+                             f"is not the shape NN-NNNNNNN")

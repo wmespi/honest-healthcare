@@ -299,7 +299,7 @@ def main() -> None:
     con = duckdb.connect()
 
     # Billing IDs an MRF names. A TIN that isn't an NPI has no NPPES address to find.
-    providers = f"{raw_dir(args.data_dir, args.test, 'anthem')}/providers/*.parquet"
+    providers = f"{raw_dir(args.data_dir, args.test, '*')}/providers/*.parquet"
     if glob.glob(providers):
         con.execute(f"""CREATE TEMP TABLE billing_npis AS
             SELECT DISTINCT TRY_CAST(tin_value AS BIGINT) AS npi

@@ -173,7 +173,7 @@ jobs:
       - name: Smoke - ingestion's etl binary and Python steps run
         run: |
           docker run --rm hh-ingestion:ci etl --help 2>&1 | grep -q "discover"
-          docker run --rm -w /app hh-ingestion:ci python3 -m ingestion.anthem_rates --help | grep -q "targets"
+          docker run --rm -w /app hh-ingestion:ci python3 -m ingestion.payer_rates --help | grep -q "targets"
       - name: Smoke - integration stops on a missing input, naming the step that makes it
         run: |
           # No data/ is mounted, so the build has nothing to read and must say so.

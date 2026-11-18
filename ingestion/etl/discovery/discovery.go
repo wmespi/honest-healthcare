@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"bufio"
 	"cmp"
 	"compress/gzip"
 	"encoding/json"
@@ -8,8 +9,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -26,51 +30,117 @@ type Options struct {
 	Limit int
 	// KeepIndex keeps the downloaded master index after the run, so the next run
 	// of the same month reads it from disk; NoCache downloads it again anyway.
+	// Both are for Anthem's index, the one big enough to be kept.
 	KeepIndex, NoCache bool
 	SchemaOnly         bool // stream the index, write index_schema.json and nothing else
+	// IndexURL overrides the payer's index URL; it names one payer's index, so
+	// main allows it for one payer only.
+	IndexURL string
+}
+
+// source is where a payer's master index is.
+type source struct {
+	// url is this month's index URL.
+	url func() (string, error)
+	// cached says the index is big enough to download in parallel Range
+	// requests to disk first (Anthem's is several GB), rather than stream it.
+	cached bool
+}
+
+// sources are the payers' index sources, by Payer.Name.
+var sources = map[string]source{
+	"anthem":   {url: anthemIndexURL, cached: true},
+	"ambetter": {url: ambetterIndexURL},
+}
+
+// anthemIndexURL is the current month's Anthem master-index URL.
+func anthemIndexURL() (string, error) {
+	now := time.Now()
+	return fmt.Sprintf("https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/%04d-%02d-01_anthem_index.json.gz", now.Year(), now.Month()), nil
+}
+
+// ambetterPage is Centene's price transparency page. It links the dated index
+// (`..._ambetter_index.json`), whose date changes every month.
+const ambetterPage = "https://www.centene.com/price-transparency-files.html"
+
+var ambetterIndexLink = regexp.MustCompile(`[^"'\s<>=]*_ambetter_index\.json`)
+
+// ambetterIndexURL finds this month's Ambetter index on Centene's page.
+func ambetterIndexURL() (string, error) {
+	resp, err := core.Get(ambetterPage)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", ambetterPage, err)
+	}
+	defer resp.Body.Close()
+	page, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", ambetterPage, err)
+	}
+	return pickAmbetterIndex(ambetterPage, string(page))
+}
+
+// pickAmbetterIndex is the newest index a page links, resolved against the
+// page's own URL.
+func pickAmbetterIndex(pageURL, page string) (string, error) {
+	base, err := url.Parse(pageURL)
+	if err != nil {
+		return "", err
+	}
+	var links []string
+	for _, m := range ambetterIndexLink.FindAllString(page, -1) {
+		ref, err := url.Parse(strings.ReplaceAll(m, " ", "%20"))
+		if err != nil {
+			continue
+		}
+		links = append(links, base.ResolveReference(ref).String())
+	}
+	if len(links) == 0 {
+		return "", fmt.Errorf("%s links no *_ambetter_index.json, so there is no index to read", pageURL)
+	}
+	// The date prefix of the name sorts them, so the last is the newest.
+	slices.SortFunc(links, func(a, b string) int { return strings.Compare(path.Base(a), path.Base(b)) })
+	return links[len(links)-1], nil
 }
 
 // indexCachePaths are where the downloaded master index and its URL are kept.
-func indexCachePaths() (cachePath, cacheURLPath string) {
-	cacheDir := filepath.Dir(core.ExampleOutputPath)
-	return filepath.Join(cacheDir, "index_cache.json.gz"), filepath.Join(cacheDir, "index_cache_url.txt")
+func indexCachePaths(p core.Payer) (cachePath, cacheURLPath string) {
+	return filepath.Join(p.RawDir(), "index_cache.json.gz"), filepath.Join(p.RawDir(), "index_cache_url.txt")
 }
 
-// ensureIndexCached downloads the master index to disk unless a copy of this
-// month's is already there, from a run with KeepIndex or one that stopped part
-// way, then returns the local path.
-func ensureIndexCached(noCache bool) string {
-	cacheDir := filepath.Dir(core.ExampleOutputPath)
-	cachePath, cacheURLPath := indexCachePaths()
+// ensureIndexCached downloads the master index at indexURL to disk unless a
+// copy of this month's is already there, from a run with KeepIndex or one that
+// stopped part way, then returns the local path.
+func ensureIndexCached(p core.Payer, indexURL string, noCache bool) (string, error) {
+	cachePath, cacheURLPath := indexCachePaths(p)
 
 	if !noCache {
-		if data, err := os.ReadFile(cacheURLPath); err == nil && strings.TrimSpace(string(data)) == core.IndexURL {
+		if data, err := os.ReadFile(cacheURLPath); err == nil && strings.TrimSpace(string(data)) == indexURL {
 			if _, err := os.Stat(cachePath); err == nil {
-				log.Printf("📦 Cache hit — skipping download, reading from disk")
-				return cachePath
+				log.Printf("📦 Cache hit - skipping download, reading from disk")
+				return cachePath, nil
 			}
 		}
 	}
 
-	os.MkdirAll(cacheDir, os.ModePerm)
+	os.MkdirAll(p.RawDir(), os.ModePerm)
 	tmpPath := cachePath + ".tmp"
 
-	if err := downloadParallel(core.IndexURL, tmpPath, 8); err != nil {
-		log.Fatalf("❌ Download failed: %v", err)
+	if err := downloadParallel(indexURL, tmpPath, 8); err != nil {
+		return "", fmt.Errorf("download %s: %w", indexURL, err)
 	}
 
 	if err := os.Rename(tmpPath, cachePath); err != nil {
-		log.Fatalf("❌ Failed to finalize cache: %v", err)
+		return "", fmt.Errorf("finalize the downloaded index: %w", err)
 	}
-	os.WriteFile(cacheURLPath, []byte(core.IndexURL), 0644)
+	os.WriteFile(cacheURLPath, []byte(indexURL), 0644)
 	log.Printf("💾 Downloaded to %s", filepath.Base(cachePath))
-	return cachePath
+	return cachePath, nil
 }
 
 // dropIndex deletes the downloaded master index once a run has read it, since
 // it's several GB and only needed during a run.
-func dropIndex() {
-	cachePath, cacheURLPath := indexCachePaths()
+func dropIndex(p core.Payer) {
+	cachePath, cacheURLPath := indexCachePaths(p)
 	size := int64(0)
 	if fi, err := os.Stat(cachePath); err == nil {
 		size = fi.Size()
@@ -200,33 +270,135 @@ func downloadParallel(url, destPath string, workers int) error {
 	}
 }
 
-// Run is `etl discover`: it reads this month's master index and writes the files it
-// lists (index_files.parquet) and the Georgia individual-market plans each one
-// prices (index_file_plans.parquet).
-func Run(opts Options) {
-	limit, schemaOnly := opts.Limit, opts.SchemaOnly
-	if schemaOnly {
-		log.Println("🚀 Starting discover: Anthem's index schema only...")
+// RunAll is `etl discover`: it reads each payer's index in turn. A payer whose
+// index can't be read keeps the lists its last run wrote and is named in a
+// banner at the end, and the others are still read; it errors only when no
+// payer's index was read.
+func RunAll(payers []core.Payer, opts Options) error {
+	var failed []string
+	for _, p := range payers {
+		if err := Run(p, opts); err != nil {
+			log.Printf("❌ %s: %v", p.Label, err)
+			failed = append(failed, fmt.Sprintf("%s: %v", p.Name, err))
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	log.Printf("╔══════════════════════════════════════════════════════════════════════")
+	log.Printf("║ ⚠️  INDEXES THAT COULDN'T BE READ")
+	for _, f := range failed {
+		log.Printf("║ %s", f)
+	}
+	log.Printf("║ Each of these payers keeps the file list and plan links of its last run.")
+	log.Printf("╚══════════════════════════════════════════════════════════════════════")
+	if len(failed) == len(payers) {
+		return fmt.Errorf("no payer's index was read")
+	}
+	return nil
+}
+
+// index is an open master index: the JSON, gunzipped when its body starts with
+// the gzip magic bytes whatever its name says.
+type index struct {
+	r     io.Reader // the JSON
+	pr    *core.ProgressReader
+	total int64 // the body's size, 0 when unknown
+	gz    *gzip.Reader
+	body  io.Closer
+}
+
+// openIndex opens the payer's index at indexURL, from the downloaded copy for a
+// cached source and otherwise straight off the network.
+func openIndex(p core.Payer, src source, indexURL string, opts Options) (*index, error) {
+	var body io.ReadCloser
+	var total int64
+	if src.cached {
+		path, err := ensureIndexCached(p, indexURL, opts.NoCache)
+		if err != nil {
+			return nil, err
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open the downloaded index: %w", err)
+		}
+		fi, _ := f.Stat()
+		body, total = f, fi.Size()
 	} else {
-		log.Println("🚀 Starting discover: Anthem's index → this month's file list...")
+		resp, err := core.Get(indexURL)
+		if err != nil {
+			return nil, fmt.Errorf("download %s: %w", indexURL, err)
+		}
+		body, total = resp.Body, resp.ContentLength
+	}
+	ix := &index{pr: core.NewProgressReader(body, total), total: total, body: body}
+	br := bufio.NewReader(ix.pr)
+	ix.r = br
+	if magic, err := br.Peek(2); err == nil && magic[0] == 0x1f && magic[1] == 0x8b {
+		gz, err := gzip.NewReader(br)
+		if err != nil {
+			body.Close()
+			return nil, fmt.Errorf("unzip the index: %w", err)
+		}
+		ix.gz, ix.r = gz, gz
+	}
+	return ix, nil
+}
+
+// finish confirms the whole body arrived once the JSON has been read: the rest
+// is drained, which makes gzip check its trailer and the HTTP layer report a
+// short body, and the bytes read are reconciled against the size.
+func (ix *index) finish() error {
+	if _, err := io.Copy(io.Discard, ix.r); err != nil {
+		return fmt.Errorf("the index ended early: %w", err)
+	}
+	if ix.total > 0 {
+		if read := ix.pr.ReadBytes.Load(); read < ix.total {
+			return fmt.Errorf("short read: got %d of %d bytes of the index", read, ix.total)
+		}
+	}
+	return nil
+}
+
+func (ix *index) close() {
+	if ix.gz != nil {
+		ix.gz.Close()
+	}
+	ix.body.Close()
+}
+
+// Run reads one payer's master index and writes the files it lists
+// (index_files.parquet) and the Georgia individual-market plans each one
+// prices (index_file_plans.parquet), or only its schema example with
+// SchemaOnly. When it errors it has written nothing, so the payer keeps the
+// lists of its last run.
+func Run(p core.Payer, opts Options) error {
+	limit, schemaOnly := opts.Limit, opts.SchemaOnly
+	src, ok := sources[p.Name]
+	if !ok {
+		return fmt.Errorf("no index source for payer %q", p.Name)
+	}
+	if schemaOnly {
+		log.Printf("🚀 Starting discover: %s's index schema only...", p.Label)
+	} else {
+		log.Printf("🚀 Starting discover: %s's index → this month's file list...", p.Label)
 	}
 
-	cachePath := ensureIndexCached(opts.NoCache)
-
-	f, err := os.Open(cachePath)
+	indexURL := opts.IndexURL
+	if indexURL == "" {
+		var err error
+		if indexURL, err = src.url(); err != nil {
+			return err
+		}
+	}
+	log.Printf("📥 %s", indexURL)
+	ix, err := openIndex(p, src, indexURL, opts)
 	if err != nil {
-		log.Fatalf("❌ Failed to open cached index: %v", err)
+		return err
 	}
-	defer f.Close()
-	fi, _ := f.Stat()
-
-	pr := core.NewProgressReader(f, fi.Size())
-	gz, err := gzip.NewReader(pr)
-	if err != nil {
-		log.Fatalf("❌ Failed to unzip: %v", err)
-	}
-
-	decoder := json.NewDecoder(gz)
+	defer ix.close()
+	pr := ix.pr
+	decoder := json.NewDecoder(ix.r)
 
 	// files holds each file the index lists, by address, and links each
 	// (file, plan ID) pair once. The index publishes reporting_plans[] ×
@@ -245,10 +417,10 @@ func Run(opts Options) {
 
 	tok, err := decoder.Token()
 	if err != nil {
-		log.Fatalf("❌ Failed to read root token: %v", err)
+		return fmt.Errorf("read the index's root token: %w", err)
 	}
 	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
-		log.Fatalf("❌ Expected root '{', got %v", tok)
+		return fmt.Errorf("the index doesn't start with '{', but %v", tok)
 	}
 
 	processRS := func(rs core.ReportingStructure) {
@@ -276,7 +448,10 @@ func Run(opts Options) {
 	}
 
 	for decoder.More() {
-		kt, _ := decoder.Token()
+		kt, err := decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read the index's root key: %w", err)
+		}
 		key, _ := kt.(string)
 
 		if key == "reporting_structure" {
@@ -291,8 +466,7 @@ func Run(opts Options) {
 					// both the schema example and the typed struct in one read.
 					var raw json.RawMessage
 					if err := decoder.Decode(&raw); err != nil {
-						log.Printf("⚠️ Decode error on first item: %v", err)
-						continue
+						return fmt.Errorf("read reporting_structure[0]: %w", err)
 					}
 					var schemaItem interface{}
 					json.Unmarshal(raw, &schemaItem)
@@ -305,8 +479,9 @@ func Run(opts Options) {
 				} else {
 					var rs core.ReportingStructure
 					if err := decoder.Decode(&rs); err != nil {
-						log.Printf("⚠️ Decode error: %v", err)
-						continue
+						// A stream that broke stays broken, so stop rather than skip:
+						// the lists of the last run are better than a partial one.
+						return fmt.Errorf("read reporting_structure[%d]: %w", count-1, err)
 					}
 					processRS(rs)
 				}
@@ -332,12 +507,15 @@ func Run(opts Options) {
 			log.Printf("  ✅ Done with '%s'. %s", key, pr.GetProgressString())
 		}
 	}
-	decoder.Token() // '}'
-
-	gz.Close()
+	if _, err := decoder.Token(); err != nil { // '}'
+		return fmt.Errorf("the index never closes (truncated download?): %w", err)
+	}
+	if err := ix.finish(); err != nil {
+		return err
+	}
 
 	// Write schema alongside the rate file example.
-	schemaPath := filepath.Join(filepath.Dir(core.ExampleOutputPath), "index_schema.json")
+	schemaPath := p.IndexSchemaPath()
 	if err := os.MkdirAll(filepath.Dir(schemaPath), os.ModePerm); err == nil {
 		if f, err := os.Create(schemaPath); err == nil {
 			enc := json.NewEncoder(f)
@@ -350,15 +528,15 @@ func Run(opts Options) {
 
 	if schemaOnly {
 		log.Printf("✅ Schema-only mode - wrote %s and nothing else. %d unique files seen.", schemaPath, len(files))
-		if !opts.KeepIndex {
-			dropIndex()
+		if src.cached && !opts.KeepIndex {
+			dropIndex(p)
 		}
-		return
+		return nil
 	}
 
 	list, err := fileList(files)
 	if err != nil {
-		log.Fatalf("❌ %v", err)
+		return err
 	}
 	pairs := make([]core.PlanLink, 0, len(links))
 	for l := range links {
@@ -370,28 +548,30 @@ func Run(opts Options) {
 
 	// Both are written beside their final paths and moved into place together,
 	// so parse and the build don't read one month's files with another's links.
-	filesTmp, linksTmp := core.IndexFilesPath+".tmp", core.IndexFilePlansPath+".tmp"
+	filesPath, linksPath := p.IndexFilesPath(), p.IndexFilePlansPath()
+	filesTmp, linksTmp := filesPath+".tmp", linksPath+".tmp"
 	if err := core.WriteParquet(filesTmp, list); err != nil {
-		log.Fatalf("❌ %v", err)
+		return err
 	}
 	if err := core.WriteParquet(linksTmp, pairs); err != nil {
 		os.Remove(filesTmp)
-		log.Fatalf("❌ %v", err)
+		return err
 	}
-	if err := os.Rename(filesTmp, core.IndexFilesPath); err != nil {
-		log.Fatalf("❌ %v", err)
+	if err := os.Rename(filesTmp, filesPath); err != nil {
+		return err
 	}
-	if err := os.Rename(linksTmp, core.IndexFilePlansPath); err != nil {
-		log.Fatalf("❌ %s is this month's but %s isn't: %v. Run discover again.", core.IndexFilesPath, core.IndexFilePlansPath, err)
+	if err := os.Rename(linksTmp, linksPath); err != nil {
+		return fmt.Errorf("%s is this month's but %s isn't: %w. Run discover again.", filesPath, linksPath, err)
 	}
 	if truncated {
 		log.Printf("⚠️ The limit stopped the read part way, so these lists hold only the first %d reporting structures.", count)
 	}
 	log.Printf("✅ Wrote %s: %d file(s), and %s: %d (file, plan ID) pair(s).",
-		core.IndexFilesPath, len(list), core.IndexFilePlansPath, len(pairs))
-	if !opts.KeepIndex {
-		dropIndex()
+		filesPath, len(list), linksPath, len(pairs))
+	if src.cached && !opts.KeepIndex {
+		dropIndex(p)
 	}
+	return nil
 }
 
 // fileList is the files in ID order, so the same index always writes the same
@@ -418,7 +598,7 @@ func fileList(files map[string]core.IndexFile) ([]core.IndexFile, error) {
 // HIOS plan ID (e.g. "45334GA0770001" → "GA"), upper-cased. Returns "" when the
 // plan is not HIOS, is too short, or the slice is not two ASCII letters.
 func hiosStateCode(plan core.ReportingPlan) string {
-	if plan.PlanIDType != "HIOS" || len(plan.PlanID) < 7 {
+	if !strings.EqualFold(plan.PlanIDType, "HIOS") || len(plan.PlanID) < 7 {
 		return ""
 	}
 	st := strings.ToUpper(plan.PlanID[5:7])

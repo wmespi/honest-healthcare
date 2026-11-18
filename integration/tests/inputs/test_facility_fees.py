@@ -39,6 +39,14 @@ def test_the_plans_file_prices_a_hospital_its_hospital_npi_lists_an_address_in(c
             "price no hospital's fee (1): 1000000053") in capsys.readouterr().out
 
 
+def test_a_hospitals_fee_on_a_tax_id_group_listing_its_npi_prices_at_the_hospital(corpus):
+    # Ambetter-style: the group bills under a tax ID, and the hospital's own NPI is on its roster.
+    corpus.npi(1000000061, "HOSPITAL 1000000061", "1200 MEMORIAL DR", "DALTON", "30720", taxonomy="282N00000X")
+    corpus.roster(PATHWAY, 61, 61, "86-2226051", 1000000061, tin_type="ein")
+    corpus.facility_price(PATHWAY, 61, "72148", 930)
+    assert fees(corpus, MRI) == [(PATHWAY, MRI, HAMILTON, 930.0, 1, "plan")]
+
+
 def test_the_plans_file_prices_only_fee_for_service_dollar_amounts_on_an_outpatient_bill_with_no_modifier(corpus):
     for rate, fields in [(1100, {"setting": "both", "negotiated_type": "negotiated"}),
                          (1000, {}),

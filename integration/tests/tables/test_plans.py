@@ -26,6 +26,15 @@ def test_one_design_sold_in_two_service_areas_is_one_plan(corpus):
     assert {r[0] for r in corpus.rows("premiums")} >= {"45334GA0020001", "45334GA0020002"}
 
 
+def test_an_insurer_doing_business_under_another_name_shows_that_name(corpus):
+    corpus.plan("45334GA0020009", "45334-GAN001", "Clear Silver HMO", carrier="Centene Corporation DBA Ambetter "
+                "from Peach State Health Plan")
+    corpus.premium("45334GA0020009", 1)
+    corpus.build()
+    assert {r[2] for r in corpus.rows("plans")} == {"Anthem Blue Cross and Blue Shield",
+                                                     "Ambetter from Peach State Health Plan"}
+
+
 def test_the_same_name_on_another_network_is_its_own_plan(corpus):
     corpus.plan("49046GA0700001", "49046-GAN008", SILVER)
     corpus.premium("49046GA0700001", 1)

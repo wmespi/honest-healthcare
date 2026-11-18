@@ -1,26 +1,41 @@
-"""The `anthem` fixture: Anthem's files as parse and discover write them
-(data/raw/anthem/), Georgia's exchange networks and plans, and a targets file, in a
-tmp dir, for ingestion/anthem_rates.py to publish."""
+"""The `anthem` and `ambetter` fixtures: a payer's files as parse and discover write
+them (data/raw/<payer>/), Georgia's exchange networks and plans, and a targets
+file naming both payers, in a tmp dir, for ingestion/payer_rates.py to publish."""
 import os
 
 import duckdb
 import pytest
 
 BLUE_VALUE_LABEL = "GA Blue Value HIX Individual Network"
+AMBETTER_FILE = "2026-10-27_centene_ambetter-ga_in-network.json"
 TARGETS = """targets:
+  - name: Ambetter Premier
+    payer: ambetter
+    exchange_networks: ["70893-GAN001"]
+    files: ["*_ambetter-ga_in-network.json"]
+    network_patterns: ["Exchange GA"]
+  - name: Ambetter Select Plus
+    payer: ambetter
+    exchange_networks: ["70893-GAN003"]
+    files: ["*_ambetter-ga_in-network.json"]
+    network_patterns: ["Exchange Select Plus"]
   - name: Blue Value
+    payer: anthem
     exchange_networks: ["45334-GAN001"]
     files: ["GA_BV.json.gz"]
     network_patterns: ["GA Blue Value HIX*"]
   - name: Pathway
+    payer: anthem
     exchange_networks: ["49046-GAN008"]
     files: ["GA_PW.json.gz"]
     network_patterns: ["Pathway PCP Copay Choice*"]
 """
-# When Anthem last updated each file the fixture's parse read.
+# When the payer last updated each file the fixture's parse read.
 OCT31 = "2026-10-31 09:24:31+00"
 _RECORD = {"file_id": "BIGINT", "name": "VARCHAR", "address": "VARCHAR", "status": "VARCHAR", "reason": "VARCHAR",
-           "anthem_updated_at": "TIMESTAMPTZ", "rates_updated_at": "TIMESTAMPTZ", "finished_at": "TIMESTAMPTZ"}
+           "updated_at": "TIMESTAMPTZ", "rates_updated_at": "TIMESTAMPTZ", "finished_at": "TIMESTAMPTZ"}
+# A record from before payers, which called the copy's date `anthem_updated_at`.
+_LEGACY_RECORD = {("anthem_updated_at" if c == "updated_at" else c): t for c, t in _RECORD.items()}
 
 
 def _write(path, columns, rows):
@@ -35,27 +50,30 @@ def _write(path, columns, rows):
     con.execute(f"COPY t TO '{path}' (FORMAT parquet)")
 
 
-class Anthem:
-    """Raw rates, rate groups and rosters by file, each file's parse record,
-    the index's files and plan links, Georgia's networks and plans, and the
-    targets file."""
+class Payer:
+    """One payer's raw rates, rate groups and rosters by file, each file's parse
+    record, the index's files and plan links, Georgia's networks and plans, and
+    the targets file."""
 
-    def __init__(self, root):
+    def __init__(self, root, name):
         self.root = root
+        self.name = name
         self.targets = f"{root}/targets.yaml"
-        self.out = f"{root}/ingestion/payer_rates/anthem"
+        self.out = f"{root}/ingestion/payer_rates/{name}"
         self.rates = {}   # (file_id, label) -> rows
         self.groups = {}  # file_id -> rows
         self.rosters = {}  # file_id -> rows
         self.files = {}   # file_id -> name, the index's file list
         self.links = []
         self.plans = []
-        with open(self.targets, "w") as f:
-            f.write(TARGETS)
+        if not os.path.exists(self.targets):
+            with open(self.targets, "w") as f:
+                f.write(TARGETS)
         _write(f"{root}/ingestion/reference/exchange_networks_ga.parquet",
                {"network_id": "VARCHAR", "issuer_id": "VARCHAR", "name": "VARCHAR"},
                [("45334-GAN001", "45334", "Blue Value"), ("49046-GAN008", "49046", "Pathway"),
-                ("58081-GAN001", "58081", "Individual Georgia HMO")])
+                ("58081-GAN001", "58081", "Individual Georgia HMO"), ("70893-GAN001", "70893", "Premier"),
+                ("70893-GAN003", "70893", "Select Plus")])
 
     def rate(self, file_id, label, group_set=1, code="70551", rate=250.0, billing_class="professional"):
         """Add a rate in file `file_id` under network label `label`."""
@@ -74,33 +92,34 @@ class Anthem:
             if file == file_id:
                 self.remove_rate(file, label)
         for kind in ("group_sets", "providers"):
-            os.remove(f"{self.root}/raw/anthem/{kind}/{file_id}.parquet")
+            os.remove(f"{self.root}/raw/{self.name}/{kind}/{file_id}.parquet")
         self.groups.pop(file_id)
         self.rosters.pop(file_id)
 
     def file(self, file_id, name):
         """List file `file_id` in this month's index as `name`."""
         self.files[file_id] = name
-        _write(f"{self.root}/raw/anthem/index_files.parquet",
+        _write(f"{self.root}/raw/{self.name}/index_files.parquet",
                {"file_id": "BIGINT", "name": "VARCHAR", "address": "VARCHAR", "location": "VARCHAR"},
-               [(f, n, f"https://anthem/{n}", f"https://anthem/{n}?Expires=1") for f, n in sorted(self.files.items())])
+               [(f, n, f"https://{self.name}/{n}", f"https://{self.name}/{n}?Expires=1")
+                for f, n in sorted(self.files.items())])
 
     def record(self, file_id, status, reason="", read=OCT31, rates=OCT31, columns=_RECORD):
         """Save file `file_id`'s parse record: what its latest parse made of it,
         the copy it read and the copy whose rates are on disk."""
         name = self.files[file_id]
-        row = {"file_id": file_id, "name": name, "address": f"https://anthem/{name}", "status": status,
-               "reason": reason, "anthem_updated_at": read, "rates_updated_at": rates,
+        row = {"file_id": file_id, "name": name, "address": f"https://{self.name}/{name}", "status": status,
+               "reason": reason, "updated_at": read, "anthem_updated_at": read, "rates_updated_at": rates,
                "finished_at": "2026-11-07 18:14:12+00"}
-        _write(f"{self.root}/raw/anthem/parses/{name.removesuffix('.json.gz')}.parquet", columns,
+        _write(f"{self.root}/raw/{self.name}/parses/{_stem(name)}.parquet", columns,
                [tuple(row[c] for c in columns)])
 
     def remove_record(self, file_id):
-        os.remove(f"{self.root}/raw/anthem/parses/{self.files[file_id].removesuffix('.json.gz')}.parquet")
+        os.remove(f"{self.root}/raw/{self.name}/parses/{_stem(self.files[file_id])}.parquet")
 
     def _rates_path(self, file_id, label):
         slug = "".join(ch if ch.isalnum() else "-" for ch in label.strip().lower())
-        return f"{self.root}/raw/anthem/prices/net={slug}/{file_id}.parquet"
+        return f"{self.root}/raw/{self.name}/prices/net={slug}/{file_id}.parquet"
 
     def _write_rates(self, file_id, label):
         _write(self._rates_path(file_id, label), {
@@ -110,15 +129,15 @@ class Anthem:
             "service_code": "VARCHAR", "billing_class": "VARCHAR", "modifier": "VARCHAR", "setting": "VARCHAR"},
             self.rates[(file_id, label)])
 
-    def group(self, file_id, group_set, group, tin, *npis, label="any network"):
+    def group(self, file_id, group_set, group, tin, *npis, label="any network", tin_type="npi"):
         """Put provider group `group`, billing as `tin`, with doctors `npis`, in
         `group_set` of file `file_id`. A group's label can list several networks."""
         self.groups.setdefault(file_id, []).append((file_id, group_set, group))
-        self.rosters.setdefault(file_id, []).extend((file_id, group, label, npi, "npi", tin) for npi in npis)
-        _write(f"{self.root}/raw/anthem/group_sets/{file_id}.parquet",
+        self.rosters.setdefault(file_id, []).extend((file_id, group, label, npi, tin_type, tin) for npi in npis)
+        _write(f"{self.root}/raw/{self.name}/group_sets/{file_id}.parquet",
                {"file_id": "BIGINT", "group_set_id": "BIGINT", "provider_group_id": "BIGINT"},
                self.groups[file_id])
-        _write(f"{self.root}/raw/anthem/providers/{file_id}.parquet",
+        _write(f"{self.root}/raw/{self.name}/providers/{file_id}.parquet",
                {"file_id": "BIGINT", "provider_group_id": "BIGINT", "network_name": "VARCHAR", "npi": "BIGINT",
                 "tin_type": "VARCHAR", "tin_value": "VARCHAR"}, self.rosters[file_id])
 
@@ -132,7 +151,7 @@ class Anthem:
         self._write_links()
 
     def _write_links(self):
-        _write(f"{self.root}/raw/anthem/index_file_plans.parquet", {"file_id": "BIGINT", "plan_id": "VARCHAR"},
+        _write(f"{self.root}/raw/{self.name}/index_file_plans.parquet", {"file_id": "BIGINT", "plan_id": "VARCHAR"},
                self.links)
 
     def plan(self, plan_id, network_id):
@@ -154,8 +173,8 @@ class Anthem:
             f.write(text)
 
     def publish(self):
-        from ingestion.anthem_rates import publish
-        return publish(self.root, self.out, self.targets)
+        from ingestion.payer_rates import publish
+        return publish(self.root, self.out, self.name, self.targets)
 
     def rows(self, name):
         return duckdb.connect().execute(f"FROM '{self.out}/{name}.parquet' ORDER BY ALL").fetchall()
@@ -168,6 +187,11 @@ class Anthem:
                            f"FROM '{self.out}/networks.parquet' ORDER BY network_id").fetchall()
 
 
+def _stem(name):
+    """A file's name without `.json.gz` or `.json`, which names its parse record."""
+    return name.removesuffix(".gz").removesuffix(".json")
+
+
 @pytest.fixture()
 def anthem(tmp_path, monkeypatch):
     """Blue Value in file 21057 (GA_BV) and Pathway beside an untargeted network
@@ -175,7 +199,7 @@ def anthem(tmp_path, monkeypatch):
     network's plans and parsed from Anthem's 31 October copy, and one priced
     group in each."""
     monkeypatch.delenv("DUCKDB_TMP", raising=False)
-    a = Anthem(str(tmp_path))
+    a = Payer(str(tmp_path), "anthem")
     for plan_id, net in [("45334GA0020002", "45334-GAN001"), ("45334GA0020008", "45334-GAN001"),
                          ("49046GA0700053", "49046-GAN008"), ("58081GA0010001", "58081-GAN001")]:
         a.plan(plan_id, net)
@@ -191,3 +215,26 @@ def anthem(tmp_path, monkeypatch):
         a.file(file_id, name)
         a.record(file_id, "parsed")
     return a
+
+
+@pytest.fixture()
+def ambetter(tmp_path, monkeypatch):
+    """Ambetter's one plain-JSON file (file 5001), which the index links to its
+    plans by product ID and two targets name by a dated pattern: Premier's
+    rates under "Exchange GA" and Select Plus's under "Exchange Select Plus",
+    beside another issuer's label that no target names. Each has a group billing
+    as an EIN."""
+    monkeypatch.delenv("DUCKDB_TMP", raising=False)
+    m = Payer(str(tmp_path), "ambetter")
+    m.plan("70893GA0010001", "70893-GAN001")
+    m.plan("70893GA0030002", "70893-GAN003")
+    m.rate(5001, "Exchange GA", group_set=1)
+    m.rate(5001, "Exchange Select Plus", group_set=2, rate=300.0)
+    m.rate(5001, "Exchange Solutions", group_set=3, rate=999.0)
+    m.group(5001, 1, 10, "86-2226051", 3000000001, label="Exchange GA|Exchange Select Plus", tin_type="ein")
+    m.group(5001, 2, 20, "86-2226051", 3000000002, label="Exchange Select Plus", tin_type="ein")
+    m.group(5001, 3, 30, "86-2226051", 3000000003, label="Exchange Solutions", tin_type="ein")
+    m.link(5001, "70893GA001", "70893GA003", "45495GA004")
+    m.file(5001, AMBETTER_FILE)
+    m.record(5001, "parsed")
+    return m

@@ -1,6 +1,7 @@
 package extraction
 
 import (
+	"bufio"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -58,8 +59,8 @@ func humanBytes(n int64) string {
 	}
 }
 
-// openMRF returns a reader for the raw (still gzipped) MRF bytes, its size, when
-// Anthem last updated the copy being read (its Last-Modified; zero for a fixture
+// openMRF returns a reader for the raw (gzipped or plain) MRF bytes, its size,
+// when the payer last updated the copy being read (its Last-Modified; zero for a fixture
 // or a response without one), and a cancel func that aborts the in-flight
 // request (a no-op for a fixture). A fixturePath reads from disk (offline);
 // otherwise it GETs url under a cancellable context so watchStall can kill a
@@ -93,8 +94,8 @@ func openMRF(ctx context.Context, url, fixturePath string) (io.ReadCloser, int64
 	return resp.Body, resp.ContentLength, updated, cancel, nil
 }
 
-// lastModified asks Anthem when it last updated the file at url: a HEAD
-// request's Last-Modified.
+// lastModified asks the payer's server when it last updated the file at url: a
+// HEAD request's Last-Modified.
 func lastModified(ctx context.Context, url string) (time.Time, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -190,6 +191,25 @@ func validateStreamComplete(gz *gzip.Reader, pr *core.ProgressReader, contentLen
 	return nil
 }
 
+// validatePlainComplete is validateStreamComplete for a file that isn't gzipped:
+// there is no trailer to check, so the rest of the body is drained, which makes
+// the HTTP layer surface a short body, and the bytes read are reconciled
+// against Content-Length. A document that never closes has already failed in
+// streamMRF.
+func validatePlainComplete(rest io.Reader, pr *core.ProgressReader, contentLength int64) error {
+	_, drainErr := io.Copy(io.Discard, rest)
+	read := pr.ReadBytes.Load()
+	switch {
+	case contentLength > 0 && read < contentLength:
+		return fmt.Errorf("short read: got %d of %d bytes - download truncated", read, contentLength)
+	case drainErr != nil && errors.Is(drainErr, io.ErrUnexpectedEOF):
+		return fmt.Errorf("stream truncated after %d bytes - download incomplete", read)
+	case drainErr != nil:
+		return fmt.Errorf("read error after %d bytes: %w", read, drainErr)
+	}
+	return nil
+}
+
 // parseOutcome is what a file amounted to, for the end-of-run guard in Run.
 // A file that never finished (a failure before the probe even ran) is
 // outcomeFailed.
@@ -207,6 +227,7 @@ const (
 // record. The second return is what became of the file (Run aggregates it).
 func parseRates(
 	ctx context.Context,
+	p core.Payer,
 	f core.IndexFile,
 	fixturePath string,
 	isFirstFile bool,
@@ -220,7 +241,7 @@ func parseRates(
 	rec := parseRecord{FileID: fileID, Name: f.Name, Address: f.Address}
 	// A parse that doesn't finish leaves the Parquet the last one wrote, so its
 	// record keeps that copy's date.
-	prev, err := readRecord(f)
+	prev, err := readRecord(p, f)
 	if err != nil && !dryRun {
 		log.Printf("⚠️ %v, so the record of this parse can't say which copy's rates are on disk", err)
 	}
@@ -234,10 +255,10 @@ func parseRates(
 		}
 		rec.RatesUpdatedAt = prev.ratesCopy()
 		if status == statusParsed {
-			rec.RatesUpdatedAt = rec.AnthemUpdatedAt
+			rec.RatesUpdatedAt = rec.UpdatedAt
 		}
 		rec.FinishedAt = time.Now().UTC()
-		if err := writeRecord(rec); err != nil {
+		if err := writeRecord(p, rec); err != nil {
 			log.Printf("⚠️ Failed to write the parse record of %s: %v", f.Name, err)
 		}
 	}
@@ -254,7 +275,7 @@ func parseRates(
 	defer body.Close()
 	defer cancelDownload()
 	if !updated.IsZero() {
-		rec.AnthemUpdatedAt = &updated
+		rec.UpdatedAt = &updated
 	}
 
 	pr := core.NewProgressReader(body, contentLength)
@@ -269,13 +290,11 @@ func parseRates(
 	}
 
 	if contentLength > 0 && fixturePath == "" {
-		gb := float64(contentLength) / 1e9
-		log.Printf("  📦 %.2f GB compressed | ~%.1f GB uncompressed (est. ×12)", gb, gb*12)
 		rec.CompressedBytes = contentLength
 	}
 
 	// Parquet writers (skipped in dry-run). Everything for this file is written
-	// under a per-file scratch dir (…/anthem/.inflight/<stem>/) and moved into place
+	// under a per-file scratch dir (…/<payer>/.inflight/<stem>/) and moved into place
 	// only after a clean stream, so the build, which globs prices/**/*.parquet,
 	// group_sets/*.parquet, providers/*.parquet and codes/*.parquet, never sees a
 	// half-written or zero-byte file. Price rows fan out into
@@ -283,7 +302,7 @@ func parseRates(
 	// network-filtered query prunes to it; the deduped provider-group rosters go
 	// to group_sets/<stem>.parquet. Every row carries the file's ID.
 	name := f.Stem() + ".parquet"
-	scratch := scratchDir(f)
+	scratch := scratchDir(p, f)
 
 	var w mrfWriters
 	var closers []io.Closer
@@ -343,15 +362,30 @@ func parseRates(
 		}
 	}
 
-	gz, err := gzip.NewReader(pr)
-	if err != nil {
-		closeAll(closers)
-		return fail(err)
+	// A file is gzipped when its body starts with the gzip magic bytes, whatever
+	// its name says: Anthem's are, and Ambetter's are plain JSON.
+	br := bufio.NewReaderSize(pr, 64<<10)
+	var doc io.Reader = br
+	var gz *gzip.Reader
+	if magic, perr := br.Peek(2); perr == nil && magic[0] == 0x1f && magic[1] == 0x8b {
+		if gz, err = gzip.NewReader(br); err != nil {
+			closeAll(closers)
+			return fail(err)
+		}
+		defer gz.Close()
+		doc = gz
 	}
-	defer gz.Close()
+	if contentLength > 0 && fixturePath == "" {
+		if gz != nil {
+			gb := float64(contentLength) / 1e9
+			log.Printf("  📦 %.2f GB compressed | ~%.1f GB uncompressed (est. ×12)", gb, gb*12)
+		} else {
+			log.Printf("  📦 %s, not compressed", humanBytes(contentLength))
+		}
+	}
 
 	log.Println("  🔄 Starting single-pass extract...")
-	res, err := streamMRF(gz, fileID, isFirstFile, gaNPIs, pb, w, pr)
+	res, err := streamMRF(doc, fileID, isFirstFile, gaNPIs, pb, w, pr)
 
 	// The probe rejected the file at the end of provider_references, before a
 	// byte of in_network. Kill the transfer now — that is the whole saving — and
@@ -379,7 +413,11 @@ func parseRates(
 	// gzip trailer checks out before anything is promoted (issue #52). Only for a
 	// real download: a fixture is a local file and always complete.
 	if err == nil && fixturePath == "" {
-		err = validateStreamComplete(gz, pr, contentLength)
+		if gz != nil {
+			err = validateStreamComplete(gz, pr, contentLength)
+		} else {
+			err = validatePlainComplete(br, pr, contentLength)
+		}
 	}
 	// A watchStall abort surfaces as a context-cancelled read somewhere in the
 	// two steps above — relabel it so the reason reads as a (retryable) stall,
@@ -399,13 +437,13 @@ func parseRates(
 
 	// Stream succeeded — move the scratch parquet into place.
 	if !dryRun {
-		if err := fanout.promote(core.PricesOutputDir); err != nil {
+		if err := fanout.promote(p.PricesDir()); err != nil {
 			return fail(err)
 		}
 		for _, mv := range [][2]string{
-			{groupSetsScratch, filepath.Join(core.GroupSetsOutputDir, name)},
-			{provScratch, filepath.Join(core.ProvidersOutputDir, name)},
-			{codesScratch, filepath.Join(core.CodesOutputDir, name)},
+			{groupSetsScratch, filepath.Join(p.GroupSetsDir(), name)},
+			{provScratch, filepath.Join(p.ProvidersDir(), name)},
+			{codesScratch, filepath.Join(p.CodesDir(), name)},
 		} {
 			if err := os.MkdirAll(filepath.Dir(mv[1]), os.ModePerm); err != nil {
 				return fail(err)
@@ -419,8 +457,8 @@ func parseRates(
 	}
 
 	if isFirstFile && !dryRun && len(res.SchemaExample) > 0 {
-		os.MkdirAll(filepath.Dir(core.ExampleOutputPath), os.ModePerm)
-		if out, err := os.Create(core.ExampleOutputPath); err == nil {
+		os.MkdirAll(filepath.Dir(p.ExamplePath()), os.ModePerm)
+		if out, err := os.Create(p.ExamplePath()); err == nil {
 			enc := json.NewEncoder(out)
 			enc.SetIndent("", "  ")
 			enc.Encode(res.SchemaExample)
@@ -480,6 +518,10 @@ func newParquetWriter[T any](path string) (*parquet.GenericWriter[T], io.Closer,
 
 // Options configure a parse run (the flags behind `etl parse`).
 type Options struct {
+	// Payer limits the run to one payer's targets. "" means every payer a target
+	// names, and, for a -files or -fixture run, which have no targets to choose
+	// by, Anthem.
+	Payer string
 	// Files are names of files in this month's index to parse whatever their
 	// parse record says: a re-parse, a retry after a failure, or a file no target
 	// names. Empty means the files the targets name, when they're due.
@@ -487,7 +529,7 @@ type Options struct {
 	// Targets is the path to the target-plan list (ingestion/etl/targets.yaml). "" needs
 	// Files or Fixture, and leaves the probe without its network signal.
 	Targets string
-	Limit   int    // cap files processed (0 = no cap)
+	Limit   int    // cap files processed per payer (0 = no cap)
 	Fixture string // parse a local *.json.gz instead of a file from the index
 	AllNPIs bool   // keep every NPI/rate (disable the GA NPPES filter)
 	// MinGroups is the probe's provider-overlap threshold: a file whose
@@ -507,10 +549,10 @@ func fixtureFile(path string) core.IndexFile {
 }
 
 // readIndex is this month's file list by name, as `make discover` wrote it.
-func readIndex() (map[string][]core.IndexFile, error) {
-	files, err := parquet.ReadFile[core.IndexFile](core.IndexFilesPath)
+func readIndex(p core.Payer) (map[string][]core.IndexFile, error) {
+	files, err := parquet.ReadFile[core.IndexFile](p.IndexFilesPath())
 	if err != nil {
-		return nil, fmt.Errorf("read %s (run `make discover`): %w", core.IndexFilesPath, err)
+		return nil, fmt.Errorf("read %s (run `make discover PAYER=%s`): %w", p.IndexFilesPath(), p.Name, err)
 	}
 	byName := map[string][]core.IndexFile{}
 	for _, f := range files {
@@ -520,10 +562,10 @@ func readIndex() (map[string][]core.IndexFile, error) {
 }
 
 // readLinks is the plan IDs this month's index lists against each file.
-func readLinks() (map[int64][]string, error) {
-	links, err := parquet.ReadFile[core.PlanLink](core.IndexFilePlansPath)
+func readLinks(p core.Payer) (map[int64][]string, error) {
+	links, err := parquet.ReadFile[core.PlanLink](p.IndexFilePlansPath())
 	if err != nil {
-		return nil, fmt.Errorf("read %s (run `make discover`): %w", core.IndexFilePlansPath, err)
+		return nil, fmt.Errorf("read %s (run `make discover PAYER=%s`): %w", p.IndexFilePlansPath(), p.Name, err)
 	}
 	plans := map[int64][]string{}
 	for _, l := range links {
@@ -532,13 +574,28 @@ func readLinks() (map[int64][]string, error) {
 	return plans, nil
 }
 
-// oneFile is the file a name matches in this month's index. It errors unless
-// the name matches exactly one, so a mistyped name or a mirrored one can't
-// stand for the wrong file.
+// oneFile is the file a name matches in this month's index. The name may hold
+// `*`s, for a file whose name carries a date. It errors unless the name matches
+// exactly one file, so a mistyped name, a mirrored one or a pattern that two
+// months' files both fit can't stand for the wrong file.
 func oneFile(byName map[string][]core.IndexFile, name string) (core.IndexFile, error) {
-	switch matches := byName[name]; len(matches) {
+	var matches []core.IndexFile
+	if strings.Contains(name, "*") {
+		for n, files := range byName {
+			if globMatch(name, n) {
+				matches = append(matches, files...)
+			}
+		}
+		slices.SortFunc(matches, func(a, b core.IndexFile) int { return strings.Compare(a.Address, b.Address) })
+	} else {
+		matches = byName[name]
+	}
+	switch len(matches) {
 	case 0:
-		return core.IndexFile{}, fmt.Errorf("%s isn't in this month's index (%s): run `make discover`, or check the name", name, core.IndexFilesPath)
+		if strings.Contains(name, "*") {
+			return core.IndexFile{}, fmt.Errorf("%s matches no file in this month's index: run `make discover`, or check the pattern", name)
+		}
+		return core.IndexFile{}, fmt.Errorf("%s isn't in this month's index: run `make discover`, or check the name", name)
 	case 1:
 		return matches[0], nil
 	default:
@@ -550,22 +607,33 @@ func oneFile(byName map[string][]core.IndexFile, name string) (core.IndexFile, e
 	}
 }
 
-// FindFile is the file name stands for in this month's index, for a tool that
-// takes a file by name.
-func FindFile(name string) (core.IndexFile, error) {
-	byName, err := readIndex()
+// FindFile is the file name stands for in the payer's index this month, for a
+// tool that takes a file by name.
+func FindFile(payer, name string) (core.IndexFile, error) {
+	p, err := core.PayerByName(payer)
+	if err != nil {
+		return core.IndexFile{}, err
+	}
+	byName, err := readIndex(p)
 	if err != nil {
 		return core.IndexFile{}, err
 	}
 	return oneFile(byName, name)
 }
 
+// pickedFile is a file a target names, and the pattern it named it by when that
+// has a `*`.
+type pickedFile struct {
+	core.IndexFile
+	Pattern string
+}
+
 // pickNamed is the files a target names, in its order. It stops unless each
 // name matches one file in this month's index and the index links that file to
 // one of planIDs, the plans on the target's networks, so a file that prices
 // another plan can't slip by.
-func pickNamed(path string, t Target, byName map[string][]core.IndexFile, plansOf map[int64][]string, planIDs []string) ([]core.IndexFile, error) {
-	var picked []core.IndexFile
+func pickNamed(path string, t Target, byName map[string][]core.IndexFile, plansOf map[int64][]string, planIDs []string) ([]pickedFile, error) {
+	var picked []pickedFile
 	for _, name := range t.Files {
 		f, err := oneFile(byName, name)
 		if err != nil {
@@ -575,16 +643,32 @@ func pickNamed(path string, t Target, byName map[string][]core.IndexFile, plansO
 			return nil, fmt.Errorf("%s: target %q names %s, but the index doesn't link it to a plan on %s, so it doesn't price the target's plans",
 				path, t.Name, f.Name, strings.Join(t.ExchangeNetworks, ", "))
 		}
-		picked = append(picked, f)
+		pf := pickedFile{IndexFile: f}
+		if strings.Contains(name, "*") {
+			pf.Pattern = name
+		}
+		picked = append(picked, pf)
 	}
 	return picked, nil
 }
 
-// linksOneOf says whether any of a file's plans is in planIDs, which is sorted.
+// productIDLen is the length of a HIOS product ID, the first part of a plan ID
+// (`70893GA001` of `70893GA0010001`).
+const productIDLen = 10
+
+// linksOneOf says whether the index lists one of planIDs, which is sorted,
+// against a file: by its plan ID, or by its product ID, which some payers list
+// in place of every plan under it.
 func linksOneOf(plans, planIDs []string) bool {
 	for _, id := range plans {
 		if _, ok := slices.BinarySearch(planIDs, id); ok {
 			return true
+		}
+		if len(id) == productIDLen {
+			i, _ := slices.BinarySearch(planIDs, id)
+			if i < len(planIDs) && strings.HasPrefix(planIDs[i], id) {
+				return true
+			}
 		}
 	}
 	return false
@@ -595,19 +679,21 @@ func linksOneOf(plans, planIDs []string) bool {
 type namedFile struct {
 	core.IndexFile
 	Networks []string
+	// Pattern is the `*` name a target named it by, if it did.
+	Pattern string
 }
 
 // selectFiles is the files this run reads: the fixture, the -files, or the files
 // the targets name. For targets, it also returns named, every file they name
 // whether due or not, for the end of the run. planIDs is PlanIDs.
-func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs map[string][]string) (files []core.IndexFile, named []namedFile, err error) {
+func selectFiles(ctx context.Context, p core.Payer, opts Options, targets *TargetSet, planIDs map[string][]string) (files []core.IndexFile, named []namedFile, err error) {
 	if opts.Fixture != "" {
 		if len(opts.Files) > 0 {
 			return nil, nil, fmt.Errorf("-fixture parses a local file, so it takes no -files")
 		}
 		return []core.IndexFile{fixtureFile(opts.Fixture)}, nil, nil
 	}
-	byName, err := readIndex()
+	byName, err := readIndex(p)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -619,35 +705,42 @@ func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs 
 			if err != nil {
 				return nil, nil, err
 			}
-			if err := stopIfStopped(f); err != nil {
+			if err := stopIfStopped(p, f); err != nil {
 				return nil, nil, err
 			}
 			files = append(files, f)
 		}
 		return files, nil, nil
 	}
-	plansOf, err := readLinks()
+	plansOf, err := readLinks(p)
 	if err != nil {
 		return nil, nil, err
 	}
+	// One file can be named by several targets, such as one that prices several
+	// networks: it is read once, and prices all of theirs.
 	seen := map[int64]int{} // file ID -> its index in named
 	for _, t := range targets.Targets {
 		picked, err := pickNamed(targets.Path, t, byName, plansOf, t.planIDs(planIDs))
 		if err != nil {
 			return nil, nil, err
 		}
-		for _, f := range picked {
+		for _, pf := range picked {
+			f := pf.IndexFile
 			nets := t.networksOf(plansOf[f.FileID], planIDs)
 			if i, ok := seen[f.FileID]; ok {
-				named[i].Networks = append(named[i].Networks, nets...)
+				for _, n := range nets {
+					if !slices.Contains(named[i].Networks, n) {
+						named[i].Networks = append(named[i].Networks, n)
+					}
+				}
 				continue
 			}
 			seen[f.FileID] = len(named)
-			named = append(named, namedFile{f, nets})
-			if err := stopIfStopped(f); err != nil {
+			named = append(named, namedFile{f, nets, pf.Pattern})
+			if err := stopIfStopped(p, f); err != nil {
 				return nil, nil, err
 			}
-			due, err := dueForParse(ctx, f)
+			due, err := dueForParse(ctx, p, f)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -663,11 +756,12 @@ func selectFiles(ctx context.Context, opts Options, targets *TargetSet, planIDs 
 }
 
 // dueForParse says whether parse downloads a named file: when it has no parse
-// record, and when it was parsed or skipped only if Anthem has updated it since
-// the copy that parse read, which it asks Anthem with a HEAD request. A failed
-// file waits until someone has looked at why and names it (Critical Rule 2).
-func dueForParse(ctx context.Context, f core.IndexFile) (bool, error) {
-	rec, err := readRecord(f)
+// record, and when it was parsed or skipped only if the payer has updated it
+// since the copy that parse read, which it asks the payer's server with a HEAD
+// request. A failed file waits until someone has looked at why and names it
+// (Critical Rule 2).
+func dueForParse(ctx context.Context, p core.Payer, f core.IndexFile) (bool, error) {
+	rec, err := readRecord(p, f)
 	if err != nil {
 		return false, err
 	}
@@ -680,31 +774,33 @@ func dueForParse(ctx context.Context, f core.IndexFile) (bool, error) {
 		return true, nil
 	}
 	if rec.Status == statusFailed {
-		log.Printf("🎯 %s failed on %s: %s. It isn't downloaded again until someone looks at why and runs `make parse FILE=%s`",
-			f.Name, rec.FinishedAt.UTC().Format(time.DateTime), rec.Reason, f.Name)
+		log.Printf("🎯 %s failed on %s: %s. It isn't downloaded again until someone looks at why and runs `make parse PAYER=%s FILE=%s`",
+			f.Name, rec.FinishedAt.UTC().Format(time.DateTime), rec.Reason, p.Name, f.Name)
 		return false, nil
 	}
-	anthem, err := lastModified(ctx, f.Location)
+	updated, err := lastModified(ctx, f.Location)
 	if err != nil {
-		return false, fmt.Errorf("%s was %s, and parse can't tell whether Anthem has updated it since: %w", f.Name, rec.Status, err)
+		return false, fmt.Errorf("%s was %s, and parse can't tell whether %s has updated it since: %w", f.Name, rec.Status, p.Label, err)
 	}
-	if !changedSince(rec.AnthemUpdatedAt, anthem) {
-		log.Printf("🎯 %s was %s, and Anthem hasn't updated it since (%s), so it isn't downloaded",
-			f.Name, rec.Status, anthem.UTC().Format(time.DateTime))
+	if !changedSince(rec.UpdatedAt, updated) {
+		log.Printf("🎯 %s was %s, and %s hasn't updated it since (%s), so it isn't downloaded",
+			f.Name, rec.Status, p.Label, updated.UTC().Format(time.DateTime))
 		return false, nil
 	}
 	read := "an earlier copy"
-	if rec.AnthemUpdatedAt != nil {
-		read = "the copy from " + rec.AnthemUpdatedAt.UTC().Format(time.DateTime)
+	if rec.UpdatedAt != nil {
+		read = "the copy from " + rec.UpdatedAt.UTC().Format(time.DateTime)
 	}
-	log.Printf("🔄 %s was %s, but Anthem updated it on %s and parse read %s, so it's downloaded again",
-		f.Name, rec.Status, anthem.UTC().Format(time.DateTime), read)
+	log.Printf("🔄 %s was %s, but %s updated it on %s and parse read %s, so it's downloaded again",
+		f.Name, rec.Status, p.Label, updated.UTC().Format(time.DateTime), read)
 	return true, nil
 }
 
-// Run is `etl parse`: stream the files targets.yaml names into Parquet.
+// Run is `etl parse`: stream the files targets.yaml names into Parquet, one
+// payer after another. A payer that fails doesn't stop the others, and Run
+// errors when any did.
 func Run(ctx context.Context, opts Options) error {
-	log.Println("🚀 Starting parse: Anthem rate files → Parquet...")
+	log.Println("🚀 Starting parse: rate files → Parquet...")
 
 	// Which plans are we pricing? Loaded even for a -files run so a broken
 	// targets.yaml fails loudly at the start rather than on the next run.
@@ -724,30 +820,20 @@ func Run(ctx context.Context, opts Options) error {
 		log.Printf("🎯 target plans from %s: %s", targets.Path, strings.Join(targets.Names(), ", "))
 	}
 
-	// The files a target names have to price a plan on its exchange networks, so
-	// each target's plans come from Georgia's plan file. A run that doesn't
-	// select doesn't need that file.
-	var planIDs map[string][]string
-	if targets != nil && !chosen {
-		if planIDs, err = targets.PlanIDs(core.ExchangePlansPath); err != nil {
+	// The payers this run reads.
+	var payers []core.Payer
+	switch {
+	case opts.Payer != "":
+		p, err := core.PayerByName(opts.Payer)
+		if err != nil {
 			return err
 		}
-		log.Printf("🎯 %d plan(s) on the target exchange networks", len(allPlanIDs(planIDs)))
-	}
-
-	files, named, err := selectFiles(ctx, opts, targets, planIDs)
-	if err != nil {
-		return fmt.Errorf("select files: %w", err)
-	}
-	if len(files) == 0 {
-		log.Printf("Nothing to download: every file %s names is current, or failed and waiting to be looked at.", targets.Path)
-		reportUnparsed(opts, named)
-		return nil
-	}
-	log.Printf("Found %d file(s) to download. Processing...", len(files))
-
-	if opts.DryRun {
-		log.Println("🔍 Dry-run mode - streaming only, no writes.")
+		payers = []core.Payer{p}
+	case chosen:
+		p, _ := core.PayerByName("anthem")
+		payers = []core.Payer{p}
+	default:
+		payers = targets.Payers()
 	}
 
 	var gaNPIs map[int64]struct{}
@@ -758,6 +844,55 @@ func Run(ctx context.Context, opts Options) error {
 		if gaNPIs == nil {
 			log.Printf("ℹ️  no %s — keeping all NPIs (run 'etl nppes' first to enable the GA filter)", core.GAProvidersPath)
 		}
+	}
+
+	var errs []error
+	for _, p := range payers {
+		if len(payers) > 1 || opts.Payer != "" {
+			log.Printf("━━ %s ━━", p.Label)
+		}
+		if err := runPayer(ctx, p, opts, targets, chosen, gaNPIs); err != nil {
+			log.Printf("❌ %s: %v", p.Label, err)
+			errs = append(errs, fmt.Errorf("%s: %w", p.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// runPayer is Run for one payer's targets, or for the files -files or -fixture
+// names in its index.
+func runPayer(ctx context.Context, p core.Payer, opts Options, all *TargetSet, chosen bool, gaNPIs map[int64]struct{}) error {
+	targets := all.ForPayer(p.Name)
+	if targets != nil && len(targets.Targets) == 0 && !chosen {
+		return fmt.Errorf("%s names no target for it", all.Path)
+	}
+
+	// The files a target names have to price a plan on its exchange networks, so
+	// each target's plans come from Georgia's plan file. A run that doesn't
+	// select doesn't need that file.
+	var planIDs map[string][]string
+	if targets != nil && !chosen {
+		var err error
+		if planIDs, err = targets.PlanIDs(core.ExchangePlansPath); err != nil {
+			return err
+		}
+		log.Printf("🎯 %d plan(s) on the target exchange networks", len(allPlanIDs(planIDs)))
+	}
+
+	files, named, err := selectFiles(ctx, p, opts, targets, planIDs)
+	if err != nil {
+		return fmt.Errorf("select files: %w", err)
+	}
+	if len(files) == 0 {
+		log.Printf("Nothing to download: every file %s names for %s is current, or failed and waiting to be looked at.", all.Path, p.Label)
+		reportUnparsed(p, opts, named)
+		pruneSuperseded(p, opts, named)
+		return nil
+	}
+	log.Printf("Found %d file(s) to download. Processing...", len(files))
+
+	if opts.DryRun {
+		log.Println("🔍 Dry-run mode - streaming only, no writes.")
 	}
 
 	// The probe (#98). Not a row filter — every network a surviving file carries
@@ -786,12 +921,61 @@ func Run(ctx context.Context, opts Options) error {
 
 	outcomes := make(map[parseOutcome]int, 4)
 	for i, f := range files {
-		_, outcome := parseRates(ctx, f, opts.Fixture, i == 0, gaNPIs, pb, opts.DryRun)
+		_, outcome := parseRates(ctx, p, f, opts.Fixture, i == 0, gaNPIs, pb, opts.DryRun)
 		outcomes[outcome]++
 	}
-	err = guardAgainstSilentSkip(opts, targets, named, outcomes)
-	reportUnparsed(opts, named)
+	err = guardAgainstSilentSkip(p, opts, targets, named, outcomes)
+	reportUnparsed(p, opts, named)
+	pruneSuperseded(p, opts, named)
 	return err
+}
+
+// pruneSuperseded deletes what an earlier file a target's `*` name matched left
+// on disk, once this month's file of that name is parsed: its Parquet and its
+// parse record. A file whose name carries a date is a new file every month, and
+// the old ones would pile up Parquet on disk, though the publish step reads only
+// the file the index lists.
+func pruneSuperseded(p core.Payer, opts Options, named []namedFile) {
+	if opts.DryRun {
+		return
+	}
+	for _, f := range named {
+		if f.Pattern == "" {
+			continue
+		}
+		if rec, err := readRecord(p, f.IndexFile); err != nil || rec == nil || rec.Status != statusParsed {
+			continue
+		}
+		recs, err := allRecords(p)
+		if err != nil {
+			log.Printf("⚠️ can't tell which earlier copies of %s to delete: %v", f.Pattern, err)
+			continue
+		}
+		for _, rec := range recs {
+			if rec.Name == f.Name || !globMatch(f.Pattern, rec.Name) {
+				continue
+			}
+			old := core.IndexFile{Name: rec.Name}
+			var gone []string
+			for _, pattern := range []string{
+				filepath.Join(p.PricesDir(), "net=*", old.Stem()+".parquet"),
+				filepath.Join(p.GroupSetsDir(), old.Stem()+".parquet"),
+				filepath.Join(p.ProvidersDir(), old.Stem()+".parquet"),
+				filepath.Join(p.CodesDir(), old.Stem()+".parquet"),
+				recordPath(p, old.Stem()), // last, so a delete that stops part way is tried again
+			} {
+				matches, _ := filepath.Glob(pattern)
+				for _, m := range matches {
+					if err := os.Remove(m); err != nil {
+						log.Printf("⚠️ couldn't delete %s: %v", m, err)
+						continue
+					}
+					gone = append(gone, m)
+				}
+			}
+			log.Printf("🧹 %s supersedes %s, so its %d file(s) are deleted", f.Name, rec.Name, len(gone))
+		}
+	}
 }
 
 // reportUnparsed ends a target-selected run with every file the targets name
@@ -799,13 +983,13 @@ func Run(ctx context.Context, opts Options) error {
 // why and the networks it prices: rates on disk from an earlier copy, or none,
 // that the next run won't fix by itself. The run still exits 0 for them, so
 // the publish step prices every other network (ingestion/etl/parse.md).
-func reportUnparsed(opts Options, named []namedFile) {
+func reportUnparsed(p core.Payer, opts Options, named []namedFile) {
 	if opts.DryRun {
 		return
 	}
 	var lines []string
 	for _, f := range named {
-		rec, err := readRecord(f.IndexFile)
+		rec, err := readRecord(p, f.IndexFile)
 		if err != nil {
 			lines = append(lines, fmt.Sprintf("%s (%s): %v", f.Name, strings.Join(f.Networks, ", "), err))
 			continue
@@ -815,25 +999,25 @@ func reportUnparsed(opts Options, named []namedFile) {
 		}
 		lines = append(lines, fmt.Sprintf("%s (%s) %s on %s: %s", f.Name, strings.Join(f.Networks, ", "),
 			rec.Status, rec.FinishedAt.UTC().Format(time.DateTime), rec.Reason))
-		switch _, err := os.Stat(filepath.Join(core.CodesOutputDir, f.Stem()+".parquet")); {
+		switch _, err := os.Stat(filepath.Join(p.CodesDir(), f.Stem()+".parquet")); {
 		case err != nil:
 			lines = append(lines, "  no earlier parse left its rates on disk, so its networks have none")
 		case rec.ratesCopy() != nil:
-			lines = append(lines, "  its rates on disk are the copy Anthem updated on "+rec.ratesCopy().UTC().Format(time.DateTime))
+			lines = append(lines, "  its rates on disk are the copy "+p.Label+" updated on "+rec.ratesCopy().UTC().Format(time.DateTime))
 		default:
 			lines = append(lines, "  its rates on disk are from an earlier copy")
 		}
 		if rec.Status == statusFailed {
-			lines = append(lines, fmt.Sprintf("  it waits until someone looks at why and runs `make parse FILE=%s`", f.Name))
+			lines = append(lines, fmt.Sprintf("  it waits until someone looks at why and runs `make parse PAYER=%s FILE=%s`", p.Name, f.Name))
 		} else {
-			lines = append(lines, "  the probe stopped it (ingestion/etl/parse.md#the-provider-probe), and it's downloaded again once Anthem updates it")
+			lines = append(lines, "  the probe stopped it (ingestion/etl/parse.md#the-provider-probe), and it's downloaded again once "+p.Label+" updates it")
 		}
 	}
 	if len(lines) == 0 {
 		return
 	}
 	log.Printf("╔══════════════════════════════════════════════════════════════════════")
-	log.Printf("║ ⚠️  FILES THE TARGETS NAME THAT AREN'T PARSED")
+	log.Printf("║ ⚠️  FILES THE %s TARGETS NAME THAT AREN'T PARSED", strings.ToUpper(p.Label))
 	for _, l := range lines {
 		log.Printf("║ %s", l)
 	}
@@ -845,7 +1029,7 @@ func reportUnparsed(opts Options, named []namedFile) {
 // a target names abandoned on the *network* signal, none completing - into a
 // loud one. That is what a stale `network_patterns` in targets.yaml looks like:
 // the one MRF that actually carries the plan's rates gets skipped because
-// Anthem renamed the network, and without this the run exits 0 with nothing
+// the payer renamed the network, and without this the run exits 0 with nothing
 // ingested.
 //
 // It fires only for a target-selected run with the network signal active (a
@@ -853,7 +1037,7 @@ func reportUnparsed(opts Options, named []namedFile) {
 // no file a target names has Parquet on disk, the run fails; if some do, the
 // build still has rates, so it is a warning - but a renamed network still
 // means today's rates are stale, so it is a loud one.
-func guardAgainstSilentSkip(opts Options, targets *TargetSet, named []namedFile, outcomes map[parseOutcome]int) error {
+func guardAgainstSilentSkip(p core.Payer, opts Options, targets *TargetSet, named []namedFile, outcomes map[parseOutcome]int) error {
 	if opts.DryRun || named == nil || targets == nil || targets.NetworkMatcher() == nil {
 		return nil
 	}
@@ -864,7 +1048,7 @@ func guardAgainstSilentSkip(opts Options, targets *TargetSet, named []namedFile,
 
 	completedEver := 0
 	for _, f := range named {
-		if _, err := os.Stat(filepath.Join(core.CodesOutputDir, f.Stem()+".parquet")); err == nil {
+		if _, err := os.Stat(filepath.Join(p.CodesDir(), f.Stem()+".parquet")); err == nil {
 			completedEver++
 		}
 	}
@@ -878,7 +1062,7 @@ func guardAgainstSilentSkip(opts Options, targets *TargetSet, named []namedFile,
 	log.Printf("║ 🛑 PROBE SKIPPED EVERY TARGET FILE ON THE NETWORK SIGNAL")
 	log.Printf("║ %d file(s) %s names were abandoned because no", netSkipped, targets.Path)
 	log.Printf("║ provider_references network_name matched {%s}, and none completed.", strings.Join(targets.NetworkPatterns(), ", "))
-	log.Printf("║ If a plan's rates now land under a network Anthem renamed, the")
+	log.Printf("║ If a plan's rates now land under a network the payer renamed, the")
 	log.Printf("║ network_patterns in ingestion/etl/targets.yaml is stale - check the abort")
 	log.Printf("║ messages above for the labels the files actually carry.")
 	log.Printf("╚══════════════════════════════════════════════════════════════════════")

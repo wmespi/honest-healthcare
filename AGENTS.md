@@ -26,7 +26,8 @@ Three layers, one direction, each in its own container and reading only what the
 1. **Ingestion** (`ingestion/`) reads each source and keeps what matters.
    **Discovery** (Go) lists this month's MRF URLs and the plan→file link.
    **Extraction** (Go) streams the files `ingestion/etl/targets.yaml` names to raw Parquet, with a provider probe that aborts empty downloads before `in_network`.
-   **Publishing** (Python/DuckDB, `ingestion/anthem_rates.py`, the last step of `make parse`) keys each target network's rates on its exchange network ID.
+   **Publishing** (Python/DuckDB, `ingestion/payer_rates.py`, the last step of `make parse`) keys each payer's target networks' rates on their exchange network IDs.
+   There are two payers, Anthem and Ambetter, each with its own index, files in `data/raw/<payer>/` and rates in `data/ingestion/payer_rates/<payer>/`.
    **Reference** (Go + Python/DuckDB) lands the public datasets.
    Ingestion keeps its own files in `data/raw/` and delivers what integration reads to `data/ingestion/`.
 2. **Integration** (`integration/`, Python/DuckDB, `make build`) turns that into the find-care tables in `data/serving/`, and is where every product decision lives.
@@ -56,7 +57,7 @@ Publishing the payer rates is Python for the same reason: it joins Parquet that 
 
 1. **`exec` not `run --rm`**: always `docker compose exec <service>` so output streams to Docker Desktop logs.
    The `make` targets already do this.
-2. **Look at a stopped or failed parse before retrying it**: a `failed` parse record or a leftover `data/raw/anthem/.inflight/<name>/` means investigate first.
+2. **Look at a stopped or failed parse before retrying it**: a `failed` parse record or a leftover `data/raw/<payer>/.inflight/<name>/` means investigate first.
    Repeated failures on one file mean a bad file, not a transient error.
 3. **No full-file buffering in extraction**: the Go parser must stream; MRFs can exceed 10 GB.
 4. **Test mode writes only `data-test/`**: it's safe to delete at any time, and a test run must never touch `data/`.
@@ -84,14 +85,16 @@ The pipeline commands below are in the order they run, which `make refresh` foll
 make start                  # Docker Desktop (if needed) + all containers
 make up / make down / make logs
 
-make discover               # this month's file list + plan→file link (index_files, index_file_plans Parquet) from Anthem's index
+make discover               # this month's file list + plan→file link (index_files, index_file_plans Parquet) from each payer's index
+make discover PAYER=ambetter   #   one payer (anthem, ambetter)
 make discover SCHEMA=1      #   stream only, write index_schema.json and nothing else
 make reference              # NPPES, NUCC labels, CMS utilization, MPFS, OPPS, shoppable items, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals, quality measures,
                             #   hospital price files; skips each whose output exists, except geocode, which runs every time and looks up only new
                             #   addresses, and hospital price files, which fetch only the hospitals with none (STEP=hospital-rates fetches all)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
 make parse                  # stream the files ingestion/etl/targets.yaml names → Parquet when new or updated, then publish their rates by Georgia network (needs the NPPES and exchange-plans references first)
-make parse FILE=GA_JBNKMED0001.json.gz  #   one file by name, now (bypasses target selection and its parse record)
+make parse PAYER=ambetter   #   one payer's targets only (and publish only its rates)
+make parse FILE=GA_JBNKMED0001.json.gz  #   one file by name, now (bypasses target selection and its parse record; Anthem's unless PAYER)
 make parse TARGETS=<path>   #   a different target-plan list (default ingestion/etl/targets.yaml)
 make parse TEST=1           #   test isolation (data-test/)
 make build                  # what ingestion delivered (data/ingestion/) → the find-care tables in data/serving/

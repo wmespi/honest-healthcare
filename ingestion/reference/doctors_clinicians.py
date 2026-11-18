@@ -225,7 +225,7 @@ def main() -> None:
     ga_out = f"{rd}/dac_ga.parquet"
     cache_dir = raw_dir(args.data_dir, args.test, "downloads")
 
-    rosters = f"{raw_dir(args.data_dir, args.test, 'anthem')}/providers/*.parquet"
+    rosters = f"{raw_dir(args.data_dir, args.test, '*')}/providers/*.parquet"
 
     con = duckdb.connect()
     con.execute("SET preserve_insertion_order = false")

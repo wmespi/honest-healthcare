@@ -16,7 +16,7 @@ description: >
 |---|---|---|
 | Go (`ingestion/etl/**`) | `make check` (or `make check LOCAL=1`, no Docker) | `ingestion` container up |
 | Go parser behaviour / MRF handling, NPPES extraction | `make test` (runs the ETL e2e + NPPES fixtures) | full stack |
-| Ingestion's Python (`ingestion/reference/**`, `ingestion/anthem_rates.py`) or the build (`integration/**`) | `make test` (or `make test LOCAL=1`) | full stack |
+| Ingestion's Python (`ingestion/reference/**`, `ingestion/payer_rates.py`) or the build (`integration/**`) | `make test` (or `make test LOCAL=1`) | full stack |
 | Serving layer (`application/serving/**`) | `make test` (or `make test LOCAL=1`) | application container running the new code (see restart note) |
 | Frontend (`application/frontend/src/**`) | `make test` (or `make test LOCAL=1`); `docker compose restart application` rebuilds the screen it serves | `application` container up |
 | Docs / Makefile / scripts only | `make check` is enough | `ingestion` up |

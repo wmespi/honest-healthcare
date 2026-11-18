@@ -70,7 +70,9 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   A practice is keyed on the lowest NPI with a doctor's rate (the lowest of its centers' where it has none), and billers in different suites with different names stay apart ([what one place is](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6643172584)).
   A doctor's own NPI takes its CMS group's name, and away from a hospital it has no place without one.
   A biller with no Georgia record has none either.
-  Every billing ID in Anthem's files is an NPI, and the build stops if a file lists a tax ID instead, since NPPES can't place it.
+  A roster row billed under an NPI bills as that NPI.
+  A row billed under a tax ID (`ein`, as Ambetter's are), which NPPES can't place, bills as its own NPI, so each NPI in the group bills in its own right with itself as its only doctor (`roster_biller` in [datasets](inputs/datasets.py), the one definition every table uses).
+  The build stops on any other `tin_type`, and on a tax ID that isn't `NN-NNNNNNN`.
   The build lists every billing ID with a price but no place, so an NPI missing from the monthly NPPES snapshot doesn't drop out silently.
 - [`service_sites`](inputs/service_sites.py) says at which of a biller's places its rate for a service is shown.
   Those are the places where Doctors & Clinicians lists one of its doctors for the service practicing, each with those doctors.

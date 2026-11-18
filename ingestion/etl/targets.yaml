@@ -1,8 +1,14 @@
 # Target plans: the plans this project is trying to price.
 #
-# `etl parse` downloads only the files named here. The master index links each
-# plan to many more files than the one that prices it, and none of those is
+# `etl parse` downloads only the files named here. A payer's master index links
+# each plan to many more files than the one that prices it, and none of those is
 # downloaded, even when it hasn't been parsed yet.
+#
+#   payer              The insurer whose index lists the files and whose rate
+#                      files they are: `anthem` or `ambetter` (core.Payers).
+#                      Required. Its files are kept in data/raw/<payer>/, and its
+#                      networks' rates are published under
+#                      data/ingestion/payer_rates/<payer>/.
 #
 #   exchange_networks  Network IDs from Georgia's exchange plan file, issuer and
 #                      network ("45334-GAN001"; ingestion/reference/exchange-plans.md).
@@ -11,11 +17,18 @@
 #
 #   files              The insurer files that price those plans, each by the
 #                      last part of its index location, without the query
-#                      ("GA_JBNKMED0001.json.gz"). Parse stops unless the index
-#                      links each one to a plan on the target's networks (the
-#                      index_file_plans link `etl discover` writes), so a file
-#                      that prices only a plan no longer sold can't be named by
-#                      mistake.
+#                      ("GA_JBNKMED0001.json.gz"). A `*` stands for any run of
+#                      characters, for a name with a date in it
+#                      ("*_ambetter-ga_in-network.json"). A name has to match
+#                      exactly one file in the payer's index this month. Parse
+#                      stops unless the index links each one to a plan on the
+#                      target's networks (the index_file_plans link `etl
+#                      discover` writes, by plan ID or by the product ID, the
+#                      first 10 characters of it, which Ambetter lists), so a
+#                      file that prices only a plan no longer sold can't be named
+#                      by mistake. Targets may name one file, and it is read
+#                      once. When this month's file of a `*` name is parsed, the
+#                      earlier month's Parquet and parse record are deleted.
 #
 # A third list says what the plan's rates should *look like* once a named file
 # is opened:
@@ -28,7 +41,10 @@
 #                      abandoned before `in_network` is read, and marked
 #                      `skipped`. Every network in a file that passes is
 #                      written, and parse publishes only these labels' rates.
-#                      Omit it and that file is streamed in full.
+#                      Omit it and that file is streamed in full. A label that
+#                      one file shares with other networks, such as Ambetter's,
+#                      is written exactly ("Exchange GA"): the matching is a
+#                      whole-label match unless there is a `*`.
 #                      Parse's last step prices each exchange network with the
 #                      rates under these labels in the one parsed file of
 #                      `files` the index links to the network's plans, and
@@ -48,6 +64,7 @@
 
 targets:
   - name: Anthem Blue Value
+    payer: anthem
     # The primary use case (AGENTS.md): Anthem's individual HMOs on the Blue
     # Value network in Georgia. Their rates carry the network label
     # "GA Blue Value HIX Individual Network". The index also links them to
@@ -61,6 +78,7 @@ targets:
       - "GA Blue Value HIX*"
 
   - name: Anthem Pathway PCP Copay Choice
+    payer: anthem
     # A second Georgia individual network, so the plan picker has a real choice.
     # Same index shape as Blue Value.
     exchange_networks:
@@ -86,6 +104,7 @@ targets:
   # the network's own. The program labels (urgent care, retail clinics, military)
   # stay out, as above.
   - name: Anthem Pathway
+    payer: anthem
     exchange_networks:
       - "49046-GAN001"
     files:
@@ -95,6 +114,7 @@ targets:
       - "EXCHANGES SPC HOSPITAL ANCILLARY*ON INDIVIDUAL"
 
   - name: Anthem Pathway Guided Access
+    payer: anthem
     exchange_networks:
       - "49046-GAN003"
     files:
@@ -102,3 +122,53 @@ targets:
     network_patterns:
       - "EXCHANGES SPECIALIST*GATEKEEPER*ON INDIVIDUAL"
       - "EXCHANGES PCP*GATEKEEPER*ON INDIVIDUAL"
+
+  # Ambetter (Centene), Georgia's issuer 70893. One file prices all five of its
+  # exchange networks, each under its own label, so five targets name the same
+  # file, read once. The index lists Georgia's plans by 10-character product ID
+  # (70893GA001), which covers every plan under it. The date in the name changes
+  # monthly. "Exchange Solutions" is another Centene issuer's, not a target.
+  - name: Ambetter Premier
+    payer: ambetter
+    exchange_networks:
+      - "70893-GAN001"
+    files:
+      - "*_ambetter-ga_in-network.json"
+    network_patterns:
+      - "Exchange GA"
+
+  - name: Ambetter Select Wellstar
+    payer: ambetter
+    exchange_networks:
+      - "70893-GAN002"
+    files:
+      - "*_ambetter-ga_in-network.json"
+    network_patterns:
+      - "Exchange Select Wellstar"
+
+  - name: Ambetter Select Plus
+    payer: ambetter
+    exchange_networks:
+      - "70893-GAN003"
+    files:
+      - "*_ambetter-ga_in-network.json"
+    network_patterns:
+      - "Exchange Select Plus"
+
+  - name: Ambetter Select St Joseph Chandler
+    payer: ambetter
+    exchange_networks:
+      - "70893-GAN004"
+    files:
+      - "*_ambetter-ga_in-network.json"
+    network_patterns:
+      - "Exchange Select St Joseph Chandler"
+
+  - name: Ambetter Select Gwinnett Clinic
+    payer: ambetter
+    exchange_networks:
+      - "70893-GAN005"
+    files:
+      - "*_ambetter-ga_in-network.json"
+    network_patterns:
+      - "Exchange Select Gwinnett Clinic"

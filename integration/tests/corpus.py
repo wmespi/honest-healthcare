@@ -380,11 +380,12 @@ class Corpus:
             table.make(con, self.root)
         return con
 
-    def plan(self, plan_id, network_id, name, metal_level="Silver", deductible=4000.0):
+    def plan(self, plan_id, network_id, name, metal_level="Silver", deductible=4000.0,
+             carrier="Anthem Blue Cross and Blue Shield"):
         """Add a plan on `network_id` to Georgia's plan file, charging a 40%
         coinsurance after the deductible for every service category the
         services use, and nothing for preventive care."""
-        self.plans.append((plan_id, network_id, name, metal_level, deductible))
+        self.plans.append((plan_id, network_id, name, metal_level, deductible, carrier))
         self._write_plans()
         for benefit in (IMAGING, PREVENTIVE):
             preventive = benefit == PREVENTIVE
@@ -536,8 +537,8 @@ class Corpus:
     def _write_plans(self):
         self._queue(f"{self.root}/reference/exchange_plans_ga.parquet",
                     d.EXCHANGE_PLANS.columns,
-                    [(p, n, name, "Anthem Blue Cross and Blue Shield", metal, False, deductible)
-                     for p, n, name, metal, deductible in self.plans])
+                    [(p, n, name, carrier, metal, False, deductible)
+                     for p, n, name, metal, deductible, carrier in self.plans])
 
     def build(self, out="serving"):
         from integration import tables

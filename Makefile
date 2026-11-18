@@ -10,7 +10,9 @@
 #
 #   make discover TEST=1        # write to data-test/ instead of data/
 #   make discover SCHEMA=1      # stream the index, write index_schema.json only
-#   make parse FILE=GA_JBNKMED0001.json.gz   # parse one file by name, now
+#   make discover PAYER=ambetter   # one payer's index (default every payer: anthem, ambetter)
+#   make parse PAYER=ambetter   # one payer's targets, and publish only its rates
+#   make parse FILE=GA_JBNKMED0001.json.gz   # parse one file by name, now (Anthem's, unless PAYER)
 #   make parse TARGETS=<path>   # a different target-plan list (default ingestion/etl/targets.yaml)
 #   make reference STEP=mpfs    # run one reference builder (ARGS="--year 2025" passes through)
 #   make reference FORCE=1      # rebuild every reference output even if it exists
@@ -64,8 +66,9 @@ worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override
 
 ## ── Pipeline, in run order: discover → reference → parse → build ─────────────
 
-discover: ## Write this month's file list and plan links (index_files + index_file_plans Parquet) from Anthem's index. TEST=1 · SCHEMA=1 (index_schema.json only) · KEEP_INDEX=1 (keep the multi-GB index download)
+discover: ## Write this month's file list and plan links (index_files + index_file_plans Parquet) from each payer's index (Anthem, Ambetter). PAYER=<name> (one payer) · TEST=1 · SCHEMA=1 (index_schema.json only) · KEEP_INDEX=1 (keep Anthem's multi-GB index download)
 	docker compose exec ingestion go run . discover \
+	  $(if $(PAYER),-payer "$(PAYER)",) \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
@@ -73,14 +76,16 @@ discover: ## Write this month's file list and plan links (index_files + index_fi
 	  $(if $(filter 1,$(KEEP_INDEX)),-keep-index,) \
 	  $(if $(INDEX_URL),-index-url "$(INDEX_URL)",)
 
-parse: ## Stream the files ingestion/etl/targets.yaml names into Parquet when they're new or Anthem updated them, then publish their rates by Georgia network. FILE=<name>[,<name>] · TARGETS=<path from the repo root> · TEST=1 · LIMIT=n
+parse: ## Stream the files ingestion/etl/targets.yaml names into Parquet when they're new or their payer updated them, then publish their rates by Georgia network, for every payer. PAYER=<name> (one payer; Anthem for FILE) · FILE=<name>[,<name>] · TARGETS=<path from the repo root> · TEST=1 · LIMIT=n
 	docker compose exec ingestion go run . parse \
+	  $(if $(PAYER),-payer "$(PAYER)",) \
 	  $(if $(FILE),-files "$(FILE)",) \
 	  $(if $(TARGETS),-targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),-test,) \
 	  $(if $(LIMIT),-limit $(LIMIT),) \
 	  $(if $(FIXTURE),-fixture "$(FIXTURE)",)
-	docker compose exec -T -w /app -e DUCKDB_TMP= ingestion python3 -m ingestion.anthem_rates --data-dir /app/data \
+	docker compose exec -T -w /app -e DUCKDB_TMP= ingestion python3 -m ingestion.payer_rates --data-dir /app/data \
+	  $(if $(PAYER),--payer "$(PAYER)",$(if $(or $(FILE),$(FIXTURE)),--payer anthem,)) \
 	  $(if $(TARGETS),--targets "$(TARGETS)",) \
 	  $(if $(filter 1,$(TEST)),--test,)
 
@@ -151,8 +156,8 @@ clean: ## Reclaim disk in THIS worktree (stray .tmp, data-test, caches). DOCKER=
 
 ## ── Dev ──────────────────────────────────────────────────────────────────────
 
-fixture: ## Build a truncated *.json.gz fixture from a file in this month's index - usage: make fixture FILE=GA_JBNKMED0001.json.gz NAME=ga_small
-	docker compose exec ingestion go run . fixture -file "$(FILE)" $(if $(NAME),-name $(NAME),)
+fixture: ## Build a truncated fixture (*.json.gz, or *.json for a plain file) from a file in a payer's index this month - usage: make fixture FILE=GA_JBNKMED0001.json.gz NAME=ga_small [PAYER=ambetter]
+	docker compose exec ingestion go run . fixture -file "$(FILE)" $(if $(PAYER),-payer "$(PAYER)",) $(if $(NAME),-name $(NAME),)
 
 ## ── Shells ───────────────────────────────────────────────────────────────────
 
