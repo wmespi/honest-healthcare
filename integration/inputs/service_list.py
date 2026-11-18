@@ -21,7 +21,8 @@ OTHER_CODE_TYPES = ("MS-DRG",)
 # bill's.
 SERVICE_BILLS = """
     SELECT s.service_id, b.part, b.position, b.label, b.billing_class, coalesce(s.benefits, b.benefits) AS benefits,
-           b.missing_note, b.missing_explain, b.missing_explain_hospital
+           b.missing_note, b.missing_explain, b.missing_explain_hospital,
+           b.missing_note_practice, b.missing_explain_practice
     FROM service_list s JOIN family_bills b USING (family)"""
 
 # Each extra bill a service names (`anesthesia`, `pathology`, `doctor`), with its part's text

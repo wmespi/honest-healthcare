@@ -5,7 +5,7 @@ reference table — a real practice identity that Anthem's coarse
 `provider_references` buckets can't give us (issue #62). The find-care build
 names a doctor's own billing NPI after its CMS group from it.
 
-Two outputs under ``data/ingestion/reference/``:
+Three outputs under ``data/ingestion/reference/``:
 
   dac_ga.parquet                  one row per NPI
     npi | last_name | first_name | credential | primary_specialty
@@ -19,6 +19,12 @@ Two outputs under ``data/ingestion/reference/``:
     npi | address_line1 | address_line2 | city | state | postal_code | phone
     ← the same file's addresses: where each clinician sees patients, which the
       build compares with the addresses a biller lists for itself.
+
+  dac_hospitals_ga.parquet        one row per NPI and Georgia hospital
+    npi | ccn
+    ← the Facility Affiliation Data file (``Facility_Affiliation.csv``): the
+      hospitals CMS says each clinician in scope works at, hospitals only, by
+      CMS Certification Number (Georgia's start with the state code 11).
 
 Why Python/DuckDB and not Go: the National file is ~1 GB / ~2.5M rows but the
 work is a filter + projection + a window function to pick one group per NPI —
@@ -36,6 +42,7 @@ Caveats (also in ingestion/reference/doctors-clinicians.md):
 Usage:
   python3 -m ingestion.reference.doctors_clinicians
       [--dac-url URL | --dac-file PATH]
+      [--affiliation-url URL | --affiliation-file PATH]
       [--data-dir data] [--test]
 """
 import argparse
@@ -60,6 +67,12 @@ DAC_URL_FALLBACK = (
     "https://data.cms.gov/provider-data/sites/default/files/resources/"
     "69a75aa9d3dc1aed6b881725cf0ddc12_1755561571/DAC_NationalDownloadableFile.csv"
 )
+AFFILIATION_TITLE = "Facility Affiliation Data"
+AFFILIATION_URL_FALLBACK = (
+    "https://data.cms.gov/provider-data/sites/default/files/resources/"
+    "b7c4080ae144663e43353a9c35cd3f53_1793398546/Facility_Affiliation.csv"
+)
+GEORGIA_CCN_PREFIX = "11"
 
 
 def _resolve_pdc_url(title: str, filename: str) -> str | None:
@@ -213,10 +226,34 @@ def build_locations(con, src: str, out_path: str, geo_filter: str) -> None:
     """, out_path)
 
 
+def build_hospitals(con, src: str, out_path: str, geo_filter: str) -> None:
+    """Each Georgia hospital CMS affiliates a clinician in scope with, once."""
+    src_sql = _read_csv(src)
+    c = _cols(con, src_sql)
+    cols = {"npi": _pick(c, "npi"), "type": _pick(c, "facility_type", "facility type"),
+            "ccn": _pick(c, "facility_affiliations_certification_number",
+                         "facility affiliations certification number")}
+    missing = [name for name, col in cols.items() if not col]
+    if missing:
+        raise SystemExit(f"Affiliation file has no column for {missing}, so it can't say where a clinician works")
+    q = {name: _q(col) for name, col in cols.items()}
+    write_parquet_atomic(con, f"""
+        SELECT DISTINCT TRY_CAST({q['npi']} AS BIGINT) AS npi, TRIM({q['ccn']}) AS ccn
+        FROM {src_sql}
+        WHERE TRY_CAST({q['npi']} AS BIGINT) IS NOT NULL
+          AND ({geo_filter.format(npi=q['npi'])})
+          AND TRIM({q['type']}) = 'Hospital'
+          AND TRIM({q['ccn']}) LIKE '{GEORGIA_CCN_PREFIX}%'
+        ORDER BY ALL
+    """, out_path)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dac-url", default=None, help="override the National Downloadable File URL")
     ap.add_argument("--dac-file", default=None, help="use a local National file instead of downloading")
+    ap.add_argument("--affiliation-url", default=None, help="override the Facility Affiliation Data URL")
+    ap.add_argument("--affiliation-file", default=None, help="use a local Facility Affiliation file instead of downloading")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--test", action="store_true", help="read/write under data-test/")
     args = ap.parse_args()
@@ -254,6 +291,20 @@ def main() -> None:
     locations_out = f"{rd}/dac_locations_ga.parquet"
     build_locations(con, dac_src, locations_out, geo_filter)
 
+    # ── Facility Affiliation Data → dac_hospitals_ga.parquet ────────────────
+    aff_url = _resolve(args.affiliation_url, args.affiliation_file, AFFILIATION_TITLE,
+                       "Facility_Affiliation.csv", AFFILIATION_URL_FALLBACK)
+    print("→ CMS Doctors & Clinicians - Facility Affiliation Data")
+    aff_src = fetch_to_cache(
+        f"{cache_dir}/dac_affiliation.csv", [aff_url] if aff_url else [], args.affiliation_file
+    )
+    hospitals_out = f"{rd}/dac_hospitals_ga.parquet"
+    # The affiliation file has no State column, so before any file is parsed its scope is the Georgia
+    # clinicians the National file just gave.
+    aff_filter = geo_filter if glob.glob(rosters) else (
+        f"TRY_CAST({{npi}} AS BIGINT) IN (SELECT npi FROM read_parquet('{ga_out}'))")
+    build_hospitals(con, aff_src, hospitals_out, aff_filter)
+
     n, groups, gy = con.execute(f"""
         SELECT count(*), count(DISTINCT org_pac_id),
                count(grad_year)
@@ -274,6 +325,12 @@ def main() -> None:
     """).fetchone()
     print(f"→ wrote {locations_out}")
     print(f"  {n:,} practice addresses for {clinicians:,} clinicians · {addresses:,} distinct addresses")
+    n, clinicians, hospitals = con.execute(f"""
+        SELECT count(*), count(DISTINCT npi), count(DISTINCT ccn)
+        FROM read_parquet('{hospitals_out}')
+    """).fetchone()
+    print(f"→ wrote {hospitals_out}")
+    print(f"  {n:,} affiliations for {clinicians:,} clinicians · {hospitals:,} hospitals")
 
 
 if __name__ == "__main__":

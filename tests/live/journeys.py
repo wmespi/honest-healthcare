@@ -306,7 +306,7 @@ JOURNEYS = [
     ("J21", "Rosa - having a baby", j21),
     ("J22", "Jordan - a primary care visit", j22),
     ("J23", "Lee - cataract surgery on Ambetter", procedure(
-        "eye-cataract", AMBETTER_SILVER, EMORY_HOSPITAL, [("facility", 4907.38, "hospital"), ("surgeon", 728.86, "plan")])),
+        "eye-cataract", AMBETTER_SILVER, EMORY_HOSPITAL, [("facility", 4907.38, "hospital"), ("surgeon", 938.06, "plan")])),
     ("J24", "Lee - physical therapy on Ambetter", one_bill("therapy-exercise", "therapy", INDEPENDENT_PT, 24.69,
                                                           ["therapy"], plan_id=AMBETTER_SILVER)),
 ]

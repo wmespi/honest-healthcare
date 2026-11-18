@@ -41,3 +41,28 @@ def test_a_registered_center_is_shown_at_every_place(corpus):
     assert sites(corpus) == [(GROUP, [2000000041, 2000000042]), (CLINIC, [])]
     corpus.practices_at(2000000041, "200 N MAIN ST", "ALPHARETTA", "300091234")
     assert sites(corpus) == [(GROUP, []), (CLINIC, [2000000041])]
+
+
+def test_a_service_is_shown_at_a_hospital_cms_affiliates_one_of_the_billers_doctors_with(corpus):
+    corpus.family("mri", affiliated_doctors=True)
+    group(corpus)
+    corpus.works_at(2000000041, "110079")
+    assert sites(corpus) == [(GROUP, [2000000041, 2000000042]), ("110079", [2000000041])]
+    # The affiliation isn't a sighting at the biller's own places: its main place keeps every doctor, and a
+    # place where CMS does list a doctor still hides the main one.
+    corpus.practices_at(2000000041, "200 NORTH MAIN STREET", "ALPHARETTA", "30009", address_line2="STE 5")
+    assert sites(corpus) == [(CLINIC, [2000000041]), ("110079", [2000000041])]
+
+
+def test_a_hospital_that_isnt_in_the_hospitals_list_adds_nothing(corpus):
+    corpus.family("mri", affiliated_doctors=True)
+    group(corpus)
+    corpus.works_at(2000000041, "110999")
+    assert sites(corpus) == [(GROUP, [2000000041, 2000000042])]
+
+
+def test_a_family_that_doesnt_take_affiliated_doctors_gets_no_affiliation_row(corpus):
+    # A scan's reader is whoever reads at the hospital, so the imaging families don't take them.
+    group(corpus)
+    corpus.works_at(2000000041, "110079")
+    assert sites(corpus) == [(GROUP, [2000000041, 2000000042])]

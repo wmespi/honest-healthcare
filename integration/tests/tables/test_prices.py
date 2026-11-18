@@ -229,3 +229,35 @@ def test_a_one_bill_family_is_priced_at_a_practice_and_never_at_a_hospital(corpu
     corpus.build()
     rows = [r for r in corpus.rows("prices") if r[1] == "office-visit-established"]
     assert [(r[0], r[2], r[3]) for r in rows] == [(BV, "1000000070", [part("visit", 95.0)])]
+
+
+def test_a_hospital_shows_the_doctors_fee_of_a_group_whose_doctor_cms_affiliates_with_it(corpus):
+    corpus.family("mri", affiliated_doctors=True)  # as the procedure families do
+    corpus.roster(BV, 61, 61, "1000000061", 2000000061)
+    corpus.scan_price(BV, 61, "72148", reading=210)
+    corpus.billed(2000000061, "72148", "F")
+    corpus.npi(1000000061, "UPTOWN RADIOLOGY PC", "9 BILLING OFFICE WAY", "ATLANTA", "303091234")
+    person(corpus, 2000000061, "OKAFOR")
+    assert (BV, "mri-lower-back", "110079") in providers(corpus) and \
+        providers(corpus)[(BV, "mri-lower-back", "110079")] == []
+    corpus.works_at(2000000061, "110079")
+    # Both groups' readings have the same evidence, so the higher shows and says there are several.
+    assert prices(corpus)["110079"] == (
+        [part("facility", None), part("reading", 210.0)], True, ["GRADY RADIOLOGY GROUP", "UPTOWN RADIOLOGY PC"])
+    assert providers(corpus)[(BV, "mri-lower-back", "110079")] == [2000000061]
+
+
+def test_an_affiliation_alone_puts_no_hospital_on_the_list(corpus):
+    corpus.family("mri", affiliated_doctors=True)
+    # Hamilton has no Blue Value fee and no group in its building with a Blue Value
+    # rate, so a group whose doctor CMS affiliates with it fills no row there.
+    corpus.roster(BV, 61, 61, "1000000061", 2000000061)
+    corpus.scan_price(BV, 61, "72148", reading=210)
+    corpus.billed(2000000061, "72148", "F")
+    corpus.npi(1000000061, "UPTOWN RADIOLOGY PC", "9 BILLING OFFICE WAY", "ATLANTA", "303091234")
+    person(corpus, 2000000061, "OKAFOR")
+    corpus.works_at(2000000061, "110001")
+    assert "110001" not in prices(corpus)
+    assert corpus.inputs().execute(
+        "SELECT biller, providers, affiliated FROM service_sites WHERE place_id = '110001'").fetchall() == [
+        ("1000000061", [2000000061], True)]

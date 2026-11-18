@@ -91,6 +91,15 @@ describe('find care wording', () => {
       expect(placeView(hospital([FEE, NO_READING]), context).facilityEstimate).toBeNull();
     });
 
+    it('says a practice\'s facility fee is billed elsewhere, not missing', () => {
+      const surgeon = bill('surgeon', 'The doctor’s fee', 'professional', 231, 'plan');
+      const noFee = bill('facility', 'The facility’s fee', 'institutional', null, null,
+        'Plus the facility’s own fee', 'The hospital or surgery center bills its own fee.');
+      const practice = placeView(hospital([noFee, surgeon], { kind: 'practice', kind_name: 'Medical practice' }), context);
+      expect(practice.missing.billedElsewhere).toBe(true);
+      expect(placeView(hospital([noFee, surgeon]), context).missing.billedElsewhere).toBe(false);
+    });
+
     it('says the reading is missing when only the reading is', () => {
       const view = placeView(hospital([FEE, NO_READING]), context);
       expect(view.missing.rowNote).toBe('Missing the reading');

@@ -55,7 +55,10 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 
 - **Blue Value's file lists no facility's fee**, so its procedure rows show the doctor's fee alone.
   A procedure no doctor near the search is shown billing Medicare for, such as a child's tonsils, pregnancy care or a rare variant, has no row on it; `make test-live` counts them.
-- **A doctor's fee at a hospital or surgery center needs a group whose doctors CMS lists in its building**, and most surgeons' groups are listed at their own offices, so most hospital rows show the facility's fee with the doctor's missing ([build.md](../integration/build.md)).
+- **A doctor's fee at a surgery center needs a group whose doctors CMS lists in its building**, since CMS's affiliation data lists hospitals only ([build.md](../integration/build.md)).
+- **A hospital shows a procedure's doctor's fee only from a group in its building or one whose doctors for the service CMS affiliates with it**, so a hospital whose surgeons CMS doesn't affiliate with it still shows the facility's fee with the doctor's missing.
+  A scan's reading at a hospital still needs a reading group in its building, since a reader is whoever reads there.
+  An affiliation alone puts no hospital on the list, since it says nothing about the hospital's own fee or network.
 - **A generic ambulatory surgery center's fee shows only where such a group works in it**, since its contract prices every code whether it does the procedure or not.
 - **A surgery done only at a facility is often listed under the office's place of service alone**, and that rate is read as the doctor's fee where the file lists none for a facility.
 

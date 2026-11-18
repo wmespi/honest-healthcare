@@ -13,6 +13,7 @@ import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 FIXTURE = os.path.join(REPO, "ingestion", "reference", "testdata", "dac_sample.csv")
+AFFILIATION_FIXTURE = os.path.join(REPO, "ingestion", "reference", "testdata", "affiliation_sample.csv")
 
 
 def _build(data_dir):
@@ -20,7 +21,8 @@ def _build(data_dir):
     the path of dac_ga.parquet."""
     r = subprocess.run(
         [sys.executable, "-m", "ingestion.reference.doctors_clinicians",
-         "--dac-file", FIXTURE, "--data-dir", str(data_dir)],
+         "--dac-file", FIXTURE, "--affiliation-file", AFFILIATION_FIXTURE,
+         "--data-dir", str(data_dir)],
         cwd=REPO, capture_output=True, text=True,
     )
     assert r.returncode == 0, f"builder failed:\n{r.stdout}\n{r.stderr}"
@@ -107,6 +109,17 @@ def test_locations_are_each_clinicians_georgia_addresses_once(built):
     ).fetchone()[0] == 0
 
 
+def test_hospitals_are_each_clinicians_georgia_hospital_affiliations_once(built):
+    con, out = built
+    hospitals = out.replace("dac_ga.parquet", "dac_hospitals_ga.parquet")
+    # Repeated rows collapse, and a non-Georgia CCN and a facility that isn't a hospital are dropped; a
+    # clinician in the National file's Georgia scope is kept, an out-of-state one isn't.
+    assert con.execute(f"SELECT npi, ccn FROM read_parquet('{hospitals}') ORDER BY ALL").fetchall() == [
+        (1000000001, "110001"), (1000000001, "110002"), (1000000002, "110001")]
+    assert dict((r[0], r[1]) for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{hospitals}')").fetchall()) == {
+        "npi": "BIGINT", "ccn": "VARCHAR"}
+
+
 @pytest.fixture(scope="module")
 def built_roster_scoped(tmp_path_factory):
     """Exercise the parsed-rosters geo branch, the production path, with two
@@ -138,3 +151,10 @@ def test_geo_scope_is_every_parsed_roster_not_state(built_roster_scoped):
     # the out-of-state NPI is kept because a parsed roster lists it, and a GA
     # clinician on no roster is dropped
     assert 2000000001 in npis and 1000000004 not in npis
+
+
+def test_roster_scope_applies_to_hospital_affiliations_too(built_roster_scoped):
+    con, out = built_roster_scoped
+    hospitals = out.replace("dac_ga.parquet", "dac_hospitals_ga.parquet")
+    assert con.execute(f"SELECT npi, ccn FROM read_parquet('{hospitals}') ORDER BY ALL").fetchall() == [
+        (1000000001, "110001"), (1000000001, "110002"), (1000000002, "110001"), (2000000001, "110002")]

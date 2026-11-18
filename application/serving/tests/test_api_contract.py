@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from application.serving.routers.find_care import radius_for, wider_radius
+from application.serving.routers.find_care import radius_for, wider_radius, with_bill_text
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -172,6 +172,22 @@ def test_a_missing_part_says_what_is_missing_the_hospital_way_only_at_a_hospital
     reading = next(p for p in next(r for r in body["results"] if r["place_id"] == "110001")["parts"]
                    if p["part"] == "reading")
     assert reading["missing_explain"] == "Ask the hospital who will read yours."
+
+
+def test_a_practices_missing_facility_part_says_the_practice_way_and_other_places_keep_theirs():
+    bill = {"part": "facility", "label": "The facility's fee", "billing_class": "institutional",
+            "missing_note": "Missing the facility's fee", "missing_explain": "Ask where.",
+            "missing_explain_hospital": "Hospitals bill their own fee.",
+            "missing_note_practice": "Plus the facility's own fee", "missing_explain_practice": "A hospital bills it."}
+    def said(kind, **own):
+        place = {"kind": kind, "parts": [{"part": "facility", "max": None, "terms": None}]}
+        part = with_bill_text(place, [{**bill, **own}])["parts"][0]
+        return part["missing_note"], part["missing_explain"]
+    assert said("practice") == ("Plus the facility's own fee", "A hospital bills it.")
+    assert said("hospital") == ("Missing the facility's fee", "Hospitals bill their own fee.")
+    assert said("surgery_center") == ("Missing the facility's fee", "Ask where.")
+    assert said("practice", missing_note_practice=None, missing_explain_practice=None) == (
+        "Missing the facility's fee", "Ask where.")
 
 
 @pytest.mark.parametrize("params, code", [

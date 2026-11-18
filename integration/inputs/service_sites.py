@@ -1,6 +1,6 @@
 """Build-only: the places where each biller's rate for a service is shown."""
 from integration.inputs.addresses import ADDRESS
-from integration.inputs.datasets import CLINICIAN_LOCATIONS
+from integration.inputs.datasets import CLINICIAN_HOSPITALS, CLINICIAN_LOCATIONS
 from integration.table import Table
 
 
@@ -18,6 +18,17 @@ class ServiceSites(Table):
       CMS lists none of them in any of its buildings. Nothing says which of its
       places does the service, and its own record's address is the one it gave.
 
+    - a Georgia hospital (`hospitals`) where CMS affiliates one of the biller's
+      doctors for the service (CLINICIAN_HOSPITALS), for a service whose family
+      takes them (`affiliated_doctors`, a doctor the patient picks, such as a
+      surgeon), with those doctors as its `providers`, joining any the
+      place already has for the biller. CMS lists only hospital affiliations, so
+      a surgery center still needs one in its building. This row doesn't count as
+      a place the biller's doctors are seen, so its main-place fallback and its
+      other places' rows stay as they are. A row that is only this kind says so
+      (`affiliated`), since it fills a hospital's bill but doesn't put the
+      hospital on the list (integration/tables/prices.py).
+
     `providers` is empty where CMS lists none of the doctors, as at most centers'
     other places. A service a biller has doctors for at one place isn't shown at
     its others, so a group's billing office drops out once its doctors are seen
@@ -25,7 +36,7 @@ class ServiceSites(Table):
     name = "service_sites"
     key = ["network_id", "service_id", "biller", "place_id"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR", "place_id": "VARCHAR",
-               "providers": "BIGINT[]"}
+               "providers": "BIGINT[]", "affiliated": "BOOLEAN"}
 
     def select(self, data_dir):
         return f"""
@@ -48,19 +59,41 @@ class ServiceSites(Table):
                 FROM biller_doctors
                 GROUP BY network_id, service_id, biller
             ),
+            affiliated AS (
+                SELECT d.network_id, d.service_id, d.biller, h.ccn AS place_id,
+                       list(DISTINCT d.npi ORDER BY d.npi) AS providers
+                FROM biller_doctors d
+                JOIN {CLINICIAN_HOSPITALS.read(data_dir)} a ON a.npi = d.npi
+                JOIN hospitals h ON h.ccn = a.ccn
+                JOIN service_list sl ON sl.service_id = d.service_id
+                JOIN family_list f ON f.family = sl.family AND f.affiliated_doctors
+                GROUP BY d.network_id, d.service_id, d.biller, h.ccn
+            ),
             pairs AS (
                 SELECT r.network_id, r.service_id, r.biller, bool_or(r.registered) AS registered,
                        (r.network_id, r.service_id, r.biller) IN (SELECT (network_id, service_id, biller) FROM seen)
                            AS any_seen
                 FROM biller_rates r
                 GROUP BY r.network_id, r.service_id, r.biller
+            ),
+            placed AS (
+                SELECT p.network_id, p.service_id, p.biller, s.place_id,
+                       coalesce(n.providers, CASE WHEN s.main AND NOT p.any_seen THEN e.providers END,
+                                []::BIGINT[]) AS providers
+                FROM pairs p
+                JOIN biller_places s USING (biller)
+                LEFT JOIN seen n USING (network_id, service_id, biller, place_id)
+                LEFT JOIN everyone e USING (network_id, service_id, biller)
+                WHERE n.place_id IS NOT NULL OR p.registered OR (s.main AND NOT p.any_seen)
             )
-            SELECT p.network_id, p.service_id, p.biller, s.place_id,
-                   coalesce(n.providers, CASE WHEN s.main AND NOT p.any_seen THEN e.providers END, []::BIGINT[])
-                       AS providers
-            FROM pairs p
-            JOIN biller_places s USING (biller)
-            LEFT JOIN seen n USING (network_id, service_id, biller, place_id)
-            LEFT JOIN everyone e USING (network_id, service_id, biller)
-            WHERE n.place_id IS NOT NULL OR p.registered OR (s.main AND NOT p.any_seen)
+            SELECT network_id, service_id, biller, place_id,
+                   list_sort(list_distinct(list_concat(p.providers, coalesce(a.providers, []::BIGINT[]))))
+                       AS providers, false AS affiliated
+            FROM placed p
+            LEFT JOIN affiliated a USING (network_id, service_id, biller, place_id)
+            UNION ALL
+            SELECT network_id, service_id, biller, place_id, providers, true
+            FROM affiliated
+            WHERE (network_id, service_id, biller, place_id) NOT IN (
+                SELECT (network_id, service_id, biller, place_id) FROM placed)
         """

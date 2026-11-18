@@ -250,7 +250,9 @@ function LocationRow({ location, plan, costSharing, selected, highlighted, layou
             <div className="mt-0.5 text-[13px] font-medium text-emerald-800">{location.matchedProvider} works here</div>
           )}
           {location.missing && (
-            <div className="mt-0.5 text-[13px] font-medium text-amber-800">{location.missing.rowNote}</div>
+            <div className={`mt-0.5 text-[13px] ${location.missing.billedElsewhere ? 'text-slate-600' : 'font-medium text-amber-800'}`}>
+              {location.missing.rowNote}
+            </div>
           )}
         </td>
         <td className="whitespace-nowrap px-2 py-3.5 text-right align-top text-[15px] tabular-nums text-slate-700 sm:px-4">

@@ -47,7 +47,8 @@
 #                     and a line naming two bills' codes counts for both, so two bills
 #                     may share a modifier when each names its own. `missing` is what
 #                     the screen says where the bill has no rate (`explain_at_hospital`
-#                     at a hospital).
+#                     at a hospital, `note_at_practice` with `explain_at_practice` at a
+#                     practice, which never bills a facility's fee).
 #   hospital          The bills at a hospital, in order. A family without it isn't
 #                     shown at hospitals.
 #   elsewhere         The bills anywhere else, as alternatives in order: a place
@@ -68,6 +69,12 @@
 #                     which kind of doctor (integration/specialties.yaml), because the
 #                     code is the same whatever the doctor's specialty. Only office
 #                     visits ask.
+#   affiliated_doctors Optional, false when not given: true says a hospital's row
+#                     also shows the doctor's fee of a group whose doctors for the
+#                     service CMS affiliates with the hospital, for a doctor the
+#                     patient picks, such as a surgeon, who works at the hospitals
+#                     they're affiliated with. A scan's reader is whoever reads at
+#                     the hospital, so scans don't set it.
 #
 # extra_bills The bills a patient gets without choosing who bills them, one entry
 #            per part (`anesthesia`, `pathology`, `doctor`), each with the `label` the screen
@@ -428,7 +435,10 @@ families:
           note: Missing the facility’s fee
           explain: The place where your procedure happens bills its own fee, and your plan’s file doesn’t list it here. Ask where it would happen and what that place charges.
           explain_at_hospital: Hospitals and surgery centers bill their own fee for the procedure, and your plan’s file doesn’t list it here. Nothing on file confirms the place itself is in your network. Ask whether it is and what it would charge before you book.
+          note_at_practice: Plus the facility’s own fee
+          explain_at_practice: This group’s doctors do the procedure at a hospital or surgery center, which bills its own fee for the room and staff on top of the doctor’s. Ask where yours would happen and what that place charges.
     hospital: &procedure_at_hospital [facility, surgeon]
+    affiliated_doctors: true
     elsewhere: &procedure_elsewhere [[in_office], [facility, surgeon]]
     # An endoscopy center bills its own facility fee, apart from the doctor's. A
     # generic surgery center does too, but it is a `facilities` taxonomy.
@@ -452,6 +462,7 @@ families:
       - Does my plan need to approve this first?
     bills: *procedure_bills
     hospital: *procedure_at_hospital
+    affiliated_doctors: true
     elsewhere: *procedure_elsewhere
 
   - family: bone_joint_procedures
@@ -473,6 +484,7 @@ families:
       - Does my plan need to approve this first?
     bills: *procedure_bills
     hospital: *procedure_at_hospital
+    affiliated_doctors: true
     elsewhere: *procedure_elsewhere
 
   - family: skin_procedures
@@ -491,6 +503,7 @@ families:
       - Is the doctor in my network?
     bills: *procedure_bills
     hospital: *procedure_at_hospital
+    affiliated_doctors: true
     elsewhere: *procedure_elsewhere
 
   - family: other_procedures
@@ -512,6 +525,7 @@ families:
       - Does my plan need to approve this first?
     bills: *procedure_bills
     hospital: *procedure_at_hospital
+    affiliated_doctors: true
     elsewhere: *procedure_elsewhere
 
   - family: stays

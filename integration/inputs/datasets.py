@@ -143,6 +143,9 @@ DOCTORS_CLINICIANS = Dataset("reference/dac_ga.parquet", "make reference STEP=do
 CLINICIAN_LOCATIONS = Dataset("reference/dac_locations_ga.parquet", "make reference STEP=doctors-clinicians", {
     "npi": B, "address_line1": V, "address_line2": V, "city": V, "state": V, "postal_code": V},
     key=["npi", "address_line1", "address_line2", "city", "postal_code"])
+# Each Georgia hospital CMS affiliates a clinician with, by CCN (ingestion/reference/doctors-clinicians.md).
+CLINICIAN_HOSPITALS = Dataset("reference/dac_hospitals_ga.parquet", "make reference STEP=doctors-clinicians", {
+    "npi": B, "ccn": V}, key=["npi", "ccn"])
 # Each clinician's Medicare quality (MIPS) score, 0 to 100, by NPI (ingestion/reference/mips.md).
 MIPS = Dataset("reference/mips_ga.parquet", "make reference STEP=mips", {
     "npi": B, "mips_score": D, "mips_source": V, "performance_year": I}, key=["npi"])
@@ -193,6 +196,6 @@ CLINICIAN_VOLUME = Dataset("reference/clinician_volume_ga.parquet", "make refere
 
 DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, PAYER_NETWORKS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
             EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, NPPES_LOCATIONS, MEDICARE_BILLING,
-            NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, MIPS, HOSPITALS, HOSPITAL_RATES, GEOCODES,
+            NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, CLINICIAN_HOSPITALS, MIPS, HOSPITALS, HOSPITAL_RATES, GEOCODES,
             ZIP_CENTROIDS, SHOPPABLE_SERVICES, HOSPITAL_MEASURES, HOSPITAL_MEASURES_NATIONAL, ASC_MEASURES,
             ASC_MEASURES_NATIONAL, CLINICIAN_VOLUME]
