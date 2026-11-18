@@ -47,6 +47,8 @@ GRADY_70551 = 1287.28  # brain MRI at Grady on Pathway: the hospital's fee in th
 PEACHTREE_IMMEDIATE_CARE = "1235573841"
 # Anthem Catastrophic Pathway Guided Access HMO 10600 First 3 PCP Visits $40, Jordan's plan here
 GUIDED_CATASTROPHIC = "49046GA0700010"
+AMBETTER_SILVER = "70893GA0010077"  # Ambetter Standard Silver HMO $6000 $40, on Premier, Lee's plan here
+INDEPENDENT_PT = "1356494686"  # Independent Physical Therapy of Georgia
 SLOW_CALL_MS = 1500   # a single API call slower than this gets flagged (not a failure)
 
 _calls = []  # (path, ms) for the journey currently running - reset per journey
@@ -70,8 +72,8 @@ def get(api, path, **params):
 # ── journeys ────────────────────────────────────────────────────────────────
 # each returns (ok: bool, detail: str)
 
-def search(api, service_id, **extra):
-    return get(api, "/find-care", service_id=service_id, plan_id=SILVER, zip="30322", **extra)
+def search(api, service_id, plan_id=SILVER, **extra):
+    return get(api, "/find-care", service_id=service_id, plan_id=plan_id, zip="30322", **extra)
 
 
 def j1(api):
@@ -129,11 +131,11 @@ def j4(api):
     return status == 422, f"no plan -> {status} (want 422: prices depend on the plan)"
 
 
-def one_bill(service_id, part, place_id, rate, shares, radius_mi=None, kind=None, specialty=None):
+def one_bill(service_id, part, place_id, rate, shares, radius_mi=None, kind=None, specialty=None, plan_id=SILVER):
     """A journey for a service with one bill: the place shows that one part at the
     rate, no hospital is listed, and the plan's share is under `shares`."""
     def journey(api):
-        body, status = search(api, service_id, radius_mi=radius_mi, specialty=specialty)
+        body, status = search(api, service_id, plan_id=plan_id, radius_mi=radius_mi, specialty=specialty)
         rows = (body or {}).get("results") or []
         if status != 200 or not rows:
             return False, f"/find-care {service_id} returned {status} / {len(rows)} places"
@@ -303,6 +305,10 @@ JOURNEYS = [
     ("J20", "Sam - having a baby", j20),
     ("J21", "Rosa - having a baby", j21),
     ("J22", "Jordan - a primary care visit", j22),
+    ("J23", "Lee - cataract surgery on Ambetter", procedure(
+        "eye-cataract", AMBETTER_SILVER, EMORY_HOSPITAL, [("facility", None, None), ("surgeon", 728.86, "plan")])),
+    ("J24", "Lee - physical therapy on Ambetter", one_bill("therapy-exercise", "therapy", INDEPENDENT_PT, 24.69,
+                                                          ["therapy"], plan_id=AMBETTER_SILVER)),
 ]
 
 

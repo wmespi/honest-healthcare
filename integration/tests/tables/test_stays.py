@@ -17,8 +17,8 @@ def stays(corpus):
 
 
 def drg(corpus, group_set, code, rate, **fields):
-    corpus.facility_price(PATHWAY, group_set, code, rate, setting="inpatient", code_type="MS-DRG",
-                          negotiated_type=fields.pop("negotiated_type", "negotiated"), **fields)
+    corpus.facility_price(PATHWAY, group_set, code, rate, setting=fields.pop("setting", "inpatient"),
+                          code_type="MS-DRG", negotiated_type=fields.pop("negotiated_type", "negotiated"), **fields)
 
 
 def stay_prices(corpus, network_id, service_id):
@@ -65,6 +65,13 @@ def test_a_per_day_or_percent_price_is_terms_with_no_max_and_the_hospital_still_
     corpus.build()
     price = {r[:3]: r for r in corpus.rows("prices")}[(PATHWAY, VAGINAL, GRADY)]
     assert price[4] is False  # one rate
+
+
+def test_a_stay_the_plans_file_calls_outpatient_is_still_priced(corpus):
+    # An MS-DRG pays only for a stay, whatever setting the file gives it.
+    stays(corpus)
+    drg(corpus, 50, "807", 5200, setting="outpatient")
+    assert parts(corpus, PATHWAY, VAGINAL) == {GRADY: [{"max": 5200.0, "terms": None, "source": "plan"}]}
 
 
 def test_a_derived_estimate_and_a_bundle_are_left_out(corpus):

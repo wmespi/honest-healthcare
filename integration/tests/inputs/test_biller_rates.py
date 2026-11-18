@@ -53,7 +53,7 @@ def test_a_tax_id_that_is_not_shaped_like_one_stops_the_build(corpus):
 
 def test_each_npi_in_a_tax_id_group_bills_in_its_own_right_under_its_cms_group(corpus):
     # Two clinicians share a tax ID. Each is its own biller and doctor, and is
-    # placed where Doctors & Clinicians lists it, under its CMS group's name.
+    # placed at its NPPES address, under its CMS group's name.
     corpus.roster(BV, 9, 9, "86-2226051", 1000000041, 1000000042, tin_type="ein")
     corpus.scan_price(BV, 9, "72148", all_in=640)
     for npi, group, address, lat in [(1000000041, "PEACHTREE SPINE", "10 SPINE WAY", 33.8),
@@ -125,8 +125,17 @@ def test_a_bill_that_names_several_modifiers_takes_a_rate_under_each(corpus):
     scan["modifier"] = ["TC", "QW"]
     corpus.write_families()
     corpus.modified_price(BV, 1, "72148", "QW", 310)
+    corpus.modified_price(BV, 1, "72148", "QW|TC", 320)  # names two of the scan's
     assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0),
-                                               ("scan", 310.0)]
+                                               ("scan", 310.0), ("scan", 320.0)]
+
+
+def test_a_body_site_modifier_prices_the_bill_without_it(corpus):
+    corpus.modified_price(BV, 1, "72148", "RT", 520)
+    corpus.modified_price(BV, 1, "72148", "26|LT", 210)
+    corpus.modified_price(BV, 1, "72148", "F5|TC", 310)
+    assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("all_in", 520.0), ("reading", 200.0),
+                                               ("reading", 210.0), ("scan", 300.0), ("scan", 310.0)]
 
 
 def all_in(corpus, biller="1000000001"):

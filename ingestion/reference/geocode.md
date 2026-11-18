@@ -9,7 +9,7 @@ Module `ingestion/reference/geocode.py`; module flags `--test`, `--fresh`, `--li
 ## The two geocoders
 
 - **Census** ([Bulk Geocoding API](https://geocoding.geo.census.gov/geocoder/Geocoding_Services.html)) gets every address.
-  That is the NPPES address, main and secondary, of every billing ID (`tin_value`) under `raw/<payer>/providers` ([nppes.md](../etl/nppes.md)), each hospital's address in `hospitals_ga.parquet` ([hospitals.md](hospitals.md)), and each address Doctors & Clinicians lists a clinician at ([doctors-clinicians.md](doctors-clinicians.md)).
+  That is the NPPES address, main and secondary, of every NPI a roster row under `raw/<payer>/providers` bills under ([nppes.md](../etl/nppes.md)): its billing ID (`tin_value`), or its own `npi` where it bills under a tax ID, each hospital's address in `hospitals_ga.parquet` ([hospitals.md](hospitals.md)), and each address Doctors & Clinicians lists a clinician at ([doctors-clinicians.md](doctors-clinicians.md)).
   Its answer carries Census's standardized address, which is how the build knows two spellings are one building.
 - **OpenStreetMap** ([Nominatim](https://operations.osmfoundation.org/policies/nominatim/)) gets only a biller's or a hospital's address that Census can't put in Georgia, because it knows buildings Census's street ranges don't cover.
   Only an answer that is the address itself is kept as a point: the same house number, in Georgia, in the same ZIP code or city.

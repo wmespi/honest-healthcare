@@ -27,6 +27,8 @@ GOLD_PATHWAY = "49046GA0700055"  # Anthem Gold Pathway PCP Copay Choice HMO 1200
 GOLD_OPEN_PATHWAY = "49046GA0700021"  # Anthem Gold Pathway HMO 1350, on 49046-GAN001
 GOLD_GUIDED_ACCESS = "49046GA0700019"  # Anthem Gold Pathway Guided Access HMO 1350, on 49046-GAN003
 CATASTROPHIC_PATHWAY = "49046GA0700001"  # Anthem Catastrophic Pathway HMO 10600 First 3 PCP Visits $40
+AMBETTER_SILVER = "70893GA0010077"  # Ambetter Standard Silver HMO $6000 $40, on Premier (70893-GAN001)
+AMBETTER = ["70893-GAN001", "70893-GAN002", "70893-GAN003", "70893-GAN004", "70893-GAN005"]
 NEAR_EMORY = {"plan_id": SILVER, "zip": "30322"}
 
 
@@ -68,9 +70,14 @@ def unpriced(client, plan_id):
 def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
-        (BLUE_VALUE, "current"), ("49046-GAN001", "current"), ("49046-GAN003", "current"), ("49046-GAN008", "current")]
-    assert root["rows"] == {"plans": 35, "services": 284, "families": 17, "places": 5529, "prices": 171515,
-                            "providers": 13619}
+        (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *AMBETTER]]
+    assert root["rows"] == {"plans": 68, "services": 284, "families": 17, "places": 9722, "prices": 312316,
+                            "providers": 15451}
+
+
+def test_each_insurer_goes_by_the_name_it_sells_under(client):
+    assert {p["carrier"] for p in client.get("/plans").json()} == {
+        "Anthem Blue Cross and Blue Shield", "Ambetter from Peach State Health Plan"}
 
 
 def test_the_families_are_in_the_screens_order(client):
@@ -178,6 +185,36 @@ def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
             "therapy-iontophoresis", "surgery-tonsils-adult", "surgery-vasectomy"} <= set(gaps)
     assert not {"colonoscopy", "eye-cataract", "joint-knee-scope-meniscus", "surgery-gallbladder-scope",
                 "skin-biopsy"} & set(gaps)
+
+
+def test_a_brain_mri_near_emory_on_ambetter(client):
+    body = find_care(client, "mri-brain", plan_id=AMBETTER_SILVER)
+    northside = next(p for p in body["results"] if p["place_id"] == "1487636445")
+    assert northside["name"] == "NORTHSIDE RADIOLOGY ASSOCIATES LLC"
+    assert rates(northside) == [("all_in", 177.17, "plan")]
+    assert [(s["benefit"], s["copay"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
+        ("advanced_imaging", None, 40.0, True)]
+
+
+def test_ambetter_prices_what_its_file_gives_only_with_a_modifier_or_a_mislabeled_setting(client):
+    # Cataract surgery only for the right or left eye, therapy only under a
+    # therapist's plan of care, and a stay's MS-DRG under the outpatient setting.
+    emory = next(p for p in find_care(client, "eye-cataract", plan_id=AMBETTER_SILVER)["results"]
+                 if p["place_id"] == "110010")
+    assert rates(emory) == [("facility", None, None), ("surgeon", 728.86, "plan")]
+    therapy = next(p for p in find_care(client, "therapy-exercise", plan_id=AMBETTER_SILVER)["results"]
+                   if p["place_id"] == "1356494686")
+    assert rates(therapy) == [("therapy", 24.69, "plan")]
+    piedmont = next(p for p in find_care(client, "stay-vaginal-delivery", plan_id=AMBETTER_SILVER)["results"]
+                    if p["place_id"] == "110083")
+    assert rates(piedmont) == [("stay", 9956.9, "plan")]
+
+
+def test_ambetter_leaves_out_what_no_doctor_near_emory_shows_billing(client):
+    gaps = unpriced(client, AMBETTER_SILVER)
+    assert len(gaps) == 56
+    assert not {"eye-cataract", "therapy-exercise", "surgery-vein-radiofrequency", "surgery-hernia-groin-open",
+                "joint-knee-scope-meniscus", "stay-vaginal-delivery", "stay-knee-replacement"} & set(gaps)
 
 
 def test_quality_shows_only_where_a_cms_measure_fits(client):

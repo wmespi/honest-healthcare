@@ -275,8 +275,9 @@ class FamilyList(FromYaml):
 
 class FamilyBills(FromYaml):
     """One row per family and bill, in the family's order (`position`). A
-    `professional` bill is priced from the plan's rates with one of its
-    `modifiers` ("" is a rate with none), and
+    `professional` bill is priced from the plan's rates whose modifiers are each
+    one of its `modifiers` ("" is a rate with none), a body site not counting
+    (biller_rates.BODY_SITES), and
     `on_site` says only a place that does the service bills it; the
     `institutional` one is a facility's own fee (facility_fees). `place_of_service`
     is the codes whose rates the bill reads in place of the family's, none when

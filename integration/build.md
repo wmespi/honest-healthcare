@@ -57,7 +57,8 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   A rate under the file's shared labels is used only where the network's own labels have none for the biller, service and bill.
   A biller appears if it has a doctor in `biller_doctors` for that service, or if its NPPES primary specialty code registers it as a center for the service's family.
   It does the service where it is (`on_site`) if it's such a center or one of those doctors billed the service in an office, and otherwise it bills only the parts done elsewhere, such as a scan's reading.
-  A rate with a modifier in `OTHER_BILLS` is a different bill and is left out, and the build stops on a modifier that neither a family's bills nor that list names.
+  A rate is for the bill that names each of its modifiers, not counting one in `BODY_SITES`, which only says where on the body, so a surgery a plan prices only on one side keeps its price.
+  A rate with a modifier in `OTHER_BILLS` is a different bill and is left out, and the build stops on a modifier that neither a family's bills nor those lists name.
   Each rate records the strongest evidence behind it, in the order `EVIDENCE` lists: a doctor on the rate's own roster whom Medicare shows billing the service, a doctor elsewhere under the biller, or the biller's registration as a center.
   `prices` shows the rate with the strongest evidence, because a biller often sits under several fee schedules and the file doesn't say which a patient gets.
 - [`addresses`](inputs/addresses.py) puts every address the build reads in a building, and gives the building one point.
@@ -66,8 +67,9 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   The point is Census's for an address in the building, the hospital's own first, or OpenStreetMap's when Census located none ([geocode.md](../ingestion/reference/geocode.md)).
 - [`biller_places`](inputs/biller_places.py) puts each biller at every building NPPES lists it in, its main address and its secondary locations: the hospital in that building, or the practice there under its name.
   A practice takes the address and phone of its key NPI's record there, the name of the biller with rates for the most services (the lowest NPI where two tie), and the kind of center its billers are registered as, the first in the order of `kinds` where they're two; a generic surgery center's kind (`facilities`) counts only for a practice with no doctor's rate.
-  Billers in one building are one practice when their names match without punctuation or endings like LLC, or when they are at the same office (the same suite, or neither lists one), and billers linked through others are one too.
-  A practice is keyed on the lowest NPI with a doctor's rate (the lowest of its centers' where it has none), and billers in different suites with different names stay apart ([what one place is](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6643172584)).
+  Billers in one building are one practice when their names match without punctuation or endings like LLC, or when two companies are at the same office (the same suite, or neither lists one), and billers linked through others are one too.
+  A doctor billing under their own NPI joins only the practice its CMS group's name matches, because a doctor often works from more than one practice's office.
+  A practice is keyed on the lowest NPI with a doctor's rate, an organization's before a doctor's own, so a clinic keeps its key and address however many of its clinicians bill under their own NPIs (its centers' the same way where it has none), and billers in different suites with different names stay apart ([what one place is](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6643172584)).
   A doctor's own NPI takes its CMS group's name, and away from a hospital it has no place without one.
   A biller with no Georgia record has none either.
   A roster row billed under an NPI bills as that NPI.
@@ -112,7 +114,8 @@ It's shown on the hospital's rows, and a cash price alone puts no hospital on th
 
 A hospital stay (an MS-DRG service in the `stays` family) is priced by the same table, one source, in the first term that source has:
 a dollar `fee`, else `per_day`, else `percent` of the hospital's charges.
-The plan's file gives a `negotiated` or `fee schedule` dollar amount as the fee and a `per diem` as a day's rate, on an inpatient bill with no modifier; its `derived` amounts (the payer's own estimate) and bundles are left out.
+The plan's file gives a `negotiated` or `fee schedule` dollar amount as the fee and a `per diem` as a day's rate, with no modifier; its `derived` amounts (the payer's own estimate) and bundles are left out.
+The setting the plan's file names isn't read, because an MS-DRG pays only for a stay and a file can call one outpatient.
 The hospital's own file gives a `fee schedule` or `case rate` dollar amount as the fee, else a `per diem`, else a `percent of total billed charges`, under the names [`hospital_plans.yaml`](hospital_plans.yaml) gives the network.
 A code matches only a rate or row of its service's `code_types`, so a DRG never meets another code type's digits.
 A dollar amount (not a per diem) that one billing NPI in the plan's file, or one hospital under a network's name in its own file, lists for more than 25 distinct MS-DRGs is a default, not the stay's price, and is left out, so the next term or source applies; tiers of related DRGs stay under it.

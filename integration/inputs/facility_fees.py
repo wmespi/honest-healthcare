@@ -23,12 +23,14 @@ FACILITY_PRICED = """r.billing_class = 'institutional' AND r.billing_code_type I
 
 
 # The institutional rates the build reads from a plan's file for a hospital stay
-# (an MS-DRG): a fee-for-service dollar amount for the DRG with no modifier on an
-# inpatient bill or one for either setting or none, above $1, a `negotiated` or
-# `fee schedule` amount being the stay's price and a `per diem` a day's. Left out:
-# a `derived` amount, which is the payer's own estimate (CMS's spec), and a bundle.
+# (an MS-DRG): a fee-for-service dollar amount for the DRG with no modifier, above
+# $1, a `negotiated` or `fee schedule` amount being the stay's price and a `per
+# diem` a day's. Its setting isn't read: an MS-DRG pays only for a stay, and a
+# file can call it outpatient while naming the inpatient hospital as its place of
+# service (21). Left out: a `derived` amount, which is the payer's own estimate
+# (CMS's spec), and a bundle.
 STAY_PRICED = """r.billing_class = 'institutional' AND r.billing_code_type = 'MS-DRG'
-              AND coalesce(r.setting, 'both') IN ('inpatient', 'both') AND r.negotiation_arrangement = 'ffs'
+              AND r.negotiation_arrangement = 'ffs'
               AND r.negotiated_type IN ('fee schedule', 'negotiated', 'per diem') AND coalesce(r.modifier, '') = ''
               AND r.negotiated_rate > 1"""
 
