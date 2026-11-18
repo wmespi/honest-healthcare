@@ -88,7 +88,8 @@ def test_a_brain_mri_near_emory_on_silver_4000(client):
     assert clinic["parts"][0]["label"] == "The scan and its reading" and clinic["kind_name"] == "Medical practice"
     assert body["median_max_rate"] == 180.49
     assert body["cost_sharing"] == [{
-        "benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": 300.0, "copay_per": None, "coinsurance": 50.0,
+        "benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": 300.0, "copay_per": None, "copay_limited": False,
+        "coinsurance": 50.0,
         "after_deductible": True, "parts": ["all_in", "scan", "reading", "facility"]}]
 
 

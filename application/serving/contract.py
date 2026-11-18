@@ -75,6 +75,9 @@ class CostSharing(BaseModel):
                           "empty for a copay charged once.")
     coinsurance: Optional[float] = Field(ge=0, le=100, description="A percent of the rate.")
     after_deductible: bool = Field(description="The member pays the whole rate until the deductible is met.")
+    copay_limited: bool = Field(False, description="The plan charges the copay only for a limited number of visits a "
+                                "year before the deductible, as a catastrophic plan does; after those the member "
+                                "pays the whole rate until the deductible.")
 
     @model_validator(mode="after")
     def _charges_something(self):

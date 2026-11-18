@@ -19,27 +19,34 @@ def plan_name(r):
             f"THEN trim(coalesce({r}.payer, '') || ' | ' || coalesce({r}.plan, '')) END")
 
 
+# Each hospital, name and network the name means, one row each, for a join on a
+# hospital's own rates; a name that means none has no row.
+PLAN_NETWORKS = "(SELECT ccn, name, unnest(networks) AS network_id FROM hospital_plans)"
+
+
 class HospitalPlans(Table):
     """One row per hospital (`ccn`) and name its file uses, with the exchange
-    network the name means (`network_id`), or none when someone read it and
-    found it isn't a plan on a network we price.
+    networks the name means (`networks`), none when someone read it and found it
+    isn't a plan on a network we price. A name can mean several networks that
+    share the hospital's contract, as Anthem's Pathway networks do.
 
     A hospital's file names each rate's payer and plan in its own words, so a
     rate there prices a hospital's own fee only under a name someone has read.
     The build stops on a name a hospital's file has that the list doesn't give
     for that hospital, so a new name is read before it is priced or left out,
-    on a hospital listed twice or a name listed twice for one hospital, and on a
-    network the payer rates don't list."""
+    on a hospital listed twice, a name listed twice for one hospital and network
+    or both under a network and under `other`, and on a network the payer rates
+    don't list."""
     name = "hospital_plans"
     key = ["ccn", "name"]
-    columns = {"ccn": "VARCHAR", "name": "VARCHAR", "network_id": "VARCHAR"}
+    columns = {"ccn": "VARCHAR", "name": "VARCHAR", "networks": "VARCHAR[]"}
 
     def __init__(self, path):
         self.path = path
 
     def fill(self, con, data_dir):
         """Made from integration/hospital_plans.yaml, not a SELECT; its values go in as parameters."""
-        rows, group_of = {}, {}
+        rows, group_of = {}, {}  # rows: (ccn, name) -> the networks it means, None for `other`
         for i, group in enumerate(read_hospital_plans(self.path), 1):
             unknown = sorted(set(group) - {"hospitals", "networks", "other"})
             if unknown:
@@ -56,18 +63,19 @@ class HospitalPlans(Table):
                 group_of[ccn] = i
                 for name, network in names:
                     name = str(name).strip()
-                    if (ccn, name) in rows:
+                    networks = rows.setdefault((ccn, name), [])
+                    if network in networks or (networks and (network is None or None in networks)):
                         raise SystemExit(f"{self.path}: group {i} lists {name!r} twice for hospital {ccn}")
-                    rows[(ccn, name)] = network
+                    networks.append(network)
         con.execute(f"CREATE TEMP TABLE {self.name} ("
                     + ", ".join(f"{c} {t}" for c, t in self.columns.items()) + ")")
         if rows:
             con.executemany(f"INSERT INTO {self.name} VALUES (?, ?, ?)",
-                            [[ccn, name, network] for (ccn, name), network in rows.items()])
+                            [[ccn, name, [n for n in networks if n]] for (ccn, name), networks in rows.items()])
 
     def check(self, con, data_dir):
         stray = con.execute(f"""
-            SELECT DISTINCT network_id FROM hospital_plans
+            SELECT DISTINCT network_id FROM (SELECT unnest(networks) AS network_id FROM hospital_plans)
             WHERE network_id NOT IN (SELECT network_id FROM {PAYER_NETWORKS.read(data_dir)})
             ORDER BY network_id
         """).fetchone()

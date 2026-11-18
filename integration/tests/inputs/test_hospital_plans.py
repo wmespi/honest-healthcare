@@ -18,8 +18,16 @@ def test_each_hospital_in_a_group_takes_its_names(corpus):
     corpus.hospital_plans([{"hospitals": [GRADY, HAMILTON], "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"]},
                             "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])
     assert names(corpus) == [
-        (HAMILTON, "ANTHEM BCBS | BLUE VALUE HMO", BV), (HAMILTON, "ANTHEM BCBS | MEDICARE ADVANTAGE", None),
-        (GRADY, "ANTHEM BCBS | BLUE VALUE HMO", BV), (GRADY, "ANTHEM BCBS | MEDICARE ADVANTAGE", None)]
+        (HAMILTON, "ANTHEM BCBS | BLUE VALUE HMO", [BV]), (HAMILTON, "ANTHEM BCBS | MEDICARE ADVANTAGE", []),
+        (GRADY, "ANTHEM BCBS | BLUE VALUE HMO", [BV]), (GRADY, "ANTHEM BCBS | MEDICARE ADVANTAGE", [])]
+
+
+def test_a_name_can_mean_several_networks_that_share_the_hospitals_contract(corpus):
+    corpus.hospital_plans([{"hospitals": [GRADY, HAMILTON],
+                            "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"], PATHWAY: ["ANTHEM BCBS | BLUE VALUE HMO"]},
+                            "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])
+    assert names(corpus)[2:] == [(GRADY, "ANTHEM BCBS | BLUE VALUE HMO", [BV, PATHWAY]),
+                                 (GRADY, "ANTHEM BCBS | MEDICARE ADVANTAGE", [])]
 
 
 def test_a_name_the_list_doesnt_give_a_hospital_stops_the_build_and_lists_every_one(corpus):
@@ -40,6 +48,8 @@ def test_a_name_the_list_doesnt_give_a_hospital_stops_the_build_and_lists_every_
     ([{"hospitals": [GRADY], "other": ["A | B"]}, {"hospitals": [GRADY], "other": ["C | D"]}],
      "hospital 110079 is in group 1 and group 2"),
     ([{"hospitals": [GRADY], "networks": {BV: ["A | B"]}, "other": ["A | B"]}],
+     "group 1 lists 'A | B' twice for hospital 110079"),
+    ([{"hospitals": [GRADY], "networks": {BV: ["A | B", "A | B"]}}],
      "group 1 lists 'A | B' twice for hospital 110079"),
     ([{"hospitals": [GRADY], "networks": {"58081-GAN001": ["A | B"]}}],
      "58081-GAN001 isn't a network the payer rates list"),

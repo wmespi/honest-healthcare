@@ -74,7 +74,11 @@ export function shareLines(costSharing, deductible) {
 }
 
 // What the member pays of a place's rate on their plan, as one sentence.
-export function shareText({ copay, copay_per: copayPer, coinsurance, after_deductible: afterDeductible }, deductible) {
+export function shareText({ copay, copay_per: copayPer, coinsurance, after_deductible: afterDeductible, copay_limited: copayLimited }, deductible) {
+  if (copayLimited) {
+    const rest = coinsurance ? `${coinsurance}% of the rate` : 'nothing';
+    return `You pay a ${money(copay)} copay for the first visits your plan covers before the deductible. After those, you pay the whole rate until you’ve met your ${money(deductible)} deductible, and then ${rest}.`;
+  }
   // A hospital stay's copay can be per day or per stay, which changes what it adds up to.
   const per = copayPer === 'day' ? ' a day' : copayPer === 'stay' ? ' for the stay' : '';
   let share;

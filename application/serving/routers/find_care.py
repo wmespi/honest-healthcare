@@ -96,7 +96,7 @@ def shares_for(conn, plan_id, bills):
             parts_by_benefit.setdefault(benefit, []).append(b["part"])
     benefits = list(parts_by_benefit)
     rows = {r["benefit"]: r for r in _rows(conn.execute(f"""
-        SELECT benefit, label, copay, copay_per, coinsurance, after_deductible FROM {COST_SHARING_SRC}
+        SELECT benefit, label, copay, copay_per, coinsurance, after_deductible, copay_limited FROM {COST_SHARING_SRC}
         WHERE plan_id = ? AND list_contains(?::VARCHAR[], benefit)
     """, [plan_id, benefits]))}
     return [{**rows[b], "parts": parts_by_benefit[b]} for b in benefits if b in rows]

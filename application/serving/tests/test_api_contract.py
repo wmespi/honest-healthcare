@@ -93,7 +93,7 @@ def test_find_care_lists_every_place_on_the_plan_cheapest_first(api):
     # Fewer than 5 places within any radius, so the search takes the widest.
     assert body["radius_mi"] == 50 and body["origin"] == {"zip": "30308", "lat": 33.770959, "lon": -84.377736}
     assert body["cost_sharing"] == [{"benefit": "advanced_imaging", "label": "CT, PET and MRI scans", "copay": None,
-                                     "coinsurance": 40.0, "after_deductible": True, "copay_per": None,
+                                     "coinsurance": 40.0, "after_deductible": True, "copay_per": None, "copay_limited": False,
                                      "parts": ["all_in", "scan", "reading", "facility"]}]
     assert [(p["place_id"], p["distance_mi"], p["max_rate"]) for p in body["results"]] == [
         ("1000000001", 0.4, 500.0), ("1000000005", 3.5, 500.0), ("1000000002", 23.2, 500.0),

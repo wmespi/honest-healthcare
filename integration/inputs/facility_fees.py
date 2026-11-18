@@ -3,7 +3,7 @@ one source, the plan's own file else the hospital's own price file, and a center
 from the plan's own file."""
 from integration.inputs.addresses import ADDRESS, listed
 from integration.inputs.datasets import HOSPITAL_RATES, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first
-from integration.inputs.hospital_plans import plan_name
+from integration.inputs.hospital_plans import PLAN_NETWORKS, plan_name
 from integration.table import Table
 
 # A dollar amount in a hospital's own file at or above this is a placeholder, not a
@@ -191,8 +191,8 @@ class FacilityFees(Table):
                        NULL::DOUBLE AS per_day, NULL::DOUBLE AS percent, count(DISTINCT r.negotiated_dollar) AS rates
                 FROM {HOSPITAL_RATES.read(data_dir)} r
                 JOIN {FEE_SERVICES} s ON s.billing_code = r.code AND list_contains(s.code_types, r.code_type)
-                JOIN hospital_plans p ON p.ccn = r.ccn AND p.name = {plan_name("r")}
-                WHERE p.network_id IS NOT NULL AND {facility_lines("r")} AND {fee_schedule("r")}
+                JOIN {PLAN_NETWORKS} p ON p.ccn = r.ccn AND p.name = {plan_name("r")}
+                WHERE {facility_lines("r")} AND {fee_schedule("r")}
                   AND {priced("r.negotiated_dollar")} AND r.ccn IN (SELECT ccn FROM hospitals)
                 GROUP BY p.network_id, s.service_id, r.ccn
             ),
@@ -211,8 +211,8 @@ class FacilityFees(Table):
                                                                    AND {priced("r.negotiated_dollar")}) AS per_day_rates
                 FROM {HOSPITAL_RATES.read(data_dir)} r
                 JOIN {FEE_SERVICES} s ON s.billing_code = r.code AND list_contains(s.code_types, r.code_type)
-                JOIN hospital_plans p ON p.ccn = r.ccn AND p.name = {plan_name("r")}
-                WHERE p.network_id IS NOT NULL AND {stay_lines("r")} AND r.ccn IN (SELECT ccn FROM hospitals)
+                JOIN {PLAN_NETWORKS} p ON p.ccn = r.ccn AND p.name = {plan_name("r")}
+                WHERE {stay_lines("r")} AND r.ccn IN (SELECT ccn FROM hospitals)
                   AND (r.methodology NOT IN ('fee schedule', 'case rate') OR NOT {priced("r.negotiated_dollar")}
                        OR (r.ccn, {plan_name("r")}, r.negotiated_dollar) NOT IN (
                            SELECT (d.ccn, {plan_name("d")}, d.negotiated_dollar)
