@@ -15,7 +15,7 @@ def _worded(data_dir):
     """Each plan's wording for each benefit a service's bills fall under, by
     Georgia's name for the benefit, empty where Georgia's file has no row for it."""
     return f"""
-        SELECT p.plan_id, u.benefit, u.label, u.name, g.covered,
+        SELECT p.plan_id, p.metal_level, u.benefit, u.label, u.name, g.covered,
                nullif(g.copay, 'Not Applicable') AS copay, nullif(g.coinsurance, 'Not Applicable') AS coinsurance
         FROM plans p
         CROSS JOIN (SELECT benefit, name, label FROM benefits
@@ -40,11 +40,15 @@ class CostSharing(Table):
     `coinsurance` is a percent of the rate, each empty when the plan doesn't charge one, and "No Charge" is a
     $0 copay. With both, the member pays the copay and then the coinsurance, as
     the plans' summaries of benefits word it. `after_deductible` says the member
-    pays the whole rate until the deductible is met."""
+    pays the whole rate until the deductible is met. `copay_limited` marks a
+    catastrophic plan's copay, charged for only a limited number of visits a year
+    before the deductible; after those the member pays the whole rate until the
+    deductible, so `after_deductible` is also true."""
     name = "cost_sharing"
     key = ["plan_id", "benefit"]
     columns = {"plan_id": "VARCHAR", "benefit": "VARCHAR", "label": "VARCHAR", "copay": "DOUBLE",
-               "coinsurance": "DOUBLE", "after_deductible": "BOOLEAN", "copay_per": "VARCHAR"}
+               "coinsurance": "DOUBLE", "after_deductible": "BOOLEAN", "copay_per": "VARCHAR",
+               "copay_limited": "BOOLEAN"}
 
     def select(self, data_dir):
         return f"""
@@ -52,14 +56,16 @@ class CostSharing(Table):
                    {_amount("coinsurance", COINSURANCE)} AS coinsurance,
                    coalesce(copay LIKE '% after deductible' OR coinsurance LIKE '% after deductible', false)
                        AS after_deductible,
-                   nullif(lower(regexp_extract(copay, ' per (Day|Stay)', 1)), '') AS copay_per
+                   nullif(lower(regexp_extract(copay, ' per (Day|Stay)', 1)), '') AS copay_per,
+                   coalesce(copay NOT LIKE '% after deductible' AND coinsurance LIKE '% after deductible', false)
+                       AS copay_limited
             FROM ({_worded(data_dir)})
         """
 
     def check(self, con, data_dir):
         """The build stops unless every plan covers every benefit and words its
         share in a way this table reads, with the deductible applying to both
-        the copay and the coinsurance or to neither."""
+        the copay and the coinsurance or to neither, except a catastrophic plan's copay before the deductible."""
         rules = [
             ("covered IS NULL", "has no row in Georgia's cost-sharing file for"),
             ("NOT covered", "doesn't cover"),
@@ -68,7 +74,9 @@ class CostSharing(Table):
              f"OR NOT regexp_matches(coalesce(coinsurance, 'No Charge'), '{COINSURANCE}')",
              "words its share in a way the build doesn't read, for"),
             ("copay IS NOT NULL AND coinsurance IS NOT NULL "
-             "AND (copay LIKE '% after deductible') != (coinsurance LIKE '% after deductible')",
+             "AND (copay LIKE '% after deductible') != (coinsurance LIKE '% after deductible') "
+             # Federal rules give catastrophic plans primary care visits before the deductible.
+             "AND NOT (metal_level = 'Catastrophic' AND copay NOT LIKE '% after deductible')",
              "applies the deductible to only one of the copay and the coinsurance, for"),
         ]
         for where, why in rules:

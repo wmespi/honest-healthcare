@@ -11,7 +11,7 @@ AGES = 65
 class Premiums(Table):
     """A plan has premiums in every rating area it's sold in, and each of those
     has one for every age from 0 to 64, so a lookup by min(age, 64) always finds
-    one."""
+    one. It has them for every plan ID a plans row stands for."""
     name = "premiums"
     key = ["plan_id", "rating_area", "age"]
     columns = {"plan_id": "VARCHAR", "rating_area": "INTEGER", "age": "INTEGER",
@@ -21,14 +21,14 @@ class Premiums(Table):
         return f"""
             SELECT plan_id, rating_area, age::INTEGER AS age, premium, tobacco_premium
             FROM {EXCHANGE_PREMIUMS.read(data_dir)}
-            WHERE plan_id IN (SELECT plan_id FROM plans)
+            WHERE plan_id IN (SELECT unnest(plan_ids) FROM plans)
         """
 
     def check(self, con, data_dir):
         unpriced = con.execute("""
-            SELECT plan_id FROM plans
-            WHERE plan_id NOT IN (SELECT plan_id FROM premiums)
-            ORDER BY plan_id
+            SELECT id FROM (SELECT unnest(plan_ids) AS id FROM plans)
+            WHERE id NOT IN (SELECT plan_id FROM premiums)
+            ORDER BY id
         """).fetchone()
         if unpriced:
             raise SystemExit(f"premiums: Georgia's premium file has no premium for {unpriced[0]}")

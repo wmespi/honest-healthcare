@@ -6,11 +6,9 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 
 ## Attribution
 
-- **`network_name` is not uniform across files.** The target plan's clean source uses
-  `"GA Blue Value HIX Individual Network"`; other `anthem/GA_*` files use
-  config-style labels (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`) and are
-  different plans. The parser writes every network a file carries, and nothing maps a
-  config-style label to a plan, so a target names its labels by hand (below).
+- **`network_name` is not uniform across files.**
+  Some files carry a label with the plan's name (`"GA Blue Value HIX Individual Network"`), and others only Anthem's exchange-wide labels (`"EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"`), which the Pathway and Pathway Guided Access files price their plans under.
+  The parser writes every network a file carries, and nothing maps a label to a plan, so a target names its labels by hand (below).
 - **A target's `network_patterns` are hand-written** in
   [`ingestion/etl/targets.yaml`](../ingestion/etl/targets.yaml). The provider probe skips a file whose
   `provider_references[].network_name` matches none of them, so a wrong guess skips
@@ -152,7 +150,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **A hospital paid a percentage of its charges or a per diem shows no fee**, from either source, and a case rate in a hospital's own file is not read as a fee ([build.md](../integration/build.md#a-facilitys-own-fee)).
 - **Some hosts refuse a non-browser client, so their hospitals have no price file:** Northside's asset host, `sghs.org`, `adventhealth.com`, and Phoebe, whose links go through a link-rewriting service ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
 - **`ingestion/etl/hospitals.yaml` lists only some of Georgia's hospitals**, and some locations in listed systems' indexes match no CCN in the hospital reference: Emory Hospital Perry, Piedmont Macon, Piedmont McDuffie, Wellstar Windy Hill and NGMC Braselton ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
-- **Some hospital billing NPIs with institutional rates in Pathway's file price no hospital's fee**, because they match no hospital's building, and the build prints them.
+- **Some hospital billing NPIs with institutional rates in the Pathway networks' files price no hospital's fee**, because they match no hospital's building, and the build prints them.
   Shepherd Center and Children's Healthcare of Atlanta at Hughes Spalding are not in the hospital reference.
   Wayne Memorial, Memorial Health University Medical Center, Polk Medical Center and Mountain Lakes Medical Center have a billing address that differs from the hospital reference's ([build.md](../integration/build.md#a-facilitys-own-fee)).
 - **Which labels price a plan beyond its own is hand-written, and the order between them is a rule we chose.**

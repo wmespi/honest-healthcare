@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-User-journey assertions — the pointed "does the real flow still produce the right
+User-journey assertions - the pointed "does the real flow still produce the right
 answer" checks behind docs/journeys.md.
 
 Unlike test_golden.py beside it (pinned answers), this is depth: for a handful
-of named personas, does the specific expected outcome still hold — the canary rate,
+of named personas, does the specific expected outcome still hold - the canary rate,
 the hospital's missing fee, whole prices first, a hospital's fee where the plan's file has one,
 one service in every family.
 
 Needs the REAL corpus in the running stack (the assertions check real dollar
-figures), so this is a local tool — `make test-live` — not a CI gate.
+figures), so this is a local tool - `make test-live` - not a CI gate.
 
-Also reports latency per journey — total wall time, call count, and the slowest
+Also reports latency per journey - total wall time, call count, and the slowest
 single call (flagged over SLOW_CALL_MS). Latency is informational: a slow-but-
 correct answer doesn't fail the run.
 
@@ -35,7 +35,7 @@ import urllib.request
 
 BLUE_VALUE = "45334-GAN001"
 SILVER = "45334GA0020002"  # Anthem Silver Blue Value HMO 4000, Rosa's plan here
-CANARY_70551 = 180.49  # brain MRI at The Emory Clinic on Blue Value — must not move without a known reason
+CANARY_70551 = 180.49  # brain MRI at The Emory Clinic on Blue Value - must not move without a known reason
 EMORY_CLINIC = "1396798229"
 GOLD_PATHWAY = "49046GA0700055"  # Anthem Gold Pathway PCP Copay Choice HMO 1200, Sam's plan here
 GRADY = "110079"
@@ -45,9 +45,11 @@ EYE_PHYSICIANS = "1720011422"  # Eye Physicians and Surgeons, a surgery center
 DERMATOLOGY_ASSOCIATES = "1063560803"  # Dermatology Associates of Georgia
 GRADY_70551 = 1287.28  # brain MRI at Grady on Pathway: the hospital's fee in the plan's file plus the reading
 PEACHTREE_IMMEDIATE_CARE = "1235573841"
+# Anthem Catastrophic Pathway Guided Access HMO 10600 First 3 PCP Visits $40, Jordan's plan here
+GUIDED_CATASTROPHIC = "49046GA0700010"
 SLOW_CALL_MS = 1500   # a single API call slower than this gets flagged (not a failure)
 
-_calls = []  # (path, ms) for the journey currently running — reset per journey
+_calls = []  # (path, ms) for the journey currently running - reset per journey
 
 
 def get(api, path, **params):
@@ -249,11 +251,29 @@ def j21(api):
     return (not bad), ("; ".join(bad) if bad else "no stay prices, says why · doctor ~$2,218 · epidural ~$253")
 
 
+def j22(api):
+    """Jordan: a primary care visit on a catastrophic plan, whose copay covers only its first visits."""
+    body, status = get(api, "/find-care", service_id="visit-return-20", plan_id=GUIDED_CATASTROPHIC, zip="30322",
+                       specialty="primary_care")
+    rows = (body or {}).get("results") or []
+    clinic = next((r for r in rows if r["place_id"] == EMORY_CLINIC), None)
+    got = clinic and [(p["part"], p["max"]) for p in clinic["parts"]]
+    share = ((body or {}).get("cost_sharing") or [{}])[0]
+    checks = [
+        (status == 200 and clinic is not None, f"/find-care returned {status}; The Emory Clinic listed"),
+        (got == [("visit", 126.71)], f"its visit is {got} (want $126.71)"),
+        ((share.get("copay"), share.get("copay_limited"), share.get("after_deductible")) == (40.0, True, True),
+         f"the share is {share} (want a $40 copay for the first visits, then the deductible)"),
+    ]
+    bad = [msg for ok, msg in checks if not ok]
+    return (not bad), ("; ".join(bad) if bad else "Emory Clinic $126.71 · $40 copay for the first visits")
+
+
 JOURNEYS = [
-    ("J1", "Rosa — brain MRI price near Emory", j1),
-    ("J2", "Rosa — knee MRI", j2),
+    ("J1", "Rosa - brain MRI price near Emory", j1),
+    ("J2", "Rosa - knee MRI", j2),
     ("J3", "Sam - brain MRI at a hospital", j3),
-    ("J4", "Dana — a search with no plan", j4),
+    ("J4", "Dana - a search with no plan", j4),
     ("J5", "Rosa - a primary care visit", one_bill("visit-return-20", "visit", EMORY_CLINIC, 90.5, ["primary_care"],
                                                  specialty="primary_care")),
     ("J6", "Rosa - a yearly checkup", one_bill("checkup-return-40-64", "visit", EMORY_CLINIC, 123.06, ["preventive"])),
@@ -282,6 +302,7 @@ JOURNEYS = [
     ("J19", "Both - what else a colonoscopy with biopsy brings", j19),
     ("J20", "Sam - having a baby", j20),
     ("J21", "Rosa - having a baby", j21),
+    ("J22", "Jordan - a primary care visit", j22),
 ]
 
 
@@ -294,11 +315,11 @@ def main():
     health, hs = get(args.api, "/health")
     priced = [n["network_id"] for n in (health or {}).get("networks") or [] if n["prices_status"] != "missing"]
     if hs != 200 or BLUE_VALUE not in priced:
-        msg = f"{BLUE_VALUE} not loaded at {args.api} — journeys need the real corpus"
+        msg = f"{BLUE_VALUE} not loaded at {args.api} - journeys need the real corpus"
         if args.json:
             print(json.dumps({"skipped": True, "reason": msg}))
         else:
-            print(f"\n  skipped — {msg}\n")
+            print(f"\n  skipped - {msg}\n")
         sys.exit(0)
 
     results = []
@@ -333,7 +354,7 @@ def main():
         slowest = max((r["slowest_call"]["ms"] for r in results), default=0)
         slowest_where = next((f"{r['slowest_call']['path']} in {r['id']}"
                               for r in results
-                              if r["slowest_call"]["ms"] == slowest), "—")
+                              if r["slowest_call"]["ms"] == slowest), "-")
         print(f"\n  {n_pass}/{len(results)} journeys pass  ·  "
               f"slowest call {slowest}ms ({slowest_where})")
         print("  (docs/journeys.md has the clickpaths + expected outcomes)\n")

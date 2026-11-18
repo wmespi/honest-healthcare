@@ -3,7 +3,7 @@
 *Named "a real person does a real thing" walks through the app. A journey
 is the sanity check a PR author walks before merge (`Journeys touched:` in the PR
 body). Current pass/fail and latency come from `make test-live`
-(`tests/live/journeys.py`) — this file defines the journeys, it does not report on them.*
+(`tests/live/journeys.py`) - this file defines the journeys, it does not report on them.*
 
 Each journey starts at `/find-care`, which every other address redirects to; prefix it
 with your stack's host (`localhost:8000`). The page keeps the search in its URL, so a
@@ -11,11 +11,12 @@ journey can start from one (coverage: `application/frontend/src/findCare/*.test.
 
 | Persona | Who | Plan |
 |---|---|---|
-| **Rosa** | 63, near retirement, individual HMO in Georgia — the primary use case ([AGENTS.md](../AGENTS.md)) | Anthem Silver Blue Value HMO 4000 (`45334GA0020002`), on Blue Value |
-| **Sam** | Downtown Atlanta, on the network whose file prices hospitals' own fees | Anthem Gold Pathway PCP Copay Choice HMO 1200 (`49046GA0700055`), on Pathway |
+| **Rosa** | 63, near retirement, individual HMO in Georgia - the primary use case ([AGENTS.md](../AGENTS.md)) | Anthem Silver Blue Value HMO 4000 (`45334GA0020002`), on Blue Value |
+| **Sam** | Downtown Atlanta, on one of the Pathway networks, whose files price hospitals' own fees | Anthem Gold Pathway PCP Copay Choice HMO 1200 (`49046GA0700055`), on Pathway |
+| **Jordan** | 26, on a catastrophic plan, whose copay covers only the first few primary care visits | Anthem Catastrophic Pathway Guided Access HMO 10600 First 3 PCP Visits $40 (`49046GA0700010`), on Pathway Guided Access |
 | **Dana** | Comparison shopper with no plan yet | none |
 
-## Flow A — find imaging care
+## Flow A - find imaging care
 
 | ID | Journey | Clickpath | Expected |
 |---|---|---|---|
@@ -23,7 +24,7 @@ journey can start from one (coverage: `application/frontend/src/findCare/*.test.
 | J2 | Rosa: a knee MRI | Knee MRI → within 10 miles | Places with a whole price first, places missing part of their bill after |
 | J3 | Sam: a brain MRI at a hospital | Brain MRI → ZIP 30303 → their plan → Grady Memorial Hospital | The hospital's fee from the plan's file and the reading add up to the most they'd pay, and the row says what the hospital charges without insurance |
 
-## Flow A — find care with one bill
+## Flow A - find care with one bill
 
 Each is one service of its family, on Rosa's plan from ZIP 30322.
 Expected for all: the place shows one part at its rate, which is the most she'd pay, no hospital is listed, and her share is the plan's for that kind of care.
@@ -66,13 +67,19 @@ Expected for all: the place shows the facility's fee and the doctor's as separat
 | J20 | Sam: having a baby | Hospital stays → Having a baby, vaginal delivery → ZIP 30303 → their plan → within 10 miles | Emory University Hospital Midtown's stay at the plan's price, Grady's paid $8,000 a day from its own price list with no total, and the doctor and anesthesia billed separately |
 | J21 | Rosa: having a baby | Hospital stays → Having a baby, vaginal delivery → her plan | No hospital shows a price, the screen says her plan's file lists none, and it shows what her plan usually pays the doctor and for an epidural |
 
+## Flow A - a catastrophic plan
+
+| ID | Journey | Clickpath | Expected |
+|---|---|---|---|
+| J22 | Jordan: a primary care visit | Office visits → Office visit, returning patient, 20 to 29 minutes → Primary care → their plan | The Emory Clinic's visit; their share is a $40 copay for the first visits the plan covers before the deductible, then the whole rate until the deductible |
+
 ## No plan
 
 | ID | Journey | Expected |
 |---|---|---|
 | J4 | Dana: just looking | The screen asks for a plan, since prices depend on it, and the API refuses a search without one |
 
-## Flow B — pick a plan (not built; needs multi-payer MRFs + CMS Exchange cost-sharing)
+## Flow B - pick a plan (not built; needs multi-payer MRFs + CMS Exchange cost-sharing)
 
 Least all-in cost across plans for a knee replacement + two visits · which plans
 cover drug X at what tier · are my three doctors in-network on this plan.
@@ -80,6 +87,6 @@ cover drug X at what tier · are my three doctors in-network on this plan.
 ## Adding a journey
 
 1. Add its row here (persona, clickpath, expected).
-2. Add a pointed assertion to `tests/live/journeys.py` — the *specific* expected outcome
+2. Add a pointed assertion to `tests/live/journeys.py` - the *specific* expected outcome
    (exact rate, benchmark band, tier), not a broad basket (`test_golden.py` is breadth).
 3. Cite it in PRs that touch its path: `Journeys touched: J1, J2`.

@@ -78,3 +78,27 @@ targets:
     shared_patterns:
       - "EXCHANGES SPECIALIST*GATEKEEPER*ON INDIVIDUAL"
       - "EXCHANGES PCP*GATEKEEPER*ON INDIVIDUAL"
+
+  # Anthem's other two Georgia exchange networks. The index links each to two
+  # files, one whose labels say ON INDIVIDUAL and one OFF; Georgia Access sells
+  # the on-exchange plans, so each target names the ON file. Neither file carries
+  # a label with the plan's name, only Anthem's exchange-wide labels, so those are
+  # the network's own. The program labels (urgent care, retail clinics, military)
+  # stay out, as above.
+  - name: Anthem Pathway
+    exchange_networks:
+      - "49046-GAN001"
+    files:
+      - "GA_HXAHMED0001.json.gz"
+    network_patterns:
+      - "EXCHANGES PCP*ON INDIVIDUAL"
+      - "EXCHANGES SPC HOSPITAL ANCILLARY*ON INDIVIDUAL"
+
+  - name: Anthem Pathway Guided Access
+    exchange_networks:
+      - "49046-GAN003"
+    files:
+      - "GA_HYMJMED0001.json.gz"
+    network_patterns:
+      - "EXCHANGES SPECIALIST*GATEKEEPER*ON INDIVIDUAL"
+      - "EXCHANGES PCP*GATEKEEPER*ON INDIVIDUAL"

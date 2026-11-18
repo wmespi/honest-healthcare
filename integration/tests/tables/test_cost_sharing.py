@@ -64,3 +64,29 @@ def test_a_copay_per_day_or_stay_says_so(corpus, copay, per):
     corpus.cost_sharing(SILVER, IMAGING, copay, "Not Applicable")
     corpus.build()
     assert [r[6] for r in corpus.rows("cost_sharing") if r[:2] == (SILVER, "advanced_imaging")] == [per]
+
+
+CATASTROPHIC = "45334GA0020099"
+
+
+def catastrophic(corpus, copay, coinsurance, metal="Catastrophic"):
+    corpus.plan(CATASTROPHIC, "45334-GAN001", "Anthem Catastrophic Blue Value HMO", metal)
+    corpus.premium(CATASTROPHIC, "1")
+    corpus.cost_sharing(CATASTROPHIC, IMAGING, copay, coinsurance)
+
+
+def test_a_catastrophic_copay_before_the_deductible_is_limited_to_a_few_visits(corpus):
+    catastrophic(corpus, "$40.00", "No Charge after deductible")
+    assert shares(corpus)[(CATASTROPHIC, "advanced_imaging")] == (40.0, 0.0, True)
+    assert [r[7] for r in corpus.rows("cost_sharing") if r[:2] == (CATASTROPHIC, "advanced_imaging")] == [True]
+    assert {r[7] for r in corpus.rows("cost_sharing") if r[0] == SILVER} == {False}
+
+
+@pytest.mark.parametrize("copay, coinsurance, metal", [
+    ("$40.00", "No Charge after deductible", "Silver"),
+    ("$40.00 Copay after deductible", "20.00%", "Catastrophic"),
+])
+def test_a_deductible_on_only_one_of_the_two_still_stops_the_build(corpus, copay, coinsurance, metal):
+    catastrophic(corpus, copay, coinsurance, metal)
+    with pytest.raises(SystemExit, match=f"cost_sharing: {CATASTROPHIC} applies the deductible to only one"):
+        corpus.build()
