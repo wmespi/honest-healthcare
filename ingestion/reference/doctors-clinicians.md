@@ -3,16 +3,17 @@
 *Read this when working on **who a provider really practices with**, such as the group
 name a doctor's own billing NPI takes on the find-care screen.*
 
-**Builds** two tables under `data/ingestion/reference/` from the public CMS **Doctors and
+**Builds** three tables under `data/ingestion/reference/` from the public CMS **Doctors and
 Clinicians** dataset (Care Compare, `data.cms.gov/provider-data`):
 
 | Output | Grain | Columns |
 |---|---|---|
 | `dac_ga.parquet` | one row per NPI | `npi \| last_name \| first_name \| credential \| primary_specialty \| org_pac_id \| org_name \| grad_year \| med_school \| gender` |
 | `dac_locations_ga.parquet` | one row per NPI and Georgia address it practices at | `npi \| address_line1 \| address_line2 \| city \| state \| postal_code \| phone` |
+| `dac_hospitals_ga.parquet` | one row per NPI and Georgia hospital CMS affiliates it with | `npi \| ccn` |
 
 Module `ingestion/reference/doctors_clinicians.py`; `--dac-url` overrides the source (CMS
-re-stamps the resource hash monthly); module flags `--dac-file`, `--test`.
+re-stamps the resource hash monthly); module flags `--dac-file`, `--affiliation-url`, `--affiliation-file`, `--test`.
 
 **Why.** Anthem's `provider_references` are network-administration buckets, not
 practices. This supplies an independent identity: `org_pac_id` + `org_name` (CMS's
@@ -30,6 +31,8 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
 
 - **National Downloadable File** (`DAC_NationalDownloadableFile.csv`) — one row per
   clinician × Medicare enrollment × group × practice address.
+- **Facility Affiliation Data** (`Facility_Affiliation.csv`) - one row per clinician and facility CMS affiliates them with.
+  `dac_hospitals_ga.parquet` keeps the rows whose `facility_type` is `Hospital` and whose CCN is Georgia's (it starts with the state code `11`), for the NPIs in scope, once each.
 
 ## Flattening choices
 
@@ -41,10 +44,11 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
   `data/raw/<payer>/providers/*.parquet`, every payer's (providers we hold rates for, including
   GA contractors practising out of state), falling back to `State = 'GA'` before any
   file is parsed.
+  The affiliation file has no state, so before any file is parsed its scope is the clinicians in `dac_ga.parquet`.
 
 ## How it reaches serving
 
-The find-care build names a doctor's own billing NPI after its CMS group, and lists a clinician at a biller's place only when CMS lists them practicing in that building
+The find-care build names a doctor's own billing NPI after its CMS group, and lists a clinician at a biller's place only when CMS lists them practicing in that building, and, for a procedure, shows a group's rate at a hospital where CMS affiliates one of its doctors
 ([build.md](../../integration/build.md#the-find-care-tables)).
 
 ## Caveats (also in [../docs/known-gaps.md](../../docs/known-gaps.md))

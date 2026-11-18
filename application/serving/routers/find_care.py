@@ -72,17 +72,20 @@ def get_services():
 
 def with_bill_text(place, bills):
     """A place's parts with each bill's label, class and, on a part with no
-    rate, what is missing. At a hospital that is the bill's own hospital
-    wording when it has one."""
+    rate, what is missing. At a hospital or a practice that is the bill's own
+    wording for that kind when it has one."""
     by_part = {b["part"]: b for b in bills}
     hospital = place["kind"] == "hospital"
+    practice = place["kind"] == "practice"
     parts = []
     for p in place["parts"]:
         bill = by_part[p["part"]]
         missing = p["max"] is None and p.get("terms") is None
         parts.append({**p, "label": bill["label"], "billing_class": bill["billing_class"],
-                      "missing_note": bill["missing_note"] if missing else None,
+                      "missing_note": ((bill.get("missing_note_practice") if practice else None)
+                                       or bill["missing_note"]) if missing else None,
                       "missing_explain": ((bill["missing_explain_hospital"] if hospital else None)
+                                          or (bill.get("missing_explain_practice") if practice else None)
                                           or bill["missing_explain"]) if missing else None})
     return {**place, "parts": parts}
 

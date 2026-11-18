@@ -19,9 +19,13 @@ class Prices(Table):
 
     - a hospital's row shows the family's `hospital` bills, in order: its own
       fee (the institutional bill) and the others by the groups in its building,
-      such as a scan's reading. The hospital is on the list where those groups
-      have a rate (decided on #135), or where it has a fee, since a fee is
-      evidence the hospital itself is in network. The fee is from one source,
+      such as a scan's reading, and, for a family that takes affiliated doctors,
+      by the groups whose doctors for the service CMS affiliates with it
+      (service_sites.affiliated). The hospital is on the
+      list where the groups in its building have a rate (decided on #135), or
+      where it has a fee, since a fee is evidence the hospital itself is in
+      network; an affiliated group's rate fills a row that is there, and puts
+      no hospital on the list. The fee is from one source,
       never a blend (facility_fees): the plan's own file where it prices the
       hospital, else the hospital's own price file under a name the reviewed
       list says is the network's. Only where the fee is empty does nothing on
@@ -60,8 +64,9 @@ class Prices(Table):
     one group, under its lowest billing NPI's spelling, as a practice's name is.
     `providers` lists the clinicians Medicare shows billing the service for those
     billers, never the whole roster (#135 step 1): the ones CMS lists practicing
-    in the building, or all of them at a biller's main place when it lists none
-    at any of its places (service_sites.providers). It's empty when Medicare
+    in the building, those CMS affiliates with a hospital, or all of them at a
+    biller's main place when it lists none at any of its places
+    (service_sites.providers). It's empty when Medicare
     shows none, as at an imaging center it has no record of. An organization's
     own NPI isn't a clinician, and neither is a doctor with no Georgia NPPES
     record as a person. `specialties` is, for a family that asks which kind of
@@ -82,9 +87,16 @@ class Prices(Table):
         rank = f"list_position({list(EVIDENCE)!r}, r.evidence)"
         counts = "w.hospital OR w.on_site OR NOT b.on_site"
         return f"""
-            WITH clinicians AS (
+            WITH sites AS (
+                SELECT * FROM service_sites
+                WHERE NOT affiliated OR (network_id, service_id, place_id) IN (
+                    SELECT (network_id, service_id, place_id) FROM service_sites WHERE NOT affiliated
+                    UNION ALL
+                    SELECT (network_id, service_id, place_id) FROM facility_fees)
+            ),
+            clinicians AS (
                 SELECT d.network_id, d.service_id, d.place_id, list(DISTINCT d.npi ORDER BY d.npi) AS providers
-                FROM (SELECT network_id, service_id, place_id, unnest(providers) AS npi FROM service_sites) d
+                FROM (SELECT network_id, service_id, place_id, unnest(providers) AS npi FROM sites) d
                 JOIN {NPPES.read(data_dir)} n ON n.npi = d.npi AND n.entity_type = 'individual'
                 GROUP BY d.network_id, d.service_id, d.place_id
             ),
@@ -102,7 +114,7 @@ class Prices(Table):
             biller_kinds AS (
                 SELECT network_id, service_id, place_id, list(specialty ORDER BY position) AS specialties
                 FROM (SELECT DISTINCT s.network_id, s.service_id, s.place_id, k.specialty, sp.position
-                      FROM service_sites s
+                      FROM sites s
                       JOIN service_list sl ON sl.service_id = s.service_id
                       JOIN family_list f ON f.family = sl.family AND f.asks_specialty
                       JOIN {NPPES.read(data_dir)} n ON n.npi = try_cast(s.biller AS BIGINT)
@@ -112,20 +124,24 @@ class Prices(Table):
             ),
             groups AS (
                 SELECT network_id, service_id, place_id, list(name ORDER BY name) AS billers
-                FROM (SELECT s.network_id, s.service_id, s.place_id, arg_min(b.biller_name, b.biller) AS name
-                      FROM service_sites s JOIN biller_places b USING (biller, place_id)
-                      GROUP BY s.network_id, s.service_id, s.place_id, {practice_name("b.biller_name")})
+                FROM (SELECT s.network_id, s.service_id, s.place_id,
+                             arg_min(coalesce(b.biller_name, m.biller_name), s.biller) AS name
+                      FROM sites s
+                      LEFT JOIN biller_places b ON b.biller = s.biller AND b.place_id = s.place_id
+                      LEFT JOIN biller_places m ON m.biller = s.biller AND m.main
+                      WHERE coalesce(b.biller_name, m.biller_name) IS NOT NULL
+                      GROUP BY s.network_id, s.service_id, s.place_id,
+                               {practice_name("coalesce(b.biller_name, m.biller_name)")})
                 GROUP BY network_id, service_id, place_id
             ),
             rated AS (
-                SELECT r.network_id, r.service_id, b.place_id, b.kind, r.part, r.rate,
-                       bool_or(r.on_site) OVER (PARTITION BY r.network_id, r.service_id, b.place_id) AS on_site,
+                SELECT r.network_id, r.service_id, s.place_id, p.kind, r.part, r.rate,
+                       bool_or(r.on_site) OVER (PARTITION BY r.network_id, r.service_id, s.place_id) AS on_site,
                        {rank} = min({rank}) OVER (
-                           PARTITION BY r.network_id, r.service_id, b.place_id, r.part) AS strongest
+                           PARTITION BY r.network_id, r.service_id, s.place_id, r.part) AS strongest
                 FROM biller_rates r
-                JOIN service_sites s USING (network_id, service_id, biller)
-                JOIN biller_places b USING (biller, place_id)
-                WHERE b.place_id IN (SELECT place_id FROM places)
+                JOIN sites s USING (network_id, service_id, biller)
+                JOIN places p ON p.place_id = s.place_id
             ),
             rates AS (
                 SELECT network_id, service_id, place_id, part, max(rate) AS max, count(DISTINCT rate) AS rates

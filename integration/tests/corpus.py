@@ -191,6 +191,7 @@ class Corpus:
         self.npis = []
         self.locations = []
         self.clinician_locations = []
+        self.clinician_hospitals = []
         self.medicare_billing = []
         self.hospitals = []
         self.geocodes = []
@@ -209,6 +210,8 @@ class Corpus:
         self._queue(f"{root}/nppes/ga_locations.parquet", d.NPPES_LOCATIONS.columns, self.locations)
         self._queue(f"{root}/reference/dac_locations_ga.parquet", d.CLINICIAN_LOCATIONS.columns,
                     self.clinician_locations)
+        self._queue(f"{root}/reference/dac_hospitals_ga.parquet", d.CLINICIAN_HOSPITALS.columns,
+                    self.clinician_hospitals)
         self._write_measure_files()
 
     def _queue(self, path, schema, rows):
@@ -330,6 +333,12 @@ class Corpus:
         self.clinician_locations.append((npi, address, address_line2, city, "GA", postal_code))
         self._queue(f"{self.root}/reference/dac_locations_ga.parquet", d.CLINICIAN_LOCATIONS.columns,
                     self.clinician_locations)
+
+    def works_at(self, npi, ccn):
+        """Have CMS affiliate clinician `npi` with the hospital `ccn`."""
+        self.clinician_hospitals.append((npi, ccn))
+        self._queue(f"{self.root}/reference/dac_hospitals_ga.parquet", d.CLINICIAN_HOSPITALS.columns,
+                    self.clinician_hospitals)
 
     def billed(self, npi, code, place_of_service):
         """Have Medicare's file show `npi` billing `code` in an office (O) or a facility (F)."""

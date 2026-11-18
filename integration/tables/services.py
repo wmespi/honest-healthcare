@@ -13,8 +13,8 @@ class Services(Table):
     screen shows, its `billing_class` (`institutional` for a facility's own fee,
     else `professional`), the `benefits` the member's share for it falls under
     (cost_sharing), and what the screen says where it has no rate (`missing_note`,
-    `missing_explain`, and `missing_explain_hospital` where that differs at a
-    hospital). `medicare_rate` is what Medicare pays for the whole service in an
+    `missing_explain`, `missing_explain_hospital` where that differs at a
+    hospital, and `missing_note_practice` with `missing_explain_practice` at a practice). `medicare_rate` is what Medicare pays for the whole service in an
     office, empty for a family whose facility bills its own fee, since Medicare's
     physician rate covers only the doctor's part, the median of Georgia's payment areas (ingestion/reference/mpfs.md).
     `extra_bills` is the bills it brings that the patient doesn't choose who
@@ -29,7 +29,8 @@ class Services(Table):
                "keywords": "VARCHAR", "about": "VARCHAR", "could_change": "VARCHAR[]", "asks": "VARCHAR[]",
                "preventive_note": "VARCHAR",
                "bills": "STRUCT(part VARCHAR, \"label\" VARCHAR, billing_class VARCHAR, benefits VARCHAR[], "
-                        "missing_note VARCHAR, missing_explain VARCHAR, missing_explain_hospital VARCHAR)[]",
+                        "missing_note VARCHAR, missing_explain VARCHAR, missing_explain_hospital VARCHAR, "
+                        "missing_note_practice VARCHAR, missing_explain_practice VARCHAR)[]",
                "extra_bills": "STRUCT(part VARCHAR, \"label\" VARCHAR, note VARCHAR, missing VARCHAR, "
                               "code VARCHAR)[]",
                "medicare_rate": "DOUBLE", "medicare_facility_rate": "DOUBLE"}
@@ -46,7 +47,9 @@ class Services(Table):
                 SELECT service_id,
                        list({{'part': part, 'label': label, 'billing_class': billing_class, 'benefits': benefits,
                               'missing_note': missing_note, 'missing_explain': missing_explain,
-                              'missing_explain_hospital': missing_explain_hospital}} ORDER BY position) AS bills
+                              'missing_explain_hospital': missing_explain_hospital,
+                              'missing_note_practice': missing_note_practice,
+                              'missing_explain_practice': missing_explain_practice}} ORDER BY position) AS bills
                 FROM ({SERVICE_BILLS})
                 GROUP BY service_id
             ),

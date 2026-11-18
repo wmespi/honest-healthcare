@@ -22,7 +22,12 @@ export function placeView(place, { cheapestId, closestId, median, facilityRate }
     distanceMi: place.distance_mi,
     maxRate: place.max_rate,
     parts: place.parts.map((part) => ({ label: part.label, amount: part.max, terms: part.terms ?? null })),
-    missing: missingPart ? { rowNote: missingPart.missing_note, explain: missingPart.missing_explain } : null,
+    // A practice never bills the facility's fee, so that part is billed elsewhere, not missing.
+    missing: missingPart ? {
+      rowNote: missingPart.missing_note,
+      explain: missingPart.missing_explain,
+      billedElsewhere: place.kind === 'practice' && missingPart.billing_class === 'institutional',
+    } : null,
     termsOnly: place.max_rate === null && !missingPart && place.parts.some((part) => part.terms),
     severalRates: place.several_rates,
     billers: place.billers.map(displayName),

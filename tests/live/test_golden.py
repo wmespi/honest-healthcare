@@ -71,8 +71,8 @@ def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *AMBETTER]]
-    assert root["rows"] == {"plans": 68, "services": 286, "families": 17, "places": 9722, "prices": 318617,
-                            "providers": 15455}
+    assert root["rows"] == {"plans": 68, "services": 286, "families": 17, "places": 9722, "prices": 318665,
+                            "providers": 15555}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -146,6 +146,19 @@ def test_a_hospital_the_plans_file_leaves_out_shows_the_fee_in_its_own_price_lis
     assert emory["max_rate"] is None and emory["billers"] == [] and emory["cash_price"] == 289.0
 
 
+def test_a_hospital_shows_the_surgeon_of_a_group_cms_affiliates_with_it(client):
+    # No gastroenterology group is placed in Emory University Hospital's building, but
+    # CMS affiliates DeKalb Gastroenterology's doctors with it, so the bill is whole.
+    body = find_care(client, "colonoscopy-screening-average-risk", plan_id=GOLD_PATHWAY)
+    emory = next(p for p in body["results"] if p["place_id"] == "110010")
+    assert rates(emory) == [("facility", 2678.54, "hospital"), ("surgeon", 384.81, "plan")]
+    assert emory["max_rate"] == 3063.35 and "DEKALB GASTROENTEROLOGY ASSOCIATES" in emory["billers"]
+    # A practice never bills the facility's fee, so it says the facility bills its own.
+    clinic = next(p for p in body["results"] if p["place_id"] == "1396798229")
+    assert rates(clinic) == [("facility", None, None), ("surgeon", 231.21, "plan")]
+    assert clinic["parts"][0]["missing_note"] == "Plus the facility’s own fee"
+
+
 @pytest.mark.parametrize("plan_id", [GOLD_OPEN_PATHWAY, GOLD_GUIDED_ACCESS])
 def test_every_pathway_network_has_the_hospitals_fees(client, plan_id):
     # Its own file gives Grady's fee, and Emory's own file gives Emory's under the
@@ -200,10 +213,11 @@ def test_a_brain_mri_near_emory_on_ambetter(client):
 def test_ambetter_prices_what_its_file_gives_only_with_a_modifier_or_a_mislabeled_setting(client):
     # Cataract surgery only for the right or left eye, therapy only under a
     # therapist's plan of care, and a stay's MS-DRG under the outpatient setting.
-    # Emory's facility fee is from its own file, under its Ambetter exchange name.
+    # Emory's facility fee is from its own file, under its Ambetter exchange name, and
+    # the surgeon's is the highest of the groups whose surgeons CMS affiliates with it.
     emory = next(p for p in find_care(client, "eye-cataract", plan_id=AMBETTER_SILVER)["results"]
                  if p["place_id"] == "110010")
-    assert rates(emory) == [("facility", 4907.38, "hospital"), ("surgeon", 728.86, "plan")]
+    assert rates(emory) == [("facility", 4907.38, "hospital"), ("surgeon", 938.06, "plan")]
     therapy = next(p for p in find_care(client, "therapy-exercise", plan_id=AMBETTER_SILVER)["results"]
                    if p["place_id"] == "1356494686")
     assert rates(therapy) == [("therapy", 24.69, "plan")]

@@ -1,0 +1,8 @@
+NPI,Ind_PAC_ID,Provider Last Name,Provider First Name,Provider Middle Name,suff,facility_type,Facility Affiliations Certification Number,Facility Type Certification Number
+1000000001,I001,Adams,Carol,,,Hospital,110001,110001
+1000000001,I001,Adams,Carol,,,Hospital,110001,110001
+1000000001,I001,Adams,Carol,,,Hospital,110002,110002
+1000000001,I001,Adams,Carol,,,Hospital,340001,340001
+1000000001,I001,Adams,Carol,,,Long-term care hospital,112000,112000
+1000000002,I002,Baker,David,,,Hospital,110001,110001
+2000000001,I020,Young,Yvonne,,,Hospital,110002,110002

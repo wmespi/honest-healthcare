@@ -17,9 +17,10 @@ FAMILIES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 KEY = re.compile(r"[a-z][a-z0-9_]*")
 FAMILY_FIELDS = {"family", "name", "groups", "except", "codes", "benefits", "about", "could_change", "asks", "bills",
                  "hospital", "elsewhere", "centers", "evidence_codes", "place_of_service", "asks_specialty",
+                 "affiliated_doctors",
                  "empty_note"}
 BILL_FIELDS = {"part", "label", "billing_class", "modifier", "on_site", "benefits", "missing", "place_of_service"}
-MISSING_FIELDS = {"note", "explain", "explain_at_hospital"}
+MISSING_FIELDS = {"note", "explain", "explain_at_hospital", "note_at_practice", "explain_at_practice"}
 # The bills a patient gets without choosing who bills them (`extra_bills`).
 EXTRA_PARTS = ("anesthesia", "pathology", "doctor")
 # The place-of-service codes a family reads when it doesn't say: an office.
@@ -120,10 +121,14 @@ def read_families(path=FAMILIES_PATH):
         evidence = f.get("evidence_codes")
         if "empty_note" in f and not _text(f["empty_note"]):
             stop(f"{family}'s empty_note must be quoted text")
-        if not isinstance(f.get("asks_specialty", False), bool):
-            stop(f"{family}'s asks_specialty must be true or false")
+        for flag in ("asks_specialty", "affiliated_doctors"):
+            if not isinstance(f.get(flag, False), bool):
+                stop(f"{family}'s {flag} must be true or false")
+        if f.get("affiliated_doctors") and not f.get("hospital"):
+            stop(f"{family} has affiliated_doctors but no hospital bills")
         families.append({
             "asks_specialty": f.get("asks_specialty", False),
+            "affiliated_doctors": f.get("affiliated_doctors", False),
             "family": family, "name": f.get("name"), "position": position,
             "groups": _codes(f.get("groups") or [], f"{family}'s groups", stop, empty=True),
             "except": _codes(f.get("except") or [], f"{family}'s except", stop, empty=True),
@@ -183,8 +188,10 @@ def _bills(f, benefits, stop):
             stop(f"{family}'s {part} bill has billing_class {billing_class!r}, not professional or institutional")
         missing = b.get("missing") or {}
         if set(missing) - MISSING_FIELDS or (missing and not (_text(missing.get("note"))
-                                                               and _text(missing.get("explain")))):
-            stop(f"{family}'s {part} bill: missing needs a note and an explain, and may have an explain_at_hospital")
+                                                               and _text(missing.get("explain")))) or (
+                ("note_at_practice" in missing) != ("explain_at_practice" in missing)):
+            stop(f"{family}'s {part} bill: missing needs a note and an explain, and may have an explain_at_hospital "
+                 f"and a note_at_practice with an explain_at_practice (both or neither)")
         bills.append({
             "part": part, "position": position, "label": b["label"], "billing_class": billing_class,
             "modifiers": listed, "place_of_service": own_places, "on_site": bool(b.get("on_site", False)),
@@ -192,6 +199,8 @@ def _bills(f, benefits, stop):
                                      f"{family}'s {part} bill", stop),
             "missing_note": missing.get("note"), "missing_explain": missing.get("explain"),
             "missing_explain_hospital": missing.get("explain_at_hospital"),
+            "missing_note_practice": missing.get("note_at_practice"),
+            "missing_explain_practice": missing.get("explain_at_practice"),
         })
     if not bills:
         stop(f"{family} has no bills")
@@ -257,19 +266,21 @@ class FamilyList(FromYaml):
     and elsewhere (`elsewhere`, alternatives in order), the Medicare codes that
     show a doctor does its services (`evidence_codes`, empty for each service's
     own code), the place-of-service codes it reads, best first, and whether it asks
-    which kind of doctor (`asks_specialty`, integration/specialties.yaml), and
-    what the screen says when no place shows a price (`empty_note`, empty for the
+    which kind of doctor (`asks_specialty`, integration/specialties.yaml), whether
+    a hospital shows the doctor's fee of groups whose doctors CMS affiliates with it
+    (`affiliated_doctors`, integration/inputs/service_sites.py), and what the screen says when no place shows a price (`empty_note`, empty for the
     screen's own wording)."""
     name = "family_list"
     key = ["family"]
     columns = {"family": "VARCHAR", "name": "VARCHAR", "position": "INTEGER", "groups": "VARCHAR[]",
                "except_groups": "VARCHAR[]", "codes": "VARCHAR[]", "hospital": "VARCHAR[]",
                "elsewhere": "VARCHAR[][]", "evidence_codes": "VARCHAR[]", "place_of_service": "VARCHAR[]",
-               "asks_specialty": "BOOLEAN", "empty_note": "VARCHAR"}
+               "asks_specialty": "BOOLEAN", "affiliated_doctors": "BOOLEAN", "empty_note": "VARCHAR"}
 
     def rows(self):
         return [[f["family"], f["name"], f["position"], f["groups"], f["except"], f["codes"], f["hospital"],
-                 f["elsewhere"], f["evidence_codes"], f["place_of_service"], f["asks_specialty"], f["empty_note"]]
+                 f["elsewhere"], f["evidence_codes"], f["place_of_service"], f["asks_specialty"],
+                 f["affiliated_doctors"], f["empty_note"]]
                 for f in read_families(self.path)["families"]]
 
 
@@ -289,7 +300,8 @@ class FamilyBills(FromYaml):
     key = ["family", "part"]
     columns = {"family": "VARCHAR", "part": "VARCHAR", "position": "INTEGER", "label": "VARCHAR",
                "billing_class": "VARCHAR", "modifiers": "VARCHAR[]", "place_of_service": "VARCHAR[]", "on_site": "BOOLEAN", "benefits": "VARCHAR[]",
-               "missing_note": "VARCHAR", "missing_explain": "VARCHAR", "missing_explain_hospital": "VARCHAR"}
+               "missing_note": "VARCHAR", "missing_explain": "VARCHAR", "missing_explain_hospital": "VARCHAR",
+               "missing_note_practice": "VARCHAR", "missing_explain_practice": "VARCHAR"}
 
     def rows(self):
         return [[f["family"], *(b[c] for c in list(self.columns)[1:])]

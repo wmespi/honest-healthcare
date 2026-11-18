@@ -35,6 +35,11 @@ BROKEN = [
     ("a family field", lambda m: _set(m, "mri", colour="red"), r"mri has fields the build doesn't use: \['colour'\]"),
     ("a repeated family", lambda m: _set(m, "mammograms", family="mri"), "family mri repeats"),
     ("no name", lambda m: _set(m, "mri", name=""), "mri has no name"),
+    ("affiliated doctors not a flag", lambda m: _set(m, "mri", affiliated_doctors="yes"),
+     "mri's affiliated_doctors must be true or false"),
+    ("affiliated doctors with no hospital bills", lambda m: (_set(m, "mri", affiliated_doctors=True),
+                                                             _set(m, "mri", hospital=None)),
+     "mri has affiliated_doctors but no hospital bills"),
     ("groups that aren't a list", lambda m: _set(m, "mri", groups="Magnetic Resonance"),
      "mri's groups must be a list of quoted codes"),
     ("a bill field", lambda m: _bill(m, "scan").update(colour="red"), "mri's scan bill has fields"),
@@ -56,6 +61,12 @@ BROKEN = [
     ("a billing class", lambda m: _bill(m, "scan").update(billing_class="other"), "not professional or institutional"),
     ("a missing without an explain", lambda m: _bill(m, "scan").update(missing={"note": "n"}),
      "missing needs a note and an explain"),
+    ("a practice note with no practice explain",
+     lambda m: _bill(m, "scan").update(missing={"note": "n", "explain": "e", "note_at_practice": "p"}),
+     "both or neither"),
+    ("a practice explain with no practice note",
+     lambda m: _bill(m, "scan").update(missing={"note": "n", "explain": "e", "explain_at_practice": "p"}),
+     "both or neither"),
     ("no bills", lambda m: _set(m, "mri", bills=[], hospital=None, elsewhere=[]), "mri has no bills"),
     ("a bill with no benefits", lambda m: _family(m).pop("benefits"), "names no benefits"),
     ("an undeclared benefit", lambda m: _set(m, "mri", benefits=["colour"]),
@@ -100,10 +111,19 @@ def test_a_families_file_that_breaks_a_rule_stops_the_build(tmp_path, change, er
 
 def test_the_corpus_families_read_with_their_defaults(corpus):
     model = read_families(corpus.families_file)
+    assert _bill(model, "facility")["missing_note_practice"] is None
     mri, visits = (next(f for f in model["families"] if f["family"] == n) for n in ("mri", "office_visits"))
     assert mri["place_of_service"] == ["11"] and mri["hospital"] == ["facility", "reading"]
     assert [b["part"] for b in visits["bills"]] == ["visit"] and visits["hospital"] is None
     assert visits["bills"][0]["benefits"] == ["primary_care", "specialist"]
+
+
+def test_a_bills_practice_wording_passes_through():
+    model = read_families()
+    facility = next(b for f in model["families"] for b in f["bills"] if b["part"] == "facility"
+                    and b["missing_note_practice"])
+    assert facility["missing_note_practice"] == "Plus the facility’s own fee"
+    assert facility["missing_explain_practice"].startswith("This group’s doctors do the procedure")
 
 
 def test_a_code_nucc_no_longer_lists_stops_the_build(corpus):
