@@ -8,8 +8,10 @@
 #
 # Each group lists the hospitals (CCNs) whose files use the same names, the names
 # that mean each network, by Georgia's network ID, and under `other` the names
-# read and found to be something else, such as Medicare Advantage or an employer
-# plan:
+# read and found to be something else, such as Medicare Advantage, Medicaid, an
+# employer plan or another state's Blue Cross, or that don't say which plan they
+# mean, such as an exchange name that doesn't say Pathway, or one of two names for
+# a plan that give different fees:
 #
 #   - hospitals: ["110010", "110078"]
 #     networks:
@@ -17,24 +19,54 @@
 #     other: ["ANTHEM BLUE CROSS | MEDICARE ADVANTAGE"]
 #
 # A name is "<payer> | <plan>", exactly as the file gives them, and "<payer> |"
-# when it gives no plan. A name can mean several networks. The build stops on a
-# name a hospital's file uses that its group doesn't list, on a hospital in two
-# groups, a name listed twice for one hospital and network or both under a network
-# and under `other`, and on a network the payer rates don't list.
+# when it gives no plan. A name can mean several networks, and counts on a
+# network only at a hospital that network's own file lists, since a file names a
+# payer's plan, not which of its networks. The build stops on a name a hospital's
+# file uses that its group doesn't list, on a hospital in two groups, a name
+# listed twice for one hospital and network or both under a network and under
+# `other`, and on a network the payer rates don't list.
 #
 # Hospitals' files name Anthem's Pathway plans without saying which of its three
 # Pathway networks, and the three networks' own files give the same hospital fees
 # (49046-GAN003 on every service and hospital they share with 49046-GAN008,
-# 49046-GAN001 on all but a few), so each Pathway name means all three.
+# 49046-GAN001 on all but a few), so each Pathway name means all three. A name
+# that says Pathway along with another plan, such as "HMO/Pathway X", means them.
+#
+# Hospitals' files name Ambetter's exchange plan without saying which of its five
+# networks, and where Ambetter's own file prices a hospital's fee on several of
+# them it gives the same fee, so each Ambetter name means all five. Peach State
+# Health Plan's only commercial plan in Georgia is Ambetter.
 #
 # No hospital's file names a plan on Blue Value's exchange network (45334-GAN001).
 
+# Emory University Hospital
+- hospitals: ["110010"]
+  networks:
+    49046-GAN001: ["BCBS | Blue Pathways Exchange"]
+    49046-GAN003: ["BCBS | Blue Pathways Exchange"]
+    49046-GAN008: ["BCBS | Blue Pathways Exchange"]
+    70893-GAN001: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN002: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN003: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN004: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN005: ["Ambetter Health | Peach State Exchange"]
+  other:
+    - "BCBS | Blue Value Secure Medicare Managed Care Plan"
+    - "BCBS | HMO"
+    - "BCBS | HPN Other Commercial Plan"
+    - "BCBS | PPO"
+
 # Emory
-- hospitals: ["110010", "110076", "110078", "110082", "110226", "110230"]
+- hospitals: ["110076", "110078", "110082", "110226", "110230"]
   networks:
     49046-GAN001: ["Bcbs | Blue Pathways Exchange"]
     49046-GAN003: ["Bcbs | Blue Pathways Exchange"]
     49046-GAN008: ["Bcbs | Blue Pathways Exchange"]
+    70893-GAN001: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN002: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN003: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN004: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN005: ["Ambetter Health | Peach State Exchange"]
   other:
     - "Bcbs | Blue Value Secure Medicare Managed Care Plan"
     - "Bcbs | Hmo"
@@ -47,6 +79,11 @@
     49046-GAN001: ["Bcbs | Pathway Exchange"]
     49046-GAN003: ["Bcbs | Pathway Exchange"]
     49046-GAN008: ["Bcbs | Pathway Exchange"]
+    70893-GAN001: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN002: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN003: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN004: ["Ambetter Health | Peach State Exchange"]
+    70893-GAN005: ["Ambetter Health | Peach State Exchange"]
   other:
     - "Bcbs | Hmo"
     - "Bcbs | Medicare Managed Care Plan"
@@ -58,11 +95,17 @@
     49046-GAN001: ["Anthem BCBS | Pathways/Marketplace"]
     49046-GAN003: ["Anthem BCBS | Pathways/Marketplace"]
     49046-GAN008: ["Anthem BCBS | Pathways/Marketplace"]
+    70893-GAN001: ["Ambetter | Marketplace"]
+    70893-GAN002: ["Ambetter | Marketplace"]
+    70893-GAN003: ["Ambetter | Marketplace"]
+    70893-GAN004: ["Ambetter | Marketplace"]
+    70893-GAN005: ["Ambetter | Marketplace"]
   other:
     - "Anthem BCBS | HMO/POS"
     - "Anthem BCBS | HPN"
     - "Anthem BCBS | Medicare"
     - "Anthem BCBS | PPO"
+    - "Peach State | Medicaid"
 
 # Southwell
 - hospitals: ["110095", "110101"]
@@ -70,9 +113,15 @@
     49046-GAN001: ["Blue Cross Blue Shield | BCBS Pathways Network"]
     49046-GAN003: ["Blue Cross Blue Shield | BCBS Pathways Network"]
     49046-GAN008: ["Blue Cross Blue Shield | BCBS Pathways Network"]
+    70893-GAN001: ["Peach State Health Plan | Ambetter"]
+    70893-GAN002: ["Peach State Health Plan | Ambetter"]
+    70893-GAN003: ["Peach State Health Plan | Ambetter"]
+    70893-GAN004: ["Peach State Health Plan | Ambetter"]
+    70893-GAN005: ["Peach State Health Plan | Ambetter"]
   other:
     - "BCBS MA | BCBS MA"
     - "Blue Cross Blue Shield | BCBS Commercial"
+    - "Peachstate | Peachstate"
 
 # Piedmont. The payer's name has two spaces before its number, as the files give it.
 - hospitals: ["110018", "110030", "110046", "110064", "110074", "110083", "110091", "110191", "110192", "110200",
@@ -81,10 +130,16 @@
     49046-GAN001: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
     49046-GAN003: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
     49046-GAN008: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
+    70893-GAN001: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN002: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN003: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN004: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN005: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
   other:
     - "BLUE CROSS MEDICARE [30101] | BCBS Medicare Advantage Georgia"
     - "BLUE CROSS [10001] | Blue Cross HMO"
     - "BLUE CROSS [10001] | Blue Cross PPO"
+    - "PEACH STATE MEDICAID [20101] | Peach State Medicaid"
 
 # Piedmont Augusta, which also contracts with South Carolina's Blue Cross
 - hospitals: ["110028"]
@@ -92,6 +147,11 @@
     49046-GAN001: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
     49046-GAN003: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
     49046-GAN008: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
+    70893-GAN001: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN002: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN003: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN004: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN005: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
   other:
     - "BLUE CROSS BLUE SHIELD EXCHANGE SOUTH CAROLINA  [11104] | BCBS South Carolina Exchange"
     - "BLUE CROSS MEDICARE [30101] | BCBS Medicare Advantage Georgia"
@@ -100,6 +160,7 @@
     - "BLUE CROSS [10001] | Blue Cross HMO"
     - "BLUE CROSS [10001] | Blue Cross PPO"
     - "BLUE CROSS [10001] | Blue Cross South Carolina"
+    - "PEACH STATE MEDICAID [20101] | Peach State Medicaid"
 
 # Wellstar, whose files name no exchange plan
 - hospitals: ["110016", "110031", "110035", "110042", "110143", "110184", "110198", "111319"]
@@ -126,6 +187,7 @@
     - "Bcbs | Anthem Hmo"
     - "Bcbs | Anthem Ppo"
     - "Blue Cross | State Health Benefit Plan Medicare Managed Care Plan"
+    - "Peach State Health Plan | Medicaid Managed Care Plan"
 
 - hospitals: ["110041"]
   networks:
@@ -136,3 +198,1037 @@
     - "Bcbs | Anthem Hmo"
     - "Bcbs | Anthem Ppo"
     - "Blue Cross | State Health Benefit Plan Medicare Managed Care Plan"
+    - "Peach State Health Plan | Medicaid Managed Care Plan"
+
+# Memorial Satilla Health, Fairview Park Hospital
+- hospitals: ["110003", "110125"]
+  networks:
+    49046-GAN001: ["BCBS | HIX", "BCBS | Pathway"]
+    49046-GAN003: ["BCBS | HIX", "BCBS | Pathway"]
+    49046-GAN008: ["BCBS | HIX", "BCBS | Pathway"]
+    70893-GAN001: ["Peach State (Ambetter) | HIX"]
+    70893-GAN002: ["Peach State (Ambetter) | HIX"]
+    70893-GAN003: ["Peach State (Ambetter) | HIX"]
+    70893-GAN004: ["Peach State (Ambetter) | HIX"]
+    70893-GAN005: ["Peach State (Ambetter) | HIX"]
+  other:
+    - "BCBS | HMO"
+    - "BCBS | MCR"
+    - "BCBS | PPO"
+    - "Peach State | MGMCD"
+
+# St. Mary's Hospital Athens
+- hospitals: ["110006"]
+  networks:
+    49046-GAN001: ["BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PATHWAY"]
+    49046-GAN003: ["BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PATHWAY"]
+    49046-GAN008: ["BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PATHWAY"]
+    70893-GAN001: ["AMBETTER | AMBETTER MARKETPLACE"]
+    70893-GAN002: ["AMBETTER | AMBETTER MARKETPLACE"]
+    70893-GAN003: ["AMBETTER | AMBETTER MARKETPLACE"]
+    70893-GAN004: ["AMBETTER | AMBETTER MARKETPLACE"]
+    70893-GAN005: ["AMBETTER | AMBETTER MARKETPLACE"]
+  other:
+    - "AMBETTER | AMBETTER"
+    - "ANTHEM MYCARE OHIO | MEDICARE"
+    - "BCBS GENERIC | ANTHEM BCBS"
+    - "BCBS GENERIC | ANTHEM BCBS PPO"
+    - "BCBS MEDICARE ADVANTAGE GENERIC | MEDICARE"
+    - "BLUE CROSS - AK (PREMERA) | ANTHEM BCBS"
+    - "BLUE CROSS - AK (PREMERA) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - AL | ANTHEM BCBS"
+    - "BLUE CROSS - AL | ANTHEM BCBS PPO"
+    - "BLUE CROSS - AR | ANTHEM BCBS"
+    - "BLUE CROSS - AR | ANTHEM BCBS PPO"
+    - "BLUE CROSS - AZ | ANTHEM BCBS"
+    - "BLUE CROSS - AZ | ANTHEM BCBS PPO"
+    - "BLUE CROSS - CA (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - CA (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - CA (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - CO (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - CO (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - CT (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - CT (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - CT (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - DC (CAREFIRST) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - DC (CAREFIRST) | ANTHEM BCBS"
+    - "BLUE CROSS - DC (CAREFIRST) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - DE (HIGHMARK) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - DE (HIGHMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - DE (HIGHMARK) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - FEDERAL | ANTHEM BCBS"
+    - "BLUE CROSS - FEDERAL | ANTHEM BCBS PPO"
+    - "BLUE CROSS - FL MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - FL | ANTHEM BCBS"
+    - "BLUE CROSS - FL | ANTHEM BCBS PPO"
+    - "BLUE CROSS - GA (ANTHEM) MEDICARE ADVANTAGE | ANTHEM BCBS MEDICARE ADVANTAGE"
+    - "BLUE CROSS - GA (ANTHEM) MEDICARE ADVANTAGE | BCBS MEDICARE ADVANTAGE"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS GA HIX"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS HMO"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - HI | ANTHEM BCBS"
+    - "BLUE CROSS - HI | ANTHEM BCBS PPO"
+    - "BLUE CROSS - IA (WELLMARK) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - IA (WELLMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - IA (WELLMARK) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - ID MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - ID MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - ID | ANTHEM BCBS"
+    - "BLUE CROSS - ID | ANTHEM BCBS PPO"
+    - "BLUE CROSS - IL ALTERNATE | ANTHEM BCBS"
+    - "BLUE CROSS - IL ALTERNATE | ANTHEM BCBS PPO"
+    - "BLUE CROSS - IL MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - IL MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - IL | ANTHEM BCBS"
+    - "BLUE CROSS - IL | ANTHEM BCBS PPO"
+    - "BLUE CROSS - IN (ANTHEM) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - IN (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - IN (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - IN (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - KS | ANTHEM BCBS"
+    - "BLUE CROSS - KS | ANTHEM BCBS PPO"
+    - "BLUE CROSS - KY (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - KY (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - KY (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - LA | ANTHEM BCBS"
+    - "BLUE CROSS - LA | ANTHEM BCBS PPO"
+    - "BLUE CROSS - MA MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MA | ANTHEM BCBS"
+    - "BLUE CROSS - MA | ANTHEM BCBS PPO"
+    - "BLUE CROSS - MD (CAREFIRST) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - MD (CAREFIRST) | ANTHEM BCBS"
+    - "BLUE CROSS - MD (CAREFIRST) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - ME (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - ME (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - MI MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MI | ANTHEM BCBS"
+    - "BLUE CROSS - MI | ANTHEM BCBS PPO"
+    - "BLUE CROSS - MN MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MN | ANTHEM BCBS"
+    - "BLUE CROSS - MN | ANTHEM BCBS PPO"
+    - "BLUE CROSS - MO (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - MO (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - MS MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MS | ANTHEM BCBS"
+    - "BLUE CROSS - MS | ANTHEM BCBS PPO"
+    - "BLUE CROSS - MT MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MT | ANTHEM BCBS"
+    - "BLUE CROSS - MT | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NC MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NC | ANTHEM BCBS"
+    - "BLUE CROSS - NC | ANTHEM BCBS PPO"
+    - "BLUE CROSS - ND | ANTHEM BCBS"
+    - "BLUE CROSS - ND | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NE MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NE | ANTHEM BCBS"
+    - "BLUE CROSS - NE | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NH (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - NH (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NJ (HORIZON) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NJ (HORIZON) | ANTHEM BCBS"
+    - "BLUE CROSS - NJ (HORIZON) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NM MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NM MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NM | ANTHEM BCBS"
+    - "BLUE CROSS - NM | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NV (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - NV (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NY (ANTHEM) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NY (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NY (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - NY (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - NY (EXCELLUS) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NY (EXCELLUS) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NY (EXCELLUS) | ANTHEM BCBS"
+    - "BLUE CROSS - NY (EXCELLUS) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - OH (ANTHEM) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - OH (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - OH (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - OH (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - OK MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - OK | ANTHEM BCBS"
+    - "BLUE CROSS - OK | ANTHEM BCBS PPO"
+    - "BLUE CROSS - OR (REGENCE) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - OR (REGENCE) | ANTHEM BCBS"
+    - "BLUE CROSS - OR (REGENCE) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - PA (CAPITAL) | ANTHEM BCBS"
+    - "BLUE CROSS - PA (CAPITAL) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - PA (INDEPENDENCE) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - PA (INDEPENDENCE) | ANTHEM BCBS"
+    - "BLUE CROSS - PA (INDEPENDENCE) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - RI MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - RI | ANTHEM BCBS"
+    - "BLUE CROSS - RI | ANTHEM BCBS PPO"
+    - "BLUE CROSS - SC MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - SC | ANTHEM BCBS"
+    - "BLUE CROSS - SC | ANTHEM BCBS PPO"
+    - "BLUE CROSS - SD (WELLMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - SD (WELLMARK) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - TN MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - TN MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - TN | ANTHEM BCBS"
+    - "BLUE CROSS - TN | ANTHEM BCBS PPO"
+    - "BLUE CROSS - TX MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - TX | ANTHEM BCBS"
+    - "BLUE CROSS - TX | ANTHEM BCBS PPO"
+    - "BLUE CROSS - UT (REGENCE) | ANTHEM BCBS"
+    - "BLUE CROSS - UT (REGENCE) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - VA (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - VA (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - VA (CAREFIRST) | ANTHEM BCBS"
+    - "BLUE CROSS - VA (CAREFIRST) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - VT | ANTHEM BCBS"
+    - "BLUE CROSS - VT | ANTHEM BCBS PPO"
+    - "BLUE CROSS - WA (PREMERA) | ANTHEM BCBS"
+    - "BLUE CROSS - WA (PREMERA) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - WI (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - WI (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - WI (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - WV (HIGHMARK) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - WV (HIGHMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - WV (HIGHMARK) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - WY | ANTHEM BCBS"
+    - "BLUE CROSS - WY | ANTHEM BCBS PPO"
+    - "BLUE CROSS COMPLETE - MI | MEDICAID"
+    - "BLUE CROSS DOMESTIC | ANTHEM BCBS PPO"
+    - "CENTENE | MEDICAID"
+    - "MEDI-CAL BLUE CROSS | MEDICAID"
+    - "PEACH STATE HEALTHPLAN | PEACH STATE MEDICAID"
+
+# Phoebe Putney Memorial Hospital
+- hospitals: ["110007"]
+  networks:
+    70893-GAN001: ["Ambetter | Exchange"]
+    70893-GAN002: ["Ambetter | Exchange"]
+    70893-GAN003: ["Ambetter | Exchange"]
+    70893-GAN004: ["Ambetter | Exchange"]
+    70893-GAN005: ["Ambetter | Exchange"]
+  other:
+    - "Blue Cross | All Commercial Plans"
+    - "Blue Cross | Exchange"
+
+# Tanner Medical Center Carrollton
+- hospitals: ["110011"]
+  networks:
+    49046-GAN001: ["Anthem | Pathway.Pathway X"]
+    49046-GAN003: ["Anthem | Pathway.Pathway X"]
+    49046-GAN008: ["Anthem | Pathway.Pathway X"]
+  other:
+    - "Anthem | Open Access (HMO,POS)"
+    - "Anthem | PPO"
+    - "PeachState | Medicaid CMO"
+    - "PeachState | Medicaid CMO Behavioral Health"
+
+# Tanner Medical Center Villa Rica
+- hospitals: ["110015"]
+  networks:
+    49046-GAN001: ["Anthem | Pathway.Pathway X"]
+    49046-GAN003: ["Anthem | Pathway.Pathway X"]
+    49046-GAN008: ["Anthem | Pathway.Pathway X"]
+  other:
+    - "Anthem | HMO,POS"
+    - "Anthem | PPO"
+    - "PeachState | Medicaid CMO"
+    - "PeachState | Medicaid CMO Behavioral Health"
+
+# Candler Hospital, St. Joseph's Hospital Savannah
+- hospitals: ["110024", "110043"]
+  networks:
+    49046-GAN001: ["Bcbs | Anthem Pathway Exchange"]
+    49046-GAN003: ["Bcbs | Anthem Pathway Exchange"]
+    49046-GAN008: ["Bcbs | Anthem Pathway Exchange"]
+    70893-GAN001: ["Ambetter | Exchange"]
+    70893-GAN002: ["Ambetter | Exchange"]
+    70893-GAN003: ["Ambetter | Exchange"]
+    70893-GAN004: ["Ambetter | Exchange"]
+    70893-GAN005: ["Ambetter | Exchange"]
+  other:
+    - "Bcbs | Anthem Hmo/Pos"
+    - "Bcbs | Anthem Ppo"
+    - "Bcbs | Medicare Managed Care Plan"
+
+# Stephens County Hospital
+- hospitals: ["110032"]
+  other:
+    - "BCBS | Commercial"
+    - "PEACHSTATE_MEDICAID | MEDICAID"
+
+# Memorial Health University Medical Center, Doctors Hospital of Augusta
+- hospitals: ["110036", "110177"]
+  networks:
+    49046-GAN001: ["BCBS | HIX", "BCBS | Pathway"]
+    49046-GAN003: ["BCBS | HIX", "BCBS | Pathway"]
+    49046-GAN008: ["BCBS | HIX", "BCBS | Pathway"]
+    70893-GAN001: ["Peach State (Ambetter) | HIX"]
+    70893-GAN002: ["Peach State (Ambetter) | HIX"]
+    70893-GAN003: ["Peach State (Ambetter) | HIX"]
+    70893-GAN004: ["Peach State (Ambetter) | HIX"]
+    70893-GAN005: ["Peach State (Ambetter) | HIX"]
+  other:
+    - "BCBS | HMO"
+    - "BCBS | HPN"
+    - "BCBS | MCR"
+    - "BCBS | PPO"
+    - "Peach State | MGMCD"
+
+# Archbold Memorial Hospital
+- hospitals: ["110038"]
+  networks:
+    49046-GAN001: ["Bcbs | Anthem Pathway Exchange"]
+    49046-GAN003: ["Bcbs | Anthem Pathway Exchange"]
+    49046-GAN008: ["Bcbs | Anthem Pathway Exchange"]
+  other:
+    - "Bcbs | Anthem Hmo/Ppo"
+    - "Bcbs | Shbp Other Commercial Plan"
+
+# Phoebe Sumter Medical Center
+- hospitals: ["110044"]
+  networks:
+    70893-GAN001: ["Ambetter Health | Exchange"]
+    70893-GAN002: ["Ambetter Health | Exchange"]
+    70893-GAN003: ["Ambetter Health | Exchange"]
+    70893-GAN004: ["Ambetter Health | Exchange"]
+    70893-GAN005: ["Ambetter Health | Exchange"]
+
+# Union General Hospital, Chatuge Regional Hospital
+- hospitals: ["110051", "111324"]
+  other:
+    - "BLUE CROSS BLUE SHIELD HEALTHCARE PLAN OF GA, INC. | BC GENERIC MEDICARE ADVANTAGE"
+    - "BLUE CROSS BLUE SHIELD HEALTHCARE PLAN OF GA, INC. | BLUE CROSS BLUE SHIELD HMO"
+    - "BLUE CROSS BLUE SHIELD HEALTHCARE PLAN OF GA, INC. | BLUE CROSS BLUE SHIELD PLACE\
+  \ OF SERVICE"
+    - "BLUE CROSS BLUE SHIELD HEALTHCARE PLAN OF GA, INC. | BLUE CROSS BLUE SHIELD PPO"
+
+# Atrium Health Floyd Medical Center
+- hospitals: ["110054"]
+  networks:
+    70893-GAN001: ["Ambetter | Marketplace Exchange"]
+    70893-GAN002: ["Ambetter | Marketplace Exchange"]
+    70893-GAN003: ["Ambetter | Marketplace Exchange"]
+    70893-GAN004: ["Ambetter | Marketplace Exchange"]
+    70893-GAN005: ["Ambetter | Marketplace Exchange"]
+  other:
+    - "Anthem | HMO/POS"
+    - "Anthem | Indemnity"
+    - "Anthem | Medicare Advantage"
+    - "Anthem | PPO"
+    - "Peach State Health Plan | Managed Medicaid"
+
+# Appling Healthcare System
+- hospitals: ["110071"]
+  other:
+    - "Ambetter Medicare Advantage | HMO"
+    - "Anthem BCBS HMO | HMO"
+    - "Anthem BCBS PPO | PPO"
+
+# Dorminy Medical Center
+- hospitals: ["110073"]
+  networks:
+    49046-GAN001: ["Anthem Blue Cross Pathway | Pathway"]
+    49046-GAN003: ["Anthem Blue Cross Pathway | Pathway"]
+    49046-GAN008: ["Anthem Blue Cross Pathway | Pathway"]
+  other:
+    - "Anthem BCBS PPO | PPO"
+    - "Anthem Blue Cross HMO | HMO"
+    - "Anthem Blue Cross Medicare Advantage | Advantage"
+
+# East Georgia Regional Medical Center
+- hospitals: ["110075"]
+  networks:
+    49046-GAN001: ["BCBS | BCBS HIX Pathway"]
+    49046-GAN003: ["BCBS | BCBS HIX Pathway"]
+    49046-GAN008: ["BCBS | BCBS HIX Pathway"]
+    70893-GAN001: ["NODE Ambetter Health Exchange | NODE Ambetter Health Exchange"]
+    70893-GAN002: ["NODE Ambetter Health Exchange | NODE Ambetter Health Exchange"]
+    70893-GAN003: ["NODE Ambetter Health Exchange | NODE Ambetter Health Exchange"]
+    70893-GAN004: ["NODE Ambetter Health Exchange | NODE Ambetter Health Exchange"]
+    70893-GAN005: ["NODE Ambetter Health Exchange | NODE Ambetter Health Exchange"]
+  other:
+    - "BCBS | BCBS HMO"
+    - "BCBS | BCBS PPO"
+    - "CHS Group Health Plan BCBST | CHS Group Health Plan BCBST"
+    - "Peach State Hlth Plan MCaid GA | Peach State Hlth Plan MCaid GA"
+
+# Washington County Regional Medical Center
+- hospitals: ["110086"]
+  networks:
+    49046-GAN001: ["ANTHEM_BC_PATHWAY_PLAN | PATHWAY"]
+    49046-GAN003: ["ANTHEM_BC_PATHWAY_PLAN | PATHWAY"]
+    49046-GAN008: ["ANTHEM_BC_PATHWAY_PLAN | PATHWAY"]
+  other:
+    - "AMBETTER_PLAN | MEDICARE"
+    - "ANTHEM_BC_HMO_PLAN | HMO"
+    - "ANTHEM_BC_INDEMNITY_PAR_PLAN | INDEMNITY"
+    - "ANTHEM_BC_OPEN_ACCESS_PLAN | OPEN_ACCESS"
+    - "ANTHEM_BC_POS_PLAN | POS"
+    - "ANTHEM_BC_PPO_PLAN | PPO"
+    - "ANTHEM_MCR_ADV_HMO_PLAN | MEDICARE_ADVANTAGE_HMO"
+    - "ANTHEM_MCR_ADV_PPO_PLAN | MEDICARE_ADVANTAGE_PPO"
+
+# Coffee Regional Medical Center
+- hospitals: ["110089"]
+  networks:
+    70893-GAN001: ["AMBETTER | AMBETTER"]
+    70893-GAN002: ["AMBETTER | AMBETTER"]
+    70893-GAN003: ["AMBETTER | AMBETTER"]
+    70893-GAN004: ["AMBETTER | AMBETTER"]
+    70893-GAN005: ["AMBETTER | AMBETTER"]
+  other:
+    - "BCBS | BCBS-CM"
+    - "BCBS | BCBS-MCR ADV"
+    - "Peachstate GA | Peachstate GA-MCD"
+
+# Dodge County Hospital
+- hospitals: ["110092"]
+  networks:
+    49046-GAN001: ["BCBS Pathway/HMO | HMO"]
+    49046-GAN003: ["BCBS Pathway/HMO | HMO"]
+    49046-GAN008: ["BCBS Pathway/HMO | HMO"]
+  other:
+    - "BCBS PPO/PAR | PPO"
+    - "Peach State Medicaid | HMO"
+
+# Jefferson Hospital
+- hospitals: ["110100"]
+  networks:
+    49046-GAN001: ["Blue Cross Blue Shield | Pathways"]
+    49046-GAN003: ["Blue Cross Blue Shield | Pathways"]
+    49046-GAN008: ["Blue Cross Blue Shield | Pathways"]
+    70893-GAN001: ["Ambetter | Health Exchange"]
+    70893-GAN002: ["Ambetter | Health Exchange"]
+    70893-GAN003: ["Ambetter | Health Exchange"]
+    70893-GAN004: ["Ambetter | Health Exchange"]
+    70893-GAN005: ["Ambetter | Health Exchange"]
+  other:
+    - "Blue Cross Blue Shield | HMO"
+    - "Blue Cross Blue Shield | PPO"
+
+# Crisp Regional Hospital
+- hospitals: ["110104"]
+  networks:
+    70893-GAN001: ["Ambetter | Commercial"]
+    70893-GAN002: ["Ambetter | Commercial"]
+    70893-GAN003: ["Ambetter | Commercial"]
+    70893-GAN004: ["Ambetter | Commercial"]
+    70893-GAN005: ["Ambetter | Commercial"]
+  other:
+    - "BCBS | HMO/PPO"
+    - "BCBS | Open Access"
+
+# Colquitt Regional Medical Center
+- hospitals: ["110105"]
+  networks:
+    70893-GAN001: ["AMBETTER | AMBETTER"]
+    70893-GAN002: ["AMBETTER | AMBETTER"]
+    70893-GAN003: ["AMBETTER | AMBETTER"]
+    70893-GAN004: ["AMBETTER | AMBETTER"]
+    70893-GAN005: ["AMBETTER | AMBETTER"]
+  other:
+    - "BLUE CROSS BLUE SHIELD | BLUE CROSS BLUE SHIELD"
+    - "PEACHSTATE | PEACHSTATE"
+
+# Atrium Health Navicent The Medical Center
+- hospitals: ["110107"]
+  other:
+    - "Ambetter | Managed Medicaid"
+    - "Anthem | HMO/PPO"
+    - "Anthem | Medicare Advantage"
+
+# Emanuel Medical Center
+- hospitals: ["110109"]
+  networks:
+    70893-GAN001: ["Ambetter | Commercial"]
+    70893-GAN002: ["Ambetter | Commercial"]
+    70893-GAN003: ["Ambetter | Commercial"]
+    70893-GAN004: ["Ambetter | Commercial"]
+    70893-GAN005: ["Ambetter | Commercial"]
+  other:
+    - "BCBS HIX | Commercial"
+    - "BCBS Medicare Advantage | Medicare Advantage"
+    - "Blue Cross HMO/POS | POS"
+    - "Blue Cross Open Access | Open Access"
+
+# Piedmont McDuffie, Piedmont Macon
+- hospitals: ["110111", "110164"]
+  networks:
+    49046-GAN001: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
+    49046-GAN003: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
+    49046-GAN008: ["BLUE CROSS ANTHEM PATHWAY GEORGIA  [11103] | Anthem Pathway"]
+    70893-GAN001: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN002: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN003: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN004: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+    70893-GAN005: ["AMBETTER EXCHANGE  [11102] | Ambetter"]
+  other:
+    - "BLUE CROSS MEDICARE [30101] | BCBS Medicare Advantage Georgia"
+    - "BLUE CROSS [10001] | Blue Cross HMO"
+    - "BLUE CROSS [10001] | Blue Cross PPO"
+    - "PEACH STATE MEDICAID [20101] | Peach State Medicaid"
+
+# Burke Medical Center
+- hospitals: ["110113"]
+  other:
+    - "Ambetter | Medicare Advantage"
+    - "BCBS HMO/POS | HMO"
+    - "BCBS PPO | PPO"
+
+# Archbold Grady
+- hospitals: ["110121"]
+  networks:
+    49046-GAN001: ["BCBS | Anthem Pathway Exchange"]
+    49046-GAN003: ["BCBS | Anthem Pathway Exchange"]
+    49046-GAN008: ["BCBS | Anthem Pathway Exchange"]
+  other:
+    - "BCBS | Anthem HMO/PPO"
+    - "BCBS | SHBP Other Commercial Plan"
+
+# SGMC Health Main Campus
+- hospitals: ["110122"]
+  networks:
+    70893-GAN001: ["PeachState Health Plan | Commercial"]
+    70893-GAN002: ["PeachState Health Plan | Commercial"]
+    70893-GAN003: ["PeachState Health Plan | Commercial"]
+    70893-GAN004: ["PeachState Health Plan | Commercial"]
+    70893-GAN005: ["PeachState Health Plan | Commercial"]
+  other:
+    - "Blue Cross Blue Shield of GA | Commercial"
+    - "PeachState Health Plan | Managed Medicaid"
+
+# Wayne Memorial Hospital
+- hospitals: ["110124"]
+  other:
+    - "Blue Cross Open Access HMO | HMO"
+    - "Blue Cross PAR PPO | PPO"
+
+# Memorial Health Meadows Hospital
+- hospitals: ["110128"]
+  networks:
+    49046-GAN001: ["BCBS | Pathway"]
+    49046-GAN003: ["BCBS | Pathway"]
+    49046-GAN008: ["BCBS | Pathway"]
+  other:
+    - "BCBS | HIX"
+    - "BCBS | HMO"
+    - "BCBS | MCR"
+    - "BCBS | PPO"
+    - "Peach State (Ambetter) | HIX"
+    - "Peach State Ambetter | HIX"
+    - "Peach State Ambetter | MCD"
+    - "Peach State Ambetter | MCR"
+    - "Peach State | MGMCD"
+
+# St. Francis Hospital Emory Healthcare
+- hospitals: ["110129"]
+  networks:
+    49046-GAN001: ["BCBS | Pathway Other Commercial Plan"]
+    49046-GAN003: ["BCBS | Pathway Other Commercial Plan"]
+    49046-GAN008: ["BCBS | Pathway Other Commercial Plan"]
+  other:
+    - "BCBS | HMO"
+    - "BCBS | HPN Other Commercial Plan"
+    - "BCBS | Medicare Managed Care Plan"
+    - "BCBS | PPO"
+
+# Memorial Hospital and Manor
+- hospitals: ["110132"]
+  other:
+    - "AMBETTER_PLAN | MEDICARE"
+    - "ANTHEM_PLAN | COMMERCIAL"
+
+# Evans Memorial Hospital
+- hospitals: ["110142"]
+  networks:
+    49046-GAN001: ["BCBS HMO/Pathway | HMO"]
+    49046-GAN003: ["BCBS HMO/Pathway | HMO"]
+    49046-GAN008: ["BCBS HMO/Pathway | HMO"]
+    70893-GAN001: ["Ambetter | EPO"]
+    70893-GAN002: ["Ambetter | EPO"]
+    70893-GAN003: ["Ambetter | EPO"]
+    70893-GAN004: ["Ambetter | EPO"]
+    70893-GAN005: ["Ambetter | EPO"]
+  other:
+    - "BCBS PPO | PPO"
+    - "Peach State Medicaid | HMO"
+
+# Atrium Health Navicent Baldwin
+- hospitals: ["110150"]
+  other:
+    - "Ambetter | Managed Medicaid"
+    - "Anthem | HMO"
+    - "Anthem | Medicare Advantage"
+    - "Anthem | PPO"
+
+# Southern Regional Medical Center
+- hospitals: ["110165"]
+  networks:
+    49046-GAN001: ["BCBS GA | BCBS Pathway"]
+    49046-GAN003: ["BCBS GA | BCBS Pathway"]
+    49046-GAN008: ["BCBS GA | BCBS Pathway"]
+    70893-GAN001: ["Peach State | Peach State Ambetter Comm"]
+    70893-GAN002: ["Peach State | Peach State Ambetter Comm"]
+    70893-GAN003: ["Peach State | Peach State Ambetter Comm"]
+    70893-GAN004: ["Peach State | Peach State Ambetter Comm"]
+    70893-GAN005: ["Peach State | Peach State Ambetter Comm"]
+  other:
+    - "BCBS - Adhoc | BCBS HMO Adhoc"
+    - "BCBS - Adhoc | BCBS PPO Adhoc"
+    - "BCBS - Adhoc | BCBS Pathway Adhoc"
+    - "BCBS GA | BCBS HMO"
+    - "BCBS GA | BCBS PPO"
+    - "BCBS GA | BCBSGA Medicare"
+    - "Peach State | Peach State Medicaid"
+    - "Peach State | Peach State Medicare"
+
+# Flint River Community Hospital
+- hospitals: ["110190"]
+  other:
+    - "Ambetter from Peach State Health Plan | Medicaid Replacement"
+    - "Ambetter | Medicare Advantage"
+    - "Blue Cross Blue Shield of GA Anthem | Default"
+    - "Peach State Health Plan MCD Rep | Default"
+
+# Donalsonville Hospital
+- hospitals: ["110194"]
+  networks:
+    70893-GAN001: ["Ambetter | ALL HIX"]
+    70893-GAN002: ["Ambetter | ALL HIX"]
+    70893-GAN003: ["Ambetter | ALL HIX"]
+    70893-GAN004: ["Ambetter | ALL HIX"]
+    70893-GAN005: ["Ambetter | ALL HIX"]
+  other:
+    - "Blue Cross Blue Shield of GA Anthem | ALL COMMERCIAL"
+    - "Blue Cross Blue Shield of GA Anthem | Medicare Advantage"
+
+# SGMC Health Berrien Campus, SGMC Health Lanier Campus
+- hospitals: ["110234", "111326"]
+  other:
+    - "Blue Cross Blue Shield of GA | Commercial"
+    - "PeachState Health Plan | Managed Medicaid"
+
+# CHI Memorial Hospital Georgia
+- hospitals: ["110236"]
+  networks:
+    70893-GAN001: ["Centene | Commercial|Ambetter Exchange"]
+    70893-GAN002: ["Centene | Commercial|Ambetter Exchange"]
+    70893-GAN003: ["Centene | Commercial|Ambetter Exchange"]
+    70893-GAN004: ["Centene | Commercial|Ambetter Exchange"]
+    70893-GAN005: ["Centene | Commercial|Ambetter Exchange"]
+  other:
+    - "BCBS - GA | Commercial|All Other Plans"
+    - "BCBS - GA | Commercial|HMO"
+    - "BCBS - GA | Medicare|BlueCare"
+    - "BCBS - TN | Commercial|Network P"
+    - "Peach State | Medicaid|All Plans"
+
+# Jasper Memorial Hospital
+- hospitals: ["111303"]
+  networks:
+    70893-GAN001: ["Ambetter | PPO/POS/HMO"]
+    70893-GAN002: ["Ambetter | PPO/POS/HMO"]
+    70893-GAN003: ["Ambetter | PPO/POS/HMO"]
+    70893-GAN004: ["Ambetter | PPO/POS/HMO"]
+    70893-GAN005: ["Ambetter | PPO/POS/HMO"]
+  other:
+    - "BCBS HMO/POS | HMO/POS"
+    - "BCBS Medicare Advantage PPO | Medicare Advantage"
+    - "BCBS PPO | PPO"
+
+# Morgan Medical Center
+- hospitals: ["111304"]
+  networks:
+    70893-GAN001: ["Ambetter | Exchange"]
+    70893-GAN002: ["Ambetter | Exchange"]
+    70893-GAN003: ["Ambetter | Exchange"]
+    70893-GAN004: ["Ambetter | Exchange"]
+    70893-GAN005: ["Ambetter | Exchange"]
+  other:
+    - "Anthem | Exchange"
+    - "Anthem | HMO"
+    - "Anthem | Medicare"
+    - "Anthem | PPO"
+
+# Miller County Hospital
+- hospitals: ["111305"]
+  other:
+    - "Ambetter | Managed Care"
+    - "Anthem Blue Cross Blue Shield | HMO"
+    - "Anthem Blue Cross Blue Shield | Medicare Advantage"
+    - "Anthem Blue Cross Blue Shield | PAR"
+    - "Anthem Blue Cross Blue Shield | PPO"
+    - "Peach State | Managed Medicaid"
+
+# Clinch Memorial Hospital
+- hospitals: ["111308"]
+  networks:
+    70893-GAN001: ["Peach State Health Plan | Ambetter-HIX"]
+    70893-GAN002: ["Peach State Health Plan | Ambetter-HIX"]
+    70893-GAN003: ["Peach State Health Plan | Ambetter-HIX"]
+    70893-GAN004: ["Peach State Health Plan | Ambetter-HIX"]
+    70893-GAN005: ["Peach State Health Plan | Ambetter-HIX"]
+  other:
+    - "Anthem-BCBS | Commercial"
+    - "Peach State Health Plan | Medicaid"
+    - "Peach State Health Plan | Wellcare Medicare Advantage"
+
+# Atrium Health Navicent Peach
+- hospitals: ["111310"]
+  other:
+    - "Ambetter | Managed Medicaid"
+    - "Anthem | HMO/POS"
+    - "Anthem | Medicare Advantage"
+    - "Anthem | PPO"
+
+# Optim Medical Center Screven
+- hospitals: ["111312"]
+  networks:
+    49046-GAN001: ["Anthem Blue Cross | Pathway"]
+    49046-GAN003: ["Anthem Blue Cross | Pathway"]
+    49046-GAN008: ["Anthem Blue Cross | Pathway"]
+    70893-GAN001: ["Ambetter | Commercial/Exchange"]
+    70893-GAN002: ["Ambetter | Commercial/Exchange"]
+    70893-GAN003: ["Ambetter | Commercial/Exchange"]
+    70893-GAN004: ["Ambetter | Commercial/Exchange"]
+    70893-GAN005: ["Ambetter | Commercial/Exchange"]
+  other:
+    - "Anthem Blue Cross | HMO/Open Access"
+    - "Anthem Blue Cross | Medicare Advantage PPO/HMO"
+    - "Anthem Blue Cross | PPO"
+
+# Putnam General Hospital
+- hospitals: ["111313"]
+  other:
+    - "Blue Cross Blue Shield of GA Anthem | Default"
+    - "Blue Cross Blue Shield of GA Anthem | Medicare Advantage"
+
+# Monroe County Hospital
+- hospitals: ["111318"]
+  other:
+    - "BCBS_HMO_POS_OPEN_ACCESS_PATHWAYS_PLAN | MEDICARE"
+    - "BCBS_MEDICARE_ADVANTAGE_HMO_PLAN | MEDICARE"
+    - "BCBS_MEDICARE_ADVANTAGE_PPO_PLAN | MEDICARE"
+    - "BCBS_PPO_PLAN | MEDICARE"
+    - "BCBS_TRADITIONAL_PAR_PLAN | MEDICARE"
+
+# Higgins General Hospital
+- hospitals: ["111320"]
+  networks:
+    49046-GAN001: ["Anthem | Pathway.Pathway X"]
+    49046-GAN003: ["Anthem | Pathway.Pathway X"]
+    49046-GAN008: ["Anthem | Pathway.Pathway X"]
+  other:
+    - "Anthem | HMO,POS"
+    - "Anthem | PPO"
+    - "PeachState | Medicaid CMO"
+
+# Optim Medical Center Tattnall
+- hospitals: ["111323"]
+  networks:
+    49046-GAN001: ["Anthem Blue Cross | Pathway"]
+    49046-GAN003: ["Anthem Blue Cross | Pathway"]
+    49046-GAN008: ["Anthem Blue Cross | Pathway"]
+  other:
+    - "Anthem Blue Cross | HMO/Open Access"
+    - "Anthem Blue Cross | Medicare Advantage PPO/HMO"
+    - "Anthem Blue Cross | PPO"
+
+# Wills Memorial Hospital
+- hospitals: ["111325"]
+  other:
+    - "ANTHEM_BCBS_MEDICARE_PLAN | MEDICARE"
+    - "PEACHSTATE_MEDICAID_PLAN | MEDICAID"
+
+# Bacon County Hospital
+- hospitals: ["111327"]
+  networks:
+    70893-GAN001: ["Peach State Health Plan | Commercial Exchange Ambetter"]
+    70893-GAN002: ["Peach State Health Plan | Commercial Exchange Ambetter"]
+    70893-GAN003: ["Peach State Health Plan | Commercial Exchange Ambetter"]
+    70893-GAN004: ["Peach State Health Plan | Commercial Exchange Ambetter"]
+    70893-GAN005: ["Peach State Health Plan | Commercial Exchange Ambetter"]
+  other:
+    - "Peach State Health Plan | Managed Medicaid"
+
+# St. Mary's Good Samaritan Hospital
+- hospitals: ["111329"]
+  networks:
+    49046-GAN001: ["BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PATHWAY"]
+    49046-GAN003: ["BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PATHWAY"]
+    49046-GAN008: ["BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PATHWAY"]
+  other:
+    - "AMBETTER | AMBETTER"
+    - "AMBETTER | AMBETTER MARKETPLACE"
+    - "ANTHEM MYCARE OHIO | MEDICARE"
+    - "BCBS GENERIC | ANTHEM BCBS"
+    - "BCBS GENERIC | ANTHEM BCBS HMO/PPO"
+    - "BCBS MEDICARE ADVANTAGE GENERIC | MEDICARE"
+    - "BLUE CROSS - AK (PREMERA) | ANTHEM BCBS"
+    - "BLUE CROSS - AK (PREMERA) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - AL | ANTHEM BCBS"
+    - "BLUE CROSS - AL | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - AR | ANTHEM BCBS"
+    - "BLUE CROSS - AR | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - AZ | ANTHEM BCBS"
+    - "BLUE CROSS - AZ | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - CA (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - CA (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - CA (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - CO (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - CO (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - CT (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - CT (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - CT (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - DC (CAREFIRST) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - DC (CAREFIRST) | ANTHEM BCBS"
+    - "BLUE CROSS - DC (CAREFIRST) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - DE (HIGHMARK) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - DE (HIGHMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - DE (HIGHMARK) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - FEDERAL | ANTHEM BCBS"
+    - "BLUE CROSS - FEDERAL | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - FL MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - FL | ANTHEM BCBS"
+    - "BLUE CROSS - FL | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - GA (ANTHEM) MEDICARE ADVANTAGE | ANTHEM BCBS MEDICARE ADVANTAGE"
+    - "BLUE CROSS - GA (ANTHEM) MEDICARE ADVANTAGE | BCBS MEDICARE ADVANTAGE"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS GA HIX"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - GA (ANTHEM) | ANTHEM BCBS PPO"
+    - "BLUE CROSS - HI | ANTHEM BCBS"
+    - "BLUE CROSS - HI | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - IA (WELLMARK) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - IA (WELLMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - IA (WELLMARK) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - ID MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - ID MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - ID | ANTHEM BCBS"
+    - "BLUE CROSS - ID | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - IL ALTERNATE | ANTHEM BCBS"
+    - "BLUE CROSS - IL ALTERNATE | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - IL MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - IL MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - IL | ANTHEM BCBS"
+    - "BLUE CROSS - IL | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - IN (ANTHEM) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - IN (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - IN (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - IN (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - KS | ANTHEM BCBS"
+    - "BLUE CROSS - KS | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - KY (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - KY (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - KY (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - LA | ANTHEM BCBS"
+    - "BLUE CROSS - LA | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - MA MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MA | ANTHEM BCBS"
+    - "BLUE CROSS - MA | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - MD (CAREFIRST) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - MD (CAREFIRST) | ANTHEM BCBS"
+    - "BLUE CROSS - MD (CAREFIRST) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - ME (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - ME (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - MI MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MI | ANTHEM BCBS"
+    - "BLUE CROSS - MI | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - MN MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MN | ANTHEM BCBS"
+    - "BLUE CROSS - MN | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - MO (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - MO (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - MS MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MS | ANTHEM BCBS"
+    - "BLUE CROSS - MS | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - MT MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - MT | ANTHEM BCBS"
+    - "BLUE CROSS - MT | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NC MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NC | ANTHEM BCBS"
+    - "BLUE CROSS - NC | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - ND | ANTHEM BCBS"
+    - "BLUE CROSS - ND | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NE MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NE | ANTHEM BCBS"
+    - "BLUE CROSS - NE | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NH (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - NH (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NJ (HORIZON) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NJ (HORIZON) | ANTHEM BCBS"
+    - "BLUE CROSS - NJ (HORIZON) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NM MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NM MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NM | ANTHEM BCBS"
+    - "BLUE CROSS - NM | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NV (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - NV (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NY (ANTHEM) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NY (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NY (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - NY (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - NY (EXCELLUS) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - NY (EXCELLUS) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - NY (EXCELLUS) | ANTHEM BCBS"
+    - "BLUE CROSS - NY (EXCELLUS) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - OH (ANTHEM) MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - OH (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - OH (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - OH (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - OK MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - OK | ANTHEM BCBS"
+    - "BLUE CROSS - OK | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - OR (REGENCE) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - OR (REGENCE) | ANTHEM BCBS"
+    - "BLUE CROSS - OR (REGENCE) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - PA (CAPITAL) | ANTHEM BCBS"
+    - "BLUE CROSS - PA (CAPITAL) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - PA (INDEPENDENCE) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - PA (INDEPENDENCE) | ANTHEM BCBS"
+    - "BLUE CROSS - PA (INDEPENDENCE) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - RI MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - RI | ANTHEM BCBS"
+    - "BLUE CROSS - RI | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - SC MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - SC | ANTHEM BCBS"
+    - "BLUE CROSS - SC | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - SD (WELLMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - SD (WELLMARK) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - TN MEDICAID ADVANTAGE | MEDICAID"
+    - "BLUE CROSS - TN MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - TN | ANTHEM BCBS"
+    - "BLUE CROSS - TN | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - TX MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - TX | ANTHEM BCBS"
+    - "BLUE CROSS - TX | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - UT (REGENCE) | ANTHEM BCBS"
+    - "BLUE CROSS - UT (REGENCE) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - VA (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - VA (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - VA (CAREFIRST) | ANTHEM BCBS"
+    - "BLUE CROSS - VA (CAREFIRST) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - VT | ANTHEM BCBS"
+    - "BLUE CROSS - VT | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - WA (PREMERA) | ANTHEM BCBS"
+    - "BLUE CROSS - WA (PREMERA) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - WI (ANTHEM) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - WI (ANTHEM) | ANTHEM BCBS"
+    - "BLUE CROSS - WI (ANTHEM) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - WV (HIGHMARK) MEDICARE ADVANTAGE | MEDICARE"
+    - "BLUE CROSS - WV (HIGHMARK) | ANTHEM BCBS"
+    - "BLUE CROSS - WV (HIGHMARK) | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS - WY | ANTHEM BCBS"
+    - "BLUE CROSS - WY | ANTHEM BCBS HMO/PPO"
+    - "BLUE CROSS COMPLETE - MI | MEDICAID"
+    - "BLUE CROSS DOMESTIC | ANTHEM BCBS PPO"
+    - "CENTENE | MEDICAID"
+    - "MEDI-CAL BLUE CROSS | MEDICAID"
+    - "PEACH STATE HEALTHPLAN | PEACH STATE EXCH"
+    - "PEACH STATE HEALTHPLAN | PEACH STATE MEDICAID"
+
+# Atrium Health Floyd Polk Medical Center
+- hospitals: ["111330"]
+  networks:
+    49046-GAN001: ["Anthem | HMO/Pathway X"]
+    49046-GAN003: ["Anthem | HMO/Pathway X"]
+    49046-GAN008: ["Anthem | HMO/Pathway X"]
+    70893-GAN001: ["Ambetter | Marketplace Exchange"]
+    70893-GAN002: ["Ambetter | Marketplace Exchange"]
+    70893-GAN003: ["Ambetter | Marketplace Exchange"]
+    70893-GAN004: ["Ambetter | Marketplace Exchange"]
+    70893-GAN005: ["Ambetter | Marketplace Exchange"]
+  other:
+    - "Anthem | Indemnity"
+    - "Anthem | Medicare Advantage"
+    - "Anthem | PPO"
+    - "Peach State Health Plan | Managed Medicaid"
+
+# Archbold Mitchell
+- hospitals: ["111331"]
+  other:
+    - "Bcbs | Anthem Hmo/Ppo"
+    - "Bcbs | Shbp Other Commercial Plan"
+
+# Archbold Brooks
+- hospitals: ["111332"]
+  other:
+    - "Bcbs | Anthem Hmo/Ppo"
+
+# Jeff Davis Hospital
+- hospitals: ["111333"]
+  other:
+    - "BCBS_HMO | COMMERCIAL"
+    - "BCBS_MEDICARE_ADVANTAGE_HMO | MEDICARE"
+    - "BCBS_MEDICARE_ADVANTAGE_INDEMNITY | MEDICARE"
+    - "BCBS_MEDICARE_ADVANTAGE_OPEN_ACCESS | MEDICARE"
+    - "BCBS_MEDICARE_ADVANTAGE_PAR | MEDICARE"
+    - "BCBS_MEDICARE_ADVANTAGE_POS | MEDICARE"
+    - "BCBS_MEDICARE_ADVANTAGE_PPO | MEDICARE"
+    - "BCBS_POS | COMMERCIAL"
+    - "BCBS_PPO | COMMERCIAL"
+
+# Candler County Hospital
+- hospitals: ["111334"]
+  networks:
+    49046-GAN001: ["BCBS Pathway | POS"]
+    49046-GAN003: ["BCBS Pathway | POS"]
+    49046-GAN008: ["BCBS Pathway | POS"]
+    70893-GAN001: ["Ambetter Peach State | POS"]
+    70893-GAN002: ["Ambetter Peach State | POS"]
+    70893-GAN003: ["Ambetter Peach State | POS"]
+    70893-GAN004: ["Ambetter Peach State | POS"]
+    70893-GAN005: ["Ambetter Peach State | POS"]
+  other:
+    - "BCBS HMO | HMO"
+    - "BCBS Medicare Advantage | HMO"
+    - "BCBS PPO | PPO"
+    - "Peach State Medicaid | HMO"
+
+# Mountain Lakes Medical Center
+- hospitals: ["111336"]
+  other:
+    - "Blue Cross Blue Shield | Commercial"
+
+# Blue Ridge Medical Center
+- hospitals: ["111338"]
+  other:
+    - "BLUE CROSS OOS | BLUE CROSS FED EMPLOYEE"
+    - "BLUE CROSS OOS | BLUE CROSS SC"
+    - "BLUE CROSS OOS | BLUE CROSS TN"
+    - "BLUE CROSS OOS | CAH AMERIGROUP TN MCD"
+    - "BLUE CROSS QHC TN | BC QHC TN IP"
+    - "BLUE CROSS QHC TN | BC QHC TN OP"
+    - "BLUE CROSS QHC TN | BC TN QHC HSA IP"
+    - "BLUE CROSS QHC TN | BC TN QHC HSA IP TO OBS"
+    - "BLUE CROSS QHC TN | BC TN QHC HSA OP"
+    - "BLUE CROSS | BC METALLIC"
+    - "BLUE CROSS | BLUE CROSS FED"
+    - "BLUE CROSS | BLUE CROSS HMO POS"
+    - "BLUE CROSS | BLUE CROSS IL R1"
+
+# Children's Healthcare of Atlanta at Arthur M. Blank Hospital
+- hospitals: ["113300"]
+  networks:
+    70893-GAN001: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN002: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN003: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN004: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN005: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+  other:
+    - "BLUE CROSS COMM/INDEMNITY [121] | BCBS PAR: CHILDREN'S"
+    - "BLUE CROSS [2] | BCBS HMO/PPO/POS: CHILDREN'S"
+    - "PEACHSTATE [43] | PEACH STATE: AMBH MCAID"
+    - "PEACHSTATE [43] | PEACH STATE: AMBH PEACHCARE"
+
+# Children's Healthcare of Atlanta at Scottish Rite
+- hospitals: ["113301"]
+  networks:
+    70893-GAN001: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN002: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN003: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN004: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+    70893-GAN005: ["AMBETTER PEACHSTATE [227] | AMBETTER: CHILDREN'S"]
+  other:
+    - "BLUE CROSS COMM/INDEMNITY [121] | BCBS PAR: CHILDREN'S"
+    - "BLUE CROSS [2] | BCBS HMO/PPO/POS: CHILDREN'S"
+    - "PEACHSTATE [43] | PEACH STATE: SCOTTISH RITE MCAID"
+    - "PEACHSTATE [43] | PEACH STATE: SCOTTISH RITE PEACHCARE"

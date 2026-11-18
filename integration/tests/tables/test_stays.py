@@ -52,6 +52,7 @@ def test_the_plans_negotiated_dollars_beat_the_hospitals_own_file(corpus):
 def test_a_per_day_or_percent_price_is_terms_with_no_max_and_the_hospital_still_has_a_row(corpus):
     stays(corpus)
     drg(corpus, 50, "807", 2472, negotiated_type="per diem")  # Grady's plan file: a day's rate
+    corpus.roster(BV, 60, 60, "1000000060", 1000000060)  # Blue Value's file lists Hamilton's system NPI
     corpus.hospital_price(HAMILTON, "807", "ANTHEM BCBS", "BLUE VALUE HMO", setting="inpatient", code_type="MS-DRG",
                           methodology="percent of total billed charges", percentage=38.8)
     corpus.hospital_price(HAMILTON, "788", "ANTHEM BCBS", "BLUE VALUE HMO", negotiated=1800.0, setting="inpatient",

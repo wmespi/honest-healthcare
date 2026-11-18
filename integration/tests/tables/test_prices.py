@@ -59,6 +59,8 @@ def test_a_hospital_with_its_own_fee_and_no_group_on_file_shows_its_fee_alone(co
     # Pathway's file prices Hamilton's mammogram fee, and Hamilton's own file,
     # which uses Grady's names, prices its MRI fee on Blue Value twice. Its file
     # also lists a cash price for a mammogram, which Blue Value prices nowhere there.
+    # Blue Value's own file lists Hamilton's system NPI, so its file prices Hamilton there.
+    corpus.roster(BV, 60, 60, "1000000060", 1000000060)
     corpus.hospital_plans([{"hospitals": ["110079", "110001"], "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"]},
                             "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])
     for rate in (1100.0, 1150.0):

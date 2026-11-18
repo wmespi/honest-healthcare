@@ -22,7 +22,7 @@ from integration.inputs.families import (
     FAMILIES_PATH, Benefits, Centers, ExtraBillParts, Facilities, FamilyBills, FamilyList, Kinds,
 )
 from integration.inputs.hospital_cash import HospitalCash
-from integration.inputs.facility_fees import FacilityFees, FacilityRates
+from integration.inputs.facility_fees import FacilityFees, FacilityRates, NetworkHospitals
 from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH, HospitalPlans
 from integration.inputs.hospitals import Hospitals
 from integration.inputs.measures import MEASURES_PATH, MeasureFits, Measures
@@ -67,6 +67,7 @@ def inputs(services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
         Hospitals(),
         BillerPlaces(),
         ServiceSites(),
+        NetworkHospitals(),
         FacilityFees(),
         HospitalCash(),
     ]

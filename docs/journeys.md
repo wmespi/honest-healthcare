@@ -78,7 +78,7 @@ Expected for all: the place shows the facility's fee and the doctor's as separat
 
 | ID | Journey | Clickpath | Expected |
 |---|---|---|---|
-| J23 | Lee: cataract surgery | Eye surgery and injections → Cataract removal with a new lens → their plan | Emory University Hospital's surgeon's fee from the plan's file, which prices it only for the right or left eye, with the hospital's fee missing |
+| J23 | Lee: cataract surgery | Eye surgery and injections → Cataract removal with a new lens → their plan | Emory University Hospital's surgeon's fee from the plan's file, which prices it only for the right or left eye, and the hospital's fee from its own price file, so the most they'd pay is the two together |
 | J24 | Lee: physical therapy | Physical and occupational therapy → Exercise therapy, per 15 minutes → their plan | Independent Physical Therapy of Georgia's rate for 15 minutes, which the plan's file gives only under a therapist's plan of care; their share is a copay |
 
 ## No plan

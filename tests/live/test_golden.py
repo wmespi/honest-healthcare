@@ -71,8 +71,8 @@ def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *AMBETTER]]
-    assert root["rows"] == {"plans": 68, "services": 284, "families": 17, "places": 9722, "prices": 312316,
-                            "providers": 15451}
+    assert root["rows"] == {"plans": 68, "services": 286, "families": 17, "places": 9722, "prices": 318617,
+                            "providers": 15455}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -169,8 +169,9 @@ def test_a_brain_mri_carries_medicares_rates(client):
 
 
 @pytest.mark.parametrize("plan_id", [GOLD_PATHWAY, GOLD_OPEN_PATHWAY, GOLD_GUIDED_ACCESS])
-def test_every_service_has_a_price_on_pathway_within_50_miles(client, plan_id):
-    assert unpriced(client, plan_id) == []
+def test_pathway_prices_every_service_near_emory_but_two_only_far_hospitals_price(client, plan_id):
+    # Only hospitals' own files price these two, and on Pathway none within 50 miles.
+    assert unpriced(client, plan_id) == ["joint-knee-scope-loose-body", "surgery-fetal-test"]
 
 
 def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
@@ -178,7 +179,7 @@ def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
     # Emory, and it lists no facility's fee, so many procedures (children's,
     # pregnancy, rare variants) have no row.
     gaps = unpriced(client, SILVER)
-    assert len(gaps) == 57
+    assert len(gaps) == 59
     # Nor does its file price a hospital stay.
     assert {"stay-vaginal-delivery", "stay-c-section", "stay-knee-replacement", "stay-hip-replacement"} <= set(gaps)
     assert {"checkup-return-18-39", "counseling-family-with", "counseling-family-without", "counseling-group",
@@ -199,9 +200,10 @@ def test_a_brain_mri_near_emory_on_ambetter(client):
 def test_ambetter_prices_what_its_file_gives_only_with_a_modifier_or_a_mislabeled_setting(client):
     # Cataract surgery only for the right or left eye, therapy only under a
     # therapist's plan of care, and a stay's MS-DRG under the outpatient setting.
+    # Emory's facility fee is from its own file, under its Ambetter exchange name.
     emory = next(p for p in find_care(client, "eye-cataract", plan_id=AMBETTER_SILVER)["results"]
                  if p["place_id"] == "110010")
-    assert rates(emory) == [("facility", None, None), ("surgeon", 728.86, "plan")]
+    assert rates(emory) == [("facility", 4907.38, "hospital"), ("surgeon", 728.86, "plan")]
     therapy = next(p for p in find_care(client, "therapy-exercise", plan_id=AMBETTER_SILVER)["results"]
                    if p["place_id"] == "1356494686")
     assert rates(therapy) == [("therapy", 24.69, "plan")]
@@ -211,8 +213,10 @@ def test_ambetter_prices_what_its_file_gives_only_with_a_modifier_or_a_mislabele
 
 
 def test_ambetter_leaves_out_what_no_doctor_near_emory_shows_billing(client):
+    # Hospitals' own files price its facility fees, so what's left is mostly labs and counseling.
     gaps = unpriced(client, AMBETTER_SILVER)
-    assert len(gaps) == 56
+    assert len(gaps) == 13
+    assert {"counseling-group", "lab-hep-c", "therapy-massage"} <= set(gaps)
     assert not {"eye-cataract", "therapy-exercise", "surgery-vein-radiofrequency", "surgery-hernia-groin-open",
                 "joint-knee-scope-meniscus", "stay-vaginal-delivery", "stay-knee-replacement"} & set(gaps)
 

@@ -83,6 +83,17 @@ def test_the_hospitals_own_file_prices_its_fee_under_a_name_the_list_gives_the_n
     assert fees(corpus, MRI) == [(BV, MRI, GRADY, 1300.0, 3, "hospital")]
 
 
+def test_a_hospitals_own_file_prices_a_network_only_where_the_networks_file_lists_the_hospital(corpus):
+    # The name means Blue Value for Hamilton too, but no roster on Blue Value lists
+    # a hospital NPI in Hamilton's building until its system NPI joins one.
+    corpus.hospital_plans([{"hospitals": [GRADY, HAMILTON], "networks": {BV: ["ANTHEM BCBS | BLUE VALUE HMO"]},
+                            "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])
+    corpus.hospital_price(HAMILTON, "72148", "ANTHEM BCBS", "BLUE VALUE HMO", negotiated=1150.0)
+    assert fees(corpus, MRI) == []
+    corpus.roster(BV, 60, 60, "1000000060", 1000000060)
+    assert fees(corpus, MRI) == [(BV, MRI, HAMILTON, 1150.0, 1, "hospital")]
+
+
 def test_the_plans_file_beats_the_hospitals_own(corpus):
     # Grady's file prices both services on Pathway, whose own file prices only
     # Grady's mammogram fee.
