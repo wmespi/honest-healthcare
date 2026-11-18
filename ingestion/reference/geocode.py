@@ -298,11 +298,12 @@ def main() -> None:
 
     con = duckdb.connect()
 
-    # Billing IDs an MRF names. A TIN that isn't an NPI has no NPPES address to find.
-    providers = f"{raw_dir(args.data_dir, args.test, 'anthem')}/providers/*.parquet"
+    # The NPIs an MRF's rosters bill under: a row's billing NPI, or where it bills
+    # under a tax ID, which has no NPPES address to find, its own NPI.
+    providers = f"{raw_dir(args.data_dir, args.test, '*')}/providers/*.parquet"
     if glob.glob(providers):
         con.execute(f"""CREATE TEMP TABLE billing_npis AS
-            SELECT DISTINCT TRY_CAST(tin_value AS BIGINT) AS npi
+            SELECT DISTINCT CASE WHEN tin_type = 'npi' THEN TRY_CAST(tin_value AS BIGINT) ELSE npi END AS npi
             FROM read_parquet('{providers}', union_by_name=true)""")
     else:
         con.execute("CREATE TEMP TABLE billing_npis (npi BIGINT)")

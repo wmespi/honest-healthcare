@@ -19,6 +19,7 @@ import (
 	"time"
 
 	parquet "github.com/parquet-go/parquet-go"
+	"github.com/wmespi/honest-healthcare/ingestion/etl/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,13 +30,18 @@ const DefaultTargetsPath = "ingestion/etl/targets.yaml"
 // Target is one family of plans worth parsing files for.
 type Target struct {
 	Name string `yaml:"name"`
+	// Payer is the insurer whose index lists the target's files and whose rate
+	// files they are (`anthem`, `ambetter`): core.Payers.
+	Payer string `yaml:"payer"`
 	// ExchangeNetworks are network IDs from Georgia's exchange plan file, issuer
 	// and network (`45334-GAN001`). Every plan on them is a target plan.
 	ExchangeNetworks []string `yaml:"exchange_networks"`
 	// Files are the insurer files that price the target's plans, each by the
 	// last part of its index location without the query (`GA_JBNKMED0001.json.gz`).
-	// Parse downloads only these, and only while the index links each one to a
-	// plan on the target's networks.
+	// A `*` stands for any run of characters, for a name with a date in it
+	// (`*_ambetter-ga_in-network.json`); the name has to match exactly one file
+	// in the payer's index this month. Parse downloads only these, and only
+	// while the index links each one to a plan on the target's networks.
 	Files []string `yaml:"files"`
 	// NetworkPatterns are the `provider_references[].network_name` labels this
 	// plan's rates are expected to carry, `*`-wildcarded and matched
@@ -100,6 +106,9 @@ func LoadTargets(path string) (*TargetSet, error) {
 			return nil, fmt.Errorf("%s: two targets are named %q", path, t.Name)
 		}
 		names[t.Name] = true
+		if _, err := core.PayerByName(t.Payer); err != nil {
+			return nil, fmt.Errorf("%s: target %q needs a payer: %w", path, t.Name, err)
+		}
 		if len(t.ExchangeNetworks) == 0 {
 			return nil, fmt.Errorf("%s: target %q lists no exchange_networks, so it would match nothing", path, t.Name)
 		}
@@ -115,6 +124,35 @@ func LoadTargets(path string) (*TargetSet, error) {
 		}
 	}
 	return &ts, nil
+}
+
+// ForPayer is the targets of one payer, which the probe and the end-of-run
+// checks read as the whole list.
+func (ts *TargetSet) ForPayer(name string) *TargetSet {
+	if ts == nil {
+		return nil
+	}
+	sub := &TargetSet{Path: ts.Path}
+	for _, t := range ts.Targets {
+		if t.Payer == name {
+			sub.Targets = append(sub.Targets, t)
+		}
+	}
+	return sub
+}
+
+// Payers is the payers some target names, in core.Payers' order.
+func (ts *TargetSet) Payers() []core.Payer {
+	var out []core.Payer
+	if ts == nil {
+		return out
+	}
+	for _, p := range core.Payers {
+		if len(ts.ForPayer(p.Name).Targets) > 0 {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Names lists the target names, for logging.
@@ -275,9 +313,9 @@ func allPlanIDs(byNetwork map[string][]string) []string {
 	return slices.Compact(ids)
 }
 
-// changedSince says whether Anthem's copy of a file, last updated at anthem,
-// differs from the copy we parsed. A parse that didn't record its copy counts
-// as a different one.
-func changedSince(parsed *time.Time, anthem time.Time) bool {
-	return parsed == nil || !parsed.Equal(anthem)
+// changedSince says whether the payer's copy of a file, last updated at
+// updated, differs from the copy we parsed. A parse that didn't record its copy
+// counts as a different one.
+func changedSince(parsed *time.Time, updated time.Time) bool {
+	return parsed == nil || !parsed.Equal(updated)
 }

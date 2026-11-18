@@ -53,7 +53,7 @@ V, I, B, D, F = "VARCHAR", "INTEGER", "BIGINT", "DOUBLE", "BOOLEAN"
 # Every payer's rates by Georgia exchange network, which `make parse` writes, one
 # folder per payer (data/ingestion/payer_rates/<payer>/). A rate's group set lists the
 # provider groups it covers, and a group's roster lists its doctors (`npi`) and its
-# billing ID (`tin_value`, an NPI or EIN by `tin_type`). The columns are CMS's
+# billing ID (`tin_value`, an NPI or a tax ID (EIN) by `tin_type`). The columns are CMS's
 # Transparency in Coverage names, so every payer's rates read alike.
 PAYER_RATES = Dataset("payer_rates/*/rates.parquet", "make parse", {
     "network_id": V, "group_set_id": B, "billing_code_type": V, "billing_code": V,
@@ -64,6 +64,14 @@ PAYER_RATE_GROUPS = Dataset("payer_rates/*/rate_groups.parquet", "make parse", {
     key=["network_id", "group_set_id", "provider_group_id"])
 PAYER_ROSTERS = Dataset("payer_rates/*/rosters.parquet", "make parse", {
     "network_id": V, "provider_group_id": B, "npi": B, "tin_type": V, "tin_value": V})
+
+
+def roster_biller(alias):
+    """SQL for the billing ID of a PAYER_ROSTERS row (`alias` is its table alias),
+    as text. A row billed under an NPI bills as that NPI. A row billed under a tax
+    ID, which NPPES can't place, bills as its own NPI: each NPI in the group bills
+    in its own right, with itself as its only doctor."""
+    return f"CASE WHEN {alias}.tin_type = 'npi' THEN {alias}.tin_value ELSE CAST({alias}.npi AS VARCHAR) END"
 
 
 def own_first(*by):

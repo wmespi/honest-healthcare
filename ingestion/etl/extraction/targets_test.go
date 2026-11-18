@@ -69,10 +69,12 @@ func TestNetworkMatcher(t *testing.T) {
 	path := writeTargets(t, `
 targets:
   - name: Blue Value
+    payer: anthem
     exchange_networks: ["45334-GAN001"]
     files: ["GA_JBNKMED0001.json.gz"]
     network_patterns: ["GA Blue Value HIX*", "  ", "GA Blue Value HIX*"]
   - name: Other
+    payer: anthem
     exchange_networks: ["49046-GAN008"]
     files: ["GA_JBLDMEDTR01.json.gz"]
     network_patterns: ["EXCHANGES SPECIALIST GATEKEEPER ON INDIVIDUAL"]
@@ -111,7 +113,7 @@ targets:
 // A target list with no network_patterns must leave the probe's network signal
 // off rather than matching nothing — that would abort every file.
 func TestNetworkMatcher_AbsentIsNoSignal(t *testing.T) {
-	path := writeTargets(t, "targets:\n  - name: Blue Value\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"GA_JBNKMED0001.json.gz\"]\n")
+	path := writeTargets(t, "targets:\n  - name: Blue Value\n    payer: anthem\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"GA_JBNKMED0001.json.gz\"]\n")
 	ts, err := LoadTargets(path)
 	if err != nil {
 		t.Fatalf("LoadTargets: %v", err)
@@ -162,14 +164,16 @@ func TestLoadTargets_EmptyPathIsNoFilter(t *testing.T) {
 func TestLoadTargets_Rejects(t *testing.T) {
 	cases := map[string]string{
 		"no targets key":   "# nothing here\n",
+		"no payer":         "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"A.json.gz\"]\n",
+		"an unknown payer": "targets:\n  - name: BV\n    payer: cigna\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"A.json.gz\"]\n",
 		"empty list":       "targets: []\n",
 		"unnamed target":   "targets:\n  - exchange_networks: [\"45334-GAN001\"]\n",
-		"matches nothing":  "targets:\n  - name: Ghost\n",
-		"names no files":   "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n",
-		"a blank file":     "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\" \"]\n",
-		"a file's folder":  "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"anthem/GA_JBNKMED0001.json.gz\"]\n",
-		"a file's query":   "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"GA_JBNKMED0001.json.gz?Expires=1\"]\n",
-		"one name twice":   "targets:\n  - name: BV\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"A.json.gz\"]\n  - name: BV\n    exchange_networks: [\"49046-GAN008\"]\n    files: [\"B.json.gz\"]\n",
+		"matches nothing":  "targets:\n  - name: Ghost\n    payer: anthem\n",
+		"names no files":   "targets:\n  - name: BV\n    payer: anthem\n    exchange_networks: [\"45334-GAN001\"]\n",
+		"a blank file":     "targets:\n  - name: BV\n    payer: anthem\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\" \"]\n",
+		"a file's folder":  "targets:\n  - name: BV\n    payer: anthem\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"anthem/GA_JBNKMED0001.json.gz\"]\n",
+		"a file's query":   "targets:\n  - name: BV\n    payer: anthem\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"GA_JBNKMED0001.json.gz?Expires=1\"]\n",
+		"one name twice":   "targets:\n  - name: BV\n    payer: anthem\n    exchange_networks: [\"45334-GAN001\"]\n    files: [\"A.json.gz\"]\n  - name: BV\n    payer: anthem\n    exchange_networks: [\"49046-GAN008\"]\n    files: [\"B.json.gz\"]\n",
 		"not valid yaml":   "targets: [\n",
 		"missing the file": "",
 	}
@@ -215,9 +219,11 @@ func TestPlanIDs(t *testing.T) {
 	ts, err := LoadTargets(writeTargets(t, `
 targets:
   - name: Blue Value
+    payer: anthem
     exchange_networks: ["45334-GAN001"]
     files: ["GA_JBNKMED0001.json.gz"]
   - name: Pathway PCP Copay Choice
+    payer: anthem
     exchange_networks: ["49046-GAN008"]
     files: ["GA_JBLDMEDTR01.json.gz"]
 `))
@@ -262,7 +268,7 @@ func TestNetworksOf(t *testing.T) {
 
 func TestPlanIDs_Rejects(t *testing.T) {
 	plans := writePlans(t)
-	stale, err := LoadTargets(writeTargets(t, "targets:\n  - name: Gone\n    exchange_networks: [\"45334-GAN009\"]\n    files: [\"GA_GONE.json.gz\"]\n"))
+	stale, err := LoadTargets(writeTargets(t, "targets:\n  - name: Gone\n    payer: anthem\n    exchange_networks: [\"45334-GAN009\"]\n    files: [\"GA_GONE.json.gz\"]\n"))
 	if err != nil {
 		t.Fatalf("LoadTargets: %v", err)
 	}

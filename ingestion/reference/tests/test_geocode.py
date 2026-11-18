@@ -64,9 +64,14 @@ def _write_nppes_fixture(nppes=NPPES_FIXTURE, providers=PROVIDERS_FIXTURE, extra
     con.execute(f"""
         COPY (SELECT * FROM (VALUES {body}) AS t({COLUMNS})) TO '{nppes}' (FORMAT parquet)
     """)
+    # A roster row is (tin_type, tin_value, npi); a bare string is a billing NPI or,
+    # with a dash, a tax ID with no doctor's NPI.
+    roster = [r if isinstance(r, tuple) else ("ein" if "-" in r else "npi", r, "NULL")
+              for r in BILLING + tuple(billing)]
     os.makedirs(os.path.dirname(providers), exist_ok=True)
     con.execute(f"""
-        COPY (SELECT * FROM (VALUES {", ".join(f"('{t}')" for t in BILLING + tuple(billing))}) AS t(tin_value))
+        COPY (SELECT tin_type, tin_value, npi::BIGINT AS npi
+              FROM (VALUES {", ".join(f"('{t}', '{v}', {n})" for t, v, n in roster)}) AS t(tin_type, tin_value, npi))
         TO '{providers}' (FORMAT parquet)
     """)
 
@@ -155,6 +160,20 @@ def test_only_addresses_census_hasnt_answered_are_sent(tmp_path):
     assert duckdb.connect().execute(
         f"SELECT matched_address FROM read_parquet('{seen}') WHERE address_line1 = '1200 MEMORIAL DRIVE'"
     ).fetchone() == ("1200 MEMORIAL DR, DALTON, GA, 30720",)
+
+    # A doctor on a roster billed under a tax ID bills under their own NPI, so
+    # their address is sent too.
+    _write_nppes_fixture(nppes, providers, billing=["2000000007", ("ein", "58-7654321", 2000000009)], extra=[
+        (2000000007, "individual", "", "Zeta", "Zoe", "207Q00000X", "Family Medicine",
+         "500 Pine Rd", "", "Rome", "GA", "30161"),
+        (2000000009, "individual", "", "Eta", "Eli", "207Q00000X", "Family Medicine",
+         "600 Elm St", "", "Rome", "GA", "30161")])
+    doctor = tmp_path / "doctor.csv"
+    doctor.write_text('"1","600 Elm St, Rome, GA, 30161","Match","Exact","600 ELM ST, ROME, GA, 30161",'
+                      '"-85.1650,34.2580","1","L"\n')
+    stdout, last = run(doctor)
+    assert "1 not sent to Census before" in stdout
+    assert len(last) == 6 and any(r[0] == "600 Elm St" and r[10] for r in last)
 
 
 def test_openstreetmap_is_asked_for_the_places_census_couldnt_put_in_georgia(tmp_path):

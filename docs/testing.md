@@ -43,7 +43,7 @@ Discovery in test mode caps at 100 reporting structures, parsing at 1 file (`LIM
 - `ingestion/reference/testdata/*` - small CMS / MPFS / DAC / geocode samples; each
   `ingestion/reference/tests/test_<builder>.py` runs its `ingestion/reference/` builder against them in test
   isolation. `test_common.py` runs the builders' download against a local HTTP server.
-- `ingestion/tests/conftest.py` (`anthem` fixture) writes Anthem's files and parse records as parse and discover write them, with Georgia's networks and plans and a targets file, and `test_anthem_rates.py` publishes the rates by network from them.
+- `ingestion/tests/conftest.py` (`anthem` and `ambetter` fixtures) writes a payer's files and parse records as parse and discover write them, with Georgia's networks and plans and a targets file, and `test_payer_rates.py` publishes the rates by network from them.
 - `integration/tests/app_tables.py` builds the build's default test corpus with the real
   `integration.build.build()` into `data-test/serving/`, and `make test` runs it before the
   app's tests, so they read tables integration wrote, handed over the way the real ones

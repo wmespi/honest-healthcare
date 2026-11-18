@@ -39,10 +39,38 @@ def test_a_service_priced_only_for_hospitals_keeps_those_lines(corpus):
     assert rates(corpus, "mammogram-screening") == [("all_in", 150.0)]
 
 
-def test_a_billing_id_that_is_not_an_npi_stops_the_build(corpus):
-    corpus.roster(BV, 9, 9, "581234567", 2000000009, tin_type="ein")
-    with pytest.raises(SystemExit, match="1 roster rows bill under a 'ein' ID, not an NPI"):
+def test_a_billing_id_of_an_unknown_type_stops_the_build(corpus):
+    corpus.roster(BV, 9, 9, "581234567", 2000000009, tin_type="ssn")
+    with pytest.raises(SystemExit, match="1 roster rows bill under a 'ssn' ID, which is neither an NPI nor a tax ID"):
         corpus.build()
+
+
+def test_a_tax_id_that_is_not_shaped_like_one_stops_the_build(corpus):
+    corpus.roster(BV, 9, 9, "581234567", 2000000009, tin_type="ein")
+    with pytest.raises(SystemExit, match="the tax ID '581234567', which is not the shape NN-NNNNNNN"):
+        corpus.build()
+
+
+def test_each_npi_in_a_tax_id_group_bills_in_its_own_right_under_its_cms_group(corpus):
+    # Two clinicians share a tax ID. Each is its own biller and doctor, and is
+    # placed at its NPPES address, under its CMS group's name.
+    corpus.roster(BV, 9, 9, "86-2226051", 1000000041, 1000000042, tin_type="ein")
+    corpus.scan_price(BV, 9, "72148", all_in=640)
+    for npi, group, address, lat in [(1000000041, "PEACHTREE SPINE", "10 SPINE WAY", 33.8),
+                                     (1000000042, "MACON BACK CARE", "20 BACK ST", 32.8)]:
+        corpus.npi(npi, "DOE", address, "ATLANTA", "303082233", entity_type="individual")
+        corpus.group(npi, group)
+        corpus.billed(npi, "72148", "O")
+        corpus.geocode(address, "ATLANTA", "303082233", f"{address}, ATLANTA, GA, 30308", lat, -84.4)
+    con = corpus.inputs()
+    assert con.execute("SELECT DISTINCT biller, npi FROM biller_doctors WHERE biller IN ('1000000041', '1000000042') "
+                       "ORDER BY ALL").fetchall() == [("1000000041", 1000000041), ("1000000042", 1000000042)]
+    assert con.execute("SELECT count(*) FROM biller_rates WHERE biller = '86-2226051'").fetchone() == (0,)
+    corpus.build()
+    places = {r[0]: r[1] for r in corpus.rows("places")}
+    assert places["1000000041"] == "PEACHTREE SPINE"
+    assert places["1000000042"] == "MACON BACK CARE"
+    assert {r[2] for r in corpus.rows("prices") if r[:2] == (BV, "mri-lower-back")} >= {"1000000041", "1000000042"}
 
 
 def test_a_registered_center_does_its_kind_of_scan_without_a_medicare_record(corpus):
@@ -97,8 +125,17 @@ def test_a_bill_that_names_several_modifiers_takes_a_rate_under_each(corpus):
     scan["modifier"] = ["TC", "QW"]
     corpus.write_families()
     corpus.modified_price(BV, 1, "72148", "QW", 310)
+    corpus.modified_price(BV, 1, "72148", "QW|TC", 320)  # names two of the scan's
     assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("reading", 200.0), ("scan", 300.0),
-                                               ("scan", 310.0)]
+                                               ("scan", 310.0), ("scan", 320.0)]
+
+
+def test_a_body_site_modifier_prices_the_bill_without_it(corpus):
+    corpus.modified_price(BV, 1, "72148", "RT", 520)
+    corpus.modified_price(BV, 1, "72148", "26|LT", 210)
+    corpus.modified_price(BV, 1, "72148", "F5|TC", 310)
+    assert rates(corpus, "mri-lower-back") == [("all_in", 500.0), ("all_in", 520.0), ("reading", 200.0),
+                                               ("reading", 210.0), ("scan", 300.0), ("scan", 310.0)]
 
 
 def all_in(corpus, biller="1000000001"):

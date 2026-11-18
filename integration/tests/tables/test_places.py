@@ -59,6 +59,41 @@ def test_billing_ids_of_one_practice_at_one_address_are_one_place(corpus):
         ORDER BY biller""").fetchall() == [("1000000011", "1000000001"), ("1000000012", "1000000012")]
 
 
+def test_a_practice_is_keyed_on_its_organization_before_a_doctors_own_npi(corpus):
+    # A clinician billing under their own NPI, lower than the clinic's, in its CMS
+    # group and with a department's address line.
+    biller(corpus, 1000000031, "PEACHTREE CLINIC INC", "700 PEACHTREE ST NE", "ATLANTA", "303082233")
+    biller(corpus, 1000000021, "DOE", "700 PEACHTREE ST NE", "ATLANTA", "303082233", entity_type="individual",
+           address_line2="BLDG A, THE PEACHTREE CLINIC - NEPHROLOGY")
+    corpus.group(1000000021, "PEACHTREE CLINIC INC")
+    for line2 in ["", "BLDG A, THE PEACHTREE CLINIC - NEPHROLOGY"]:
+        corpus.geocode("700 PEACHTREE ST NE", "ATLANTA", "303082233", "700 PEACHTREE ST NE, ATLANTA, GA, 30308",
+                       33.7745, -84.3866, address_line2=line2)
+    corpus.build()
+    assert [r[:5] for r in corpus.rows("places") if r[4].startswith("700 PEACHTREE")] == [
+        ("1000000031", "PEACHTREE CLINIC INC", "practice", "Medical practice", "700 PEACHTREE ST NE")]
+
+
+def test_a_doctor_in_another_practices_suite_does_not_join_the_two(corpus):
+    # A cardiology group and an orthopedic group in one building, and a doctor of
+    # the orthopedic group billing under their own NPI from the cardiology suite.
+    biller(corpus, 1000000032, "HEART CONSULTANTS PC", "800 PEACHTREE ST NE", "ATLANTA", "303082233",
+           address_line2="STE 100")
+    biller(corpus, 1000000033, "BONE AND JOINT CENTER PC", "800 PEACHTREE ST NE", "ATLANTA", "303082233",
+           address_line2="STE 200")
+    biller(corpus, 1000000022, "ROE", "800 PEACHTREE ST NE", "ATLANTA", "303082233", entity_type="individual",
+           address_line2="STE 100")
+    corpus.group(1000000022, "BONE AND JOINT CENTER PC")
+    for line2 in ["STE 100", "STE 200"]:
+        corpus.geocode("800 PEACHTREE ST NE", "ATLANTA", "303082233", "800 PEACHTREE ST NE, ATLANTA, GA, 30308",
+                       33.7760, -84.3870, address_line2=line2)
+    assert corpus.inputs().execute("""
+        SELECT biller, place_id, name FROM biller_places WHERE biller IN ('1000000022', '1000000032', '1000000033')
+        ORDER BY biller""").fetchall() == [("1000000022", "1000000033", "BONE AND JOINT CENTER PC"),
+                                           ("1000000032", "1000000032", "HEART CONSULTANTS PC"),
+                                           ("1000000033", "1000000033", "BONE AND JOINT CENTER PC")]
+
+
 def test_a_billing_id_on_a_hospitals_street_is_the_hospital(corpus, capsys):
     # Census didn't match Hamilton's own billing ID, whose address spells the street
     # differently from the hospital's.

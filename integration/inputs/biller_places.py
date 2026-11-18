@@ -32,16 +32,20 @@ class BillerPlaces(Table):
 
     A site in a Georgia hospital's building is that hospital, keyed on its CCN.
     Any other site belongs to a practice: the billers with a site in the building
-    whose names match once punctuation and company endings are dropped, or who
-    are at the same office (the same suite, or none listed), and the billers
-    linked to those through others. Related companies often bill from one
-    office under different names. A practice is keyed on the lowest billing NPI
-    with a doctor's rate (biller_rates) whose main address is in the building,
-    and only a practice with none of those is keyed on its centers' billers the
-    same way. The key's biller gives the practice its address and
+    whose names match once punctuation and company endings are dropped, or
+    companies at the same office (the same suite, or none listed), and the
+    billers linked to those through others. Related companies often bill from
+    one office under different names, but a doctor billing under their own NPI
+    joins only the practice its CMS group's name matches, because a doctor often
+    works from more than one practice's office. A practice is keyed on a billing NPI with a
+    doctor's rate (biller_rates) whose main address is in the building, an
+    organization's before a doctor's own and the lowest of those, so a clinic
+    keeps its own key and address however many of its clinicians bill under
+    their own NPIs, and only a practice with none of those is keyed on its
+    centers' billers the same way. The key's biller gives the practice its address and
     phone, and the one with rates for the most services gives its name, the lowest
     NPI where two tie. Where none of the key's candidates has its main address, the key is the
-    lowest of them and a short hash of the building, so one biller's sites
+    first of them the same way and a short hash of the building, so one biller's sites
     are different places. Its kind is the kind of center NPPES registers its
     billers as (centers), the first in the order of `kinds` where they're
     registered as two, else a generic surgery center (facilities) when none of
@@ -66,6 +70,7 @@ class BillerPlaces(Table):
             WITH RECURSIVE billers AS (
                 SELECT b.biller, n.npi, c.kind AS center, k.position AS center_rank, c.generic AS generic,
                        b.biller IN (SELECT biller FROM biller_rates) AS rated,
+                       n.entity_type = 'organization' AS org,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name ELSE d.org_name END AS name,
                        CASE WHEN n.entity_type = 'organization' THEN n.org_name
                             ELSE coalesce(d.org_name, concat_ws(' ', n.first_name, n.last_name)) END AS biller_name
@@ -80,7 +85,8 @@ class BillerPlaces(Table):
             listed AS {listed(data_dir)},
             sites AS (
                 SELECT DISTINCT ON (b.biller, a.building)
-                       b.biller, b.biller_name, b.name, b.center, b.center_rank, b.generic, b.rated, l.main, a.building, a.lat, a.lon,
+                       b.biller, b.biller_name, b.name, b.center, b.center_rank, b.generic, b.rated, b.org, l.main, a.building,
+                       a.lat, a.lon,
                        concat_ws(', ', l.address_line1, nullif(trim(l.address_line2), '')) AS address,
                        l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone,
                        {suite("l.address_line1", "l.address_line2")} AS suite
@@ -89,9 +95,10 @@ class BillerPlaces(Table):
                 JOIN addresses a USING ({ADDRESS})
                 ORDER BY b.biller, a.building, NOT l.main, {", ".join(f"l.{c}" for c in ADDRESS.split(", "))}
             ),
-            -- Two sites in a building are one practice when their names match or they
-            -- share an office (a suite, or no suite); `linked` chains those, so `together`
-            -- reaches every site of a practice and its lowest biller labels the group.
+            -- Two sites in a building are one practice when their names match or two
+            -- companies share an office (a suite, or no suite); `linked` chains those, so
+            -- `together` reaches every site of a practice and its lowest biller labels
+            -- the group.
             candidates AS (
                 SELECT *, {practice_name("name")} AS practice
                 FROM sites
@@ -100,7 +107,7 @@ class BillerPlaces(Table):
             linked AS (
                 SELECT a.biller AS a, b.biller AS b, a.building
                 FROM candidates a JOIN candidates b ON a.building = b.building
-                 AND (a.practice = b.practice OR a.suite = b.suite)
+                 AND (a.practice = b.practice OR (a.suite = b.suite AND a.org AND b.org))
             ),
             together(a, b, building) AS (
                 SELECT a, b, building FROM linked
@@ -120,8 +127,7 @@ class BillerPlaces(Table):
             ),
             practices AS (
                 SELECT biller, biller_name, main, building,
-                       coalesce(min(biller) FILTER (WHERE main AND keys) OVER practice,
-                                min(biller) FILTER (WHERE keys) OVER practice) AS lowest,
+                       arg_min(biller, (NOT main, NOT org, biller)) FILTER (WHERE keys) OVER practice AS lowest,
                        coalesce(bool_or(main) FILTER (WHERE keys) OVER practice, false) AS any_main,
                        arg_min(center, CASE WHEN generic AND any_rated THEN NULL ELSE center_rank END) OVER practice AS center,
                        arg_min(biller, (-coalesce(n.services, 0), biller)) OVER practice AS named

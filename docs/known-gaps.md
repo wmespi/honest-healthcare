@@ -106,7 +106,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **Therapy is priced per code, and most codes are 15 minutes.**
   A session bills several, and the screen doesn't add them up.
 - **Counseling shows the rate with no modifier.**
-  A rate a plan lists for a psychologist (`AH`) or a clinical social worker (`AJ`) alone is left out, so where a plan pays them less, a session with one costs less than shown.
+  A rate a plan lists for a psychologist (`AH`), a clinical social worker (`AJ`) or a clinician by degree (`HO`, `HP`) alone is left out, so where a plan pays them less, a session with one costs less than shown.
 - **A lab test's price is the test alone.**
   The blood draw is a service of its own, and the screen doesn't add the two.
 

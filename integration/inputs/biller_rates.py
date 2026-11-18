@@ -1,14 +1,16 @@
 """Build-only: each rate a network's file lists for a service, by the biller it
 covers, with the evidence that the biller does or reads that service."""
-from integration.inputs.datasets import NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS, own_first
+from integration.inputs.datasets import (MEDICARE_BILLING, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS,
+                                         own_first, roster_biller)
 from integration.table import Table
 
-# Modifiers that make a rate a different bill from the service's own, so a rate
-# with one is left out, as is a rate that names two parts at once. The bill a
-# rate is for is the professional bill in the service's family that names its
-# modifier (integration/families.yaml), and a rate with a modifier no family's bills or
-# this list name stops the build (BillerRates.check), so a new one is read before
-# it is priced or dropped.
+# Modifiers that make a rate a different bill from the service's own, or the bill
+# in a case of its own, so a rate with one is left out, as is a rate that names
+# two parts at once. The bill a rate is for is the professional bill in the
+# service's family that names each of its modifiers but BODY_SITES
+# (integration/families.yaml), and a rate with a modifier no family's bills or
+# these lists name stops the build (BillerRates.check), so a new one is read
+# before it is priced or dropped.
 OTHER_BILLS = {
     "50": "both sides in one visit",
     "62": "two surgeons",
@@ -29,13 +31,99 @@ OTHER_BILLS = {
     "EP": "a child's checkup under Medicaid's screening program",
     "AH": "a clinical psychologist's rate",
     "AJ": "a clinical social worker's rate",
-    "GP": "under a physical therapist's plan of care",
-    "GO": "under an occupational therapist's plan of care",
-    "GN": "under a speech therapist's plan of care",
+    "HO": "a clinician with a master's degree",
+    "HP": "a clinician with a doctoral degree",
+    "SA": "a nurse practitioner's service with a doctor",
+    "CQ": "a physical therapist assistant's rate",
+    "CO": "an occupational therapy assistant's rate",
+    "GC": "a resident's service under a teaching physician",
+    "GE": "a resident's service with no teaching physician present",
+    "GF": "a nurse practitioner's or physician assistant's service in a critical access hospital",
+    "FS": "a visit split between a doctor and a nurse practitioner or physician assistant",
+    "Q5": "a substitute doctor under a reciprocal arrangement",
+    "Q6": "a substitute doctor paid for the time",
+    "93": "a visit by phone",
+    "FQ": "a visit by audio only",
+    "G0": "a telehealth visit for a stroke",
+    "24": "an unrelated visit during the care after a surgery",
+    "57": "a visit that decides on a major surgery",
+    "58": "a planned later stage of a procedure",
+    "78": "a return to the operating room during the care after a surgery",
+    "79": "an unrelated procedure during the care after a surgery",
+    "51": "a second procedure the same day",
+    "52": "a service reduced from its usual extent",
+    "54": "only the surgery, without the care before or after",
+    "63": "a procedure on an infant under 4 kg",
+    "74": "an outpatient procedure stopped after anesthesia",
+    "76": "a procedure repeated by the same doctor",
+    "77": "a procedure repeated by another doctor",
+    "82": "an assistant surgeon where no resident is available",
+    "91": "a lab test repeated the same day",
+    "90": "a lab test sent to an outside lab",
+    "XE": "a separate encounter the same day",
+    "XP": "a different practitioner the same day",
+    "XS": "a separate organ or structure the same day",
+    "XU": "an unusual service apart from the main one",
+    "33": "a service billed as preventive",
+    "PT": "a screening colonoscopy that became diagnostic",
+    "PD": "a diagnostic service within three days of a hospital stay",
+    "FP": "a service under a family planning program",
+    "TH": "an obstetric service before or after a birth",
+    "HA": "a child or adolescent program",
+    "HE": "a mental health program",
+    "TR": "a school-based service outside the student's district",
+    "AT": "a chiropractor's treatment of an acute condition",
+    "AY": "a dialysis patient's service unrelated to dialysis",
+    "Q1": "routine care in a clinical trial",
+    "Q3": "a service for a live kidney donor",
+    "Q7": "foot care with one class A finding",
+    "Q8": "foot care with two class B findings",
+    "Q9": "foot care with one class B and two class C findings",
+    "SG": "a surgery center's facility fee",
+    "BL": "blood acquired specially",
+    "FY": "an X-ray taken on cassette-based equipment",
+    "JZ": "a drug with none of it discarded",
+    "GA": "a service the patient signed a waiver of liability for",
+    "GY": "a service excluded from coverage by law",
+    "GW": "a service unrelated to a hospice patient's terminal condition",
+    "KX": "a service shown to meet a policy's requirements",
+    "CG": "a service under a payer's policy criteria",
+    "CR": "a service tied to a declared disaster",
+    "GB": "a claim resubmitted under a payment demonstration",
     "U1": "a variant the payer defines",
     "U2": "a variant the payer defines",
     "U3": "a variant the payer defines",
+    "U4": "a variant the payer defines",
+    "U5": "a variant the payer defines",
+    "U6": "a variant the payer defines",
+    "UD": "a variant the payer defines",
 }
+
+# Modifiers that only say where on the body a service is done, which doesn't make
+# it a different bill, so a rate's bill is found without them: a plan's file
+# often prices a surgery on one side or digit under such a modifier alone.
+BODY_SITES = {
+    "RT": "the right side", "LT": "the left side",
+    "E1": "the upper left eyelid", "E2": "the lower left eyelid",
+    "E3": "the upper right eyelid", "E4": "the lower right eyelid",
+    "FA": "the left thumb", "F1": "the left second finger", "F2": "the left third finger",
+    "F3": "the left fourth finger", "F4": "the left fifth finger", "F5": "the right thumb",
+    "F6": "the right second finger", "F7": "the right third finger", "F8": "the right fourth finger",
+    "F9": "the right fifth finger",
+    "TA": "the left great toe", "T1": "the left second toe", "T2": "the left third toe",
+    "T3": "the left fourth toe", "T4": "the left fifth toe", "T5": "the right great toe",
+    "T6": "the right second toe", "T7": "the right third toe", "T8": "the right fourth toe",
+    "T9": "the right fifth toe",
+}
+
+
+def _bill_modifiers(modifier):
+    """SQL for the modifiers a rate line's bill is found by: each of `modifier`'s,
+    which joins them with "|", but BODY_SITES, or [""] where none is left. A line
+    is for the bill that lists every one of them."""
+    sites = ", ".join(f"'{m}'" for m in BODY_SITES)
+    kept = f"list_filter(string_split(coalesce({modifier}, ''), '|'), m -> m NOT IN ({sites}))"
+    return f"CASE WHEN len({kept}) = 0 THEN [''] ELSE {kept} END"
 
 # Why a rate is believed to be one a patient would get, strongest first. prices
 # shows a place's rate with the strongest evidence, so the order is a product rule.
@@ -72,7 +160,9 @@ def _rank(place_of_service):
 
 def covered(data_dir):
     """SQL for the CTEs that end in `covered`: each kept rate with the biller and
-    each doctor (`npi`) on the rosters it covers. biller_doctors reads it too. A
+    each doctor (`npi`) on the rosters it covers whom Medicare shows billing the
+    service, or none, and `billed`, the doctors Medicare shows billing each
+    service. biller_doctors reads them too. A
     rate under the file's shared labels is kept only where the network's own labels
     have none for the biller, service and bill, and a placeholder doesn't count."""
     return f"""
@@ -85,7 +175,8 @@ def covered(data_dir):
             JOIN service_list s ON s.billing_code = r.billing_code AND list_contains(s.code_types, r.billing_code_type)
             JOIN family_list f USING (family)
             JOIN family_bills b
-              ON b.family = s.family AND b.billing_class = 'professional' AND list_contains(b.modifiers, coalesce(r.modifier, ''))
+              ON b.family = s.family AND b.billing_class = 'professional'
+              AND list_has_all(b.modifiers, {_bill_modifiers("r.modifier")})
             WHERE {PRICED}
         ),
         -- A family's place of service ranks every line of a service together, the
@@ -111,14 +202,46 @@ def covered(data_dir):
             JOIN {NPPES.read(data_dir)} n ON n.taxonomy_code = c.taxonomy_code
             WHERE v.family IN {OWN_FEE_FAMILIES}
         ),
+        -- The doctors Medicare shows billing each service: its own code, or any of
+        -- its family's evidence_codes where the family names them.
+        evidence AS (
+            SELECT s.service_id, unnest(coalesce(f.evidence_codes, [s.billing_code])) AS code
+            FROM service_list s JOIN family_list f USING (family)
+        ),
+        billed AS (
+            SELECT m.npi, e.service_id, bool_or(m.place_of_service = 'O') AS in_office
+            FROM {MEDICARE_BILLING.read(data_dir)} m
+            JOIN evidence e ON e.code = m.hcpcs_cd
+            GROUP BY m.npi, e.service_id
+        ),
+        -- The doctors who can count for a service: Medicare shows them billing it
+        -- (`billed`), or NPPES registers them as a center of its family. A roster
+        -- row billed under a tax ID bills as its own NPI, with itself as its only
+        -- doctor, so it prices a service only where that NPI is one of these.
+        candidates AS (
+            SELECT npi, service_id, bool_or(billed) AS billed
+            FROM (SELECT npi, service_id, true AS billed FROM billed
+                  UNION ALL
+                  SELECT n.npi, s.service_id, false
+                  FROM service_list s
+                  JOIN centers t USING (family)
+                  JOIN {NPPES.read(data_dir)} n ON n.taxonomy_code = t.taxonomy_code)
+            GROUP BY npi, service_id
+        ),
+        -- A rate's doctors are kept only where Medicare shows them billing the
+        -- service, the only ones biller_doctors and biller_rates read, and its
+        -- others are one row with no `npi`, so a large roster isn't carried
+        -- doctor by doctor.
         real AS (
-            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, p.tin_value AS biller, p.npi, k.own_label
+            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, {roster_biller('p')} AS biller,
+                   CASE WHEN t.billed THEN p.npi END AS npi, k.own_label
             FROM kept k
             JOIN medians m USING (network_id, service_id, part)
             JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
             JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
-            ANTI JOIN own_fee o ON o.service_id = k.service_id AND o.npi = TRY_CAST(p.tin_value AS BIGINT)
-            WHERE k.rate > greatest(1, 0.05 * m.median)
+            LEFT JOIN candidates t ON t.npi = p.npi AND t.service_id = k.service_id
+            ANTI JOIN own_fee o ON o.service_id = k.service_id AND o.npi = TRY_CAST({roster_biller('p')} AS BIGINT)
+            WHERE k.rate > greatest(1, 0.05 * m.median) AND (p.tin_type = 'npi' OR t.npi IS NOT NULL)
         ),
         covered AS (
             SELECT DISTINCT network_id, service_id, part, rate, biller, npi FROM real
@@ -202,12 +325,12 @@ class BillerRates(Table):
     def check(self, con, data_dir):
         """Every modifier on a service's rates is one the build has a rule for.
 
-        A biller is found by its NPI, which is what Anthem lists as every billing
-        ID. Rates that list a tax ID (EIN) instead stop the build here, rather
-        than every biller in them landing on the no-NPPES-record list."""
+        A biller is found by its NPI: a roster row's billing NPI, or, where it bills
+        under a tax ID (EIN), its own NPI (datasets.roster_biller). A billing ID of
+        any other type, or an EIN of the wrong shape, stops the build here."""
         bills = [m for (m,) in con.execute(
             "SELECT DISTINCT unnest(modifiers) FROM family_bills WHERE billing_class = 'professional'").fetchall()]
-        known = ", ".join(f"'{m}'" for m in (*bills, *OTHER_BILLS))
+        known = ", ".join(f"'{m}'" for m in (*bills, *OTHER_BILLS, *BODY_SITES))
         unknown = [m for (m,) in con.execute(f"""
             SELECT DISTINCT modifier
             FROM (SELECT unnest(string_split(coalesce(r.modifier, ''), '|')) AS modifier
@@ -223,9 +346,17 @@ class BillerRates(Table):
                              f"OTHER_BILLS in integration/inputs/biller_rates.py")
         other = con.execute(f"""
             SELECT tin_type, count(*) FROM {PAYER_ROSTERS.read(data_dir)}
-            WHERE tin_type IS DISTINCT FROM 'npi'
+            WHERE tin_type IS DISTINCT FROM 'npi' AND tin_type IS DISTINCT FROM 'ein'
             GROUP BY tin_type ORDER BY 2 DESC
         """).fetchone()
         if other:
-            raise SystemExit(f"biller_rates: {other[1]:,} roster rows bill under a {other[0]!r} ID, not an NPI, "
-                             f"so NPPES can't say where they are")
+            raise SystemExit(f"biller_rates: {other[1]:,} roster rows bill under a {other[0]!r} ID, which is "
+                             f"neither an NPI nor a tax ID (ein)")
+        bad = con.execute(f"""
+            SELECT tin_value, count(*) FROM {PAYER_ROSTERS.read(data_dir)}
+            WHERE tin_type = 'ein' AND NOT regexp_full_match(coalesce(tin_value, ''), '[0-9]{{2}}-[0-9]{{7}}')
+            GROUP BY tin_value ORDER BY 2 DESC
+        """).fetchone()
+        if bad:
+            raise SystemExit(f"biller_rates: {bad[1]:,} roster rows bill under the tax ID {bad[0]!r}, which "
+                             f"is not the shape NN-NNNNNNN")

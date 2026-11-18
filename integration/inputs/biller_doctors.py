@@ -1,7 +1,6 @@
 """Build-only: the doctors Medicare shows billing a service, by the biller whose
 rate for it covers them."""
 from integration.inputs.biller_rates import covered
-from integration.inputs.datasets import MEDICARE_BILLING
 from integration.table import Table
 
 
@@ -20,17 +19,7 @@ class BillerDoctors(Table):
 
     def select(self, data_dir):
         return f"""
-            WITH {covered(data_dir)},
-            evidence AS (
-                SELECT s.service_id, unnest(coalesce(f.evidence_codes, [s.billing_code])) AS code
-                FROM service_list s JOIN family_list f USING (family)
-            ),
-            billed AS (
-                SELECT m.npi, e.service_id, bool_or(m.place_of_service = 'O') AS in_office
-                FROM {MEDICARE_BILLING.read(data_dir)} m
-                JOIN evidence e ON e.code = m.hcpcs_cd
-                GROUP BY m.npi, e.service_id
-            )
+            WITH {covered(data_dir)}
             SELECT c.network_id, c.service_id, c.biller, c.npi, b.in_office
             FROM (SELECT network_id, service_id, biller, npi FROM covered
                   UNION SELECT network_id, service_id, biller, TRY_CAST(biller AS BIGINT) FROM covered) c

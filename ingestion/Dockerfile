@@ -1,7 +1,7 @@
 # Ingestion (ingestion/): the Go CLI that streams Anthem's index and rate files
 # and NPPES (ingestion/etl/, one Go module), and the Python steps that build the
 # public datasets and publish the payer rates (ingestion/reference/,
-# ingestion/anthem_rates.py). Built from this folder alone, so no image can hold
+# ingestion/payer_rates.py). Built from this folder alone, so no image can hold
 # another layer's code. Two targets:
 #   dev  - Python, the test deps and the Go toolchain; docker-compose bind-mounts
 #          ingestion/ and runs `go run .` and `python3 -m ...` on demand (see the Makefile).

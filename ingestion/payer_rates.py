@@ -1,24 +1,27 @@
-"""Anthem's rates by Georgia network: the last step of `make parse`, which turns
-the files parse streamed (data/raw/anthem/) into the payer rates integration reads
-(data/ingestion/payer_rates/anthem/, docs/schema.md).
+"""A payer's rates by Georgia network: the last step of `make parse`, which turns
+the files parse streamed (data/raw/<payer>/) into the payer rates integration reads
+(data/ingestion/payer_rates/<payer>/, docs/schema.md), for each payer in
+ingestion/etl/targets.yaml, or the one `--payer` names.
 
-A target in ingestion/etl/targets.yaml names Georgia exchange networks, the files that
-price them and the labels those files give them. A network's rates are the
+A target in ingestion/etl/targets.yaml names a payer, Georgia exchange networks, the
+files that price them and the labels those files give them. A network's rates are the
 ones under one of its labels in the one parsed file its target names that the
-index links to the network's plans, and every plan on the network has to be
-linked to that file (ingestion/etl/mrf-model.md, "One plan, one contract").
+index links to the network's plans, by plan ID or product ID, and every plan on
+the network has to be linked to that file (ingestion/etl/mrf-model.md, "One plan,
+one contract"). Several targets can name one file, each taking its own labels.
 A target's shared labels, other labels in that file that price the plan's
 members without its name, add all their rates with the groups they cover;
 `own_label` says which rates are under the network's own labels.
 A network no parsed file prices is left out, and networks.parquet says why, so
 one file's failure stales only its own networks. A mistake in the targets file
 or the index stops the step, and so does a run that prices no network at all,
-so integration never sees Anthem's labels, files or index.
+so integration never sees a payer's labels, files or index.
 """
 import argparse
 import glob
 import os
 import shutil
+import sys
 
 import duckdb
 import yaml
@@ -27,14 +30,15 @@ from ingestion.reference._common import store_dir
 
 TARGETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "etl", "targets.yaml")
 
-# What parse and discover wrote, and Georgia's plan file: (path under the data
-# dir, the command that makes it, read_parquet options).
-_RAW_RATES = ("raw/anthem/prices/*/*.parquet", "make parse", ", hive_partitioning=1, union_by_name=true")
-_RAW_GROUPS = ("raw/anthem/group_sets/*.parquet", "make parse", "")
-_RAW_ROSTERS = ("raw/anthem/providers/*.parquet", "make parse", "")
-_PARSES = ("raw/anthem/parses/*.parquet", "make parse", ", union_by_name=true")
-_INDEX_FILES = ("raw/anthem/index_files.parquet", "make discover", "")
-_INDEX_LINKS = ("raw/anthem/index_file_plans.parquet", "make discover", "")
+# What parse and discover wrote for a payer (`{payer}` is its name), and Georgia's
+# plan file: (path under the data dir, the command that makes it, read_parquet
+# options).
+_RAW_RATES = ("raw/{payer}/prices/*/*.parquet", "make parse", ", hive_partitioning=1, union_by_name=true")
+_RAW_GROUPS = ("raw/{payer}/group_sets/*.parquet", "make parse", "")
+_RAW_ROSTERS = ("raw/{payer}/providers/*.parquet", "make parse", "")
+_PARSES = ("raw/{payer}/parses/*.parquet", "make parse", ", union_by_name=true")
+_INDEX_FILES = ("raw/{payer}/index_files.parquet", "make discover", "")
+_INDEX_LINKS = ("raw/{payer}/index_file_plans.parquet", "make discover", "")
 _EXCHANGE_NETWORKS = ("ingestion/reference/exchange_networks_ga.parquet", "make reference STEP=exchange-plans", "")
 _EXCHANGE_PLANS = ("ingestion/reference/exchange_plans_ga.parquet", "make reference STEP=exchange-plans", "")
 
@@ -74,11 +78,15 @@ _NETWORKS = "SELECT * FROM networks ORDER BY network_id"
 
 _BAR = "═" * 70
 
+# The index lists a plan by its plan ID (Anthem) or by the 10-character product ID
+# every plan under it starts with (Ambetter): `l` is a link, `p` a Georgia plan.
+_LINKS_PLAN = "(l.plan_id = p.plan_id OR l.plan_id = left(p.plan_id, 10))"
 
-def publish(data_dir, out_dir, targets_path=TARGETS_PATH):
+
+def publish(data_dir, out_dir, payer, targets_path=TARGETS_PATH):
     """Write rates.parquet, rate_groups.parquet, rosters.parquet and
-    networks.parquet under `out_dir` from the files under `data_dir`; returns
-    {name: rows}. They're written beside `out_dir` and moved into place
+    networks.parquet under `out_dir` for `payer` from the files under `data_dir`;
+    returns {name: rows}. They're written beside `out_dir` and moved into place
     together, and nothing is written if a check fails."""
     spill = os.getenv("DUCKDB_TMP") or f"{out_dir}.spill"
     os.makedirs(spill, exist_ok=True)
@@ -88,14 +96,14 @@ def publish(data_dir, out_dir, targets_path=TARGETS_PATH):
     con.execute(f"SET temp_directory = '{spill}'")
     con.execute("SET TimeZone = 'UTC'")
     try:
-        _targets(con, data_dir, targets_path)
-        _named_files(con, data_dir, targets_path)
-        _network_files(con, data_dir, targets_path)
-        _check_plans(con, data_dir)
-        _records(con, data_dir)
+        _targets(con, data_dir, payer, targets_path)
+        _named_files(con, data_dir, payer, targets_path)
+        _network_files(con, data_dir, payer, targets_path)
+        _check_plans(con, data_dir, payer)
+        _records(con, data_dir, payer)
         _networks(con)
-        paths = {"rates": _read(data_dir, _RAW_RATES), "groups": _read(data_dir, _RAW_GROUPS),
-                 "rosters": _read(data_dir, _RAW_ROSTERS)}
+        paths = {"rates": _read(data_dir, _RAW_RATES, payer), "groups": _read(data_dir, _RAW_GROUPS, payer),
+                 "rosters": _read(data_dir, _RAW_ROSTERS, payer)}
         tables = {"rates": _RATES, "rate_groups": _RATE_GROUPS, "rosters": _ROSTERS, "networks": _NETWORKS}
         staged = f"{out_dir}.tmp"
         shutil.rmtree(staged, ignore_errors=True)
@@ -113,25 +121,25 @@ def publish(data_dir, out_dir, targets_path=TARGETS_PATH):
             shutil.rmtree(spill, ignore_errors=True)
 
 
-def _read(data_dir, dataset):
+def _read(data_dir, dataset, payer=""):
     """A DuckDB table expression for one of the inputs above, or stop with the
     command that makes it."""
     path, made_by, options = dataset
-    full = f"{data_dir}/{path}"
+    full = f"{data_dir}/{path.format(payer=payer)}"
     if not glob.glob(full):
-        raise SystemExit(f"no {full}: run `{made_by}`")
+        raise SystemExit(f"no {full}: run `{made_by}{f' PAYER={payer}' if '{payer}' in path else ''}`")
     return f"read_parquet('{full}'{options})"
 
 
-def _targets(con, data_dir, targets_path):
-    """`targets`: one row per network a target names, with the files it names
-    and its labels as SQL LIKE patterns. Every network has to be one of
+def _targets(con, data_dir, payer, targets_path):
+    """`targets`: one row per network a payer's target names, with the files it names
+    (a `*` matches any run of characters) and its labels as SQL LIKE patterns. Every network has to be one of
     Georgia's, with a plan on it, and named by one target that names files."""
-    rows = [(name, (net or "").strip(), [f.strip() for f in files], patterns, [_like(p) for p in patterns],
-             [_like(p) for p in shared])
-            for name, nets, files, patterns, shared in read_targets(targets_path) for net in nets]
+    rows = [(name, (net or "").strip(), [f.strip() for f in files], [_like(f.strip()) for f in files], patterns,
+             [_like(p) for p in patterns], [_like(p) for p in shared])
+            for name, nets, files, patterns, shared in read_targets(targets_path, payer) for net in nets]
     if not rows:
-        raise SystemExit(f"{targets_path} names no exchange networks")
+        raise SystemExit(f"{targets_path} names no exchange networks for payer {payer}")
     blank = [name for name, net, *_ in rows if not net]
     if blank:
         raise SystemExit(f"{targets_path}: target {blank[0]!r} names a blank exchange network")
@@ -139,8 +147,8 @@ def _targets(con, data_dir, targets_path):
     if fileless:
         raise SystemExit(f"{targets_path}: target {fileless[0]!r} names no files, so nothing can price its networks")
     con.execute("CREATE TEMP TABLE targets (target VARCHAR, network_id VARCHAR, files VARCHAR[], "
-                "patterns VARCHAR[], likes VARCHAR[], shared_likes VARCHAR[])")
-    con.executemany("INSERT INTO targets VALUES (?, ?, ?, ?, ?, ?)", rows)
+                "file_likes VARCHAR[], patterns VARCHAR[], likes VARCHAR[], shared_likes VARCHAR[])")
+    con.executemany("INSERT INTO targets VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
     twice = con.execute("SELECT network_id, list(target ORDER BY target) FROM targets "
                         "GROUP BY network_id HAVING count(*) > 1 ORDER BY network_id").fetchone()
     if twice:
@@ -163,17 +171,17 @@ def _targets(con, data_dir, targets_path):
         raise SystemExit(f"{planless[0]}: no plan in Georgia's exchange plan file is on {planless[1]}")
 
 
-def _named_files(con, data_dir, targets_path):
+def _named_files(con, data_dir, payer, targets_path):
     """`named_files`: (network_id, file_id, name) for each file a target names
     that this month's index links to a plan on the network: the files that can
     price it. A network with none stops the step, since nothing it names prices it."""
     con.execute(f"""
         CREATE TEMP TABLE named_files AS
         SELECT DISTINCT t.network_id, i.file_id, i.name
-        FROM (SELECT network_id, unnest(files) AS name FROM targets) t
-        JOIN {_read(data_dir, _INDEX_FILES)} i USING (name)
-        JOIN {_read(data_dir, _INDEX_LINKS)} l USING (file_id)
-        JOIN {_read(data_dir, _EXCHANGE_PLANS)} p ON p.plan_id = l.plan_id AND p.network_id = t.network_id
+        FROM (SELECT network_id, unnest(file_likes) AS file_like FROM targets) t
+        JOIN {_read(data_dir, _INDEX_FILES, payer)} i ON lower(i.name) LIKE t.file_like ESCAPE '!'
+        JOIN {_read(data_dir, _INDEX_LINKS, payer)} l USING (file_id)
+        JOIN {_read(data_dir, _EXCHANGE_PLANS)} p ON {_LINKS_PLAN} AND p.network_id = t.network_id
     """)
     unnamed = con.execute("""
         SELECT target, network_id, files FROM targets
@@ -185,7 +193,7 @@ def _named_files(con, data_dir, targets_path):
                          f"nothing {targets_path} names prices it. Name the file that does, and run `make parse`")
 
 
-def _network_files(con, data_dir, targets_path):
+def _network_files(con, data_dir, payer, targets_path):
     """`network_files`: (network_id, file_id, network_name, own_label) for
     each label a target network's rates carry in a parsed file that can price
     it, and `labels`: every label in each parsed file. Labels match the way the
@@ -194,9 +202,9 @@ def _network_files(con, data_dir, targets_path):
     in a file that carries one of the network's own labels, and `own_label`
     says whether a label is one of the network's own. Two parsed files
     carrying one network's labels stop the step: one file prices a network."""
-    if glob.glob(f"{data_dir}/{_RAW_RATES[0]}"):
+    if glob.glob(f"{data_dir}/{_RAW_RATES[0].format(payer=payer)}"):
         con.execute(f"CREATE TEMP TABLE labels AS "
-                    f"SELECT DISTINCT file_id, network_name FROM {_read(data_dir, _RAW_RATES)}")
+                    f"SELECT DISTINCT file_id, network_name FROM {_read(data_dir, _RAW_RATES, payer)}")
     else:
         con.execute("CREATE TEMP TABLE labels (file_id BIGINT, network_name VARCHAR)")
     con.execute("""
@@ -230,14 +238,14 @@ def _network_files(con, data_dir, targets_path):
                          f"(ingestion/etl/mrf-model.md#one-plan-one-contract). Name only the one that does")
 
 
-def _check_plans(con, data_dir):
+def _check_plans(con, data_dir, payer):
     """Every plan on a target network is priced by the network's file, so the
-    index has to link each one to that file."""
+    index has to link each one to that file, by plan ID or product ID."""
     unlinked = con.execute(f"""
         SELECT DISTINCT p.plan_id, p.network_id, f.file_id
         FROM {_read(data_dir, _EXCHANGE_PLANS)} p JOIN network_files f USING (network_id)
-        WHERE NOT EXISTS (SELECT 1 FROM {_read(data_dir, _INDEX_LINKS)} l
-                          WHERE l.file_id = f.file_id AND l.plan_id = p.plan_id)
+        WHERE NOT EXISTS (SELECT 1 FROM {_read(data_dir, _INDEX_LINKS, payer)} l
+                          WHERE l.file_id = f.file_id AND {_LINKS_PLAN})
         ORDER BY p.plan_id
     """).fetchone()
     if unlinked:
@@ -247,22 +255,23 @@ def _check_plans(con, data_dir):
                          f"(ingestion/etl/mrf-model.md#one-plan-one-contract)")
 
 
-def _records(con, data_dir):
+def _records(con, data_dir, payer):
     """`records`: what the latest parse of each file made of it
     (ingestion/etl/parse.md#when-parse-downloads-a-file), with `rates_from`, when
-    Anthem updated the copy whose rates are on disk. A parsed record's rates
-    are the copy it read."""
-    if not glob.glob(f"{data_dir}/{_PARSES[0]}"):
+    the payer updated the copy whose rates are on disk. A parsed record's rates
+    are the copy it read, which an older record calls `anthem_updated_at`."""
+    if not glob.glob(f"{data_dir}/{_PARSES[0].format(payer=payer)}"):
         con.execute("CREATE TEMP TABLE records (file_id BIGINT, status VARCHAR, reason VARCHAR, "
                     "finished_at TIMESTAMPTZ, rates_from TIMESTAMPTZ)")
         return
-    source = _read(data_dir, _PARSES)
+    source = _read(data_dir, _PARSES, payer)
     columns = {c for c, *_ in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()}
     kept = "rates_updated_at" if "rates_updated_at" in columns else "NULL::TIMESTAMPTZ"
+    read = ", ".join(c for c in ("updated_at", "anthem_updated_at") if c in columns) or "NULL::TIMESTAMPTZ"
     con.execute(f"""
         CREATE TEMP TABLE records AS
         SELECT file_id, status, reason, finished_at,
-               coalesce({kept}, CASE WHEN status = 'parsed' THEN anthem_updated_at END) AS rates_from
+               coalesce({kept}, CASE WHEN status = 'parsed' THEN coalesce({read}) END) AS rates_from
         FROM {source}
     """)
 
@@ -272,7 +281,7 @@ def _networks(con):
     latest copy of its file; `stale`, from an earlier copy because the latest
     parse failed or skipped it; or `missing`, because no parsed file prices it,
     and then it has none. `file` is the file they're from, `file_updated_at`
-    when Anthem updated that copy, and `reason` says why they aren't current.
+    when the payer updated that copy, and `reason` says why they aren't current.
     A run with no network priced stops the step: everything after it needs one."""
     files = con.execute("""
         SELECT n.network_id, t.patterns, n.file_id, n.name, n.file_id IN (SELECT file_id FROM network_files
@@ -327,9 +336,9 @@ def _why(candidate, patterns):
     return f"{name} carries no label matching {patterns}, only {shown}"
 
 
-def warning(out_dir):
+def warning(out_dir, payer):
     """What the published networks.parquet under `out_dir` says about every
-    network whose rates aren't from Anthem's latest copy, as a banner, or ""."""
+    network of `payer` whose rates aren't from its latest copy, as a banner, or ""."""
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
     rows = con.execute(f"""
@@ -339,12 +348,13 @@ def warning(out_dir):
     con.close()
     if not rows:
         return ""
-    lines = ["⚠️  NETWORKS WITHOUT RATES FROM ANTHEM'S LATEST COPY"]
+    label = payer.capitalize()
+    lines = [f"⚠️  NETWORKS WITHOUT RATES FROM {label.upper()}'S LATEST COPY"]
     for net, status, file, as_of, reason in rows:
         if status == "missing":
             lines.append(f"{net} has no rates, so nothing is published for it: {reason}")
         else:
-            lines.append(f"{net}'s rates are from the copy of {file} Anthem updated on "
+            lines.append(f"{net}'s rates are from the copy of {file} {label} updated on "
                          f"{as_of or 'a date it did not give'}: {reason}")
     lines.append("Every other network is published as usual.")
     return "\n".join([f"╔{_BAR}", *(f"║ {line}" for line in lines), f"╚{_BAR}"])
@@ -361,13 +371,27 @@ def _swap(staged, out_dir):
     shutil.rmtree(old, ignore_errors=True)
 
 
-def read_targets(path=TARGETS_PATH):
+def read_targets(path=TARGETS_PATH, payer=None):
     """[(name, exchange_networks, files, network_patterns, shared_patterns)]
-    for each target in ingestion/etl/targets.yaml."""
+    for each target of `payer` in ingestion/etl/targets.yaml (every target's when
+    it is None). Every target has to name its payer."""
+    return [(t.get("name"), t.get("exchange_networks") or [], t.get("files") or [],
+             t.get("network_patterns") or [], t.get("shared_patterns") or [])
+            for t in _read_targets(path) if payer is None or t["payer"] == payer]
+
+
+def target_payers(path=TARGETS_PATH):
+    """The payers ingestion/etl/targets.yaml names, in the order it first does."""
+    return list(dict.fromkeys(t["payer"] for t in _read_targets(path)))
+
+
+def _read_targets(path):
     with open(path) as f:
         targets = (yaml.safe_load(f) or {}).get("targets") or []
-    return [(t.get("name"), t.get("exchange_networks") or [], t.get("files") or [],
-             t.get("network_patterns") or [], t.get("shared_patterns") or []) for t in targets]
+    for t in targets:
+        if not str(t.get("payer") or "").strip():
+            raise SystemExit(f"{path}: target {t.get('name')!r} names no payer")
+    return targets
 
 
 def _like(pattern):
@@ -382,15 +406,29 @@ def main():
     ap.add_argument("--data-dir", default=os.getenv("DATA_DIR", "/app/data"))
     ap.add_argument("--test", action="store_true", help="read and write under data-test/")
     ap.add_argument("--targets", default=TARGETS_PATH, help="the target-plan list (default ingestion/etl/targets.yaml)")
+    ap.add_argument("--payer", help="publish only this payer (default every payer the targets name)")
+    ap.add_argument("--out-dir", help="write <out-dir>/<payer>/ instead of data/ingestion/payer_rates/<payer>/")
     args = ap.parse_args()
     data_dir = "data-test" if args.test else args.data_dir
-    out_dir = store_dir(data_dir, args.test, "payer_rates/anthem")
-    rows = publish(data_dir, out_dir, args.targets)
-    for name, n in rows.items():
-        print(f"  payer_rates/anthem/{name + '.parquet':<20} {n:>13,}")
-    banner = warning(out_dir)
-    if banner:
-        print(banner)
+    payers = [args.payer] if args.payer else target_payers(args.targets)
+    failed = []
+    for payer in payers:
+        out_dir = (f"{args.out_dir}/{payer}" if args.out_dir
+                   else store_dir(data_dir, args.test, f"payer_rates/{payer}"))
+        try:
+            rows = publish(data_dir, out_dir, payer, args.targets)
+        except SystemExit as e:
+            # One payer's mistake leaves its last files, and the others still publish.
+            print(f"{payer}: {e}", file=sys.stderr)
+            failed.append(payer)
+            continue
+        for name, n in rows.items():
+            print(f"  payer_rates/{payer}/{name + '.parquet':<20} {n:>13,}")
+        banner = warning(out_dir, payer)
+        if banner:
+            print(banner)
+    if failed:
+        raise SystemExit(f"not published: {', '.join(failed)}")
 
 
 if __name__ == "__main__":

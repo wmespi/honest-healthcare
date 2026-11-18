@@ -4,7 +4,7 @@
 network, file, billing code, and provider relate — or why the same rate shows up
 in more than one file. Conceptual; there is no `make` target for it.*
 
-Anthem's Machine-Readable Files are mandated by the Transparency in Coverage rule
+Each payer's Machine-Readable Files (Anthem's, Ambetter's) are mandated by the Transparency in Coverage rule
 (45 CFR § 147.210). The authoritative schema — valid `negotiated_type` values, whether
 `setting` is always present, etc. — is the CMS guide:
 
@@ -17,7 +17,7 @@ Anthem's Machine-Readable Files are mandated by the Transparency in Coverage rul
 ## How plan, network, file, and provider relate
 
 ```
-ANTHEM MASTER INDEX  (YYYY-MM-01_anthem_index.json.gz)
+PAYER MASTER INDEX  (Anthem: YYYY-MM-01_anthem_index.json.gz)
   │ reporting_structure[]  — one entry per PLAN
   ▼
 PLAN   plan_name "BLUE VALUE IND NETWORK HMO - INDIV - ANTHEM"
@@ -50,6 +50,11 @@ PLAN  1─N  RATE FILE  1─N  BILLING CODE  1─N  NEGOTIATED PRICE
                                           └─  PROVIDER_REFERENCE (by id)
                                                  └─ PROVIDER GROUP (TIN)  1─N  NPI[]
 ```
+
+Ambetter's index and file follow the same model with a few differences ([discover.md](discover.md#where-each-payers-index-is)):
+the index lists each plan by its 10-character HIOS product ID (`70893GA001`), which stands for every 14-character plan ID under it;
+one file prices all of Georgia's Ambetter networks, each under its own `network_name` label, and the file is plain JSON whose name carries a date that changes monthly;
+and its `npi` values are JSON integers and its `tin` an EIN (`tin.type` `ein`), which publishes as the file gives it.
 
 `billing_code + billing_code_type` is the procedure key. `provider_group_id` is
 **file-local** — every cross-file join keys on `(file_id, provider_group_id)`.
@@ -119,6 +124,6 @@ Blue Value shows why the network label isn't enough. `GA_JBNKMED0001` and
 `GA_JBKEMED0001` both carry `GA Blue Value HIX Individual Network`, but they serve
 different plan IDs at different prices: `GA_JBKEMED0001` prices only `45334GA0010112`,
 an older plan that isn't on Georgia's exchange. The rest of the files linked to the
-plan are out-of-state BlueCard copies that don't carry its label. So `ingestion/etl/targets.yaml` names each plan's file, and `etl parse` stops unless the index links it to the plan IDs on the target exchange networks ([parse.md](parse.md#target-selection)).
+plan are out-of-state BlueCard copies that don't carry its label. So `ingestion/etl/targets.yaml` names each plan's file, and `etl parse` stops unless the index links it to the plan IDs on the target exchange networks, or their product IDs ([parse.md](parse.md#target-selection)).
 A label never selects a file.
 Parse's last step then publishes each network's rates under its target's labels, from the parsed files the index links to the network's plans, and stops unless exactly one of them carries those labels ([parse.md](parse.md#publishing-the-rates-by-network)).

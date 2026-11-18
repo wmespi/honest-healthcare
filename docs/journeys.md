@@ -14,6 +14,7 @@ journey can start from one (coverage: `application/frontend/src/findCare/*.test.
 | **Rosa** | 63, near retirement, individual HMO in Georgia - the primary use case ([AGENTS.md](../AGENTS.md)) | Anthem Silver Blue Value HMO 4000 (`45334GA0020002`), on Blue Value |
 | **Sam** | Downtown Atlanta, on one of the Pathway networks, whose files price hospitals' own fees | Anthem Gold Pathway PCP Copay Choice HMO 1200 (`49046GA0700055`), on Pathway |
 | **Jordan** | 26, on a catastrophic plan, whose copay covers only the first few primary care visits | Anthem Catastrophic Pathway Guided Access HMO 10600 First 3 PCP Visits $40 (`49046GA0700010`), on Pathway Guided Access |
+| **Lee** | Near Emory, insured by Ambetter rather than Anthem | Ambetter Standard Silver HMO $6000 $40 (`70893GA0010077`), on Premier |
 | **Dana** | Comparison shopper with no plan yet | none |
 
 ## Flow A - find imaging care
@@ -72,6 +73,13 @@ Expected for all: the place shows the facility's fee and the doctor's as separat
 | ID | Journey | Clickpath | Expected |
 |---|---|---|---|
 | J22 | Jordan: a primary care visit | Office visits → Office visit, returning patient, 20 to 29 minutes → Primary care → their plan | The Emory Clinic's visit; their share is a $40 copay for the first visits the plan covers before the deductible, then the whole rate until the deductible |
+
+## Flow A - another insurer
+
+| ID | Journey | Clickpath | Expected |
+|---|---|---|---|
+| J23 | Lee: cataract surgery | Eye surgery and injections → Cataract removal with a new lens → their plan | Emory University Hospital's surgeon's fee from the plan's file, which prices it only for the right or left eye, with the hospital's fee missing |
+| J24 | Lee: physical therapy | Physical and occupational therapy → Exercise therapy, per 15 minutes → their plan | Independent Physical Therapy of Georgia's rate for 15 minutes, which the plan's file gives only under a therapist's plan of care; their share is a copay |
 
 ## No plan
 

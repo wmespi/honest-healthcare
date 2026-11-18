@@ -16,12 +16,12 @@ import (
 	"github.com/wmespi/honest-healthcare/ingestion/etl/nppes"
 )
 
-const usageText = `etl — Anthem MRF ingestion
+const usageText = `etl — payer MRF ingestion
 
 Usage: etl <command> [flags]
 
 Commands:
-  discover        Write this month's file list and plan links from the Anthem master index
+  discover        Write this month's file list and plan links from each payer's master index
   parse           Stream the files ingestion/etl/targets.yaml names into Parquet
   nppes           Download the NPPES national file, write Georgia's providers and their secondary locations
   hospital-rates  Download the price files of the hospitals ingestion/etl/hospitals.yaml lists, write each one's rates
@@ -62,12 +62,20 @@ func main() {
 	}
 }
 
-func resolveIndexURL(override string) {
-	if override != "" {
-		core.IndexURL = override
-	} else {
-		core.IndexURL = core.DefaultIndexURL()
+// payersFor is the payers a -payer flag names: all of them when it is empty,
+// unless an override names one payer's file, which is then Anthem's.
+func payersFor(name string, override bool) []core.Payer {
+	if name == "" && override {
+		name = "anthem"
 	}
+	if name == "" {
+		return core.Payers
+	}
+	p, err := core.PayerByName(name)
+	if err != nil {
+		log.Fatalf("❌ %v", err)
+	}
+	return []core.Payer{p}
 }
 
 // splitList turns "a,b" into ["a", "b"], and "" into nil.
@@ -86,9 +94,10 @@ func splitList(spec string) []string {
 func cmdDiscover(args []string) {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
 	test := fs.Bool("test", false, "isolated test mode (../data-test/)")
-	schemaOnly := fs.Bool("index-schema", false, "stream the index, write data/raw/anthem/index_schema.json and nothing else")
+	payer := fs.String("payer", "", "read only this payer's index (anthem, ambetter; default every payer)")
+	schemaOnly := fs.Bool("index-schema", false, "stream the index, write data/raw/<payer>/index_schema.json and nothing else")
 	limit := fs.Int("limit", 0, "cap reporting structures, with -test or -index-schema only (default 100 in test mode)")
-	indexURL := fs.String("index-url", "", "override the monthly master-index URL")
+	indexURL := fs.String("index-url", "", "override the monthly master-index URL (with -payer; Anthem's without)")
 	noCache := fs.Bool("no-cache", false, "download the master index again even if a copy of this month's is kept")
 	keepIndex := fs.Bool("keep-index", false, "keep the downloaded master index after the run, so the next run of the month reads it from disk")
 	_ = fs.Parse(args)
@@ -105,8 +114,11 @@ func cmdDiscover(args []string) {
 	if *limit > 0 && !*test && !*schemaOnly {
 		log.Fatalf("❌ -limit reads part of the index, so it runs only with -test or -index-schema")
 	}
-	resolveIndexURL(*indexURL)
-	discovery.Run(discovery.Options{Limit: *limit, KeepIndex: *keepIndex, NoCache: *noCache, SchemaOnly: *schemaOnly})
+	err := discovery.RunAll(payersFor(*payer, *indexURL != ""), discovery.Options{
+		Limit: *limit, KeepIndex: *keepIndex, NoCache: *noCache, SchemaOnly: *schemaOnly, IndexURL: *indexURL})
+	if err != nil {
+		log.Fatalf("❌ %v", err)
+	}
 }
 
 // ── parse ───────────────────────────────────────────────────────────────────
@@ -114,14 +126,14 @@ func cmdDiscover(args []string) {
 func cmdParse(args []string) {
 	fs := flag.NewFlagSet("parse", flag.ExitOnError)
 	test := fs.Bool("test", false, "isolated test mode (../data-test/)")
-	limit := fs.Int("limit", 0, "cap files processed (default 1 in test mode)")
+	payer := fs.String("payer", "", "parse only this payer's targets (anthem, ambetter; default every payer, and Anthem for -files and -fixture)")
+	limit := fs.Int("limit", 0, "cap files processed per payer (default 1 in test mode)")
 	files := fs.String("files", "", "comma-separated file names from this month's index to parse now (skips target selection and the parse record)")
 	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only the files it names are parsed ("" needs -files or -fixture, and turns off the probe's network signal)`)
-	fixturePath := fs.String("fixture", "", "parse a local *.json.gz instead of a file from the index")
+	fixturePath := fs.String("fixture", "", "parse a local *.json.gz (or plain *.json) instead of a file from the index")
 	allNPIs := fs.Bool("all-npis", false, "keep every NPI/rate (disable the GA NPPES filter)")
 	minGroups := fs.Int("min-groups", 1, "probe: abort a file before in_network unless this many provider groups survive the filter (0 = no overlap check)")
 	dryRun := fs.Bool("dry-run", false, "stream only, skip all writes")
-	indexURL := fs.String("index-url", "", "override the monthly master-index URL")
 	_ = fs.Parse(args)
 
 	if *test {
@@ -131,9 +143,9 @@ func cmdParse(args []string) {
 		}
 		log.Println("🧪 Test mode enabled - writing to ../data-test/")
 	}
-	resolveIndexURL(*indexURL)
 
 	err := extraction.Run(context.Background(), extraction.Options{
+		Payer:     *payer,
 		Files:     splitList(*files),
 		Targets:   *targets,
 		Limit:     *limit,
@@ -197,24 +209,22 @@ func cmdHospitalRates(args []string) {
 
 func cmdFixture(args []string) {
 	fs := flag.NewFlagSet("fixture", flag.ExitOnError)
-	file := fs.String("file", "", "name of the file in this month's index to build the fixture from")
+	payer := fs.String("payer", "anthem", "the payer whose index lists -file")
+	file := fs.String("file", "", "name of the file in the payer's index this month to build the fixture from")
 	url := fs.String("url", "", "source URL (alternative to -file)")
 	name := fs.String("name", "", "output name (default: the file's name)")
-	indexURL := fs.String("index-url", "", "override the monthly master-index URL")
 	_ = fs.Parse(args)
-
-	resolveIndexURL(*indexURL)
 
 	switch {
 	case *url != "":
 		fixture.Make(*url, *name)
 	case *file != "":
-		f, err := extraction.FindFile(*file)
+		f, err := extraction.FindFile(*payer, *file)
 		if err != nil {
 			log.Fatalf("❌ %v", err)
 		}
 		if *name == "" {
-			*name = strings.TrimSuffix(f.Name, ".json.gz")
+			*name = strings.TrimSuffix(strings.TrimSuffix(f.Name, ".gz"), ".json")
 		}
 		fixture.Make(f.Location, *name)
 	default:

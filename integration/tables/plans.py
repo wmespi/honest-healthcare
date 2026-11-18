@@ -10,7 +10,11 @@ class Plans(Table):
     `metal_level`, `deductible` and `needs_referral` are one row, keyed on the
     lowest of their IDs, and `plan_ids` has every ID the row stands for, sorted.
     A plan's cost-sharing versions share its row, and its name is Georgia's,
-    as published (ingestion/reference/exchange-plans.md). `deductible` is the standard
+    as published (ingestion/reference/exchange-plans.md). `carrier` is Georgia's
+    marketing name for the insurer, or only the name after "DBA" where it gives
+    the company that does business under it ("Centene Corporation DBA Ambetter
+    from Peach State Health Plan" is "Ambetter from Peach State Health Plan").
+    `deductible` is the standard
     version's in-network deductible for one person, in dollars. A plan is priced
     by its network's rates."""
     name = "plans"
@@ -21,7 +25,8 @@ class Plans(Table):
 
     def select(self, data_dir):
         return f"""
-            SELECT min(plan_id) AS plan_id, name, min(carrier) AS carrier, metal_level, needs_referral,
+            SELECT min(plan_id) AS plan_id, name,
+                   min(regexp_replace(carrier, '^.+\\s(DBA|D/B/A)\\s+', '', 'i')) AS carrier, metal_level, needs_referral,
                    network_id, deductible, list_sort(list(plan_id)) AS plan_ids
             FROM {EXCHANGE_PLANS.read(data_dir)}
             WHERE network_id IN (SELECT network_id FROM networks WHERE prices_status != 'missing')

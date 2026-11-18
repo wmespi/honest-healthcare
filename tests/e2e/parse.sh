@@ -112,14 +112,14 @@ cp "ingestion/etl/$FIXTURE" data-test/raw/e2e_http/GA_NAMED.json.gz
 touch -t 202610170400 data-test/raw/e2e_http/GA_NAMED.json.gz
 serve_start e2e_http "$PORT"
 docker compose exec -T ingestion go run . discover -test -index-url "$HOST/index.json.gz"
-printf 'targets:\n  - name: Blue Value\n    exchange_networks: ["45334-GAN001"]\n    files: ["GA_NAMED.json.gz"]\n' > data-test/raw/e2e_targets.yaml
+printf 'targets:\n  - name: Blue Value\n    payer: anthem\n    exchange_networks: ["45334-GAN001"]\n    files: ["GA_NAMED.json.gz"]\n' > data-test/raw/e2e_targets.yaml
 parse_named() { docker compose exec -T ingestion go run . parse -test -targets data-test/raw/e2e_targets.yaml; }
 
 parse_named
 echo "   named file: $(record GA_NAMED.json.gz status)  unnamed file: '$(record "$SHARD_NAME" status)'"
 [ "$(record GA_NAMED.json.gz status)" = "parsed" ] || { echo "FAIL: the named file wasn't parsed"; exit 1; }
 [ -z "$(record "$SHARD_NAME" status)" ] || { echo "FAIL: parse touched a file the targets don't name"; exit 1; }
-READ=$(record GA_NAMED.json.gz anthem_updated_at)
+READ=$(record GA_NAMED.json.gz updated_at)
 DONE=$(record GA_NAMED.json.gz finished_at)
 [ -n "$READ" ] || { echo "FAIL: parse didn't record which update of the file it read"; exit 1; }
 
@@ -128,9 +128,9 @@ parse_named
 [ "$(record GA_NAMED.json.gz finished_at)" = "$DONE" ] || { echo "FAIL: parse downloaded an unchanged file again"; exit 1; }
 touch -t 202610310400 data-test/raw/e2e_http/GA_NAMED.json.gz
 parse_named
-echo "   read the update from $READ, then $(record GA_NAMED.json.gz anthem_updated_at)"
+echo "   read the update from $READ, then $(record GA_NAMED.json.gz updated_at)"
 [ "$(record GA_NAMED.json.gz finished_at)" != "$DONE" ] || { echo "FAIL: parse didn't download the updated file"; exit 1; }
-[ "$(record GA_NAMED.json.gz anthem_updated_at)" != "$READ" ] || { echo "FAIL: parse didn't record the update it read"; exit 1; }
+[ "$(record GA_NAMED.json.gz updated_at)" != "$READ" ] || { echo "FAIL: parse didn't record the update it read"; exit 1; }
 [ -z "$(record "$SHARD_NAME" status)" ] || { echo "FAIL: parse touched a file the targets don't name"; exit 1; }
 
 echo "→ a failed file waits until someone names it"
@@ -161,12 +161,12 @@ cut_pathway() {  # cut_pathway <touch time>: serve half of Pathway's file, updat
 cut_pathway 202611010400
 BOTH=data-test/raw/e2e_targets_both.yaml
 printf '%s\n' 'targets:' \
-  '  - name: Blue Value' '    exchange_networks: ["45334-GAN001"]' '    files: ["GA_NAMED.json.gz"]' \
+  '  - name: Blue Value' '    payer: anthem' '    exchange_networks: ["45334-GAN001"]' '    files: ["GA_NAMED.json.gz"]' \
   '    network_patterns: ["GA Blue Value HIX*"]' \
-  '  - name: Pathway' '    exchange_networks: ["49046-GAN008"]' '    files: ["GA_PATHWAY.json.gz"]' \
+  '  - name: Pathway' '    payer: anthem' '    exchange_networks: ["49046-GAN008"]' '    files: ["GA_PATHWAY.json.gz"]' \
   '    network_patterns: ["Pathway PCP Copay Choice*"]' > "$BOTH"
 parse_both() { docker compose exec -T ingestion go run . parse -test -limit 10 -targets "$BOTH" 2>&1; }
-publish_both() { docker compose exec -T -w /app ingestion python3 -m ingestion.anthem_rates --test --targets "$BOTH" 2>&1; }
+publish_both() { docker compose exec -T -w /app ingestion python3 -m ingestion.payer_rates --test --targets "$BOTH" 2>&1; }
 networks() {  # each published network as "<id> <status> <file_updated_at date>", one per line
   docker compose exec -T ingestion python3 -c "
 import duckdb

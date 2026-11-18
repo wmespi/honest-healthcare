@@ -1,4 +1,4 @@
-"""Anthem's rates by Georgia network (ingestion/anthem_rates.py): which parsed
+"""A payer's rates by Georgia network (ingestion/payer_rates.py): which parsed
 file and labels price each target network, what the step publishes, and how
 fresh it says each network's rates are."""
 import os
@@ -7,8 +7,8 @@ import sys
 
 import pytest
 
-from ingestion.anthem_rates import read_targets, warning
-from ingestion.tests.conftest import _RECORD
+from ingestion.payer_rates import read_targets, target_payers, warning
+from ingestion.tests.conftest import _LEGACY_RECORD, _RECORD, AMBETTER_FILE
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -28,7 +28,7 @@ def test_each_network_gets_its_files_rates_and_the_groups_they_use(anthem):
         ("49046-GAN008", 50, 2000000005, "npi", "1000000005")]
     assert anthem.networks() == [BLUE_VALUE_CURRENT,
                                  ("49046-GAN008", "current", "GA_PW.json.gz", "2026-10-31", None)]
-    assert warning(anthem.out) == ""
+    assert warning(anthem.out, "anthem") == ""
 
 
 def test_the_same_files_publish_the_same_bytes(anthem):
@@ -47,7 +47,7 @@ def test_a_network_whose_file_failed_its_first_parse_is_left_out_and_says_why(an
     assert anthem.networks() == [BLUE_VALUE_CURRENT, (
         "49046-GAN008", "missing", None, None,
         "the latest parse of GA_PW.json.gz, on 2026-11-07 18:14:12, failed: malformed MRF: in_network[0]: unexpected EOF")]
-    assert "49046-GAN008 has no rates, so nothing is published for it: the latest parse of GA_PW" in warning(anthem.out)
+    assert "49046-GAN008 has no rates, so nothing is published for it: the latest parse of GA_PW" in warning(anthem.out, "anthem")
 
 
 def test_a_network_whose_newer_copy_failed_keeps_its_rates_and_says_they_are_stale(anthem):
@@ -57,7 +57,7 @@ def test_a_network_whose_newer_copy_failed_keeps_its_rates_and_says_they_are_sta
         "49046-GAN008", "stale", "GA_PW.json.gz", "2026-10-31",
         "the latest parse of GA_PW.json.gz, on 2026-11-07 18:14:12, failed: short read: got 10 of 20 compressed bytes")
     assert ("49046-GAN008's rates are from the copy of GA_PW.json.gz Anthem updated on 2026-10-31: "
-            "the latest parse") in warning(anthem.out)
+            "the latest parse") in warning(anthem.out, "anthem")
 
 
 def test_a_network_whose_newer_copy_the_probe_skipped_is_stale(anthem):
@@ -78,12 +78,21 @@ def test_a_parsed_record_from_before_rates_updated_at_dates_the_copy_it_read(ant
     assert anthem.networks()[0] == BLUE_VALUE_CURRENT
 
 
+def test_a_record_from_before_payers_names_the_copys_date_anthem_updated_at(anthem):
+    legacy = {c: t for c, t in _LEGACY_RECORD.items() if c != "rates_updated_at"}
+    anthem.record(21057, "parsed", columns=legacy)
+    anthem.record(701, "parsed", columns=_LEGACY_RECORD)
+    anthem.publish()
+    assert anthem.networks()[0] == BLUE_VALUE_CURRENT
+    assert anthem.networks()[1][1:4] == ("current", "GA_PW.json.gz", "2026-10-31")
+
+
 def test_rates_with_no_parse_record_are_stale_since_nothing_dates_them(anthem):
     anthem.remove_record(701)
     anthem.publish()
     assert anthem.networks()[1] == ("49046-GAN008", "stale", "GA_PW.json.gz", None,
                                     "GA_PW.json.gz has no parse record, so nothing says which copy its rates are from")
-    assert "Anthem updated on a date it did not give" in warning(anthem.out)
+    assert "Anthem updated on a date it did not give" in warning(anthem.out, "anthem")
 
 
 def test_a_network_whose_file_was_never_parsed_is_left_out(anthem):
@@ -191,35 +200,35 @@ def test_a_failed_check_leaves_the_last_rates_as_they_were(anthem):
 
 
 def test_two_targets_naming_one_network_stop_the_step(anthem):
-    anthem.add_target('  - name: Blue Value again\n    exchange_networks: ["45334-GAN001"]\n'
+    anthem.add_target('  - name: Blue Value again\n    payer: anthem\n    exchange_networks: ["45334-GAN001"]\n'
                       '    files: ["GA_BV.json.gz"]\n    network_patterns: ["GA Blue Value HIX*"]\n')
     with pytest.raises(SystemExit, match=r"targets \['Blue Value', 'Blue Value again'\] each name 45334-GAN001"):
         anthem.publish()
 
 
 def test_a_blank_network_in_the_targets_file_stops_the_step(anthem):
-    anthem.add_target('  - name: Blank\n    exchange_networks:\n      -\n'
+    anthem.add_target('  - name: Blank\n    payer: anthem\n    exchange_networks:\n      -\n'
                       '    files: ["GA_BV.json.gz"]\n    network_patterns: ["GA Blue Value HIX*"]\n')
     with pytest.raises(SystemExit, match="target 'Blank' names a blank exchange network"):
         anthem.publish()
 
 
 def test_a_target_that_names_no_files_stops_the_step(anthem):
-    anthem.add_target('  - name: Fileless\n    exchange_networks: ["58081-GAN001"]\n'
+    anthem.add_target('  - name: Fileless\n    payer: anthem\n    exchange_networks: ["58081-GAN001"]\n'
                       '    network_patterns: ["Individual Georgia HMO*"]\n')
     with pytest.raises(SystemExit, match="target 'Fileless' names no files, so nothing can price its networks"):
         anthem.publish()
 
 
 def test_a_network_georgia_doesnt_list_stops_the_step(anthem):
-    anthem.add_target('  - name: Typo\n    exchange_networks: ["45334-GAN009"]\n'
+    anthem.add_target('  - name: Typo\n    payer: anthem\n    exchange_networks: ["45334-GAN009"]\n'
                       '    files: ["GA_BV.json.gz"]\n    network_patterns: ["GA Blue Value HIX*"]\n')
     with pytest.raises(SystemExit, match="45334-GAN009 isn't a network in Georgia's exchange files"):
         anthem.publish()
 
 
 def test_a_network_with_no_plans_stops_the_step(anthem):
-    anthem.add_target('  - name: Untargeted\n    exchange_networks: ["58081-GAN001"]\n'
+    anthem.add_target('  - name: Untargeted\n    payer: anthem\n    exchange_networks: ["58081-GAN001"]\n'
                       '    files: ["GA_PW.json.gz"]\n    network_patterns: ["Individual Georgia HMO*"]\n')
     anthem.remove_plans("58081-GAN001")
     with pytest.raises(SystemExit, match="no plan in Georgia's exchange plan file is on 58081-GAN001"):
@@ -230,11 +239,63 @@ def test_every_target_in_the_targets_file_names_networks_files_and_labels():
     """ingestion/etl/targets.yaml itself: every target pairs exchange networks with files and labels."""
     for name, nets, files, patterns, _ in read_targets():
         assert nets and files and patterns, name
+    assert target_payers() == ["anthem", "ambetter"]
+    assert {n for name, nets, *_ in read_targets(payer="ambetter") for n in nets} == {
+        f"70893-GAN00{i}" for i in range(1, 6)}
+
+
+def test_a_target_without_a_payer_stops_the_step(anthem):
+    anthem.add_target('  - name: Payerless\n    exchange_networks: ["58081-GAN001"]\n    files: ["GA_PW.json.gz"]\n')
+    with pytest.raises(SystemExit, match="target 'Payerless' names no payer"):
+        anthem.publish()
+
+
+def test_a_payers_publish_reads_only_its_own_targets_and_files(anthem):
+    # The targets file names Ambetter's networks too, which Anthem's publish ignores.
+    assert anthem.publish() == {"rates": 2, "rate_groups": 2, "rosters": 3, "networks": 2}
+    assert [r[0] for r in anthem.networks()] == ["45334-GAN001", "49046-GAN008"]
+
+
+def test_ambetters_one_plain_file_prices_each_of_its_networks_by_product_id(ambetter):
+    assert ambetter.publish() == {"rates": 2, "rate_groups": 2, "rosters": 2, "networks": 2}
+    assert [(r[0], r[1], r[6]) for r in ambetter.rows("rates")] == [
+        ("70893-GAN001", 1, 250.0), ("70893-GAN003", 2, 300.0)]
+    assert ambetter.rows("rate_groups") == [("70893-GAN001", 1, 10), ("70893-GAN003", 2, 20)]
+    # An EIN publishes as the file gives it, and the label no target names isn't published.
+    assert ambetter.rows("rosters") == [
+        ("70893-GAN001", 10, 3000000001, "ein", "86-2226051"),
+        ("70893-GAN003", 20, 3000000002, "ein", "86-2226051")]
+    assert ambetter.networks() == [("70893-GAN001", "current", AMBETTER_FILE, "2026-10-31", None),
+                                   ("70893-GAN003", "current", AMBETTER_FILE, "2026-10-31", None)]
+    assert warning(ambetter.out, "ambetter") == ""
+
+
+def test_a_plan_whose_product_the_index_doesnt_link_to_the_file_stops_the_step(ambetter):
+    ambetter.plan("70893GA0030099", "70893-GAN003")  # the same product, which the index lists
+    ambetter.publish()
+    ambetter.plan("70893GA0070001", "70893-GAN003")  # another product, which it doesn't
+    with pytest.raises(SystemExit, match="doesn't link 70893GA0070001 to file 5001, which prices its network 70893-GAN003"):
+        ambetter.publish()
+
+
+def test_a_pattern_that_matches_no_file_this_month_stops_the_step(ambetter):
+    ambetter.files.clear()
+    ambetter.file(5002, "2026-10-27_centene_ambetter-tx_in-network.json")
+    with pytest.raises(SystemExit, match="this month's index doesn't link .*ambetter-ga_in-network.json to a plan on 70893-GAN001"):
+        ambetter.publish()
+
+
+def test_a_payer_never_discovered_stops_its_publish_with_the_command_that_makes_it(anthem, tmp_path):
+    from ingestion.payer_rates import publish
+    anthem.plan("70893GA0010001", "70893-GAN001")
+    anthem.plan("70893GA0030002", "70893-GAN003")
+    with pytest.raises(SystemExit, match=r"make discover PAYER=ambetter"):
+        publish(anthem.root, f"{tmp_path}/out", "ambetter", anthem.targets)
 
 
 def test_ingestion_imports_nothing_from_the_layers_after_it():
     r = subprocess.run([sys.executable, "-c",
-                        "import importlib, pkgutil, sys, ingestion.anthem_rates, ingestion.reference; "
+                        "import importlib, pkgutil, sys, ingestion.payer_rates, ingestion.reference; "
                         "[importlib.import_module(f'ingestion.reference.{m.name}') "
                         " for m in pkgutil.iter_modules(ingestion.reference.__path__) if m.name != 'tests']; "
                         "print(sorted(m for m in sys.modules if m.split('.')[0] in ('integration', 'application')))"],

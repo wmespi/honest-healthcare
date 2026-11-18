@@ -19,6 +19,8 @@ import (
 // Add a fixture only when a file has a genuinely new shape, not one per file.
 func TestFixtures_Parse(t *testing.T) {
 	matches, _ := filepath.Glob("testdata/fixtures/*.json.gz")
+	plain, _ := filepath.Glob("testdata/fixtures/*.json") // Ambetter's files aren't gzipped
+	matches = append(matches, plain...)
 	if len(matches) == 0 {
 		t.Fatal("no fixtures found")
 	}
@@ -29,13 +31,17 @@ func TestFixtures_Parse(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer f.Close()
-			gz, err := gzip.NewReader(f)
-			if err != nil {
-				t.Fatal(err)
+			var doc io.Reader = f
+			if strings.HasSuffix(path, ".gz") {
+				gz, err := gzip.NewReader(f)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer gz.Close()
+				doc = gz
 			}
-			defer gz.Close()
 
-			res, err := streamMRF(gz, 1, true, nil, providerProbe{}, mrfWriters{}, nil)
+			res, err := streamMRF(doc, 1, true, nil, providerProbe{}, mrfWriters{}, nil)
 			if err != nil {
 				t.Fatalf("streamMRF: %v", err)
 			}

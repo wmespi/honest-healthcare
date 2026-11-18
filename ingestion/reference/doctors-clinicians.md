@@ -38,7 +38,7 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
   `org_pac_id` / `org_name` NULL.
 - **Every Georgia address**: `dac_locations_ga.parquet` keeps each Georgia address a clinician in scope is listed at, once, whichever of its groups lists it there.
 - **GA scope**: the NPIs on the rosters of every file parse has written,
-  `data/raw/anthem/providers/*.parquet` (providers we hold Anthem rates for, including
+  `data/raw/<payer>/providers/*.parquet`, every payer's (providers we hold rates for, including
   GA contractors practising out of state), falling back to `State = 'GA'` before any
   file is parsed.
 

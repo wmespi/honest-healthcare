@@ -1,9 +1,11 @@
 package fixture
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -28,8 +30,9 @@ const (
 // regression tests. Relative to the ingestion/etl/ working dir.
 const FixtureDir = "extraction/testdata/fixtures"
 
-// Make streams the gzipped MRF at url and writes a heavily truncated, deterministic
-// *.json.gz fixture: the first N provider_references, the first N in_network items
+// Make streams the MRF at url, gzipped or plain JSON whatever its name says, and
+// writes a heavily truncated, deterministic fixture in the same form (*.json.gz or
+// *.json): the first N provider_references, the first N in_network items
 // that reference a kept provider group (negotiated_rates filtered to kept groups
 // and capped), and every scalar root key verbatim. provider_references is emitted
 // before in_network so the parser's ordering assumption holds.
@@ -49,13 +52,19 @@ func Make(url, name string) {
 		log.Fatalf("❌ GET returned HTTP %d", resp.StatusCode)
 	}
 
-	gz, err := gzip.NewReader(core.NewProgressReader(resp.Body, resp.ContentLength))
-	if err != nil {
-		log.Fatalf("❌ gzip: %v", err)
+	br := bufio.NewReader(core.NewProgressReader(resp.Body, resp.ContentLength))
+	var src io.Reader = br
+	gzipped := false
+	if magic, err := br.Peek(2); err == nil && magic[0] == 0x1f && magic[1] == 0x8b {
+		gz, err := gzip.NewReader(br)
+		if err != nil {
+			log.Fatalf("❌ gzip: %v", err)
+		}
+		defer gz.Close()
+		src, gzipped = gz, true
 	}
-	defer gz.Close()
 
-	dec := json.NewDecoder(gz)
+	dec := json.NewDecoder(src)
 
 	rootScalars := map[string]json.RawMessage{}
 	var keptRefs []json.RawMessage
@@ -192,18 +201,25 @@ func Make(url, name string) {
 	if err := os.MkdirAll(FixtureDir, 0o755); err != nil {
 		log.Fatalf("❌ mkdir %s: %v", FixtureDir, err)
 	}
-	outPath := filepath.Join(FixtureDir, name+".json.gz")
+	outPath := filepath.Join(FixtureDir, name+".json")
+	if gzipped {
+		outPath += ".gz"
+	}
 	f, err := os.Create(outPath)
 	if err != nil {
 		log.Fatalf("❌ create %s: %v", outPath, err)
 	}
 	defer f.Close()
-	zw := gzip.NewWriter(f)
-	if _, err := zw.Write(pretty.Bytes()); err != nil {
+	if gzipped {
+		zw := gzip.NewWriter(f)
+		if _, err := zw.Write(pretty.Bytes()); err != nil {
+			log.Fatalf("❌ write fixture: %v", err)
+		}
+		if err := zw.Close(); err != nil {
+			log.Fatalf("❌ close gzip: %v", err)
+		}
+	} else if _, err := f.Write(pretty.Bytes()); err != nil {
 		log.Fatalf("❌ write fixture: %v", err)
-	}
-	if err := zw.Close(); err != nil {
-		log.Fatalf("❌ close gzip: %v", err)
 	}
 
 	fi, _ := f.Stat()

@@ -35,7 +35,9 @@
 #                     them: its `part`, the `label` the screen shows, and its
 #                     `billing_class`. A professional bill is priced from the plan's
 #                     rates with its `modifier` ("" for none), or with any of them
-#                     when it lists several, and `on_site` says only a place that
+#                     when it lists several, a rate naming several being the bill
+#                     that lists each, not counting a body site (BODY_SITES in
+#                     integration/inputs/biller_rates.py), and `on_site` says only a place that
 #                     does the service bills it. The institutional bill, at most one,
 #                     is the facility's own fee: a hospital's, or a center's where
 #                     `elsewhere` names it. A professional bill may name its own
@@ -244,7 +246,10 @@ families:
       - part: therapy
         label: The therapy
         billing_class: professional
-        modifier: ""
+        # GP, GO and GN say whose plan of care the therapy is under, a physical,
+        # occupational or speech therapist's, and 97 that it's rehabilitative: a
+        # plan's file often prices therapy under them alone.
+        modifier: ["", "GP", "GO", "GN", "97"]
         on_site: true
     elsewhere: [[therapy]]
 
