@@ -29,9 +29,15 @@
 # run `make reference STEP=hospital-rates ARGS="-only <ccn>"`.
 
 payers:
+  # Anthem's
   - anthem
   - 'blue ?cross'
   - bcbs
+  # Ambetter's, which files also list under its parent, Centene, or its Georgia
+  # plan, Peach State Health Plan
+  - ambetter
+  - centene
+  - 'peach ?state'
 
 hospitals:
   # Emory Healthcare
@@ -63,6 +69,10 @@ hospitals:
     name: Emory University Hospital Midtown
     index: https://www.emoryhealthcare.org/cms-hpt.txt
     location: Emory University Hospital Midtown
+  - ccn: "110129"
+    name: St. Francis Hospital Emory Healthcare
+    index: https://www.mystfrancis.com/cms-hpt.txt
+    location: St. Francis - Emory Healthcare
 
   # Grady Health System
   - ccn: "110079"
@@ -141,6 +151,14 @@ hospitals:
     name: Piedmont Walton
     index: https://www.piedmont.org/cms-hpt.txt
     location: Piedmont Walton
+  - ccn: "110164"
+    name: Piedmont Macon
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont Macon
+  - ccn: "110111"
+    name: Piedmont McDuffie
+    index: https://www.piedmont.org/cms-hpt.txt
+    location: Piedmont McDuffie
 
   # Wellstar
   - ccn: "110143"
@@ -197,3 +215,296 @@ hospitals:
     name: Northeast Georgia Medical Center Habersham
     index: https://www.nghs.com/cms-hpt.txt
     location: Northeast Georgia Medical Center Habersham
+
+  # Archbold
+  - ccn: "110038"
+    name: Archbold Memorial Hospital
+    index: https://www.archbold.org/cms-hpt.txt
+    location: Archbold Hospital
+  - ccn: "111331"
+    name: Archbold Mitchell
+    index: https://www.archbold.org/cms-hpt.txt
+    location: Archbold Mitchell
+  - ccn: "111332"
+    name: Archbold Brooks
+    index: https://www.archbold.org/cms-hpt.txt
+    location: Archbold Brooks
+  - ccn: "110121"
+    name: Archbold Grady
+    index: https://www.archbold.org/cms-hpt.txt
+    location: Archbold Grady
+
+  # Phoebe Health
+  - ccn: "110007"
+    name: Phoebe Putney Memorial Hospital
+    index: https://www.phoebehealth.com/cms-hpt.txt
+    location: Phoebe Putney
+  - ccn: "110044"
+    name: Phoebe Sumter Medical Center
+    index: https://www.phoebehealth.com/cms-hpt.txt
+    location: Phoebe Sumter
+  # Tanner Health System
+  - ccn: "110011"
+    name: Tanner Medical Center Carrollton
+    index: https://www.tanner.org/cms-hpt.txt
+    location: Tanner Medical Center/Carrollton
+  - ccn: "110015"
+    name: Tanner Medical Center Villa Rica
+    index: https://www.tanner.org/cms-hpt.txt
+    location: Tanner Medical Center/Villa Rica
+  - ccn: "111320"
+    name: Higgins General Hospital
+    index: https://www.tanner.org/cms-hpt.txt
+    location: Higgins General Hospital
+
+  # Union General Health System
+  - ccn: "110051"
+    name: Union General Hospital
+    index: https://www.uniongeneralhospital.com/cms-hpt.txt
+    location: Union General Hospital
+  - ccn: "111324"
+    name: Chatuge Regional Hospital
+    index: https://www.uniongeneralhospital.com/cms-hpt.txt
+    location: Chatuge Regional Hospital
+
+  # Atrium Health Navicent
+  - ccn: "110107"
+    name: Atrium Health Navicent The Medical Center
+    index: https://www.navicenthealth.org/cms-hpt.txt
+    location: Atrium Health Navicent The Medical Center
+  - ccn: "110150"
+    name: Atrium Health Navicent Baldwin
+    index: https://www.navicenthealth.org/cms-hpt.txt
+    location: Atrium Health Navicent Baldwin
+  - ccn: "111310"
+    name: Atrium Health Navicent Peach
+    index: https://www.navicenthealth.org/cms-hpt.txt
+    location: Atrium Health Navicent Peach
+
+  # Atrium Health Floyd
+  - ccn: "110054"
+    name: Atrium Health Floyd Medical Center
+    index: https://www.floyd.org/cms-hpt.txt
+    location: Atrium Health Floyd Medical Center
+  - ccn: "111330"
+    name: Atrium Health Floyd Polk Medical Center
+    index: https://www.floyd.org/cms-hpt.txt
+    location: Atrium Health Floyd Polk Medical Center
+
+  # Trinity Health (St. Mary's, Athens and Greensboro)
+  - ccn: "110006"
+    name: St. Mary's Hospital Athens
+    index: https://www.stmarysathens.org/cms-hpt.txt
+    location: St Marys Health Care System
+  - ccn: "111329"
+    name: St. Mary's Good Samaritan Hospital
+    index: https://www.stmarysathens.org/cms-hpt.txt
+    location: Good Samaritan Hospital
+
+  # SGMC Health
+  - ccn: "110122"
+    name: SGMC Health Main Campus
+    index: https://www.sgmc.org/cms-hpt.txt
+    location: SGMC Health Main Campus
+  - ccn: "110234"
+    name: SGMC Health Berrien Campus
+    index: https://www.sgmc.org/cms-hpt.txt
+    location: SGMC Health Berrien Campus
+  - ccn: "111326"
+    name: SGMC Health Lanier Campus
+    index: https://www.sgmc.org/cms-hpt.txt
+    location: SGMC Health Lanier Campus
+
+  # Memorial Health (Savannah and Vidalia)
+  - ccn: "110036"
+    name: Memorial Health University Medical Center
+    index: https://www.memorialhealth.com/cms-hpt.txt
+    location: MEMORIAL HEALTH UMC SAVANNAH
+  - ccn: "110128"
+    name: Memorial Health Meadows Hospital
+    index: https://www.memorialhealth.com/cms-hpt.txt
+    location: MEMORIAL HEALTH MEADOWS HOSPITAL
+
+  # St. Joseph's/Candler
+  - ccn: "110043"
+    name: St. Joseph's Hospital Savannah
+    index: https://www.sjchs.org/cms-hpt.txt
+    location: St Josephs Hospital - Savannah
+  - ccn: "110024"
+    name: Candler Hospital
+    index: https://www.sjchs.org/cms-hpt.txt
+    location: Candler Hospital
+
+  # Children's Healthcare of Atlanta
+  - ccn: "113300"
+    name: Children's Healthcare of Atlanta at Arthur M. Blank Hospital
+    index: https://www.choa.org/cms-hpt.txt
+    location: Children's Healthcare of Atlanta at Arthur M. Blank Hospital
+  - ccn: "113301"
+    name: Children's Healthcare of Atlanta at Scottish Rite
+    index: https://www.choa.org/cms-hpt.txt
+    location: Children's Healthcare of Atlanta at Scottish Rite
+
+  # Vitruvian Health (Hamilton, Dalton)
+  - ccn: "110001"
+    name: Hamilton Medical Center
+    index: https://www.hamiltonhealth.com/cms-hpt.txt
+    location: Hamilton Medical Center
+
+  # HCA Healthcare
+  - ccn: "110003"
+    name: Memorial Satilla Health
+    index: https://memorialsatillahealth.com/cms-hpt.txt
+    location: MEMORIAL SATILLA HEALTH
+  - ccn: "110125"
+    name: Fairview Park Hospital
+    index: https://fairviewparkhospital.com/cms-hpt.txt
+    location: FAIRVIEW PARK HOSPITAL
+  - ccn: "110177"
+    name: Doctors Hospital of Augusta
+    index: https://doctors-hospital.net/cms-hpt.txt
+    location: DOCTORS HOSPITAL OF AUGUSTA
+
+  # Southern Regional Medical Center (Prime Healthcare)
+  - ccn: "110165"
+    name: Southern Regional Medical Center
+    index: https://southernregional.org/cms-hpt.txt
+    location: Southern Regional Medical Center
+
+  # CommonSpirit Health
+  - ccn: "110236"
+    name: CHI Memorial Hospital Georgia
+    index: https://www.commonspirit.org/cms-hpt.txt
+    location: CHI Memorial Hospital - Georgia
+
+  # Optim Health System
+  - ccn: "111323"
+    name: Optim Medical Center Tattnall
+    index: https://optimhealthsystem.com/cms-hpt.txt
+    location: Tattnall Hospital
+  - ccn: "111312"
+    name: Optim Medical Center Screven
+    index: https://optimhealthsystem.com/cms-hpt.txt
+    location: Screven Hospital
+
+  # Independent hospitals
+  - ccn: "110075"
+    name: East Georgia Regional Medical Center
+    index: https://www.eastgeorgiaregional.com/cms-hpt.txt
+    location: East Georgia Regional Medical Center
+  - ccn: "110032"
+    name: Stephens County Hospital
+    index: https://stephenscountyhospital.com/cms-hpt.txt
+    location: Stephens County Hospital
+  - ccn: "110073"
+    name: Dorminy Medical Center
+    index: https://dorminymedical.org/cms-hpt.txt
+    location: Dorminy Medical Center
+  - ccn: "110071"
+    name: Appling Healthcare System
+    index: https://ahcs.org/cms-hpt.txt
+    location: Appling HealthCare System
+  - ccn: "110086"
+    name: Washington County Regional Medical Center
+    index: https://www.wcrmc.com/cms-hpt.txt
+    location: Washington County Regional Medical Center
+  - ccn: "110089"
+    name: Coffee Regional Medical Center
+    index: https://coffeeregional.org/cms-hpt.txt
+    location: Coffee Regional Medical Center, Inc.
+  - ccn: "110092"
+    name: Dodge County Hospital
+    index: https://www.dodgecountyhospital.com/cms-hpt.txt
+    location: Dodge County Hospital Authority
+  - ccn: "110100"
+    name: Jefferson Hospital
+    index: https://jeffersonhosp.com/cms-hpt.txt
+    location: Hospital Authority of Jefferson County and the City of Louisville dba
+  - ccn: "110104"
+    name: Crisp Regional Hospital
+    index: https://crispregional.org/cms-hpt.txt
+    location: Crisp Regional Hospital
+  - ccn: "110105"
+    name: Colquitt Regional Medical Center
+    index: https://colquittregional.com/cms-hpt.txt
+    location: Hospital Authority of Colquitt County
+  - ccn: "110109"
+    name: Emanuel Medical Center
+    index: https://emanuelmedical.org/cms-hpt.txt
+    location: Emanuel Medical Center
+  - ccn: "110113"
+    name: Burke Medical Center
+    index: https://burkehealth.com/cms-hpt.txt
+    location: Burke Health
+  - ccn: "110124"
+    name: Wayne Memorial Hospital
+    index: https://wmhweb.com/cms-hpt.txt
+    location: Wayne Memorial Hospital
+  - ccn: "110132"
+    name: Memorial Hospital and Manor
+    index: https://mh-m.org/cms-hpt.txt
+    location: Memorial Hospital and Manor
+  - ccn: "110142"
+    name: Evans Memorial Hospital
+    index: https://evansmemorialhospital.org/cms-hpt.txt
+    location: Evans Memorial Hospital
+  - ccn: "110190"
+    name: Flint River Community Hospital
+    index: https://flintriverhospital.com/cms-hpt.txt
+    location: Flint River Hospital
+  - ccn: "110194"
+    name: Donalsonville Hospital
+    index: https://donalsonvillehospital.org/cms-hpt.txt
+    location: Donalsonville Hospital
+  - ccn: "111303"
+    name: Jasper Memorial Hospital
+    index: https://jaspermemorialhospital.org/cms-hpt.txt
+    location: Jasper Memorial Hospital
+  - ccn: "111304"
+    name: Morgan Medical Center
+    index: https://morganmedicalcenter.org/cms-hpt.txt
+    location: Morgan Medical Center
+  - ccn: "111305"
+    name: Miller County Hospital
+    index: https://millercountyhospital.com/cms-hpt.txt
+    location: Miller County Hospital
+  - ccn: "111308"
+    name: Clinch Memorial Hospital
+    index: https://clinchmh.org/cms-hpt.txt
+    location: Clinch Memorial Hospital
+  - ccn: "111313"
+    name: Putnam General Hospital
+    index: https://putnamgeneral.com/cms-hpt.txt
+    location: Putnam General Hospital
+  - ccn: "111318"
+    name: Monroe County Hospital
+    index: https://monroehospital.org/cms-hpt.txt
+    location: Monroe County Hospital
+  - ccn: "111325"
+    name: Wills Memorial Hospital
+    index: https://willsmemorialhospital.com/cms-hpt.txt
+    location: Wills Memorial Hospital
+  - ccn: "111327"
+    name: Bacon County Hospital
+    index: https://baconcountyhospital.com/cms-hpt.txt
+    location: Bacon County Health Services, INC.
+  - ccn: "111333"
+    name: Jeff Davis Hospital
+    index: https://jeffdavishospital.org/cms-hpt.txt
+    location: Jeff Davis Hospital
+  - ccn: "111334"
+    name: Candler County Hospital
+    index: https://www.candlercountyhospital.com/cms-hpt.txt
+    location: Candler County Hospital
+  - ccn: "111335"
+    name: Liberty Regional Medical Center
+    index: https://libertyregional.org/cms-hpt.txt
+    location: Liberty Regional Medical Center
+  - ccn: "111336"
+    name: Mountain Lakes Medical Center
+    index: https://mountainlakesmedicalcenter.com/cms-hpt.txt
+    location: Mountain Lakes Medical Center
+  - ccn: "111338"
+    name: Blue Ridge Medical Center
+    index: https://www.blueridgemc.org/cms-hpt.txt
+    location: Blue Ridge Medical Center

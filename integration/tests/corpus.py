@@ -650,6 +650,7 @@ def default_corpus(root):
     c.npi(1000000050, "GRADY MEMORIAL HOSPITAL CORPORATION", "80 JESSE HILL JR DR SE", "ATLANTA", "303033031",
           taxonomy="282N00000X")
     c.roster(PATHWAY, 50, 50, "1000000050", 1000000050)
+    c.roster(BLUE_VALUE, 50, 50, "1000000050", 1000000050)
     c.facility_price(PATHWAY, 50, "77067", 180)
     c.hospital_plans([{"hospitals": ["110079"], "networks": {BLUE_VALUE: ["ANTHEM BCBS | BLUE VALUE HMO"]},
                        "other": ["ANTHEM BCBS | MEDICARE ADVANTAGE"]}])

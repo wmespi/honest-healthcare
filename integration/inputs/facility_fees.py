@@ -130,6 +130,29 @@ class FacilityRates(Table):
         """
 
 
+class NetworkHospitals(Table):
+    """One row per network and hospital (`ccn`) the network's own file lists: a
+    roster on the network bills as an NPI that NPPES registers as a hospital
+    organization with an address, its own or another it lists, in the hospital's
+    building (integration/inputs/addresses.py), the same match facility_fees makes
+    for a hospital's fee in the plan's file. A hospital's own price file counts on a
+    network only at a hospital listed here."""
+    name = "network_hospitals"
+    key = ["network_id", "ccn"]
+    columns = {"network_id": "VARCHAR", "ccn": "VARCHAR"}
+
+    def select(self, data_dir):
+        return f"""
+            WITH hospital_npis AS (
+                SELECT DISTINCT l.npi, h.ccn FROM {listed(data_dir)} l
+                JOIN addresses a USING ({ADDRESS}) JOIN hospitals h USING (building)
+                WHERE l.npi IN (SELECT npi FROM {NPPES.read(data_dir)}
+                                WHERE entity_type = 'organization' AND is_hospital))
+            SELECT DISTINCT p.network_id, h.ccn FROM {PAYER_ROSTERS.read(data_dir)} p
+            JOIN hospital_npis h ON h.npi = TRY_CAST({roster_biller('p')} AS BIGINT)
+        """
+
+
 class FacilityFees(Table):
     """One row per network, service and place with a price for the place's own
     fee, from one source, never a blend of two. A place is a hospital (`place_id`,
@@ -144,7 +167,9 @@ class FacilityFees(Table):
       own price file, on its fee schedule rows (fee_schedule) for the service's
       code (facility_lines) under a name integration/hospital_plans.yaml says
       means the network, with a negotiated dollar amount that is a price
-      (priced), which a center has no counterpart of.
+      (priced), which a center has no counterpart of, and only at a hospital
+      the network's own file lists (network_hospitals), since a hospital's file
+      names a payer's plan, not which of its networks.
 
     `fee` is the highest rate at that source and `rates` how many different ones
     there are, since neither file says which applies.
@@ -196,6 +221,7 @@ class FacilityFees(Table):
                 JOIN {PLAN_NETWORKS} p ON p.ccn = r.ccn AND p.name = {plan_name("r")}
                 WHERE {facility_lines("r")} AND {fee_schedule("r")}
                   AND {priced("r.negotiated_dollar")} AND r.ccn IN (SELECT ccn FROM hospitals)
+                  AND (p.network_id, r.ccn) IN (SELECT (network_id, ccn) FROM network_hospitals)
                 GROUP BY p.network_id, s.service_id, r.ccn
             ),
             own_stays AS (
@@ -215,6 +241,7 @@ class FacilityFees(Table):
                 JOIN {FEE_SERVICES} s ON s.billing_code = r.code AND list_contains(s.code_types, r.code_type)
                 JOIN {PLAN_NETWORKS} p ON p.ccn = r.ccn AND p.name = {plan_name("r")}
                 WHERE {stay_lines("r")} AND r.ccn IN (SELECT ccn FROM hospitals)
+                  AND (p.network_id, r.ccn) IN (SELECT (network_id, ccn) FROM network_hospitals)
                   AND (r.methodology NOT IN ('fee schedule', 'case rate') OR NOT {priced("r.negotiated_dollar")}
                        OR (r.ccn, {plan_name("r")}, r.negotiated_dollar) NOT IN (
                            SELECT (d.ccn, {plan_name("d")}, d.negotiated_dollar)

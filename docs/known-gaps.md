@@ -148,8 +148,12 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   Its file's institutional lines are all revenue codes, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-facilitys-own-fee)).
   A hospital on that network shows the reading and Medicare's hospital outpatient rate as a rough guide ([opps.md](../ingestion/reference/opps.md)), and mammography has no Medicare rate.
 - **A hospital paid a percentage of its charges or a per diem shows no fee**, from either source, and a case rate in a hospital's own file is not read as a fee ([build.md](../integration/build.md#a-facilitys-own-fee)).
-- **Some hosts refuse a non-browser client, so their hospitals have no price file:** Northside's asset host, `sghs.org`, `adventhealth.com`, and Phoebe, whose links go through a link-rewriting service ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
-- **`ingestion/etl/hospitals.yaml` lists only some of Georgia's hospitals**, and some locations in listed systems' indexes match no CCN in the hospital reference: Emory Hospital Perry, Piedmont Macon, Piedmont McDuffie, Wellstar Windy Hill and NGMC Braselton ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
+- **Some hosts refuse a non-browser client, so their hospitals have no price file:** Northside's asset host, `sghs.org` and `adventhealth.com` ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
+- **Some hospitals' files can't be read, so `ingestion/etl/hospitals.yaml` leaves them out**: a dead link in the system's index (Taylor Regional, Effingham), a file that doesn't follow CMS's template (Bleckley, Elbert, Irwin, Jenkins), a spreadsheet (Early), a lookup site with no file (Upson), or one with no priced rows (Phoebe Worth).
+  Psychiatric and federal hospitals aren't listed.
+- **Wellstar's files give each payer's rate as an algorithm with no dollar amount**, so its hospitals have no fee from their own files.
+- **Some locations in listed systems' indexes match no CCN in the hospital reference:** Emory Hospital Perry, Wellstar Windy Hill and NGMC Braselton ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
+- **A hospital's own fee for a plan often differs from the plan file's** where both price a code, so a fee from the hospital's file (`source` `hospital`) is the hospital's word for it, not the plan's.
 - **Some hospital billing NPIs with institutional rates in the Pathway networks' files price no hospital's fee**, because they match no hospital's building, and the build prints them.
   Shepherd Center and Children's Healthcare of Atlanta at Hughes Spalding are not in the hospital reference.
   Wayne Memorial, Memorial Health University Medical Center, Polk Medical Center and Mountain Lakes Medical Center have a billing address that differs from the hospital reference's ([build.md](../integration/build.md#a-facilitys-own-fee)).

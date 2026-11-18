@@ -105,6 +105,7 @@ A network with no line for a service's code has no row, and the screen says so i
    It reads the file's rows for the service's code on a bill that isn't only the doctor's, outpatient or with no setting, with no modifier, and with a negotiated dollar amount above $1 and below `CEILING`, since files write runs of nines where they have no price.
    Only a `fee schedule` row's dollar amount is the fee, since a percentage row's is the hospital's estimate from its own charge, a per diem is a day's rate, and a case rate covers more than the service.
    A file names each rate's payer and plan in its own words, so a rate counts only under a name [`integration/hospital_plans.yaml`](hospital_plans.yaml) gives that hospital and the network ([hospital_plans](inputs/hospital_plans.py)).
+   A hospital's own file prices a network only at a hospital the network's own file lists (a roster on it bills as one of the hospital's NPIs, `network_hospitals`), since a file names a payer's plan, not which of its networks.
    The build stops on a name the list doesn't give the hospital, so a new one is read before it is priced or left out.
 
 The fee is the highest rate at its source, and `several_rates` says there is more than one, since neither file says which applies.
