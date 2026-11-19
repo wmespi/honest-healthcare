@@ -74,7 +74,7 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   A biller with no Georgia record has none either.
   A roster row billed under an NPI bills as that NPI.
   A row billed under a tax ID (`ein`, as Ambetter's are), which NPPES can't place, bills as its own NPI, so each NPI in the group bills in its own right with itself as its only doctor (`roster_biller` in [datasets](inputs/datasets.py), the one definition every table uses).
-  The build stops on any other `tin_type`, and on a tax ID that isn't `NN-NNNNNNN`.
+  The build stops on any other `tin_type`, and on a tax ID that isn't `NN-NNNNNNN` or nine digits (Alliant's).
   The build lists every billing ID with a price but no place, so an NPI missing from the monthly NPPES snapshot doesn't drop out silently.
 - [`service_sites`](inputs/service_sites.py) says at which of a biller's places its rate for a service is shown.
   Those are the places where Doctors & Clinicians lists one of its doctors for the service practicing, each with those doctors.

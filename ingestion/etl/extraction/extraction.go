@@ -1156,7 +1156,7 @@ func parseFromDisk(
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	log.Printf("  🔁 %s lists its rates before its provider groups, so it is read from disk in two passes", filepath.Base(path))
+	log.Printf("  🔁 the file lists its rates before its provider groups, so it is read from disk in two passes")
 
 	st := newStreamState()
 	var pr *core.ProgressReader

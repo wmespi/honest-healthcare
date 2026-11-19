@@ -15,11 +15,20 @@ class Dataset:
 
     def read(self, data_dir):
         """A DuckDB table expression for the dataset, or stop the build with the
-        command that makes it."""
+        command that makes it.
+
+        A dataset in several files is read one file at a time, the reads joined
+        by name. DuckDB estimates a read of several files as its first file's rows
+        times the number of files, so one small file (a small payer's rosters
+        before a large one's) would make it plan a join around a table thousands
+        of times larger than it thinks; a read of one file knows its rows."""
         path = f"{data_dir}/{self.path}"
-        if not glob.glob(path):
+        files = sorted(glob.glob(path))
+        if not files:
             raise SystemExit(f"no {path}: run `{self.made_by}`")
-        return f"read_parquet('{path}'{self.options})"
+        if len(files) == 1:
+            return f"read_parquet('{files[0]}'{self.options})"
+        return "(" + " UNION ALL BY NAME ".join(f"SELECT * FROM read_parquet('{f}'{self.options})" for f in files) + ")"
 
     def check(self, con, data_dir):
         """Stop the build unless the dataset has its columns and its key holds."""
@@ -72,6 +81,13 @@ def roster_biller(alias):
     ID, which NPPES can't place, bills as its own NPI: each NPI in the group bills
     in its own right, with itself as its only doctor."""
     return f"CASE WHEN {alias}.tin_type = 'npi' THEN {alias}.tin_value ELSE CAST({alias}.npi AS VARCHAR) END"
+
+
+def without_company_form(expr):
+    """SQL for the name `expr` without a company form at its end, the way people
+    call the company ("Alliant Health Plans, Inc." is "Alliant Health Plans",
+    "PIEDMONT HOSPITAL, INC" is "PIEDMONT HOSPITAL")."""
+    return f"regexp_replace({expr}, ',?\\s+(Inc|Co|LLC|Corp|Corporation)\\.?$', '', 'i')"
 
 
 def own_first(*by):

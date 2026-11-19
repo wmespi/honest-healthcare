@@ -139,6 +139,13 @@ def test_a_place_census_cant_put_on_the_map_is_left_off_and_saved(corpus):
          "31792")]
 
 
+def test_a_hospital_goes_by_its_name_without_its_company_form(corpus):
+    corpus.hospital("110083", "PIEDMONT HOSPITAL, INC", "1968 PEACHTREE RD NW", "ATLANTA", "30309")
+    corpus.build()
+    assert ("110083", "PIEDMONT HOSPITAL", "hospital", "1968 PEACHTREE RD NW", "ATLANTA",
+            "30309") in corpus.rows("unlocated_places")
+
+
 def test_a_census_match_outside_georgia_counts_as_no_match(corpus):
     # Census put this LaFayette address in LaFayette, Tennessee.
     biller(corpus, 1000000017, "LAFAYETTE IMAGING", "100 MAIN ST", "LAFAYETTE", "307281234")

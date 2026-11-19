@@ -22,6 +22,7 @@ OTHER_BILLS = {
     "22": "a procedure harder or longer than usual",
     "55": "only the care after a surgery",
     "25": "a separate visit on the day of a procedure",
+    "27": "a second hospital outpatient visit the same day",
     "59": "a procedure distinct from another the same day",
     "53": "a procedure stopped before it was finished",
     "32": "a service someone other than the patient requires",
@@ -354,9 +355,9 @@ class BillerRates(Table):
                              f"neither an NPI nor a tax ID (ein)")
         bad = con.execute(f"""
             SELECT tin_value, count(*) FROM {PAYER_ROSTERS.read(data_dir)}
-            WHERE tin_type = 'ein' AND NOT regexp_full_match(coalesce(tin_value, ''), '[0-9]{{2}}-[0-9]{{7}}')
+            WHERE tin_type = 'ein' AND NOT regexp_full_match(coalesce(tin_value, ''), '[0-9]{{2}}-?[0-9]{{7}}')
             GROUP BY tin_value ORDER BY 2 DESC
         """).fetchone()
         if bad:
             raise SystemExit(f"biller_rates: {bad[1]:,} roster rows bill under the tax ID {bad[0]!r}, which "
-                             f"is not the shape NN-NNNNNNN")
+                             f"is not the shape NN-NNNNNNN or NNNNNNNNN")
