@@ -46,9 +46,14 @@ def test_a_billing_id_of_an_unknown_type_stops_the_build(corpus):
 
 
 def test_a_tax_id_that_is_not_shaped_like_one_stops_the_build(corpus):
-    corpus.roster(BV, 9, 9, "581234567", 2000000009, tin_type="ein")
-    with pytest.raises(SystemExit, match="the tax ID '581234567', which is not the shape NN-NNNNNNN"):
+    corpus.roster(BV, 9, 9, "58-123456", 2000000009, tin_type="ein")
+    with pytest.raises(SystemExit, match="the tax ID '58-123456', which is not the shape NN-NNNNNNN or NNNNNNNNN"):
         corpus.build()
+
+
+def test_a_tax_id_written_without_its_dash_bills_like_one_with_it(corpus):
+    corpus.roster(BV, 9, 9, "581234567", 2000000009, tin_type="ein")
+    corpus.build()
 
 
 def test_each_npi_in_a_tax_id_group_bills_in_its_own_right_under_its_cms_group(corpus):

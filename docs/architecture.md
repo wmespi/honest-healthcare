@@ -26,7 +26,7 @@ Inside ingestion:
 
 | Step | Tech | Dir | Purpose |
 |---|---|---|---|
-| Discovery | Go | `ingestion/etl/discovery/` | Monthly read of each payer's index (Anthem, Ambetter): the files it lists (`data/raw/<payer>/index_files.parquet`) and the plan→file link (`index_file_plans.parquet`) |
+| Discovery | Go | `ingestion/etl/discovery/` | Monthly read of each payer's index (Anthem, Ambetter, Alliant): the files it lists (`data/raw/<payer>/index_files.parquet`) and the plan→file link (`index_file_plans.parquet`) |
 | Extraction | Go (streaming JSON) | `ingestion/etl/extraction/` | Parses the gzipped or plain-JSON MRFs `ingestion/etl/targets.yaml` names in one pass → raw Parquet, with a parse record per file; a provider probe aborts a download before `in_network` when no wanted provider is in it |
 | Reference | Go (NPPES) + Python/DuckDB (NUCC, CMS utilization, MPFS, OPPS, DAC, geocode, MIPS, ZIP centroids, Georgia exchange plans, hospitals) | `ingestion/etl/nppes/`, `ingestion/reference/` | External public datasets → dimension Parquet |
 | Publish | Python + DuckDB | `ingestion/payer_rates.py` | The last step of `make parse`: each payer's target networks' rates from its parsed files, keyed on Georgia's network ID (`data/ingestion/payer_rates/<payer>/`) |

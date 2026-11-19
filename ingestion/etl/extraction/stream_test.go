@@ -42,6 +42,9 @@ func TestFixtures_Parse(t *testing.T) {
 			}
 
 			res, err := streamMRF(doc, 1, true, nil, providerProbe{}, mrfWriters{}, nil)
+			if errors.Is(err, errInNetworkFirst) && strings.Contains(path, "ratesfirst") {
+				t.Skip("rates first: read in two passes, see payers_test.go")
+			}
 			if err != nil {
 				t.Fatalf("streamMRF: %v", err)
 			}

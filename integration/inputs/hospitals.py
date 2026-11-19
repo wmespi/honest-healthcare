@@ -1,12 +1,13 @@
 """Build-only: each Georgia hospital, with its building and its point on the map."""
-from integration.inputs.datasets import HOSPITALS
+from integration.inputs.datasets import HOSPITALS, without_company_form
 from integration.table import Table
 
 
 class Hospitals(Table):
     """`building` is the building the hospital's address is in, which the billers
     there share, and the point is the building's (integration/inputs/addresses.py).
-    The point is empty when no geocoder located an address in the building."""
+    The point is empty when no geocoder located an address in the building. Its
+    `name` is CMS's without a company form at its end (without_company_form)."""
     name = "hospitals"
     key = ["ccn"]
     columns = {"ccn": "VARCHAR", "name": "VARCHAR", "address": "VARCHAR", "city": "VARCHAR",
@@ -15,7 +16,7 @@ class Hospitals(Table):
 
     def select(self, data_dir):
         return f"""
-            SELECT h.ccn, h.name, h.address, h.city, h.postal_code, h.phone, h.stars,
+            SELECT h.ccn, {without_company_form('h.name')} AS name, h.address, h.city, h.postal_code, h.phone, h.stars,
                    a.building, a.lat, a.lon
             FROM {HOSPITALS.read(data_dir)} h
             JOIN addresses a

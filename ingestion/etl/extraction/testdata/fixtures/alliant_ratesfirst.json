@@ -1,0 +1,62 @@
+{
+ "in_network": [
+  {
+   "negotiation_arrangement": "ffs",
+   "name": "Office visit",
+   "billing_code_type": "CPT",
+   "billing_code_type_version": "2026",
+   "billing_code": "99213",
+   "description": "Office or other outpatient visit",
+   "negotiated_rates": [
+    {
+     "provider_references": [1, 2],
+     "negotiated_prices": [
+      {"negotiated_type": "negotiated", "negotiated_rate": 95.5, "expiration_date": "9999-12-31", "service_code": ["11"], "billing_class": "professional"},
+      {"negotiated_type": "percentage", "negotiated_rate": 80, "expiration_date": "9999-12-31", "service_code": ["22"], "billing_class": "institutional"}
+     ]
+    }
+   ]
+  },
+  {
+   "negotiation_arrangement": "ffs",
+   "name": "Vaginal delivery",
+   "billing_code_type": "MS-DRG",
+   "billing_code_type_version": "2026",
+   "billing_code": "807",
+   "description": "Vaginal delivery without complicating diagnoses",
+   "negotiated_rates": [
+    {
+     "provider_references": [2, 3],
+     "negotiated_prices": [
+      {"negotiated_type": "per diem", "negotiated_rate": 2100, "expiration_date": "9999-12-31", "service_code": ["21"], "billing_class": "institutional", "setting": "inpatient"}
+     ]
+    }
+   ]
+  }
+ ],
+ "provider_references": [
+  {
+   "provider_group_id": 1,
+   "network_name": ["Exchange GA", "Exchange Select Plus"],
+   "provider_groups": [
+    {"npi": [1023456789, 1098765432], "tin": {"type": "ein", "value": "86-2226051", "business_name": "Example Cardiology Group"}}
+   ]
+  },
+  {
+   "provider_group_id": 2,
+   "network_name": ["Exchange Select Wellstar"],
+   "provider_groups": [
+    {"npi": [1111111112], "tin": {"type": "ein", "value": "86-2226051", "business_name": "Example Hospital"}}
+   ]
+  },
+  {
+   "provider_group_id": 3,
+   "network_name": ["Exchange Solutions"],
+   "provider_groups": [
+    {"npi": [1222222223], "tin": {"type": "ein", "value": "86-2226051", "business_name": "Example Clinic"}}
+   ]
+  }
+ ],
+ "last_updated_on": "2026-10-27",
+ "version": "2.0.0"
+}

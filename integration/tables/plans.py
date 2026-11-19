@@ -1,6 +1,6 @@
 """plans.parquet: one row per plan on a network with prices, from Georgia's
 exchange plan file."""
-from integration.inputs.datasets import EXCHANGE_COST_SHARING, EXCHANGE_PLANS
+from integration.inputs.datasets import EXCHANGE_COST_SHARING, EXCHANGE_PLANS, without_company_form
 from integration.table import Table
 
 
@@ -13,8 +13,9 @@ class Plans(Table):
     as published (ingestion/reference/exchange-plans.md). `carrier` is Georgia's
     marketing name for the insurer, or only the name after "DBA" where it gives
     the company that does business under it ("Centene Corporation DBA Ambetter
-    from Peach State Health Plan" is "Ambetter from Peach State Health Plan").
-    `deductible` is the standard
+    from Peach State Health Plan" is "Ambetter from Peach State Health Plan"),
+    without a company form at its end ("Alliant Health Plans, Inc." is "Alliant
+    Health Plans"). `deductible` is the standard
     version's in-network deductible for one person, in dollars. A plan is priced
     by its network's rates."""
     name = "plans"
@@ -26,7 +27,9 @@ class Plans(Table):
     def select(self, data_dir):
         return f"""
             SELECT min(plan_id) AS plan_id, name,
-                   min(regexp_replace(carrier, '^.+\\s(DBA|D/B/A)\\s+', '', 'i')) AS carrier, metal_level, needs_referral,
+                   min({without_company_form("regexp_replace(carrier, '^.+\\s(DBA|D/B/A)\\s+', '', 'i')")})
+                       AS carrier,
+                   metal_level, needs_referral,
                    network_id, deductible, list_sort(list(plan_id)) AS plan_ids
             FROM {EXCHANGE_PLANS.read(data_dir)}
             WHERE network_id IN (SELECT network_id FROM networks WHERE prices_status != 'missing')

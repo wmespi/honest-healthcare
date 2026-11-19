@@ -32,6 +32,23 @@ func TestHiosStateCode(t *testing.T) {
 	}
 }
 
+func TestPlanID(t *testing.T) {
+	cases := []struct {
+		id, idType, want string
+	}{
+		{"83761GA013000800", "hios", "83761GA0130008"}, // Alliant: the plan ID with its cost-sharing variant
+		{"45334GA0770001", "HIOS", "45334GA0770001"},
+		{"70893GA001", "hios", "70893GA001"}, // a product ID stands for every plan under it
+		{"010562315", "ein", "010562315"},
+		{"0105623150000000", "ein", "0105623150000000"}, // not HIOS, kept as listed
+	}
+	for _, c := range cases {
+		if got := planID(core.ReportingPlan{PlanID: c.id, PlanIDType: c.idType}); got != c.want {
+			t.Errorf("planID(%q,%q) = %q, want %q", c.id, c.idType, got, c.want)
+		}
+	}
+}
+
 func TestFileList(t *testing.T) {
 	files := map[string]core.IndexFile{
 		"https://x/b.json.gz": {FileID: 2, Address: "https://x/b.json.gz"},
@@ -51,13 +68,26 @@ func TestPickAmbetterIndex(t *testing.T) {
 	page := `<a href="/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-09-29_ambetter_index.json">old</a>
 	<a href='/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-10-27_ambetter_index.json'>new</a>
 	<a href="/content/dam/other_index.json">not it</a>`
-	got, err := pickAmbetterIndex(ambetterPage, page)
+	got, err := pickIndex(ambetterPage, page, ambetterIndexLink)
 	want := "https://www.centene.com/content/dam/centene/Centene%20Corporate/json/DOCUMENT/2026-10-27_ambetter_index.json"
 	if err != nil || got != want {
-		t.Errorf("pickAmbetterIndex = %q, %v; want %q", got, err, want)
+		t.Errorf("pickIndex = %q, %v; want %q", got, err, want)
 	}
-	if _, err := pickAmbetterIndex(ambetterPage, "<html>no links</html>"); err == nil {
-		t.Error("pickAmbetterIndex accepted a page with no index link")
+	if _, err := pickIndex(ambetterPage, "<html>no links</html>", ambetterIndexLink); err == nil {
+		t.Error("pickIndex accepted a page with no index link")
+	}
+}
+
+func TestPickAlliantIndex(t *testing.T) {
+	page := `<html><head><meta http-equiv="Refresh" content="0; url = 'https://alliantplans.com/json/pt/2026-10-28_alliant-health-plans_index_nlc.json'" /></head>
+	<body><a href='https://alliantplans.com/json/pt/2026-10-28_alliant-health-plans_index_nlc.json'>index</a></body></html>`
+	got, err := pickIndex(alliantPage, page, alliantIndexLink)
+	want := "https://alliantplans.com/json/pt/2026-10-28_alliant-health-plans_index_nlc.json"
+	if err != nil || got != want {
+		t.Errorf("pickIndex = %q, %v; want %q", got, err, want)
+	}
+	if _, err := pickIndex(alliantPage, page, ambetterIndexLink); err == nil {
+		t.Error("an Ambetter link pattern matched Alliant's page")
 	}
 }
 
@@ -100,6 +130,7 @@ func TestRun_ReadsPlainAndGzippedIndexes(t *testing.T) {
 	useIndexServer(t, map[string]http.HandlerFunc{
 		"/anthem":   func(w http.ResponseWriter, r *http.Request) { w.Write(gzipped(t, testIndex)) },
 		"/ambetter": func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
+		"/alliant":  func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
 	})
 	if err := RunAll(core.Payers, Options{}); err != nil {
 		t.Fatalf("RunAll: %v", err)
@@ -121,7 +152,8 @@ func TestRun_ReadsPlainAndGzippedIndexes(t *testing.T) {
 func TestRunAll_OnePayerFailing(t *testing.T) {
 	bad := false
 	useIndexServer(t, map[string]http.HandlerFunc{
-		"/anthem": func(w http.ResponseWriter, r *http.Request) { w.Write(gzipped(t, testIndex)) },
+		"/anthem":  func(w http.ResponseWriter, r *http.Request) { w.Write(gzipped(t, testIndex)) },
+		"/alliant": func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
 		"/ambetter": func(w http.ResponseWriter, r *http.Request) {
 			if bad {
 				// The body ends before the document does.
@@ -143,7 +175,7 @@ func TestRunAll_OnePayerFailing(t *testing.T) {
 	if after, _ := os.ReadFile(core.Payers[1].IndexFilesPath()); !bytes.Equal(before, after) {
 		t.Error("a failed read changed the payer's lists")
 	}
-	if err := RunAll(core.Payers[1:], Options{}); err == nil || !strings.Contains(err.Error(), "no payer's index was read") {
+	if err := RunAll(core.Payers[1:2], Options{}); err == nil || !strings.Contains(err.Error(), "no payer's index was read") {
 		t.Errorf("RunAll with only the failing payer = %v, want an error", err)
 	}
 }

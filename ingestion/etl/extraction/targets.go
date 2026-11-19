@@ -31,7 +31,7 @@ const DefaultTargetsPath = "ingestion/etl/targets.yaml"
 type Target struct {
 	Name string `yaml:"name"`
 	// Payer is the insurer whose index lists the target's files and whose rate
-	// files they are (`anthem`, `ambetter`): core.Payers.
+	// files they are (`anthem`, `ambetter`, `alliant`): core.Payers.
 	Payer string `yaml:"payer"`
 	// ExchangeNetworks are network IDs from Georgia's exchange plan file, issuer
 	// and network (`45334-GAN001`). Every plan on them is a target plan.

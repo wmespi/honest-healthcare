@@ -35,6 +35,15 @@ def test_an_insurer_doing_business_under_another_name_shows_that_name(corpus):
                                                      "Ambetter from Peach State Health Plan"}
 
 
+def test_an_insurer_shows_its_name_without_its_company_form(corpus):
+    for i, carrier in enumerate(["Alliant Health Plans, Inc.", "CareSource Georgia Co."]):
+        corpus.plan(f"45334GA002001{i}", "45334-GAN001", f"Plan {i}", carrier=carrier)
+        corpus.premium(f"45334GA002001{i}", 1)
+    corpus.build()
+    assert {r[2] for r in corpus.rows("plans")} == {"Anthem Blue Cross and Blue Shield", "Alliant Health Plans",
+                                                     "CareSource Georgia"}
+
+
 def test_the_same_name_on_another_network_is_its_own_plan(corpus):
     corpus.plan("49046GA0700001", "49046-GAN008", SILVER)
     corpus.premium("49046GA0700001", 1)

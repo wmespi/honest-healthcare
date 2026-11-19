@@ -10,7 +10,7 @@
 #
 #   make discover TEST=1        # write to data-test/ instead of data/
 #   make discover SCHEMA=1      # stream the index, write index_schema.json only
-#   make discover PAYER=ambetter   # one payer's index (default every payer: anthem, ambetter)
+#   make discover PAYER=ambetter   # one payer's index (default every payer: anthem, ambetter, alliant)
 #   make parse PAYER=ambetter   # one payer's targets, and publish only its rates
 #   make parse FILE=GA_JBNKMED0001.json.gz   # parse one file by name, now (Anthem's, unless PAYER)
 #   make parse TARGETS=<path>   # a different target-plan list (default ingestion/etl/targets.yaml)
@@ -66,7 +66,7 @@ worktree-rm: ## Remove a sibling worktree (refuses if dirty; FORCE=1 to override
 
 ## ── Pipeline, in run order: discover → reference → parse → build ─────────────
 
-discover: ## Write this month's file list and plan links (index_files + index_file_plans Parquet) from each payer's index (Anthem, Ambetter). PAYER=<name> (one payer) · TEST=1 · SCHEMA=1 (index_schema.json only) · KEEP_INDEX=1 (keep Anthem's multi-GB index download)
+discover: ## Write this month's file list and plan links (index_files + index_file_plans Parquet) from each payer's index (Anthem, Ambetter, Alliant). PAYER=<name> (one payer) · TEST=1 · SCHEMA=1 (index_schema.json only) · KEEP_INDEX=1 (keep Anthem's multi-GB index download)
 	docker compose exec ingestion go run . discover \
 	  $(if $(PAYER),-payer "$(PAYER)",) \
 	  $(if $(filter 1,$(SCHEMA)),-index-schema,) \

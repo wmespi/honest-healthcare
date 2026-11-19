@@ -7,7 +7,7 @@ Everything is **Parquet** under `data/`, and there is no database.
 `du -sh data/*/*` gives the current inventory.
 `data/` has one folder for each layer's output, and each layer's container mounts only the folders it reads and writes ([architecture.md](architecture.md#layers)):
 
-- `data/raw/` is ingestion's own: each payer's file list, parse records and rates as filed (`raw/anthem/`, `raw/ambetter/`), and every public dataset's download (`raw/downloads/`). Only ingestion reads it.
+- `data/raw/` is ingestion's own: each payer's file list, parse records and rates as filed (`raw/anthem/`, `raw/ambetter/`, `raw/alliant/`), and every public dataset's download (`raw/downloads/`). Only ingestion reads it.
   `raw/hospital_rates/` holds a hospital's price file only while `etl hospital-rates` reads it ([hospital-rates.md](../ingestion/etl/hospital-rates.md#the-formats)).
 - `data/ingestion/` is what ingestion delivers, the contract integration reads: the payer rates, NPPES, the reference datasets and CMS billing.
 - `data/serving/` is what integration delivers, the find-care tables the app reads.
@@ -20,7 +20,7 @@ neither side needs a server process.
 ---
 ## Parquet: `data/raw/<payer>/` (ingestion's own: `make parse` turns it into the payer rates below)
 
-One folder per payer (`anthem`, `ambetter`), each with the files below.
+One folder per payer (`anthem`, `ambetter`, `alliant`), each with the files below.
 
 | File | Columns |
 |---|---|

@@ -8,7 +8,10 @@ package extraction
 // prices and every network label it carries — typically inside the first few MB
 // of a body that can run to gigabytes. If neither signal points at a plan we are
 // pricing, the request is cancelled there and the file is marked `skipped`
-// instead of streamed to the end and rolled back.
+// instead of streamed to the end and rolled back. A file that lists its rates
+// first is read from disk in two passes (parseFromDisk), and the probe judges
+// it at the end of the first, the one over provider_references: the transfer is
+// already paid for, the rates parse is not.
 //
 // Two signals, because one is not enough (issue #98):
 //

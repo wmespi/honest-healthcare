@@ -5,7 +5,7 @@
 # downloaded, even when it hasn't been parsed yet.
 #
 #   payer              The insurer whose index lists the files and whose rate
-#                      files they are: `anthem` or `ambetter` (core.Payers).
+#                      files they are: `anthem`, `ambetter` or `alliant` (core.Payers).
 #                      Required. Its files are kept in data/raw/<payer>/, and its
 #                      networks' rates are published under
 #                      data/ingestion/payer_rates/<payer>/.
@@ -24,7 +24,8 @@
 #                      stops unless the index links each one to a plan on the
 #                      target's networks (the index_file_plans link `etl
 #                      discover` writes, by plan ID or by the product ID, the
-#                      first 10 characters of it, which Ambetter lists), so a
+#                      first 10 characters of it, which Ambetter lists; a plan ID
+#                      with a two-digit variant after it is the same plan), so a
 #                      file that prices only a plan no longer sold can't be named
 #                      by mistake. Targets may name one file, and it is read
 #                      once. When this month's file of a `*` name is parsed, the
@@ -172,3 +173,27 @@ targets:
       - "*_ambetter-ga_in-network.json"
     network_patterns:
       - "Exchange Select Gwinnett Clinic"
+
+  # Alliant Health Plans, Georgia's issuer 83761. Two files, one per network. The
+  # hoa file also prices Alliant's Tennessee plans (issuer 29854), whose
+  # providers the Georgia NPI filter drops. The rosters are tax IDs and NPIs. The
+  # index lists plan IDs with a two-digit variant after the 14 characters, and the
+  # files list their rates before provider_references, so parse reads them from
+  # disk in two passes (parse.md). The date in the name changes monthly.
+  - name: Alliant Health Plans
+    payer: alliant
+    exchange_networks:
+      - "83761-GAN001"
+    files:
+      - "*_alliant-health-plans_in-network-rates-individual_hoa.json"
+    network_patterns:
+      - "Alliant Health Plans"
+
+  - name: Alliant Vitruvian Plus Care
+    payer: alliant
+    exchange_networks:
+      - "83761-GAN002"
+    files:
+      - "*_alliant-health-plans_in-network-rates-individual_care.json"
+    network_patterns:
+      - "Vitruvian Plus Care"
