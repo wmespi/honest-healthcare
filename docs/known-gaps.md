@@ -65,6 +65,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 ## Hospital stays
 
 - **Blue Value's file lists no hospital's price for a stay, and no hospital's own file names its plan**, so a stay shows no hospital on it, only the doctor's fee and anesthesia as the plan usually pays them.
+- **Oscar's file prices a few MS-DRGs and none of the stays the screen offers**, so its networks price no stay.
 - **Only the stay without complications is priced**; complications move it to another MS-DRG with another price, which the screen says.
 - **A stay paid per day or as a percent of charges is said in words, with no total**, and CMS's typical length of stay per MS-DRG isn't shown yet.
 - **Some plan amounts are left out**: a payer's own estimate (`derived`), a bundle, and an amount a hospital gives more than 25 DRGs, which is a default, not that stay's price ([integration/build.md](../integration/build.md)).
@@ -102,6 +103,8 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   Medicare doesn't pay the checkup codes, so a practice shows when Medicare has a doctor of its billing a wellness visit, and children's checkups aren't offered because Medicare has no evidence for them.
 - **Urgent care lists only the centers NPPES registers as urgent care.**
   It shows the rate for the urgent care place of service where a network's file has one, and the office rate where it doesn't.
+  Oscar's urgent care centers bill under practices' NPIs, so its networks list none.
+- **Oscar's counseling is priced in Optum's behavioral-health files**, which no target names, so its networks price little counseling.
 - **Therapy is priced per code, and most codes are 15 minutes.**
   A session bills several, and the screen doesn't add them up.
 - **Counseling shows the rate with no modifier.**
@@ -146,7 +149,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **Blue Value has no open source for a hospital's fee.**
   Its file's institutional lines are all revenue codes, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-facilitys-own-fee)).
   A hospital on that network shows the reading and Medicare's hospital outpatient rate as a rough guide ([opps.md](../ingestion/reference/opps.md)), and mammography has no Medicare rate.
-- **Hospitals' own price files are read only under Anthem's and Ambetter's names** (`ingestion/etl/hospitals.yaml`), so an Alliant network's hospital fee comes from Alliant's own file alone, and a hospital it doesn't price there shows none.
+- **Hospitals' own price files are read only under Anthem's and Ambetter's names** (`ingestion/etl/hospitals.yaml`), so an Alliant or Oscar network's hospital fee comes from the insurer's own file alone, and a hospital it doesn't price there shows none.
 - **A hospital paid a percentage of its charges or a per diem shows no fee**, from either source, and a case rate in a hospital's own file is not read as a fee ([build.md](../integration/build.md#a-facilitys-own-fee)).
 - **Some hosts refuse a non-browser client, so their hospitals have no price file:** Northside's asset host, `sghs.org` and `adventhealth.com` ([hospital-rates.md](../ingestion/etl/hospital-rates.md)).
 - **Some hospitals' files can't be read, so `ingestion/etl/hospitals.yaml` leaves them out**: a dead link in the system's index (Taylor Regional, Effingham), a file that doesn't follow CMS's template (Bleckley, Elbert, Irwin, Jenkins), a spreadsheet (Early), a lookup site with no file (Upson), or one with no priced rows (Phoebe Worth).

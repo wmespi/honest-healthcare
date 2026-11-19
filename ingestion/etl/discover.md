@@ -2,7 +2,7 @@
 
 *Read this when working on the monthly read of a payer's master index: the file list and the plan → file link.*
 
-Reads this month's master index of each payer (`anthem`, `ambetter`, `alliant`: `core.Payers`) and writes two Parquet files under `data/raw/<payer>/`: the files it lists (`index_files.parquet`) and the plans each one prices (`index_file_plans.parquet`).
+Reads this month's master index of each payer (`anthem`, `ambetter`, `alliant`, `oscar`: `core.Payers`) and writes two Parquet files under `data/raw/<payer>/`: the files it lists (`index_files.parquet`) and the plans each one prices (`index_file_plans.parquet`).
 Parse picks the files [`targets.yaml`](targets.yaml) names from them ([parse.md](parse.md#target-selection)), and the publish step reads the link to tell which parsed file prices a network ([parse.md](parse.md#publishing-the-rates-by-network)).
 Safe to re-run.
 `make discover` → `etl discover` (package `ingestion/etl/discovery`).
@@ -29,6 +29,11 @@ Safe to re-run.
 
 - **Alliant**: a small plain JSON index whose dated link (`…_alliant-health-plans_index_nlc.json`) is on a meta-refresh page, so discover finds the newest link there as it does for Ambetter.
   It lists plans by 16-character plan ID, the 14-character plan ID plus a two-digit cost-sharing variant, which discover keeps as the plan ID.
+  It is streamed straight off the network and never kept.
+
+- **Oscar**: a small plain JSON index at a dated S3 URL (`…/oscar/<YYYYMMDD>_oscar_index.json`, the first of the month), built from the current month with no page to read.
+  It lists every state, and discover scopes it to Georgia.
+  Its Georgia networks share one product ID, so each target names its own file and label.
   It is streamed straight off the network and never kept.
 
 Each is gzip or plain JSON by its first two bytes (`0x1f 0x8b`), whatever its name says.

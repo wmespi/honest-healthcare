@@ -21,6 +21,7 @@ var Payers = []Payer{
 	{Name: "anthem", Label: "Anthem"},
 	{Name: "ambetter", Label: "Ambetter"},
 	{Name: "alliant", Label: "Alliant"},
+	{Name: "oscar", Label: "Oscar"},
 }
 
 // PayerByName is the payer called name, or an error naming the ones there are.

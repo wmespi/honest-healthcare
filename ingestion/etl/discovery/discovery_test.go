@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	parquet "github.com/parquet-go/parquet-go"
 	"github.com/wmespi/honest-healthcare/ingestion/etl/core"
@@ -78,6 +79,14 @@ func TestPickAmbetterIndex(t *testing.T) {
 	}
 }
 
+func TestOscarIndexURL(t *testing.T) {
+	got := oscarIndexURLAt(time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC))
+	want := "https://hioscar-cms-tic-us-east-1.s3.amazonaws.com/oscar/20261101_oscar_index.json"
+	if got != want {
+		t.Errorf("oscarIndexURLAt = %q, want %q", got, want)
+	}
+}
+
 func TestPickAlliantIndex(t *testing.T) {
 	page := `<html><head><meta http-equiv="Refresh" content="0; url = 'https://alliantplans.com/json/pt/2026-10-28_alliant-health-plans_index_nlc.json'" /></head>
 	<body><a href='https://alliantplans.com/json/pt/2026-10-28_alliant-health-plans_index_nlc.json'>index</a></body></html>`
@@ -131,6 +140,7 @@ func TestRun_ReadsPlainAndGzippedIndexes(t *testing.T) {
 		"/anthem":   func(w http.ResponseWriter, r *http.Request) { w.Write(gzipped(t, testIndex)) },
 		"/ambetter": func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
 		"/alliant":  func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
+		"/oscar":    func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
 	})
 	if err := RunAll(core.Payers, Options{}); err != nil {
 		t.Fatalf("RunAll: %v", err)
@@ -154,6 +164,7 @@ func TestRunAll_OnePayerFailing(t *testing.T) {
 	useIndexServer(t, map[string]http.HandlerFunc{
 		"/anthem":  func(w http.ResponseWriter, r *http.Request) { w.Write(gzipped(t, testIndex)) },
 		"/alliant": func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
+		"/oscar":   func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(testIndex)) },
 		"/ambetter": func(w http.ResponseWriter, r *http.Request) {
 			if bad {
 				// The body ends before the document does.

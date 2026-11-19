@@ -27,7 +27,7 @@ Three layers, one direction, each in its own container and reading only what the
    **Discovery** (Go) lists this month's MRF URLs and the plan→file link.
    **Extraction** (Go) streams the files `ingestion/etl/targets.yaml` names to raw Parquet, with a provider probe that aborts empty downloads before `in_network`.
    **Publishing** (Python/DuckDB, `ingestion/payer_rates.py`, the last step of `make parse`) keys each payer's target networks' rates on their exchange network IDs.
-   There are three payers, Anthem, Ambetter and Alliant, each with its own index, files in `data/raw/<payer>/` and rates in `data/ingestion/payer_rates/<payer>/`.
+   There are four payers, Anthem, Ambetter, Alliant and Oscar, each with its own index, files in `data/raw/<payer>/` and rates in `data/ingestion/payer_rates/<payer>/`.
    **Reference** (Go + Python/DuckDB) lands the public datasets.
    Ingestion keeps its own files in `data/raw/` and delivers what integration reads to `data/ingestion/`.
 2. **Integration** (`integration/`, Python/DuckDB, `make build`) turns that into the find-care tables in `data/serving/`, and is where every product decision lives.
@@ -86,7 +86,7 @@ make start                  # Docker Desktop (if needed) + all containers
 make up / make down / make logs
 
 make discover               # this month's file list + plan→file link (index_files, index_file_plans Parquet) from each payer's index
-make discover PAYER=ambetter   #   one payer (anthem, ambetter, alliant)
+make discover PAYER=ambetter   #   one payer (anthem, ambetter, alliant, oscar)
 make discover SCHEMA=1      #   stream only, write index_schema.json and nothing else
 make reference              # NPPES, NUCC labels, CMS utilization, MPFS, OPPS, shoppable items, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals, quality measures,
                             #   hospital price files; skips each whose output exists, except geocode, which runs every time and looks up only new

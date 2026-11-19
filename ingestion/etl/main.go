@@ -94,7 +94,7 @@ func splitList(spec string) []string {
 func cmdDiscover(args []string) {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
 	test := fs.Bool("test", false, "isolated test mode (../data-test/)")
-	payer := fs.String("payer", "", "read only this payer's index (anthem, ambetter, alliant; default every payer)")
+	payer := fs.String("payer", "", "read only this payer's index (anthem, ambetter, alliant, oscar; default every payer)")
 	schemaOnly := fs.Bool("index-schema", false, "stream the index, write data/raw/<payer>/index_schema.json and nothing else")
 	limit := fs.Int("limit", 0, "cap reporting structures, with -test or -index-schema only (default 100 in test mode)")
 	indexURL := fs.String("index-url", "", "override the monthly master-index URL (with -payer; Anthem's without)")
@@ -126,7 +126,7 @@ func cmdDiscover(args []string) {
 func cmdParse(args []string) {
 	fs := flag.NewFlagSet("parse", flag.ExitOnError)
 	test := fs.Bool("test", false, "isolated test mode (../data-test/)")
-	payer := fs.String("payer", "", "parse only this payer's targets (anthem, ambetter, alliant; default every payer, and Anthem for -files and -fixture)")
+	payer := fs.String("payer", "", "parse only this payer's targets (anthem, ambetter, alliant, oscar; default every payer, and Anthem for -files and -fixture)")
 	limit := fs.Int("limit", 0, "cap files processed per payer (default 1 in test mode)")
 	files := fs.String("files", "", "comma-separated file names from this month's index to parse now (skips target selection and the parse record)")
 	targets := fs.String("targets", extraction.DefaultTargetsPath, `target-plan list; only the files it names are parsed ("" needs -files or -fixture, and turns off the probe's network signal)`)

@@ -31,6 +31,9 @@ AMBETTER_SILVER = "70893GA0010077"  # Ambetter Standard Silver HMO $6000 $40, on
 AMBETTER = ["70893-GAN001", "70893-GAN002", "70893-GAN003", "70893-GAN004", "70893-GAN005"]
 ALLIANT_SILVER = "83761GA0110025"  # SoloCare Standard Silver HMO $6000 40%, on 83761-GAN001
 ALLIANT = ["83761-GAN001", "83761-GAN002"]
+OSCAR_SILVER = "58081GA0010052"  # Silver Classic Standard HMO $6000 $40, on 58081-GAN001
+OSCAR_GUIDED_SILVER = "58081GA0010057"  # Silver Classic Standard Guided Care HMO $6000 $40, on 58081-GAN002
+OSCAR = ["58081-GAN001", "58081-GAN002"]
 NEAR_EMORY = {"plan_id": SILVER, "zip": "30322"}
 
 
@@ -72,14 +75,16 @@ def unpriced(client, plan_id):
 def test_the_build_holds(client):
     root = client.get("/health").json()
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
-        (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *AMBETTER, *ALLIANT]]
-    assert root["rows"] == {"plans": 91, "services": 286, "families": 17, "places": 9859, "prices": 335977,
-                            "providers": 15631}
+        (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
+                                 *ALLIANT]]
+    assert root["rows"] == {"plans": 118, "services": 286, "families": 17, "places": 9869, "prices": 349802,
+                            "providers": 15650}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
     assert {p["carrier"] for p in client.get("/plans").json()} == {
-        "Anthem Blue Cross and Blue Shield", "Ambetter from Peach State Health Plan", "Alliant Health Plans"}
+        "Anthem Blue Cross and Blue Shield", "Ambetter from Peach State Health Plan", "Alliant Health Plans",
+        "Oscar Health Plan of Georgia"}
 
 
 def test_the_families_are_in_the_screens_order(client):
@@ -168,6 +173,15 @@ def test_alliant_prices_a_hospitals_fee_in_its_own_file(client):
     piedmont = next(p for p in body["results"] if p["place_id"] == "110083")
     assert rates(piedmont) == [("facility", 2795.0, "plan"), ("surgeon", 447.09, "plan")]
     assert piedmont["max_rate"] == 3242.09
+
+
+@pytest.mark.parametrize("plan_id, surgeon", [(OSCAR_SILVER, 715.87), (OSCAR_GUIDED_SILVER, 444.41)])
+def test_each_oscar_network_prices_a_hospital_from_its_own_file(client, plan_id, surgeon):
+    # Oscar's two networks share one product ID, and each is priced by its own
+    # file, which gives Emory University Hospital's fee and its own surgeons' fees.
+    body = find_care(client, "colonoscopy-screening-average-risk", plan_id=plan_id)
+    emory = next(p for p in body["results"] if p["place_id"] == "110010")
+    assert rates(emory) == [("facility", 2896.0, "plan"), ("surgeon", surgeon, "plan")]
 
 
 @pytest.mark.parametrize("plan_id", [GOLD_OPEN_PATHWAY, GOLD_GUIDED_ACCESS])
