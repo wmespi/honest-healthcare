@@ -5,7 +5,7 @@
 # downloaded, even when it hasn't been parsed yet.
 #
 #   payer              The insurer whose index lists the files and whose rate
-#                      files they are: `anthem`, `ambetter` or `alliant` (core.Payers).
+#                      files they are: `anthem`, `ambetter`, `alliant` or `oscar` (core.Payers).
 #                      Required. Its files are kept in data/raw/<payer>/, and its
 #                      networks' rates are published under
 #                      data/ingestion/payer_rates/<payer>/.
@@ -197,3 +197,28 @@ targets:
       - "*_alliant-health-plans_in-network-rates-individual_care.json"
     network_patterns:
       - "Vitruvian Plus Care"
+
+  # Oscar Health, Georgia's issuer 58081. Two files, one per network, and the
+  # index lists one product ID (58081GA001) for both, so each target names its
+  # file and its exact label. The files list their rates before
+  # provider_references, so parse reads them from disk in two passes (parse.md).
+  # The Optum behavioral-health files and the Davis Vision file the index also
+  # lists are other contracts, so no target names them. The date in the name
+  # changes monthly.
+  - name: Oscar Individual Georgia HMO
+    payer: oscar
+    exchange_networks:
+      - "58081-GAN002"
+    files:
+      - "*-oscar-063-in-network.json"
+    network_patterns:
+      - "Individual Georgia HMO"
+
+  - name: Oscar Individual Georgia HMO Non-Gatekept
+    payer: oscar
+    exchange_networks:
+      - "58081-GAN001"
+    files:
+      - "*-oscar-065-in-network.json"
+    network_patterns:
+      - "Individual Georgia HMO Non-Gatekept"

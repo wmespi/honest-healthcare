@@ -52,12 +52,21 @@ var sources = map[string]source{
 	"anthem":   {url: anthemIndexURL, cached: true},
 	"ambetter": {url: ambetterIndexURL},
 	"alliant":  {url: alliantIndexURL},
+	"oscar":    {url: oscarIndexURL},
 }
 
 // anthemIndexURL is the current month's Anthem master-index URL.
 func anthemIndexURL() (string, error) {
 	now := time.Now()
 	return fmt.Sprintf("https://antm-pt-prod-dataz-nogbd-nophi-us-east1.s3.amazonaws.com/anthem/%04d-%02d-01_anthem_index.json.gz", now.Year(), now.Month()), nil
+}
+
+// oscarIndexURL is the current month's Oscar master-index URL: a plain JSON file
+// at a dated link, `<YYYYMMDD>_oscar_index.json` on the first of the month.
+func oscarIndexURL() (string, error) { return oscarIndexURLAt(time.Now()), nil }
+
+func oscarIndexURLAt(now time.Time) string {
+	return fmt.Sprintf("https://hioscar-cms-tic-us-east-1.s3.amazonaws.com/oscar/%04d%02d01_oscar_index.json", now.Year(), now.Month())
 }
 
 // ambetterPage is Centene's price transparency page. It links the dated index
