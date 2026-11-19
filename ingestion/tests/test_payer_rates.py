@@ -239,9 +239,11 @@ def test_every_target_in_the_targets_file_names_networks_files_and_labels():
     """ingestion/etl/targets.yaml itself: every target pairs exchange networks with files and labels."""
     for name, nets, files, patterns, _ in read_targets():
         assert nets and files and patterns, name
-    assert target_payers() == ["anthem", "ambetter"]
+    assert target_payers() == ["anthem", "ambetter", "alliant"]
     assert {n for name, nets, *_ in read_targets(payer="ambetter") for n in nets} == {
         f"70893-GAN00{i}" for i in range(1, 6)}
+    assert {n for name, nets, *_ in read_targets(payer="alliant") for n in nets} == {
+        "83761-GAN001", "83761-GAN002"}
 
 
 def test_a_target_without_a_payer_stops_the_step(anthem):

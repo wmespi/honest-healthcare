@@ -51,6 +51,7 @@ type source struct {
 var sources = map[string]source{
 	"anthem":   {url: anthemIndexURL, cached: true},
 	"ambetter": {url: ambetterIndexURL},
+	"alliant":  {url: alliantIndexURL},
 }
 
 // anthemIndexURL is the current month's Anthem master-index URL.
@@ -65,29 +66,40 @@ const ambetterPage = "https://www.centene.com/price-transparency-files.html"
 
 var ambetterIndexLink = regexp.MustCompile(`[^"'\s<>=]*_ambetter_index\.json`)
 
-// ambetterIndexURL finds this month's Ambetter index on Centene's page.
-func ambetterIndexURL() (string, error) {
-	resp, err := core.Get(ambetterPage)
+// alliantPage is Alliant's price transparency entry: a meta-refresh page whose
+// link is the dated index (`..._alliant-health-plans_index_nlc.json`), whose date
+// changes every month.
+const alliantPage = "https://alliantplans.com/json/pt/latestpt_nlc.html"
+
+var alliantIndexLink = regexp.MustCompile(`[^"'\s<>=]*_alliant-health-plans_index_nlc\.json`)
+
+func ambetterIndexURL() (string, error) { return linkedIndexURL(ambetterPage, ambetterIndexLink) }
+func alliantIndexURL() (string, error)  { return linkedIndexURL(alliantPage, alliantIndexLink) }
+
+// linkedIndexURL finds this month's index on a payer's page: the newest link
+// that matches link.
+func linkedIndexURL(pageURL string, link *regexp.Regexp) (string, error) {
+	resp, err := core.Get(pageURL)
 	if err != nil {
-		return "", fmt.Errorf("read %s: %w", ambetterPage, err)
+		return "", fmt.Errorf("read %s: %w", pageURL, err)
 	}
 	defer resp.Body.Close()
 	page, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return "", fmt.Errorf("read %s: %w", ambetterPage, err)
+		return "", fmt.Errorf("read %s: %w", pageURL, err)
 	}
-	return pickAmbetterIndex(ambetterPage, string(page))
+	return pickIndex(pageURL, string(page), link)
 }
 
-// pickAmbetterIndex is the newest index a page links, resolved against the
-// page's own URL.
-func pickAmbetterIndex(pageURL, page string) (string, error) {
+// pickIndex is the newest index a page links (by link's pattern), resolved
+// against the page's own URL.
+func pickIndex(pageURL, page string, link *regexp.Regexp) (string, error) {
 	base, err := url.Parse(pageURL)
 	if err != nil {
 		return "", err
 	}
 	var links []string
-	for _, m := range ambetterIndexLink.FindAllString(page, -1) {
+	for _, m := range link.FindAllString(page, -1) {
 		ref, err := url.Parse(strings.ReplaceAll(m, " ", "%20"))
 		if err != nil {
 			continue
@@ -95,7 +107,7 @@ func pickAmbetterIndex(pageURL, page string) (string, error) {
 		links = append(links, base.ResolveReference(ref).String())
 	}
 	if len(links) == 0 {
-		return "", fmt.Errorf("%s links no *_ambetter_index.json, so there is no index to read", pageURL)
+		return "", fmt.Errorf("%s has no link matching %s, so there is no index to read", pageURL, link)
 	}
 	// The date prefix of the name sorts them, so the last is the newest.
 	slices.SortFunc(links, func(a, b string) int { return strings.Compare(path.Base(a), path.Base(b)) })
@@ -441,7 +453,7 @@ func Run(p core.Payer, opts Options) error {
 				// state in the HIOS plan ID, not today's targets.yaml, so a new
 				// target never needs a new discover.
 				if strings.EqualFold(plan.PlanMarketType, "individual") || hiosStateCode(plan) == "GA" {
-					links[core.PlanLink{FileID: file.FileID, PlanID: plan.PlanID}] = struct{}{}
+					links[core.PlanLink{FileID: file.FileID, PlanID: planID(plan)}] = struct{}{}
 				}
 			}
 		}
@@ -592,6 +604,20 @@ func fileList(files map[string]core.IndexFile) ([]core.IndexFile, error) {
 		}
 	}
 	return list, nil
+}
+
+// hiosPlanIDLen is the length of a HIOS plan ID, which Georgia's plan file
+// uses. Some payers list a plan with its two-digit cost-sharing variant after it
+// (Alliant's `83761GA013000800`), which is the same plan.
+const hiosPlanIDLen = 14
+
+// planID is the plan's ID as Georgia's plan file has it: a HIOS plan ID without
+// a cost-sharing variant. Any other ID (a product ID, an EIN) is kept as listed.
+func planID(plan core.ReportingPlan) string {
+	if strings.EqualFold(plan.PlanIDType, "HIOS") && len(plan.PlanID) == hiosPlanIDLen+2 {
+		return plan.PlanID[:hiosPlanIDLen]
+	}
+	return plan.PlanID
 }
 
 // hiosStateCode returns the 2-letter state code embedded at position [5:7] of a

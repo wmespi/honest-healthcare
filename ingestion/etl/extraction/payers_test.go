@@ -2,6 +2,8 @@ package extraction
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -364,4 +366,132 @@ func TestPayerPaths(t *testing.T) {
 	if _, err := core.PayerByName("cigna"); err == nil {
 		t.Error("PayerByName accepted an unknown payer")
 	}
+}
+
+const ratesFirstFixture = "testdata/fixtures/alliant_ratesfirst.json"
+
+// parseTwoPass reads path the way parseRates reads a file that lists its rates
+// first, and gathers what the writers were given.
+func parseTwoPass(t *testing.T, path string, gaNPIs map[int64]struct{}, pb providerProbe) (collected, error) {
+	t.Helper()
+	var c collected
+	w := mrfWriters{
+		prices:          func(r []core.PriceRow) error { c.prices = append(c.prices, r...); return nil },
+		groupSetMembers: func(r []core.GroupSetMemberRow) error { c.members = append(c.members, r...); return nil },
+		providers:       func(p []core.ProviderRow) error { c.provs = append(c.provs, p...); return nil },
+		code:            func(bc core.BillingCodeRow) error { c.codes = append(c.codes, bc); return nil },
+	}
+	res, _, _, err := parseFromDisk(context.Background(), "", path, "", testFileID, true, gaNPIs, pb, w)
+	c.res = res
+	return c, err
+}
+
+func sortedRows[T any](rows []T) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = fmt.Sprintf("%+v", r)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// The same content with its rates first parses to the same rows, networks and
+// filter outcome as with its provider groups first.
+func TestParseFromDisk_RatesFirstMatchesReferencesFirst(t *testing.T) {
+	if _, err := streamMRFFile(t, ratesFirstFixture); !errors.Is(err, errInNetworkFirst) {
+		t.Fatalf("one pass over a rates-first file: %v, want errInNetworkFirst", err)
+	}
+	for name, ga := range map[string]map[int64]struct{}{
+		"no filter":    nil,
+		"Georgia NPIs": {1098765432: {}, 1222222223: {}},
+		"only one NPI": {1098765432: {}},
+		"no GA at all": {1: {}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			want := collectFiltered(t, ambetterFixture, ga)
+			got, err := parseTwoPass(t, ratesFirstFixture, ga, providerProbe{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for label, pair := range map[string][2][]string{
+				"prices":    {sortedRows(got.prices), sortedRows(want.prices)},
+				"providers": {sortedRows(got.provs), sortedRows(want.provs)},
+				"members":   {sortedRows(got.members), sortedRows(want.members)},
+				"codes":     {sortedRows(got.codes), sortedRows(want.codes)},
+			} {
+				if !slices.Equal(pair[0], pair[1]) {
+					t.Errorf("%s differ:\n got %v\nwant %v", label, pair[0], pair[1])
+				}
+			}
+			g, w := got.res, want.res
+			if g.PriceRows != w.PriceRows || g.PriceRowsDropped != w.PriceRowsDropped || g.GroupsKept != w.GroupsKept ||
+				g.GroupSets != w.GroupSets || g.InNetworkItems != w.InNetworkItems || g.ProviderRefs != w.ProviderRefs ||
+				g.BillingCodes != w.BillingCodes {
+				t.Errorf("result = %+v, want %+v", g, w)
+			}
+			if fmt.Sprint(g.SchemaExample) != fmt.Sprint(w.SchemaExample) {
+				t.Errorf("schema example = %v, want %v", g.SchemaExample, w.SchemaExample)
+			}
+		})
+	}
+}
+
+// The probe judges a rates-first file at the end of its provider groups, and a
+// rejected file writes no price rows.
+func TestParseFromDisk_ProbeSkipsRatesFirstFile(t *testing.T) {
+	c, err := parseTwoPass(t, ratesFirstFixture, nil, probeMatcher(t, "GA Blue Value HIX*"))
+	if !errors.Is(err, errNoWantedProviders) {
+		t.Fatalf("error = %v, want errNoWantedProviders", err)
+	}
+	if len(c.prices) != 0 || c.res != nil {
+		t.Errorf("a rejected file wrote %d price rows", len(c.prices))
+	}
+	if _, err := parseTwoPass(t, ratesFirstFixture, nil, probeMatcher(t, "Exchange Select*")); err != nil {
+		t.Errorf("a file whose network matches was rejected: %v", err)
+	}
+}
+
+// End to end: the body is downloaded to disk once, read in two passes, the
+// rows land where a references-first file's do, and nothing is left behind.
+func TestParseRates_RatesFirstOverHTTP(t *testing.T) {
+	useStore(t)
+	body, err := os.ReadFile(ratesFirstFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := serve(t, "2026-10-28_alliant-health-plans_in-network-rates-individual_hoa.json", body)
+	res, outcome := parseRates(context.Background(), ambetter, f, "", true, nil, providerProbe{}, false)
+	if outcome != outcomeCompleted || res == nil || res.PriceRows == 0 {
+		t.Fatalf("outcome = %v, result = %+v", outcome, res)
+	}
+	rec, err := readRecord(ambetter, f)
+	if err != nil || rec == nil || rec.Status != statusParsed || rec.PriceRows != res.PriceRows {
+		t.Fatalf("record = %+v, %v; want parsed", rec, err)
+	}
+	if _, err := os.Stat(scratchDir(ambetter, f)); err == nil {
+		t.Error("the spooled body or its scratch folder was left behind")
+	}
+	if _, err := os.Stat(filepath.Join(ambetter.ProvidersDir(), f.Stem()+".parquet")); err != nil {
+		t.Error(err)
+	}
+
+	// A probe skip removes the spool too and records the file as skipped.
+	g := serve(t, "2026-10-28_other.json", body)
+	_, outcome = parseRates(context.Background(), ambetter, g, "", false, nil, probeMatcher(t, "Nothing Like This*"), false)
+	if outcome != outcomeSkippedNetwork {
+		t.Errorf("outcome = %v, want skipped on the network", outcome)
+	}
+	if _, err := os.Stat(scratchDir(ambetter, g)); err == nil {
+		t.Error("a skipped file left its scratch folder")
+	}
+}
+
+func streamMRFFile(t *testing.T, path string) (*mrfResult, error) {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	return streamMRF(f, testFileID, true, nil, providerProbe{}, mrfWriters{}, nil)
 }

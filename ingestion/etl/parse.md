@@ -75,8 +75,10 @@ The four files move into place together, so a failed check leaves the last ones,
 
 ## Per-file steps
 
-1. GET the file (or read `FIXTURE`), noting its `Last-Modified` and `Content-Length`, and stream it once via `streamMRF`, through gzip when its first two bytes are the gzip magic (`provider_references` must precede `in_network`, or the file fails).
-2. **Probe** at the close of `provider_references` - cancel the request and record the file `skipped` if it isn't worth the rest of the download ([below](#the-provider-probe)).
+1. GET the file (or read `FIXTURE`), noting its `Last-Modified` and `Content-Length`, and stream it once via `streamMRF`, through gzip when its first two bytes are the gzip magic.
+   A file that lists `in_network` before `provider_references` (Alliant's) can't be given its networks in one pass, so the download is dropped, the whole body is saved as received in its `.inflight/<name>/` folder (a `FIXTURE` is read where it is), and it is read twice: provider groups first (steps 2-4), then rates (step 5).
+   The saved body is deleted whichever way the parse ends.
+2. **Probe** at the close of `provider_references` (in a file that lists its rates first, at the end of the first pass) - cancel the request and record the file `skipped` if it isn't worth the rest of the download ([below](#the-provider-probe)).
 3. Build `provider_group_id → network_name` from `provider_references[].network_name` and stamp it on every provider and price row - structured attribution, no string matching.
 4. **GA NPI filter** (on when `data/ingestion/nppes/ga_providers.parquet` exists; `-all-npis` disables): keep a provider row only if its NPI is a Georgia NPPES NPI; a group with no GA NPI is dropped, and every price whose whole roster it was goes too. The parse record counts the dropped rows.
 5. For each `negotiated_rate` block: bucket references by network, fingerprint each network-scoped roster (`hashGroupSet`, FNV-64a of sorted reference ids), write a roster's edges to `group_sets` the first time it is seen, and emit one `prices` row per `(network × price)` pointing at the `group_set_id`. Each code goes to `codes/`.
@@ -95,7 +97,7 @@ Output layout: [../docs/schema.md](../../docs/schema.md). Open attribution gaps:
 ## The provider probe
 
 The index links a plan to far more files than price it; the rest are national BlueCard-mirror shards, and streaming them to the end is a large download that ends in a rollback.
-Each payer writes `provider_references` *before* `in_network`, a small slice of a body that can run to gigabytes, so the parser judges the file there (`ingestion/etl/extraction/probe.go`):
+Anthem and Ambetter write `provider_references` *before* `in_network`, a small slice of a body that can run to gigabytes, so the parser judges the file there (`ingestion/etl/extraction/probe.go`):
 
 | Signal | Fails when | Off when |
 |---|---|---|
@@ -104,6 +106,7 @@ Each payer writes `provider_references` *before* `in_network`, a small slice of 
 
 Failing either returns `errNoWantedProviders`; `parseRates` cancels the request and records the file `skipped`, with a reason starting `probe: no wanted providers`.
 Nothing else is written.
+A file that lists its rates first has already been downloaded to disk when the probe runs, so a skip saves the parse, not the transfer.
 
 The network signal is the one that matters: a national shard **does** list Georgia NPIs, so overlap alone waves it through.
 `network_patterns` is not a row filter - the probe decides only whether to download; a file that passes is written whole.

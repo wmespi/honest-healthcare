@@ -59,8 +59,8 @@ and its `npi` values are JSON integers and its `tin` an EIN (`tin.type` `ein`), 
 `billing_code + billing_code_type` is the procedure key. `provider_group_id` is
 **file-local** — every cross-file join keys on `(file_id, provider_group_id)`.
 
-`provider_references` must appear before `in_network` in the byte stream for a
-single pass to resolve ids → networks; `streamMRF` asserts this.
+A single pass resolves ids → networks only when `provider_references` comes before `in_network` in the byte stream;
+when it doesn't (Alliant's files), `streamMRF` returns `errInNetworkFirst` and the file is read from disk in two passes ([parse.md](parse.md#per-file-steps)).
 
 ---
 

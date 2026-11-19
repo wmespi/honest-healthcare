@@ -283,8 +283,8 @@ func parseRates(
 	// Kill a download that goes silent mid-transfer (a hung socket that never
 	// resets) so the run moves on instead of blocking on this file (issue #52).
 	stalled := func() bool { return false }
+	stopStall := func() {}
 	if fixturePath == "" {
-		var stopStall func()
 		stopStall, stalled = watchStall(cancelDownload, pr, stallTimeout)
 		defer stopStall()
 	}
@@ -364,16 +364,13 @@ func parseRates(
 
 	// A file is gzipped when its body starts with the gzip magic bytes, whatever
 	// its name says: Anthem's are, and Ambetter's are plain JSON.
-	br := bufio.NewReaderSize(pr, 64<<10)
-	var doc io.Reader = br
-	var gz *gzip.Reader
-	if magic, perr := br.Peek(2); perr == nil && magic[0] == 0x1f && magic[1] == 0x8b {
-		if gz, err = gzip.NewReader(br); err != nil {
-			closeAll(closers)
-			return fail(err)
-		}
+	br, doc, gz, err := openDoc(pr)
+	if err != nil {
+		closeAll(closers)
+		return fail(err)
+	}
+	if gz != nil {
 		defer gz.Close()
-		doc = gz
 	}
 	if contentLength > 0 && fixturePath == "" {
 		if gz != nil {
@@ -386,6 +383,23 @@ func parseRates(
 
 	log.Println("  🔄 Starting single-pass extract...")
 	res, err := streamMRF(doc, fileID, isFirstFile, gaNPIs, pb, w, pr)
+
+	// A file that lists its rates before its provider groups can't be given its
+	// networks in one pass (nothing has been written yet). Drop this download,
+	// keep the whole body on disk and read it twice: groups first, then rates.
+	spooled := false
+	if errors.Is(err, errInNetworkFirst) {
+		stopStall()
+		cancelDownload()
+		spooled = true
+		var spoolPR *core.ProgressReader
+		var spoolSize int64
+		res, spoolPR, spoolSize, err = parseFromDisk(ctx, f.Location, fixturePath, spoolPath(scratch),
+			fileID, isFirstFile, gaNPIs, pb, w)
+		if spoolPR != nil {
+			pr, contentLength = spoolPR, spoolSize
+		}
+	}
 
 	// The probe rejected the file at the end of provider_references, before a
 	// byte of in_network. Kill the transfer now — that is the whole saving — and
@@ -412,7 +426,7 @@ func parseRates(
 	// The document parsed — now confirm the whole compressed body arrived and the
 	// gzip trailer checks out before anything is promoted (issue #52). Only for a
 	// real download: a fixture is a local file and always complete.
-	if err == nil && fixturePath == "" {
+	if err == nil && fixturePath == "" && !spooled {
 		if gz != nil {
 			err = validateStreamComplete(gz, pr, contentLength)
 		} else {
@@ -422,7 +436,7 @@ func parseRates(
 	// A watchStall abort surfaces as a context-cancelled read somewhere in the
 	// two steps above — relabel it so the reason reads as a (retryable) stall,
 	// not "malformed MRF" / "corrupt gzip".
-	if err != nil && stalled() {
+	if err != nil && !spooled && stalled() {
 		err = fmt.Errorf("download stalled — no data for %s, aborted", stallTimeout)
 	}
 	// Close the Parquet writers (each before its file) before anything is
@@ -1088,4 +1102,139 @@ func silentSkipVerdict(netSkipped, completedThisRun, completedEver int) (fatal, 
 		return false, false
 	}
 	return completedEver == 0, true
+}
+
+// openDoc wraps a raw MRF body for the decoder: gzip when it starts with the
+// gzip magic bytes, whatever its name says (Anthem's are, Ambetter's and
+// Alliant's are plain JSON). gz is nil for a plain body; br is the buffered
+// body, whose rest a completeness check drains.
+func openDoc(r io.Reader) (br *bufio.Reader, doc io.Reader, gz *gzip.Reader, err error) {
+	br = bufio.NewReaderSize(r, 64<<10)
+	doc = br
+	if magic, perr := br.Peek(2); perr == nil && magic[0] == 0x1f && magic[1] == 0x8b {
+		if gz, err = gzip.NewReader(br); err != nil {
+			return nil, nil, nil, err
+		}
+		doc = gz
+	}
+	return br, doc, gz, nil
+}
+
+// spoolPath is where a file that lists its rates first is kept on disk while it
+// is read twice. It sits in the file's scratch folder, which promote never
+// moves from, and is deleted on every way out of parseFromDisk.
+func spoolPath(scratch string) string { return filepath.Join(scratch, "spool.mrf") }
+
+// parseFromDisk reads a file that lists its rates before its provider groups:
+// a first pass over provider_references (providers, networks, the Georgia
+// filter, the probe), then a second over in_network with what the first
+// learned. Both passes stream, so memory stays flat; disk holds one copy of
+// the body as received (a fixture is read where it is). It returns the last
+// pass's progress reader and the body's size, for the caller's messages.
+func parseFromDisk(
+	ctx context.Context,
+	url, fixturePath, spool string,
+	fileID int64,
+	wantSchema bool,
+	gaNPIs map[int64]struct{},
+	pb providerProbe,
+	w mrfWriters,
+) (*mrfResult, *core.ProgressReader, int64, error) {
+	path := fixturePath
+	if path == "" {
+		if err := os.MkdirAll(filepath.Dir(spool), os.ModePerm); err != nil {
+			return nil, nil, 0, err
+		}
+		defer os.Remove(filepath.Dir(spool)) // only when nothing else is in it (a dry run)
+		defer os.Remove(spool)
+		if err := downloadSpool(ctx, url, spool); err != nil {
+			return nil, nil, 0, err
+		}
+		path = spool
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	log.Printf("  🔁 %s lists its rates before its provider groups, so it is read from disk in two passes", filepath.Base(path))
+
+	st := newStreamState()
+	var pr *core.ProgressReader
+	pass := func(mode sections) (*mrfResult, error) {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		pr = core.NewProgressReader(f, fi.Size())
+		br, doc, gz, err := openDoc(pr)
+		if err != nil {
+			return nil, err
+		}
+		res, err := scanMRF(doc, st, mode, fileID, wantSchema, gaNPIs, pb, w, pr)
+		if err == nil && mode == sectionsRates {
+			// Draining the rest checks the gzip trailer; the download's length
+			// was checked when it was spooled.
+			if gz != nil {
+				err = validateStreamComplete(gz, pr, 0)
+			} else {
+				err = validatePlainComplete(br, pr, 0)
+			}
+		}
+		return res, err
+	}
+	if _, err := pass(sectionsReferences); err != nil {
+		return nil, pr, fi.Size(), err
+	}
+	res, err := pass(sectionsRates)
+	return res, pr, fi.Size(), err
+}
+
+// downloadSpool saves a file's body as received to dst, with the same stall
+// watch and progress lines as a streamed download, and checks that all of it
+// arrived.
+func downloadSpool(ctx context.Context, url, dst string) error {
+	body, contentLength, _, cancel, err := openMRF(ctx, url, "")
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+	defer cancel()
+	pr := core.NewProgressReader(body, contentLength)
+	stop, stalled := watchStall(cancel, pr, stallTimeout)
+	defer stop()
+	quit := make(chan struct{})
+	defer close(quit)
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				if s := pr.GetProgressString(); s != "" {
+					log.Printf("  ⬇️  %s", s)
+				}
+			case <-quit:
+				return
+			}
+		}
+	}()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, pr)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	read := pr.ReadBytes.Load()
+	switch {
+	case err != nil && stalled():
+		return fmt.Errorf("download stalled - no data for %s, aborted", stallTimeout)
+	case err != nil:
+		return fmt.Errorf("download to disk after %d bytes: %w", read, err)
+	case contentLength > 0 && read < contentLength:
+		return fmt.Errorf("short read: got %d of %d bytes - download truncated", read, contentLength)
+	}
+	return nil
 }

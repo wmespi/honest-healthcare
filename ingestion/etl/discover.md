@@ -2,7 +2,7 @@
 
 *Read this when working on the monthly read of a payer's master index: the file list and the plan → file link.*
 
-Reads this month's master index of each payer (`anthem`, `ambetter`: `core.Payers`) and writes two Parquet files under `data/raw/<payer>/`: the files it lists (`index_files.parquet`) and the plans each one prices (`index_file_plans.parquet`).
+Reads this month's master index of each payer (`anthem`, `ambetter`, `alliant`: `core.Payers`) and writes two Parquet files under `data/raw/<payer>/`: the files it lists (`index_files.parquet`) and the plans each one prices (`index_file_plans.parquet`).
 Parse picks the files [`targets.yaml`](targets.yaml) names from them ([parse.md](parse.md#target-selection)), and the publish step reads the link to tell which parsed file prices a network ([parse.md](parse.md#publishing-the-rates-by-network)).
 Safe to re-run.
 `make discover` → `etl discover` (package `ingestion/etl/discovery`).
@@ -27,7 +27,11 @@ Safe to re-run.
 - **Ambetter** (Centene): a small plain JSON file whose dated link (`…_ambetter_index.json`) is on Centene's price transparency page, so discover finds the newest link there.
   It is streamed straight off the network and never kept.
 
-Either is gzip or plain JSON by its first two bytes (`0x1f 0x8b`), whatever its name says.
+- **Alliant**: a small plain JSON index whose dated link (`…_alliant-health-plans_index_nlc.json`) is on a meta-refresh page, so discover finds the newest link there as it does for Ambetter.
+  It lists plans by 16-character plan ID, the 14-character plan ID plus a two-digit cost-sharing variant, which discover keeps as the plan ID.
+  It is streamed straight off the network and never kept.
+
+Each is gzip or plain JSON by its first two bytes (`0x1f 0x8b`), whatever its name says.
 A body that ends early, or an index that never closes, fails the payer.
 
 A payer whose index can't be read keeps the lists of its last run, because the lists are written only after a whole index is read, and is named in a banner at the end of the run.

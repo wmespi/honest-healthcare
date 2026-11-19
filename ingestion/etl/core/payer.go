@@ -20,6 +20,7 @@ type Payer struct {
 var Payers = []Payer{
 	{Name: "anthem", Label: "Anthem"},
 	{Name: "ambetter", Label: "Ambetter"},
+	{Name: "alliant", Label: "Alliant"},
 }
 
 // PayerByName is the payer called name, or an error naming the ones there are.
