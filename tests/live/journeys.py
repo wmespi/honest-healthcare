@@ -43,7 +43,7 @@ EMORY_MIDTOWN = "110078"
 EMORY_HOSPITAL = "110010"
 EYE_PHYSICIANS = "1720011422"  # Eye Physicians and Surgeons, a surgery center
 DERMATOLOGY_ASSOCIATES = "1063560803"  # Dermatology Associates of Georgia
-GRADY_70551 = 1287.28  # brain MRI at Grady on Pathway: the hospital's fee in the plan's file plus the reading
+GRADY_70551 = 1314.29  # brain MRI at Grady on Pathway: the hospital's fee in the plan's file plus the reading
 PEACHTREE_IMMEDIATE_CARE = "1235573841"
 # Anthem Catastrophic Pathway Guided Access HMO 10600 First 3 PCP Visits $40, Jordan's plan here
 GUIDED_CATASTROPHIC = "49046GA0700010"

@@ -198,7 +198,7 @@ function ProvidersHere({ providers }) {
         </button>
       )}
       <p className="mt-2 text-pretty text-[13px] leading-5 text-slate-500">
-        These are the clinicians Medicare shows billing this service here. Score is Medicare&rsquo;s clinician quality score, out of 100. It isn&rsquo;t a patient review.
+        These are the clinicians Medicare or Medicaid shows billing this service here. Score is Medicare&rsquo;s clinician quality score, out of 100. It isn&rsquo;t a patient review.
       </p>
     </div>
   );

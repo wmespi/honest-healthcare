@@ -186,7 +186,7 @@ class Part(BaseModel):
 
 
 class Provider(BaseModel):
-    """A clinician Medicare shows billing the service at a place on the plan,
+    """A clinician Medicare or Medicaid shows billing the service at a place on the plan,
     so someone with a referral can find the place by their name."""
     npi: int
     name: str
@@ -228,8 +228,8 @@ class Place(BaseModel):
         ge=0, description="What the hospital's own price list says it charges for the service without "
                           "insurance. Hospitals only.")
     providers: list[Provider] = Field(
-        description="Who Medicare shows billing the service here, never the whole roster. "
-                    "Empty when Medicare shows no one, as at an imaging center it has no record of.")
+        description="Who Medicare or Medicaid shows billing the service here, never the whole roster. "
+                    "Empty when neither shows anyone, as at an imaging center it has no record of.")
     quality: list[Quality] = Field(description="The measures that fit this service, in a fixed order; empty "
                                                "where none fits or CMS has nothing for the place.")
 

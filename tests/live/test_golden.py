@@ -77,8 +77,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 286, "families": 17, "places": 10074, "prices": 353896,
-                            "providers": 16807}
+    assert root["rows"] == {"plans": 118, "services": 288, "families": 17, "places": 11503, "prices": 387805,
+                            "providers": 20279}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -98,7 +98,7 @@ def test_the_families_are_in_the_screens_order(client):
 
 def test_a_brain_mri_near_emory_on_silver_4000(client):
     body = find_care(client, "mri-brain")
-    assert body["radius_mi"] == 5 and len(body["results"]) == 9
+    assert body["radius_mi"] == 5 and len(body["results"]) == 10
     clinic = next(p for p in body["results"] if p["place_id"] == "1396798229")
     assert clinic["name"] == "THE EMORY CLINIC INC"
     assert rates(clinic) == [("all_in", 180.49, "plan")]
@@ -142,8 +142,9 @@ def test_a_hospital_on_blue_value_shows_its_readers_and_no_fee_of_its_own(client
 
 def test_a_hospital_on_pathway_shows_the_fee_in_the_plans_file(client):
     grady = next(p for p in find_care(client, "mri-brain", plan_id=GOLD_PATHWAY)["results"] if p["place_id"] == "110079")
-    assert rates(grady) == [("facility", 1171.15, "plan"), ("reading", 116.13, "plan")]
-    assert grady["max_rate"] == 1287.28
+    # Two of the reading groups' fee schedules have a doctor known to read it, and the higher shows.
+    assert rates(grady) == [("facility", 1171.15, "plan"), ("reading", 143.14, "plan")]
+    assert grady["max_rate"] == 1314.29 and grady["several_rates"]
 
 
 def test_a_hospital_the_plans_file_leaves_out_shows_the_fee_in_its_own_price_list(client):
@@ -189,7 +190,7 @@ def test_every_pathway_network_has_the_hospitals_fees(client, plan_id):
     # Its own file gives Grady's fee, and Emory's own file gives Emory's under the
     # name it uses for every Pathway network.
     grady = next(p for p in find_care(client, "mri-brain", plan_id=plan_id)["results"] if p["place_id"] == "110079")
-    assert rates(grady) == [("facility", 1171.15, "plan"), ("reading", 116.13, "plan")]
+    assert rates(grady) == [("facility", 1171.15, "plan"), ("reading", 143.14, "plan")]
     emory = next(p for p in find_care(client, "xray-chest", plan_id=plan_id)["results"] if p["place_id"] == "110010")
     assert rates(emory) == [("facility", 34.58, "hospital"), ("reading", None, None)]
 
@@ -207,23 +208,26 @@ def test_a_brain_mri_carries_medicares_rates(client):
 
 
 @pytest.mark.parametrize("plan_id", [GOLD_PATHWAY, GOLD_OPEN_PATHWAY, GOLD_GUIDED_ACCESS])
-def test_pathway_prices_every_service_near_emory_but_two_only_far_hospitals_price(client, plan_id):
-    # Only hospitals' own files price these two, and on Pathway none within 50 miles.
-    assert unpriced(client, plan_id) == ["joint-knee-scope-loose-body", "surgery-fetal-test"]
+def test_pathway_prices_every_service_near_emory_but_one_only_far_hospitals_price(client, plan_id):
+    # Only hospitals' own files price it, and on Pathway none within 50 miles.
+    assert unpriced(client, plan_id) == ["joint-knee-scope-loose-body"]
 
 
 def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
-    # Its file has a rate for each, but no doctor Medicare shows billing it near
-    # Emory, and it lists no facility's fee, so many procedures (children's,
-    # pregnancy, rare variants) have no row.
+    # Its file has a rate for each, but no doctor Medicare or Medicaid shows billing
+    # it near Emory, and it lists no facility's fee, so many procedures (rare
+    # variants, and adult care Medicare is too old for and Medicaid seldom covers)
+    # have no row.
     gaps = unpriced(client, SILVER)
-    assert len(gaps) == 60
+    assert len(gaps) == 55
     # Nor does its file price a hospital stay.
     assert {"stay-vaginal-delivery", "stay-c-section", "stay-knee-replacement", "stay-hip-replacement"} <= set(gaps)
-    assert {"checkup-return-18-39", "counseling-family-with", "counseling-family-without", "counseling-group",
-            "therapy-iontophoresis", "surgery-tonsils-adult", "surgery-vasectomy"} <= set(gaps)
+    assert {"checkup-return-18-39", "counseling-family-with", "therapy-iontophoresis", "surgery-tonsils-adult",
+            "surgery-vasectomy"} <= set(gaps)
+    # Medicaid shows who does children's and pregnancy care.
     assert not {"colonoscopy", "eye-cataract", "joint-knee-scope-meniscus", "surgery-gallbladder-scope",
-                "skin-biopsy"} & set(gaps)
+                "skin-biopsy", "surgery-tonsils-adenoids-child", "surgery-ear-tubes", "surgery-fetal-test",
+                "counseling-group"} & set(gaps)
 
 
 def test_a_brain_mri_near_emory_on_ambetter(client):
@@ -254,9 +258,9 @@ def test_ambetter_prices_what_its_file_gives_only_with_a_modifier_or_a_mislabele
 def test_ambetter_leaves_out_what_no_doctor_near_emory_shows_billing(client):
     # Hospitals' own files price its facility fees, so what's left is mostly labs and counseling.
     gaps = unpriced(client, AMBETTER_SILVER)
-    assert len(gaps) == 14
-    assert {"counseling-group", "lab-hep-c", "therapy-massage"} <= set(gaps)
-    assert not {"eye-cataract", "therapy-exercise", "surgery-vein-radiofrequency", "surgery-hernia-groin-open",
+    assert len(gaps) == 13
+    assert {"counseling-group", "lab-hep-c"} <= set(gaps)
+    assert not {"therapy-massage", "counseling-family-with", "eye-cataract", "therapy-exercise", "surgery-vein-radiofrequency", "surgery-hernia-groin-open",
                 "joint-knee-scope-meniscus", "stay-vaginal-delivery", "stay-knee-replacement"} & set(gaps)
 
 

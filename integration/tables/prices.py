@@ -62,12 +62,12 @@ class Prices(Table):
     (biller_places.biller_name), which at a hospital are the groups reading
     there. Names that match once punctuation and company endings are dropped are
     one group, under its lowest billing NPI's spelling, as a practice's name is.
-    `providers` lists the clinicians Medicare shows billing the service for those
+    `providers` lists the clinicians Medicare or Medicaid shows billing the service for those
     billers, never the whole roster (#135 step 1): the ones CMS lists practicing
     in the building, those CMS affiliates with a hospital, or all of them at a
     biller's main place when it lists none at any of its places
-    (service_sites.providers). It's empty when Medicare
-    shows none, as at an imaging center it has no record of. An organization's
+    (service_sites.providers). It's empty when neither
+    shows any, as at an imaging center it has no record of. An organization's
     own NPI isn't a clinician, and neither is a doctor with no Georgia NPPES
     record as a person. `specialties` is, for a family that asks which kind of
     doctor (families.yaml `asks_specialty`), the kinds (integration/specialties.yaml)

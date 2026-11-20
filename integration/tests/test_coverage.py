@@ -29,7 +29,7 @@ def test_the_funnel_counts_what_each_step_keeps_and_writes_nothing(corpus):
         "network_id": BV,
         "priced": 10,          # the eight billers and the center for the MRI, and Grady's readers for a mammogram
         "evidenced": 9,        # 1000000008 has no Medicare billing and isn't a center
-        "medicare_roster": 8, "medicare_biller": 0, "registered": 1,
+        "billed_roster": 8, "billed_biller": 0, "registered": 1,
         "placed": 7,
         "on_map": 5,           # the center's address and South Georgia Radiology's aren't geocoded
         "shown": 5, "several_rates": 0, "with_clinician": 1, "places": 4,
@@ -38,7 +38,7 @@ def test_the_funnel_counts_what_each_step_keeps_and_writes_nothing(corpus):
         "fee_plan": 0, "fee_hospital": 1, "cash_price": 2,
     }, {
         "network_id": PATHWAY,
-        "priced": 1, "evidenced": 1, "medicare_roster": 1, "medicare_biller": 0, "registered": 0,
+        "priced": 1, "evidenced": 1, "billed_roster": 1, "billed_biller": 0, "registered": 0,
         "placed": 1, "on_map": 1, "shown": 3, "several_rates": 0, "with_clinician": 0, "places": 2,
         "at_hospital": 3,      # Grady's mammogram, and Hamilton's mammogram and MRI, which no group reads
         "fee_and_doctor": 1, "fee_only": 2, "doctor_only": 0,

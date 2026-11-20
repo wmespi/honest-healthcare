@@ -146,6 +146,10 @@ MEDICARE_BILLING = Dataset("cms/ga_provider_service.parquet", "make reference ST
     "npi": B, "hcpcs_cd": V, "place_of_service": V, "tot_benes": I, "tot_srvcs": D, "tot_bene_day_srvcs": I,
     "avg_mdcr_alowd_amt": D, "provider_type": V, "hcpcs_drug_ind": V, "year": I},
     key=["npi", "hcpcs_cd", "place_of_service"])
+# Who Medicaid shows billing each code in Georgia over its latest 12 months, by the
+# servicing NPI, else the billing one (ingestion/reference/medicaid.md).
+MEDICAID_BILLING = Dataset("reference/medicaid_ga.parquet", "make reference STEP=medicaid", {
+    "npi": B, "hcpcs_cd": V, "claim_lines": B, "through": V}, key=["npi", "hcpcs_cd"])
 # NUCC's specialty codes, with their classification and specialization
 # (ingestion/reference/taxonomy-labels.md).
 NUCC_TAXONOMY = Dataset("reference/nucc_taxonomy.parquet", "make reference STEP=taxonomy-labels", {
@@ -211,7 +215,7 @@ CLINICIAN_VOLUME = Dataset("reference/clinician_volume_ga.parquet", "make refere
     key=["npi", "category"])
 
 DATASETS = [PAYER_RATES, PAYER_RATE_GROUPS, PAYER_ROSTERS, PAYER_NETWORKS, EXCHANGE_NETWORKS, EXCHANGE_PLANS,
-            EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, NPPES_LOCATIONS, MEDICARE_BILLING,
+            EXCHANGE_PREMIUMS, EXCHANGE_COST_SHARING, MPFS, OPPS, NPPES, NPPES_LOCATIONS, MEDICARE_BILLING, MEDICAID_BILLING,
             NUCC_TAXONOMY, DOCTORS_CLINICIANS, CLINICIAN_LOCATIONS, CLINICIAN_HOSPITALS, MIPS, HOSPITALS, HOSPITAL_RATES, GEOCODES,
             ZIP_CENTROIDS, SHOPPABLE_SERVICES, HOSPITAL_MEASURES, HOSPITAL_MEASURES_NATIONAL, ASC_MEASURES,
             ASC_MEASURES_NATIONAL, CLINICIAN_VOLUME]

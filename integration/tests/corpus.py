@@ -193,6 +193,7 @@ class Corpus:
         self.clinician_locations = []
         self.clinician_hospitals = []
         self.medicare_billing = []
+        self.medicaid_billing = []
         self.hospitals = []
         self.geocodes = []
         self.groups = []
@@ -212,6 +213,7 @@ class Corpus:
                     self.clinician_locations)
         self._queue(f"{root}/reference/dac_hospitals_ga.parquet", d.CLINICIAN_HOSPITALS.columns,
                     self.clinician_hospitals)
+        self._queue(f"{root}/reference/medicaid_ga.parquet", d.MEDICAID_BILLING.columns, self.medicaid_billing)
         self._write_measure_files()
 
     def _queue(self, path, schema, rows):
@@ -345,6 +347,11 @@ class Corpus:
         self.medicare_billing.append((npi, code, place_of_service, 20, 25.0, 25, 100.0,
                                       "Diagnostic Radiology", "N", 2024))
         self._queue(f"{self.root}/cms/ga_provider_service.parquet", d.MEDICARE_BILLING.columns, self.medicare_billing)
+
+    def medicaid_billed(self, npi, code):
+        """Have Medicaid's file show `npi` billing `code`, with no place of service."""
+        self.medicaid_billing.append((npi, code, 40, "2025-12"))
+        self._queue(f"{self.root}/reference/medicaid_ga.parquet", d.MEDICAID_BILLING.columns, self.medicaid_billing)
 
     def hospital(self, ccn, name, address, city, postal_code, phone="(404) 555-0100", stars=None):
         """Add a Georgia hospital to Hospital General Information."""

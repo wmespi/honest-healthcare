@@ -1,6 +1,6 @@
 """Build-only: each rate a network's file lists for a service, by the biller it
 covers, with the evidence that the biller does or reads that service."""
-from integration.inputs.datasets import (MEDICARE_BILLING, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS,
+from integration.inputs.datasets import (MEDICAID_BILLING, MEDICARE_BILLING, NPPES, PAYER_RATE_GROUPS, PAYER_RATES, PAYER_ROSTERS,
                                          own_first, roster_biller)
 from integration.table import Table
 
@@ -128,10 +128,10 @@ def _bill_modifiers(modifier):
 
 # Why a rate is believed to be one a patient would get, strongest first. prices
 # shows a place's rate with the strongest evidence, so the order is a product rule.
-#   medicare_roster   Medicare shows a doctor on the rate's own roster billing the service
-#   medicare_biller   Medicare shows one behind the biller, though not on this rate's roster
-#   registered        the biller is registered as a center for that kind of service
-EVIDENCE = ("medicare_roster", "medicare_biller", "registered")
+#   billed_roster   Medicare or Medicaid shows a doctor on the rate's own roster billing the service
+#   billed_biller   Medicare or Medicaid shows one behind the biller, though not on this rate's roster
+#   registered      the biller is registered as a center for that kind of service
+EVIDENCE = ("billed_roster", "billed_biller", "registered")
 
 # The rates the build reads: a fee-for-service dollar amount for an outpatient
 # professional bill.
@@ -161,8 +161,8 @@ def _rank(place_of_service):
 
 def covered(data_dir):
     """SQL for the CTEs that end in `covered`: each kept rate with the biller and
-    each doctor (`npi`) on the rosters it covers whom Medicare shows billing the
-    service, or none, and `billed`, the doctors Medicare shows billing each
+    each doctor (`npi`) on the rosters it covers whom Medicare or Medicaid shows billing the
+    service, or none, and `billed`, the doctors Medicare or Medicaid shows billing each
     service. biller_doctors reads them too. A
     rate under the file's shared labels is kept only where the network's own labels
     have none for the biller, service and bill, and a placeholder doesn't count."""
@@ -203,19 +203,38 @@ def covered(data_dir):
             JOIN {NPPES.read(data_dir)} n ON n.taxonomy_code = c.taxonomy_code
             WHERE v.family IN {OWN_FEE_FAMILIES}
         ),
-        -- The doctors Medicare shows billing each service: its own code, or any of
-        -- its family's evidence_codes where the family names them.
+        -- The doctors Medicare or Medicaid shows billing each service: its own code
+        -- and any of its family's evidence_codes, and none where the family names [].
         evidence AS (
-            SELECT s.service_id, unnest(coalesce(f.evidence_codes, [s.billing_code])) AS code
+            SELECT DISTINCT s.service_id, len(f.elsewhere) = 1 AS one_way,
+                   unnest(list_concat([s.billing_code], coalesce(f.evidence_codes, []::VARCHAR[]))) AS code
             FROM service_list s JOIN family_list f USING (family)
+            WHERE coalesce(len(f.evidence_codes), 1) > 0
+        ),
+        -- Medicaid doesn't say where. Where a family bills a service one way, such as
+        -- a visit, a Medicaid row is in an office unless Medicare shows the doctor
+        -- billing that code only elsewhere. Where it bills it two ways, such as a scan
+        -- and its reading, Medicaid can't say which was billed, so its row is never in
+        -- an office.
+        medicare_office AS (
+            SELECT npi, hcpcs_cd, bool_or(place_of_service = 'O') AS in_office
+            FROM {MEDICARE_BILLING.read(data_dir)}
+            GROUP BY npi, hcpcs_cd
         ),
         billed AS (
-            SELECT m.npi, e.service_id, bool_or(m.place_of_service = 'O') AS in_office
-            FROM {MEDICARE_BILLING.read(data_dir)} m
-            JOIN evidence e ON e.code = m.hcpcs_cd
-            GROUP BY m.npi, e.service_id
+            SELECT npi, service_id, bool_or(in_office) AS in_office
+            FROM (SELECT m.npi, e.service_id, m.place_of_service = 'O' AS in_office
+                  FROM {MEDICARE_BILLING.read(data_dir)} m
+                  JOIN evidence e ON e.code = m.hcpcs_cd
+                  UNION ALL
+                  SELECT d.npi, e.service_id,
+                         e.one_way AND coalesce(o.in_office, true)
+                  FROM {MEDICAID_BILLING.read(data_dir)} d
+                  JOIN evidence e ON e.code = d.hcpcs_cd
+                  LEFT JOIN medicare_office o ON o.npi = d.npi AND o.hcpcs_cd = d.hcpcs_cd)
+            GROUP BY npi, service_id
         ),
-        -- The doctors who can count for a service: Medicare shows them billing it
+        -- The doctors who can count for a service: Medicare or Medicaid shows them billing it
         -- (`billed`), or NPPES registers them as a center of its family. A roster
         -- row billed under a tax ID bills as its own NPI, with itself as its only
         -- doctor, so it prices a service only where that NPI is one of these.
@@ -229,7 +248,7 @@ def covered(data_dir):
                   JOIN {NPPES.read(data_dir)} n ON n.taxonomy_code = t.taxonomy_code)
             GROUP BY npi, service_id
         ),
-        -- A rate's doctors are kept only where Medicare shows them billing the
+        -- A rate's doctors are kept only where Medicare or Medicaid shows them billing the
         -- service, the only ones biller_doctors and biller_rates read, and its
         -- others are one row with no `npi`, so a large roster isn't carried
         -- doctor by doctor.
@@ -271,7 +290,7 @@ class BillerRates(Table):
     A rate's roster is the provider groups its group set lists, on the rate's
     network.
 
-    A biller appears for a service if Medicare shows a doctor billing it for that
+    A biller appears for a service if Medicare or Medicaid shows a doctor billing it for that
     biller (biller_doctors), or if its NPPES primary specialty code registers it
     as a center doing the services of the service's family (centers), because
     Medicare's file often misses those centers. `registered` says it's such a
@@ -282,8 +301,8 @@ class BillerRates(Table):
 
     `evidence` is the strongest of EVIDENCE behind the rate. A biller often sits
     under several fee schedules, each with its own roster, and the file doesn't
-    say which a patient gets, so a rate whose own roster has a doctor Medicare
-    shows billing the service outranks one whose roster has none (#191)."""
+    say which a patient gets, so a rate whose own roster has a doctor Medicare or
+    Medicaid shows billing the service outranks one whose roster has none (#191)."""
     name = "biller_rates"
     key = ["network_id", "service_id", "biller", "part", "rate"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR",
@@ -313,8 +332,8 @@ class BillerRates(Table):
             SELECT DISTINCT c.network_id, c.service_id, c.biller, c.part, c.rate,
                    r.biller IS NOT NULL OR coalesce(e.in_office, false) AS on_site,
                    r.biller IS NOT NULL AS registered,
-                   CASE WHEN o.biller IS NOT NULL THEN 'medicare_roster'
-                        WHEN e.biller IS NOT NULL THEN 'medicare_biller'
+                   CASE WHEN o.biller IS NOT NULL THEN 'billed_roster'
+                        WHEN e.biller IS NOT NULL THEN 'billed_biller'
                         ELSE 'registered' END AS evidence
             FROM covered c
             LEFT JOIN on_roster o USING (network_id, service_id, biller, part, rate)

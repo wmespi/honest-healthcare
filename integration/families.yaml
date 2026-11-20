@@ -57,9 +57,9 @@
 #                     of place that bills its own fee.
 #   centers           The NPPES primary specialty codes that register a biller as a
 #                     center doing this family's services, each with its kind of place.
-#   evidence_codes    Optional: the Medicare codes whose billing shows a doctor does
-#                     this family's services, in place of each service's own code.
-#                     [] means only a center's registration does.
+#   evidence_codes    Optional: more codes, beside each service's own, whose billing
+#                     by Medicare or Medicaid shows a doctor does this family's
+#                     services. [] means only a center's registration does.
 #   place_of_service  Optional, ["11"] (an office) when not given: the
 #                     place-of-service codes whose rates the family reads, best first.
 #   empty_note        Optional: what the screen says when the plan has no place with a

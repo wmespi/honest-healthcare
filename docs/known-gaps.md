@@ -54,7 +54,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 ## Procedures
 
 - **Blue Value's file lists no facility's fee**, so its procedure rows show the doctor's fee alone.
-  A procedure no doctor near the search is shown billing Medicare for, such as a child's tonsils, pregnancy care or a rare variant, has no row on it; `make test-live` counts them.
+  A procedure no doctor near the search is shown billing Medicare or Medicaid for, such as a rare variant, has no row on it, and children's tonsils and pregnancy care show only where Medicaid shows a doctor billing them; `make test-live` counts them.
 - **A doctor's fee at a surgery center needs a group whose doctors CMS lists in its building**, since CMS's affiliation data lists hospitals only ([build.md](../integration/build.md)).
 - **A hospital shows a procedure's doctor's fee only from a group in its building or one whose doctors for the service CMS affiliates with it**, so a hospital whose surgeons CMS doesn't affiliate with it still shows the facility's fee with the doctor's missing.
   A scan's reading at a hospital still needs a reading group in its building, since a reader is whoever reads there.
@@ -69,7 +69,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **Only the stay without complications is priced**; complications move it to another MS-DRG with another price, which the screen says.
 - **A stay paid per day or as a percent of charges is said in words, with no total**, and CMS's typical length of stay per MS-DRG isn't shown yet.
 - **Some plan amounts are left out**: a payer's own estimate (`derived`), a bundle, and an amount a hospital gives more than 25 DRGs, which is a default, not that stay's price ([integration/build.md](../integration/build.md)).
-- **The doctor's fee for a stay is the plan's usual range, not the doctor's**, since Medicare shows no one delivering babies and the files list these codes on nearly every roster.
+- **The doctor's fee for a stay is the plan's usual range, not the doctor's**, since neither Medicare nor Medicaid shows many doctors delivering babies (HHS hides Medicaid rows under 12 claims) and the files list these codes on nearly every roster.
 
 ## Quality
 
@@ -99,8 +99,8 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **An office visit is listed under a kind of doctor only where someone there names one.**
   A place whose clinicians are registered only as general nurse practitioners or physician assistants, and whose billing group names no kind either, such as a medical specialty clinic, is under no kind; `make build` lists the registrations that count as none ([integration/specialties.yaml](../integration/specialties.yaml)).
   A large system's practice can show under kinds its own doctors don't practice there, because its roster spans the system.
-- **A yearly checkup's evidence is Medicare's wellness visit.**
-  Medicare doesn't pay the checkup codes, so a practice shows when Medicare has a doctor of its billing a wellness visit, and children's checkups aren't offered because Medicare has no evidence for them.
+- **A yearly checkup's evidence is the checkup codes themselves in Medicaid, or Medicare's wellness visit.**
+  Medicare doesn't pay the checkup codes, so a practice shows when Medicare has a doctor of its billing a wellness visit or Medicaid shows one billing a checkup code; children's checkups aren't in the catalog yet.
 - **Urgent care lists only the centers NPPES registers as urgent care.**
   It shows the rate for the urgent care place of service where a network's file has one, and the office rate where it doesn't.
   Oscar's urgent care centers bill under practices' NPIs, so its networks list none.
@@ -137,10 +137,11 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   prices those doctors, not the hospital, and the build doesn't check the hospital's own NPIs.
   The screen says the hospital's own network status isn't confirmed
   ([decided on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6646717812)).
-- **The find-care provider list has only the clinicians Medicare shows billing.** A `prices`
-  row lists a clinician only when Medicare's file shows them billing that service for the
-  row's billers, so one with few or no Medicare patients for it isn't listed, and the CMS
+- **The find-care provider list has only the clinicians Medicare or Medicaid shows billing.** A `prices`
+  row lists a clinician only when Medicare's file or [Medicaid's](../ingestion/reference/medicaid.md) shows them billing that service for the
+  row's billers, so one with few patients on either for it isn't listed (HHS hides Medicaid rows under 12 claims), and the CMS
   utilization limits under Provider ↔ procedure apply.
+- **Medicaid doesn't say where a doctor billed**, so a practice only Medicaid shows doing a scan or a procedure shows just the doctor's part, such as the reading, never the whole service in its office.
 - **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
   group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
   The place takes the name of the group CMS lists the doctor under in Georgia (CMS Doctors &
@@ -166,10 +167,10 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **A place can have several rates for one scan.** When a billing ID sits under more
   than one fee schedule for the same scan, the file does not say which applies to a
   given patient ([price lines](../ingestion/etl/mrf-model.md#several-price-lines-for-one-provider-and-code)).
-  The row shows the rate whose own roster has a doctor Medicare shows billing the scan.
+  The row shows the rate whose own roster has a doctor Medicare or Medicaid shows billing the scan.
   Where several rates still tie, it shows the highest and says to ask which applies; `make coverage` counts those rows.
 - **The find-care list carries some non-imaging practices.** A group's price is
-  attached to every clinician on its roster, so a practice with one Medicare-billing
+  attached to every clinician on its roster, so a practice with one Medicare- or Medicaid-billing
   imaging clinician (an orthopedic or primary care group, say) can appear beside the
   radiology groups.
 - **Find-care cost sharing is the standard plan's.** `plans.deductible` and `cost_sharing`

@@ -88,7 +88,7 @@ make up / make down / make logs
 make discover               # this month's file list + plan→file link (index_files, index_file_plans Parquet) from each payer's index
 make discover PAYER=ambetter   #   one payer (anthem, ambetter, alliant, oscar)
 make discover SCHEMA=1      #   stream only, write index_schema.json and nothing else
-make reference              # NPPES, NUCC labels, CMS utilization, MPFS, OPPS, shoppable items, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals, quality measures,
+make reference              # NPPES, NUCC labels, CMS utilization, Medicaid spending, MPFS, OPPS, shoppable items, Doctors & Clinicians, geocode, MIPS, ZIP centroids, exchange plans, hospitals, quality measures,
                             #   hospital price files; skips each whose output exists, except geocode, which runs every time and looks up only new
                             #   addresses, and hospital price files, which fetch only the hospitals with none (STEP=hospital-rates fetches all)
 make reference STEP=mpfs    #   one builder, always runs (ARGS="--year 2025" passes through; FORCE=1 rebuilds all)
@@ -149,7 +149,7 @@ Run `scripts/dev-setup.sh` once, then test with `make test LOCAL=1` (no Docker).
 | The kinds of doctor someone picks for an office visit: each one's NUCC codes and the benefit its visit falls under | [integration/specialties.yaml](integration/specialties.yaml) |
 | NPPES Georgia provider subset | [ingestion/etl/nppes.md](ingestion/etl/nppes.md) |
 | NUCC specialty labels | [ingestion/reference/taxonomy-labels.md](ingestion/reference/taxonomy-labels.md) |
-| Provider↔procedure evidence (CMS utilization) | [ingestion/reference/cms-utilization.md](ingestion/reference/cms-utilization.md) |
+| Provider↔procedure evidence (CMS utilization for Medicare, HHS provider spending for Medicaid) | [ingestion/reference/cms-utilization.md](ingestion/reference/cms-utilization.md) · [ingestion/reference/medicaid.md](ingestion/reference/medicaid.md) |
 | Medicare Physician Fee Schedule rate (`services.medicare_rate`) | [ingestion/reference/mpfs.md](ingestion/reference/mpfs.md) |
 | Georgia's hospitals: CCN, name, address, phone and Medicare star rating | [ingestion/reference/hospitals.md](ingestion/reference/hospitals.md) |
 | Hospitals' own price files - which hospitals and payers (`ingestion/etl/hospitals.yaml`), the CSV and JSON formats, the `hospital_rates` rows | [ingestion/etl/hospital-rates.md](ingestion/etl/hospital-rates.md) |
