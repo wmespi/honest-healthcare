@@ -106,6 +106,7 @@ benefits:
   urgent_care: {name: "Urgent Care Centers or Facilities", label: "Urgent care"}
   mental_health: {name: "Mental/Behavioral Health Outpatient Services", label: "Outpatient mental health"}
   therapy: {name: "Rehabilitative Occupational and Rehabilitative Physical Therapy", label: "Physical and occupational therapy"}
+  speech_therapy: {name: "Rehabilitative Speech Therapy", label: "Speech therapy"}
   lab: {name: "Laboratory Outpatient and Professional Services", label: "Lab tests"}
   outpatient_facility: {name: "Outpatient Facility Fee (e.g., Ambulatory Surgery Center)", label: "Outpatient facility fee"}
   outpatient_surgery: {name: "Outpatient Surgery Physician/Surgical Services", label: "Outpatient surgery, the doctor's fee"}
@@ -276,6 +277,28 @@ families:
         # occupational or speech therapist's, and 97 that it's rehabilitative: a
         # plan's file often prices therapy under them alone.
         modifier: ["", "GP", "GO", "GN", "97"]
+        on_site: true
+    elsewhere: [[therapy]]
+
+  - family: speech_therapy
+    name: Speech therapy
+    groups: ["Speech Therapy"]
+    benefits: [speech_therapy]
+    about: Treatment for problems with speech, language or voice, for children and adults. A session is billed as one visit, however long it lasts.
+    could_change:
+      - The first visit’s evaluation, which is billed separately
+      - Your plan’s limit on visits per year
+      - *not_covered
+    asks:
+      - What does the first evaluation cost?
+      - How many visits does my plan allow this year?
+      - Does my plan need an approval or a referral first?
+    bills:
+      - part: therapy
+        label: The therapy
+        billing_class: professional
+        # GN says the therapy is under a speech therapist's plan of care.
+        modifier: ["", "GN"]
         on_site: true
     elsewhere: [[therapy]]
 
