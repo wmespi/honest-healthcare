@@ -48,6 +48,7 @@ shared:
   - &not_covered "Your plan not covering it, for example if a required approval was missed"
   - &free_screening "A screening colonoscopy is usually $0 in network because it counts as preventive care. If a polyp is removed or a biopsy is taken, the plan may bill that part as surgery."
   - &free_checkup "Yearly checkups are usually $0 in network because they count as preventive care. The most you would pay matters if a health problem is also treated and billed as an office visit."
+  - &free_child_checkup "Checkups on the schedule doctors recommend for children are usually $0 in network because they count as preventive care, and so are most vaccines given at them. The most you would pay matters if a health problem is also treated and billed as an office visit."
 
 xrays:
   - service_id: xray-chest
@@ -319,6 +320,55 @@ preventive_visits:
     name: Yearly checkup, returning patient, age 65 and over
     keywords: physical wellness annual exam senior
     preventive_note: *free_checkup
+
+child_checkups:
+  - service_id: checkup-new-under-1
+    billing_code: "99381"
+    name: Baby's checkup, new patient, under age 1
+    keywords: well baby infant newborn pediatric physical
+    preventive_note: *free_child_checkup
+
+  - service_id: checkup-new-1-4
+    billing_code: "99382"
+    name: Child's checkup, new patient, age 1 to 4
+    keywords: well child toddler pediatric physical
+    preventive_note: *free_child_checkup
+
+  - service_id: checkup-new-5-11
+    billing_code: "99383"
+    name: Child's checkup, new patient, age 5 to 11
+    keywords: well child kid pediatric physical school
+    preventive_note: *free_child_checkup
+
+  - service_id: checkup-new-12-17
+    billing_code: "99384"
+    name: Teen's checkup, new patient, age 12 to 17
+    keywords: well child adolescent teenager pediatric physical
+    preventive_note: *free_child_checkup
+
+  - service_id: checkup-return-under-1
+    billing_code: "99391"
+    name: Baby's checkup, returning patient, under age 1
+    keywords: well baby infant newborn pediatric physical
+    preventive_note: *free_child_checkup
+
+  - service_id: checkup-return-1-4
+    billing_code: "99392"
+    name: Child's checkup, returning patient, age 1 to 4
+    keywords: well child toddler pediatric physical
+    preventive_note: *free_child_checkup
+
+  - service_id: checkup-return-5-11
+    billing_code: "99393"
+    name: Child's checkup, returning patient, age 5 to 11
+    keywords: well child kid pediatric physical school
+    preventive_note: *free_child_checkup
+
+  - service_id: checkup-return-12-17
+    billing_code: "99394"
+    name: Teen's checkup, returning patient, age 12 to 17
+    keywords: well child adolescent teenager pediatric physical
+    preventive_note: *free_child_checkup
 
 lab_tests:
   - service_id: lab-blood-draw

@@ -190,6 +190,25 @@ families:
     # billing Medicare's wellness visits shows they do checkups.
     evidence_codes: ["G0438", "G0439", "G0402"]
 
+  # A family of its own because its evidence is only its own codes, which Medicaid
+  # pays: a doctor billing Medicare's wellness visits sees adults.
+  - family: child_checkups
+    name: Children's checkups
+    codes: ["99381", "99382", "99383", "99384", "99391", "99392", "99393", "99394"]
+    benefits: [preventive]
+    about: A checkup is for making sure your child is growing and staying well when nothing is wrong. Bring their health and vaccine records.
+    could_change:
+      - An office visit billed on top, if a health problem is treated during the checkup
+      - Vaccines and screenings, such as hearing, vision or development, which are billed separately
+      - Lab tests, which are billed separately
+      - Care that your plan does not count as preventive
+    asks:
+      - Is this billed as a preventive visit?
+      - What happens to the bill if we talk about a health problem?
+      - Which vaccines and screenings are due, and are they billed separately?
+    bills: *visit_bill
+    elsewhere: *visit_only
+
   - family: urgent_care
     name: Urgent care
     codes: ["99202", "99203", "99204", "99205", "99211", "99212", "99213", "99214", "99215"]
