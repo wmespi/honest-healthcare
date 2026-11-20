@@ -9,9 +9,10 @@ class BillerDoctors(Table):
     (biller_rates.covered), or are the biller, billing under their own NPI, and
     Medicare or Medicaid shows them billing the service: its own code and any of
     its family's `evidence_codes`, and never where the family names none
-    (integration/families.yaml). `in_office` says Medicare shows them billing it
-    in an office; Medicaid doesn't say where. biller_rates reads this as its evidence, and providers as who
-    is at a place."""
+    (integration/families.yaml). `in_office` says they bill it in an office: Medicare
+    shows where, and Medicaid's billing counts only for a service its family bills
+    one way (biller_rates.covered). biller_rates reads this as its evidence, and
+    providers as who is at a place."""
     name = "biller_doctors"
     key = ["network_id", "service_id", "biller", "npi"]
     columns = {"network_id": "VARCHAR", "service_id": "VARCHAR", "biller": "VARCHAR", "npi": "BIGINT",

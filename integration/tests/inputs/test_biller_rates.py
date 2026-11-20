@@ -29,8 +29,28 @@ def doctors(corpus):
 def test_a_doctor_with_only_a_medicaid_row_for_the_code_is_evidence_for_a_rate(corpus):
     assert doctors(corpus) == []
     corpus.medicaid_billed(2000000008, "72148")
-    assert doctors(corpus) == [("1000000008", 2000000008, False)]  # Medicaid says no place
+    # Medicaid doesn't say whether the doctor billed the scan or its reading
+    assert doctors(corpus) == [("1000000008", 2000000008, False)]
     assert ("1000000008", False) in billers(corpus)
+
+
+def visit_on_site(corpus):
+    return corpus.inputs().execute(
+        "SELECT DISTINCT on_site FROM biller_rates WHERE biller = '1000000008' "
+        "AND service_id = 'office-visit-established'").fetchall()
+
+
+def test_medicaid_billing_of_a_service_billed_one_way_is_in_an_office(corpus):
+    corpus.scan_price(BV, 8, "99213", all_in=90)
+    corpus.medicaid_billed(2000000008, "99213")
+    assert visit_on_site(corpus) == [(True,)]
+
+
+def test_medicare_billing_only_elsewhere_outweighs_medicaid_for_a_service_billed_one_way(corpus):
+    corpus.scan_price(BV, 8, "99213", all_in=90)
+    corpus.medicaid_billed(2000000008, "99213")
+    corpus.billed(2000000008, "99213", "F")
+    assert visit_on_site(corpus) == [(False,)]
 
 
 def test_a_familys_evidence_code_counts(corpus):

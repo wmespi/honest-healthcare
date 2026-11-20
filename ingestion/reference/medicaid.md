@@ -28,7 +28,7 @@ The data ends where HHS's release ends, so `through` says how current it is.
 
 **Caveats.**
 - HHS suppresses rows under 12 claims, so a low-volume service, such as a delivery, is mostly hidden.
-- There is no place of service, so the build can't say a Medicaid doctor works in an office.
+- There is no place of service, so the build counts Medicaid billing as in an office only for a service billed one way, such as a visit ([build.md](../../integration/build.md#the-service-model)).
 - The file includes Medicaid managed care and CHIP.
 - A code in the file is not a service the find-care catalog offers; the build uses only the codes a service or its family names.
 

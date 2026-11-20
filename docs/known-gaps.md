@@ -139,8 +139,9 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   ([decided on #135](https://github.com/wmespi/honest-healthcare/issues/135#issuecomment-6646717812)).
 - **The find-care provider list has only the clinicians Medicare or Medicaid shows billing.** A `prices`
   row lists a clinician only when Medicare's file or [Medicaid's](../ingestion/reference/medicaid.md) shows them billing that service for the
-  row's billers, so one with few patients on either for it isn't listed (HHS hides Medicaid rows under 12 claims, and Medicaid has no place of service), and the CMS
+  row's billers, so one with few patients on either for it isn't listed (HHS hides Medicaid rows under 12 claims), and the CMS
   utilization limits under Provider ↔ procedure apply.
+- **Medicaid doesn't say where a doctor billed**, so a practice only Medicaid shows doing a scan or a procedure shows just the doctor's part, such as the reading, never the whole service in its office.
 - **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
   group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
   The place takes the name of the group CMS lists the doctor under in Georgia (CMS Doctors &

@@ -206,21 +206,32 @@ def covered(data_dir):
         -- The doctors Medicare or Medicaid shows billing each service: its own code
         -- and any of its family's evidence_codes, and none where the family names [].
         evidence AS (
-            SELECT DISTINCT s.service_id,
+            SELECT DISTINCT s.service_id, len(f.elsewhere) = 1 AS one_way,
                    unnest(list_concat([s.billing_code], coalesce(f.evidence_codes, []::VARCHAR[]))) AS code
             FROM service_list s JOIN family_list f USING (family)
             WHERE coalesce(len(f.evidence_codes), 1) > 0
         ),
-        -- Medicaid doesn't say where, so its rows are never in an office.
+        -- Medicaid doesn't say where. Where a family bills a service one way, such as
+        -- a visit, a Medicaid row is in an office unless Medicare shows the doctor
+        -- billing that code only elsewhere. Where it bills it two ways, such as a scan
+        -- and its reading, Medicaid can't say which was billed, so its row is never in
+        -- an office.
+        medicare_office AS (
+            SELECT npi, hcpcs_cd, bool_or(place_of_service = 'O') AS in_office
+            FROM {MEDICARE_BILLING.read(data_dir)}
+            GROUP BY npi, hcpcs_cd
+        ),
         billed AS (
             SELECT npi, service_id, bool_or(in_office) AS in_office
             FROM (SELECT m.npi, e.service_id, m.place_of_service = 'O' AS in_office
                   FROM {MEDICARE_BILLING.read(data_dir)} m
                   JOIN evidence e ON e.code = m.hcpcs_cd
                   UNION ALL
-                  SELECT d.npi, e.service_id, false
+                  SELECT d.npi, e.service_id,
+                         e.one_way AND coalesce(o.in_office, true)
                   FROM {MEDICAID_BILLING.read(data_dir)} d
-                  JOIN evidence e ON e.code = d.hcpcs_cd)
+                  JOIN evidence e ON e.code = d.hcpcs_cd
+                  LEFT JOIN medicare_office o ON o.npi = d.npi AND o.hcpcs_cd = d.hcpcs_cd)
             GROUP BY npi, service_id
         ),
         -- The doctors who can count for a service: Medicare or Medicaid shows them billing it
