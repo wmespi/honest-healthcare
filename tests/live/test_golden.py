@@ -77,8 +77,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 296, "families": 18, "places": 11504, "prices": 395118,
-                            "providers": 20300}
+    assert root["rows"] == {"plans": 118, "services": 298, "families": 19, "places": 11645, "prices": 397097,
+                            "providers": 21115}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -90,8 +90,8 @@ def test_each_insurer_goes_by_the_name_it_sells_under(client):
 def test_the_families_are_in_the_screens_order(client):
     catalog = client.get("/services").json()
     assert [f["family"] for f in catalog["families"]] == [
-        "office_visits", "preventive_visits", "child_checkups", "urgent_care", "mental_health", "therapy", "lab_tests",
-        "xrays",
+        "office_visits", "preventive_visits", "child_checkups", "urgent_care", "mental_health", "therapy",
+        "speech_therapy", "lab_tests", "xrays",
         "mammograms", "ultrasound", "ct", "mri", "endoscopy", "eye_procedures", "bone_joint_procedures",
         "skin_procedures", "other_procedures", "stays"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
@@ -129,6 +129,14 @@ def test_a_childs_checkup_shows_only_where_medicaid_shows_a_doctor_billing_one(c
     assert briarcliff["name"] == "BRIARCLIFF PEDIATRICS, P.C."
     assert rates(briarcliff) == [("visit", 103.34, "plan")]
     assert [(s["benefit"], s["copay"]) for s in body["cost_sharing"]] == [("preventive", 0.0)]
+
+
+def test_speech_therapy_near_emory_falls_under_its_own_benefit(client):
+    body = find_care(client, "speech-session")
+    rand = next(p for p in body["results"] if p["name"] == "RAND SPEECH PATHOLOGY LLC")
+    assert rates(rand) == [("therapy", 65.64, "plan")]
+    assert [(s["benefit"], s["label"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
+        ("speech_therapy", "Speech therapy", 40.0, True)]
 
 
 def test_companies_billing_from_one_office_are_one_place(client):

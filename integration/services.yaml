@@ -922,6 +922,22 @@ therapy:
     name: Self-care skills training, per 15 minutes
     keywords: occupational ot daily living
 
+speech_therapy:
+  - service_id: speech-evaluation
+    billing_code: "92523"
+    name: Speech and language evaluation
+    keywords: speech language slp pathologist assessment articulation delay
+    about: A first visit that tests how someone speaks and understands language, so the therapist can plan the treatment.
+    could_change: ["Other tests done the same visit, such as a hearing test, which are billed separately", *not_covered]
+    asks:
+      - Will other tests be done the same visit, and are they billed separately?
+      - Does my plan need an approval or a referral first?
+
+  - service_id: speech-session
+    billing_code: "92507"
+    name: Speech therapy session
+    keywords: speech language voice stutter slp pathologist articulation delay
+
 mental_health:
   - service_id: counseling-intake
     billing_code: "90791"
