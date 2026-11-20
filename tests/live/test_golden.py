@@ -77,8 +77,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 286, "families": 17, "places": 9869, "prices": 349802,
-                            "providers": 15650}
+    assert root["rows"] == {"plans": 118, "services": 286, "families": 17, "places": 10074, "prices": 353896,
+                            "providers": 16807}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -217,7 +217,7 @@ def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
     # Emory, and it lists no facility's fee, so many procedures (children's,
     # pregnancy, rare variants) have no row.
     gaps = unpriced(client, SILVER)
-    assert len(gaps) == 59
+    assert len(gaps) == 60
     # Nor does its file price a hospital stay.
     assert {"stay-vaginal-delivery", "stay-c-section", "stay-knee-replacement", "stay-hip-replacement"} <= set(gaps)
     assert {"checkup-return-18-39", "counseling-family-with", "counseling-family-without", "counseling-group",
@@ -254,7 +254,7 @@ def test_ambetter_prices_what_its_file_gives_only_with_a_modifier_or_a_mislabele
 def test_ambetter_leaves_out_what_no_doctor_near_emory_shows_billing(client):
     # Hospitals' own files price its facility fees, so what's left is mostly labs and counseling.
     gaps = unpriced(client, AMBETTER_SILVER)
-    assert len(gaps) == 13
+    assert len(gaps) == 14
     assert {"counseling-group", "lab-hep-c", "therapy-massage"} <= set(gaps)
     assert not {"eye-cataract", "therapy-exercise", "surgery-vein-radiofrequency", "surgery-hernia-groin-open",
                 "joint-knee-scope-meniscus", "stay-vaginal-delivery", "stay-knee-replacement"} & set(gaps)

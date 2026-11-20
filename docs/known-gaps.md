@@ -143,8 +143,8 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   utilization limits under Provider ↔ procedure apply.
 - **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
   group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
-  The place takes the name of the group the doctor bills Medicare with (CMS Doctors &
-  Clinicians), and away from a hospital a doctor with no group there has no place, even when
+  The place takes the name of the group CMS lists the doctor under in Georgia (CMS Doctors &
+  Clinicians), and away from a hospital a doctor with no Georgia group there has no place, even when
   they do run their own office.
 - **Blue Value has no open source for a hospital's fee.**
   Its file's institutional lines are all revenue codes, and no hospital's own file names a plan on its exchange network ([a hospital's own fee](../integration/build.md#a-facilitys-own-fee)).

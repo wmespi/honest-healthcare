@@ -36,9 +36,9 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
 
 ## Flattening choices
 
-- **One group per NPI**: the group the clinician appears under most often, ties
-  broken by larger `num_org_mem`, then `org_pac_id`. A solo clinician keeps
-  `org_pac_id` / `org_name` NULL.
+- **One group per NPI**: the group with the most of the clinician's Georgia rows, ties
+  broken by the group with the most rows in all states, then larger `num_org_mem`, then `org_pac_id`.
+  A solo clinician, and a clinician CMS lists at no Georgia address, keeps `org_pac_id` / `org_name` NULL.
 - **Every Georgia address**: `dac_locations_ga.parquet` keeps each Georgia address a clinician in scope is listed at, once, whichever of its groups lists it there.
 - **GA scope**: the NPIs on the rosters of every file parse has written,
   `data/raw/<payer>/providers/*.parquet`, every payer's (providers we hold rates for, including
@@ -48,7 +48,7 @@ hard-coded fallback URLs in the module; the download resumes via HTTP Range into
 
 ## How it reaches serving
 
-The find-care build names a doctor's own billing NPI after its CMS group, and lists a clinician at a biller's place only when CMS lists them practicing in that building, and, for a procedure, shows a group's rate at a hospital where CMS affiliates one of its doctors
+The find-care build names a doctor's own billing NPI after its Georgia CMS group, and lists a clinician at a biller's place only when CMS lists them practicing in that building, and, for a procedure, shows a group's rate at a hospital where CMS affiliates one of its doctors
 ([build.md](../../integration/build.md#the-find-care-tables)).
 
 ## Caveats (also in [../docs/known-gaps.md](../../docs/known-gaps.md))
