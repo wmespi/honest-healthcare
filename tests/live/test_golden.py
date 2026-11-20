@@ -77,8 +77,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 298, "families": 19, "places": 11645, "prices": 397097,
-                            "providers": 21115}
+    assert root["rows"] == {"plans": 118, "services": 306, "families": 20, "places": 11648, "prices": 403433,
+                            "providers": 21138}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -91,9 +91,8 @@ def test_the_families_are_in_the_screens_order(client):
     catalog = client.get("/services").json()
     assert [f["family"] for f in catalog["families"]] == [
         "office_visits", "preventive_visits", "child_checkups", "urgent_care", "mental_health", "therapy",
-        "speech_therapy", "lab_tests", "xrays",
-        "mammograms", "ultrasound", "ct", "mri", "endoscopy", "eye_procedures", "bone_joint_procedures",
-        "skin_procedures", "other_procedures", "stays"]
+        "speech_therapy", "lab_tests", "xrays", "mammograms", "ultrasound", "pregnancy_ultrasounds", "ct", "mri",
+        "endoscopy", "eye_procedures", "bone_joint_procedures", "skin_procedures", "other_procedures", "stays"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
 
 
@@ -129,6 +128,16 @@ def test_a_childs_checkup_shows_only_where_medicaid_shows_a_doctor_billing_one(c
     assert briarcliff["name"] == "BRIARCLIFF PEDIATRICS, P.C."
     assert rates(briarcliff) == [("visit", 103.34, "plan")]
     assert [(s["benefit"], s["copay"]) for s in body["cost_sharing"]] == [("preventive", 0.0)]
+
+
+def test_an_obstetrics_office_medicaid_shows_scanning_shows_the_whole_pregnancy_ultrasound(client):
+    # Away from a hospital a pregnancy ultrasound is billed all in, so Medicaid's billing,
+    # which says no place, counts as the office doing it.
+    body = find_care(client, "ultrasound-pregnancy", radius_mi=10)
+    dourron = next(p for p in body["results"] if p["name"] == "DOURRON OB/GYN ASSOCIATES, P.C.")
+    assert rates(dourron) == [("all_in", 116.39, "plan")]
+    decatur = next(p for p in body["results"] if p["name"] == "EMORY DECATUR HOSPITAL")
+    assert [p["part"] for p in decatur["parts"]] == ["facility", "reading"]
 
 
 def test_speech_therapy_near_emory_falls_under_its_own_benefit(client):

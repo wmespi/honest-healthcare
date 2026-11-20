@@ -152,6 +152,56 @@ ultrasound:
     about: Uses sound waves to check the veins in both legs for blood clots or problems with blood flow, with no radiation. It usually takes 30 to 60 minutes.
     could_change: ["Scanning only one leg, which is billed as a different scan", *outside_network, *not_covered]
 
+pregnancy_ultrasounds:
+  - service_id: ultrasound-pregnancy-first-trimester
+    billing_code: "76801"
+    name: Pregnancy ultrasound, first trimester
+    keywords: sonogram prenatal obstetric ob baby fetus dating early
+    about: Uses sound waves through your belly to check the baby before 14 weeks, with no radiation. It usually takes 15 to 30 minutes.
+    could_change: &another_baby [*limited, "Each additional baby, such as with twins, which is billed on top", *outside_network, *not_covered]
+
+  - service_id: ultrasound-pregnancy
+    billing_code: "76805"
+    name: Pregnancy ultrasound, after the first trimester
+    keywords: sonogram prenatal obstetric ob baby fetus growth
+    about: Uses sound waves through your belly to check the baby's growth and position from 14 weeks on, with no radiation. It usually takes 20 to 45 minutes.
+    could_change: *another_baby
+
+  - service_id: ultrasound-pregnancy-detailed
+    billing_code: "76811"
+    name: Detailed pregnancy ultrasound of the baby's anatomy
+    keywords: sonogram prenatal obstetric ob baby fetus anatomy scan level 2 ii high risk
+    about: A longer, detailed look at the baby's organs and body from 14 weeks on, often done by a specialist in high-risk pregnancy. It usually takes 30 to 60 minutes.
+    could_change: ["Each additional baby, such as with twins, which is billed on top", *outside_network, *not_covered]
+
+  - service_id: ultrasound-pregnancy-nuchal
+    billing_code: "76813"
+    name: First-trimester ultrasound measuring the back of the baby's neck
+    keywords: sonogram prenatal nuchal translucency nt screening down syndrome
+    could_change: ["Each additional baby, such as with twins, which is billed on top", "Blood tests that are often paired with it, which are billed separately", *outside_network, *not_covered]
+
+  - service_id: ultrasound-pregnancy-limited
+    billing_code: "76815"
+    name: Pregnancy ultrasound, limited check
+    keywords: sonogram prenatal obstetric ob baby heartbeat position fluid quick
+    about: A quick look at one or more things, such as the baby's heartbeat, position or the fluid around the baby, with no radiation.
+
+  - service_id: ultrasound-pregnancy-transvaginal
+    billing_code: "76817"
+    name: Pregnancy ultrasound, transvaginal
+    keywords: sonogram prenatal obstetric ob early pregnancy cervix
+    about: Uses a small probe placed in the vagina to check an early pregnancy or the cervix up close, with no radiation. It usually takes 15 to 30 minutes.
+
+  - service_id: ultrasound-pregnancy-wellbeing-monitor
+    billing_code: "76818"
+    name: Ultrasound check of the baby's well-being, with heart rate monitoring
+    keywords: biophysical profile bpp nonstress test nst prenatal late pregnancy
+
+  - service_id: ultrasound-pregnancy-wellbeing
+    billing_code: "76819"
+    name: Ultrasound check of the baby's well-being
+    keywords: biophysical profile bpp prenatal late pregnancy
+
 ct:
   - service_id: ct-head
     billing_code: "70450"

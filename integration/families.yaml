@@ -357,7 +357,7 @@ families:
         on_site: true
         missing:
           note: Missing the cost of the scan
-          explain: Medicare records show this group’s doctors reading scans done at hospitals, so the place that does your scan bills for it separately. Ask where the scan would happen and what that place charges.
+          explain: Medicare or Medicaid records show this group’s doctors billing for this scan, but not doing it here, so the place that does your scan may bill for it separately. Ask where the scan would happen and what that place charges.
       - part: reading
         label: Radiologist’s reading
         billing_class: professional
@@ -405,6 +405,25 @@ families:
     bills: *scan_bills
     hospital: *scan_at_hospital
     elsewhere: *scan_elsewhere
+    centers: *radiology_centers
+
+  # A family of its own because away from a hospital it is billed one way: the
+  # obstetrics practices and imaging centers that do it bill it all in, so
+  # Medicaid's billing, which says no place, counts as in an office.
+  - family: pregnancy_ultrasounds
+    name: Pregnancy ultrasounds
+    codes: ["76801", "76805", "76811", "76813", "76815", "76817", "76818", "76819"]
+    benefits: [diagnostic_imaging]
+    about: Uses sound waves to check on the baby during pregnancy, with no radiation. It usually takes 15 to 60 minutes.
+    could_change:
+      - Your plan counting it as prenatal care, which may have a different share
+      - Another scan done the same visit, which is billed as a separate scan
+      - *outside_network
+      - *not_covered
+    asks: *ask_scan
+    bills: *scan_bills
+    hospital: *scan_at_hospital
+    elsewhere: [[all_in]]
     centers: *radiology_centers
 
   - family: ct

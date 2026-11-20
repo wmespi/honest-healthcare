@@ -145,6 +145,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   row's billers, so one with few patients on either for it isn't listed (HHS hides Medicaid rows under 12 claims), and the CMS
   utilization limits under Provider ↔ procedure apply.
 - **Medicaid doesn't say where a doctor billed**, so a practice only Medicaid shows doing a scan or a procedure shows just the doctor's part, such as the reading, never the whole service in its office.
+  A pregnancy ultrasound is the exception, since away from a hospital it is billed all in ([integration/families.yaml](../integration/families.yaml)), so a radiology group Medicaid shows reading them can show the whole scan at its own address.
 - **A doctor billing under their own NPI is listed only under a CMS group.** Anthem keys some
   group contracts on one doctor's NPI, so the doctor's own name would mislabel a whole group.
   The place takes the name of the group CMS lists the doctor under in Georgia (CMS Doctors &
