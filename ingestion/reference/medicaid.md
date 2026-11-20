@@ -19,6 +19,7 @@ A value that isn't a number drops the row.
 
 **Scope.**
 Only NPIs in the NPPES Georgia subset ([nppes.md](../etl/nppes.md)): `ga_providers.parquet` and the NPIs in `ga_locations.parquet` beside it.
+A hospital's NPI is left out: its rows are its own facility claims, which Medicare's utilization doesn't carry either, so they don't show who does a service.
 The file has no state column, so NPPES is the only Georgia filter.
 The step stops and names `make reference STEP=nppes` when the providers file is missing.
 

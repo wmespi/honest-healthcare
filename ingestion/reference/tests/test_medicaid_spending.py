@@ -16,6 +16,7 @@ ROWS = [
     ("5", "abc", "99213", "2025-06", 50),   # a servicing NPI that isn't numeric
     ("x", "", "99213", "2025-06", 60),      # a billing NPI that isn't numeric
     ("100", "1", "99213", "2025-12", 3),    # more lines on the same npi and code
+    ("6", "", "99213", "2025-06", 70),      # a Georgia hospital's own claim
 ]
 
 
@@ -28,7 +29,8 @@ def built(tmp_path):
     con.executemany("INSERT INTO t VALUES (?, ?, ?, ?, 12, ?, 1.0)", [(b, s, c, m, n) for b, s, c, m, n in ROWS])
     src, providers, locations, out = (str(tmp_path / n) for n in ("src.parquet", "p.parquet", "l.parquet", "o.parquet"))
     con.execute(f"COPY t TO '{src}' (FORMAT parquet)")
-    con.execute(f"COPY (SELECT * FROM (VALUES (1::BIGINT), (2::BIGINT), (5::BIGINT)) v(npi)) TO '{providers}' (FORMAT parquet)")
+    con.execute(f"COPY (SELECT * FROM (VALUES (1::BIGINT, false), (2, false), (5, false), (6, true)) v(npi, is_hospital)) "
+                f"TO '{providers}' (FORMAT parquet)")
     con.execute(f"COPY (SELECT * FROM (VALUES (9::BIGINT)) v(npi)) TO '{locations}' (FORMAT parquet)")
     through = build(con, src, [providers, locations], out)
     rows = con.execute(f"SELECT npi, hcpcs_cd, claim_lines, through FROM read_parquet('{out}') ORDER BY ALL").fetchall()
@@ -49,4 +51,4 @@ def test_the_servicing_npi_counts_else_the_billing_npi(built):
 
 def test_scope_is_the_georgia_npis_and_drops_non_numeric_ones(built):
     _, rows = built
-    assert [r[0] for r in rows] == [1, 2, 9]  # 5's servicing NPI isn't numeric, "x" isn't either
+    assert [r[0] for r in rows] == [1, 2, 9]  # 5's servicing NPI isn't numeric, "x" isn't either, 6 is a hospital

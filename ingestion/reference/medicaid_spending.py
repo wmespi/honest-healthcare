@@ -37,14 +37,18 @@ WINDOW_MONTHS = 12
 
 def build(con, src: str, nppes_paths: list, out_path: str) -> str:
     """Write the output from the Parquet at `src`, scoped to the NPIs in
-    `nppes_paths`; return the window's last month."""
+    `nppes_paths` (NPPES's Georgia providers first) that aren't hospitals; return
+    the window's last month."""
     source = f"read_parquet('{src}')"
     through = con.execute(f"SELECT max(CLAIM_FROM_MONTH) FROM {source}").fetchone()[0]
     if not through:
         raise SystemExit(f"{src} has no CLAIM_FROM_MONTH")
     npis = " UNION ".join(f"SELECT npi FROM read_parquet('{p}')" for p in nppes_paths)
+    # A hospital's rows are its own facility claims, which Medicare's utilization,
+    # the other evidence, doesn't carry either: they don't show who does a service.
+    hospitals = f"SELECT npi FROM read_parquet('{nppes_paths[0]}') WHERE is_hospital"
     select_sql = f"""
-        WITH ga AS ({npis}),
+        WITH ga AS ({npis} EXCEPT {hospitals}),
         window_start AS (
             SELECT strftime(CAST('{through}-01' AS DATE) - INTERVAL {WINDOW_MONTHS - 1} MONTH, '%Y-%m') AS month
         ),
