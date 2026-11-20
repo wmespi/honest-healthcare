@@ -27,6 +27,7 @@ STEPS=(
   "nppes|/app/data/ingestion/nppes/ga_locations.parquet|etl nppes"
   "taxonomy-labels|/app/data/ingestion/reference/nucc_taxonomy.parquet|ingestion.reference.taxonomy_labels"
   "cms-utilization|/app/data/ingestion/cms/ga_provider_service.parquet|ingestion.reference.cms_utilization"
+  "medicaid|/app/data/ingestion/reference/medicaid_ga.parquet|ingestion.reference.medicaid_spending"
   "doctors-clinicians|/app/data/ingestion/reference/dac_hospitals_ga.parquet|ingestion.reference.doctors_clinicians"
   "mpfs|/app/data/ingestion/reference/mpfs_ga.parquet|ingestion.reference.mpfs"
   "opps|/app/data/ingestion/reference/opps.parquet|ingestion.reference.opps"

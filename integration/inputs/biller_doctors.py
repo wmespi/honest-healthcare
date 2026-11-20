@@ -1,4 +1,4 @@
-"""Build-only: the doctors Medicare shows billing a service, by the biller whose
+"""Build-only: the doctors Medicare or Medicaid shows billing a service, by the biller whose
 rate for it covers them."""
 from integration.inputs.biller_rates import covered
 from integration.table import Table
@@ -7,10 +7,10 @@ from integration.table import Table
 class BillerDoctors(Table):
     """A doctor is behind a biller's rate when they're on a roster it covers
     (biller_rates.covered), or are the biller, billing under their own NPI, and
-    Medicare shows them billing the service: its own code, or any of its family's
-    `evidence_codes` where the family names them, and never where it names none
+    Medicare or Medicaid shows them billing the service: its own code and any of
+    its family's `evidence_codes`, and never where the family names none
     (integration/families.yaml). `in_office` says Medicare shows them billing it
-    in an office. biller_rates reads this as its evidence, and providers as who
+    in an office; Medicaid doesn't say where. biller_rates reads this as its evidence, and providers as who
     is at a place."""
     name = "biller_doctors"
     key = ["network_id", "service_id", "biller", "npi"]
