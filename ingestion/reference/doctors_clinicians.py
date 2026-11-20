@@ -158,6 +158,9 @@ def build_national(con, src: str, out_path: str, geo_filter: str) -> None:
     num_mem = _pick(c, "num_org_mem", "number_of_group_practice_members")
 
     geo_sql = geo_filter.format(state=_q(state), npi=_q(npi))
+    # A group counts by its Georgia rows first: the roster scope keeps rows in
+    # other states, whose groups must not name a Georgia office.
+    ga_sql = f"(UPPER(TRIM({_q(state)})) = 'GA')::INTEGER" if state else "1"
 
     select_sql = f"""
         WITH src AS (
@@ -172,26 +175,31 @@ def build_national(con, src: str, out_path: str, geo_filter: str) -> None:
                 TRY_CAST(NULLIF(TRIM({_q(grd)}), '') AS INTEGER) AS grad_year,
                 NULLIF(TRIM({_q(school)}), '')                   AS med_school,
                 NULLIF(TRIM({_q(gender)}), '')                   AS gender,
-                TRY_CAST(NULLIF(TRIM({_q(num_mem)}), '') AS INTEGER) AS num_org_mem
+                TRY_CAST(NULLIF(TRIM({_q(num_mem)}), '') AS INTEGER) AS num_org_mem,
+                {ga_sql}                                         AS in_ga
             FROM {src_sql}
             WHERE TRY_CAST({_q(npi)} AS BIGINT) IS NOT NULL
               AND ({geo_sql})
         ),
         by_group AS (
-            SELECT *, COUNT(*) OVER (PARTITION BY npi, org_pac_id) AS grp_rows
+            SELECT *, COUNT(*) OVER (PARTITION BY npi, org_pac_id) AS grp_rows,
+                   SUM(in_ga) OVER (PARTITION BY npi, org_pac_id) AS grp_ga_rows
             FROM src
         ),
         ranked AS (
             SELECT *, ROW_NUMBER() OVER (
                 PARTITION BY npi
-                ORDER BY grp_rows DESC,
+                ORDER BY grp_ga_rows DESC,
+                         grp_rows DESC,
                          num_org_mem DESC NULLS LAST,
                          org_pac_id NULLS LAST
             ) AS rn
             FROM by_group
         )
         SELECT npi, last_name, first_name, credential, primary_specialty,
-               org_pac_id, org_name, grad_year, med_school, gender
+               CASE WHEN grp_ga_rows > 0 THEN org_pac_id END AS org_pac_id,
+               CASE WHEN grp_ga_rows > 0 THEN org_name END   AS org_name,
+               grad_year, med_school, gender
         FROM ranked
         WHERE rn = 1
     """

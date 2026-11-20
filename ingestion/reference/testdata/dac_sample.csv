@@ -2,6 +2,9 @@ NPI,Ind_PAC_ID,Provider Last Name,Provider First Name,gndr,Cred,Med_sch,Grd_yr,p
 1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,Peachtree Internal Medicine LLC,1111111111,40,1 Peachtree St,STE 300,Atlanta,GA,30303,4045550111,110001,Emory University Hospital,110002,Grady Memorial Hospital
 1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,Peachtree Internal Medicine LLC,1111111111,40,200 Main St,,Decatur,GA,30030,,110001,Emory University Hospital,,
 1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,Midtown Primary Care,2222222222,8,55 10th St,,Atlanta,GA,30309,,110002,Grady Memorial Hospital,,
+1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,New York University,5555555555,900,1 First Ave,,New York,NY,10016,,,,,
+1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,New York University,5555555555,900,2 Second Ave,,New York,NY,10016,,,,,
+1000000001,I001,Adams,Carol,F,M.D.,Emory University School of Medicine,2005,Internal Medicine,New York University,5555555555,900,3 Third Ave,,New York,NY,10016,,,,,
 1000000002,I002,Baker,David,M,M.D.,Medical College of Georgia,1999,Cardiology,Atlanta Heart Associates,3333333333,25,10 Cardio Way,,Atlanta,GA,30308,,110001,Emory University Hospital,,
 1000000003,I003,Carter,Ellen,F,LCSW,University of Georgia,2012,Clinical Social Worker,Decatur Behavioral Health,4444444444,6,12 Clairmont Ave,,Decatur,GA,30030,,,,,
 1000000004,I004,Diaz,Frank,M,M.D.,Duke University School of Medicine,2008,Diagnostic Radiology,Atlanta Heart Associates,3333333333,25,1 Baptist Way,,Marietta,GA,30060,,110003,Northside Hospital,,

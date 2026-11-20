@@ -158,3 +158,17 @@ def test_roster_scope_applies_to_hospital_affiliations_too(built_roster_scoped):
     hospitals = out.replace("dac_ga.parquet", "dac_hospitals_ga.parquet")
     assert con.execute(f"SELECT npi, ccn FROM read_parquet('{hospitals}') ORDER BY ALL").fetchall() == [
         (1000000001, "110001"), (1000000001, "110002"), (1000000002, "110001"), (2000000001, "110002")]
+
+
+def test_roster_scope_prefers_the_georgia_group_over_a_bigger_out_of_state_one(built_roster_scoped):
+    con, out = built_roster_scoped
+    # NPI ...01 has three rows under a New York group and two under a Georgia one
+    assert con.execute(f"SELECT org_pac_id, org_name FROM read_parquet('{out}') WHERE npi = 1000000001"
+                       ).fetchone() == ("1111111111", "Peachtree Internal Medicine LLC")
+
+
+def test_roster_scope_clinician_listed_only_out_of_state_has_no_group(built_roster_scoped):
+    con, out = built_roster_scoped
+    assert con.execute(f"""SELECT org_pac_id, org_name, last_name, credential, primary_specialty, grad_year
+                           FROM read_parquet('{out}') WHERE npi = 2000000001""").fetchone() == (
+        None, None, "Wilson", "M.D.", "Internal Medicine", 2003)
