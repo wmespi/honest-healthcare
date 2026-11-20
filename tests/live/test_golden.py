@@ -77,8 +77,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 288, "families": 17, "places": 11503, "prices": 387805,
-                            "providers": 20279}
+    assert root["rows"] == {"plans": 118, "services": 296, "families": 18, "places": 11504, "prices": 395118,
+                            "providers": 20300}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -90,7 +90,8 @@ def test_each_insurer_goes_by_the_name_it_sells_under(client):
 def test_the_families_are_in_the_screens_order(client):
     catalog = client.get("/services").json()
     assert [f["family"] for f in catalog["families"]] == [
-        "office_visits", "preventive_visits", "urgent_care", "mental_health", "therapy", "lab_tests", "xrays",
+        "office_visits", "preventive_visits", "child_checkups", "urgent_care", "mental_health", "therapy", "lab_tests",
+        "xrays",
         "mammograms", "ultrasound", "ct", "mri", "endoscopy", "eye_procedures", "bone_joint_procedures",
         "skin_procedures", "other_procedures", "stays"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
@@ -117,6 +118,17 @@ def test_an_office_visit_near_emory_shows_one_bill_and_both_shares(client):
     assert all(p["kind"] != "hospital" for p in body["results"])
     assert [(s["benefit"], s["parts"]) for s in body["cost_sharing"]] == [
         ("primary_care", ["visit"]), ("specialist", ["visit"])]
+
+
+def test_a_childs_checkup_shows_only_where_medicaid_shows_a_doctor_billing_one(client):
+    # Medicare's wellness visits show a doctor does adults' checkups, not children's.
+    body = find_care(client, "checkup-return-1-4")
+    names = {p["name"] for p in body["results"]}
+    assert not names & {"THE EMORY CLINIC INC", "JOSEPH C. SMIDDY MD PC"}
+    briarcliff = next(p for p in body["results"] if p["place_id"] == "1316070493")
+    assert briarcliff["name"] == "BRIARCLIFF PEDIATRICS, P.C."
+    assert rates(briarcliff) == [("visit", 103.34, "plan")]
+    assert [(s["benefit"], s["copay"]) for s in body["cost_sharing"]] == [("preventive", 0.0)]
 
 
 def test_companies_billing_from_one_office_are_one_place(client):

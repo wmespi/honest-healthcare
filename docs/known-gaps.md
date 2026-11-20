@@ -99,8 +99,11 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 - **An office visit is listed under a kind of doctor only where someone there names one.**
   A place whose clinicians are registered only as general nurse practitioners or physician assistants, and whose billing group names no kind either, such as a medical specialty clinic, is under no kind; `make build` lists the registrations that count as none ([integration/specialties.yaml](../integration/specialties.yaml)).
   A large system's practice can show under kinds its own doctors don't practice there, because its roster spans the system.
-- **A yearly checkup's evidence is the checkup codes themselves in Medicaid, or Medicare's wellness visit.**
-  Medicare doesn't pay the checkup codes, so a practice shows when Medicare has a doctor of its billing a wellness visit or Medicaid shows one billing a checkup code; children's checkups aren't in the catalog yet.
+- **A checkup's evidence is the checkup codes themselves in Medicaid, or Medicare's wellness visit.**
+  Medicare doesn't pay the checkup codes, so a practice shows when Medicare has a doctor of its billing a wellness visit or Medicaid shows one billing a checkup code.
+  A child's checkup has only Medicaid's, so a practice that sees few Medicaid children doesn't show for one.
+- **Blue Value prices most children's checkups only under Medicaid's screening modifier (EP).**
+  Its largest rosters list the checkup codes with EP and no plain rate, and an exchange member's checkup isn't billed under Medicaid's program, so those practices don't show for one; `make coverage BY=service` counts what's left.
 - **Urgent care lists only the centers NPPES registers as urgent care.**
   It shows the rate for the urgent care place of service where a network's file has one, and the office rate where it doesn't.
   Oscar's urgent care centers bill under practices' NPIs, so its networks list none.
