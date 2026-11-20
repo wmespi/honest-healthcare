@@ -30,6 +30,7 @@ OTHER_BILLS = {
     "GT": "a visit by live video",
     "GQ": "a visit by recorded video or images",
     "EP": "a child's checkup under Medicaid's screening program",
+    "TJ": "a program's service for a child or teen",
     "AH": "a clinical psychologist's rate",
     "AJ": "a clinical social worker's rate",
     "HO": "a clinician with a master's degree",
