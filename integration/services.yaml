@@ -53,7 +53,7 @@ shared:
 xrays:
   - service_id: xray-chest
     billing_code: "71046"
-    name: Chest X-ray
+    name: Chest X-ray, two views
     keywords: xray cxr lungs heart
     about: A quick, low-dose X-ray of your heart and lungs, usually from two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
@@ -67,21 +67,21 @@ xrays:
 
   - service_id: xray-knee
     billing_code: "73560"
-    name: Knee X-ray
+    name: Knee X-ray, one or two views
     keywords: xray leg joint
     about: A quick, low-dose X-ray of the bones in your knee, from one or two angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
 
   - service_id: xray-ankle
     billing_code: "73610"
-    name: Ankle X-ray
+    name: Ankle X-ray, three or more views
     keywords: xray foot leg joint
     about: A quick, low-dose X-ray of the bones in your ankle, from at least three angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
 
   - service_id: xray-lower-back
     billing_code: "72100"
-    name: Lower-back X-ray
+    name: Lower-back X-ray, two or three views
     keywords: xray lumbar spine back
     about: A low-dose X-ray of the bones in your lower spine, from two or three angles. It usually takes about 15 minutes. Tell them if you might be pregnant.
     could_change: [*views, *outside_network, *not_covered]
@@ -92,6 +92,151 @@ xrays:
     keywords: dxa osteoporosis bone hip spine
     about: A low-dose X-ray that measures the density of the bones in your hips and spine, to check for osteoporosis. You lie still on a table for about 10 to 20 minutes. Tell them if you might be pregnant.
     could_change: ["A check of the spine for fractures added to the scan, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: xray-chest-one-view
+    billing_code: "71045"
+    name: Chest X-ray, one view
+    keywords: xray cxr lungs heart single portable
+
+  - service_id: xray-chest-three-views
+    billing_code: "71047"
+    name: Chest X-ray, three views
+    keywords: xray cxr lungs heart
+
+  - service_id: xray-chest-four-views
+    billing_code: "71048"
+    name: Chest X-ray, four or more views
+    keywords: xray cxr lungs heart
+
+  - service_id: xray-ribs
+    billing_code: "71101"
+    name: Rib X-ray, one side, with a chest view
+    keywords: xray ribs fracture chest
+
+  - service_id: xray-neck
+    billing_code: "72040"
+    name: Neck X-ray, two or three views
+    keywords: xray cervical spine
+
+  - service_id: xray-neck-full
+    billing_code: "72050"
+    name: Neck X-ray, four or five views
+    keywords: xray cervical spine
+
+  - service_id: xray-mid-back
+    billing_code: "72070"
+    name: Mid-back X-ray, two views
+    keywords: xray thoracic spine back
+
+  - service_id: xray-mid-back-three-views
+    billing_code: "72072"
+    name: Mid-back X-ray, three views
+    keywords: xray thoracic spine back
+
+  - service_id: xray-lower-back-full
+    billing_code: "72110"
+    name: Lower-back X-ray, four or more views
+    keywords: xray lumbar spine back
+
+  - service_id: xray-pelvis
+    billing_code: "72170"
+    name: Pelvis X-ray
+    keywords: xray hips pelvic bones
+
+  - service_id: xray-collarbone
+    billing_code: "73000"
+    name: Collarbone X-ray
+    keywords: xray clavicle shoulder
+
+  - service_id: xray-elbow
+    billing_code: "73070"
+    name: Elbow X-ray, two views
+    keywords: xray arm joint
+
+  - service_id: xray-elbow-full
+    billing_code: "73080"
+    name: Elbow X-ray, three or more views
+    keywords: xray arm joint
+
+  - service_id: xray-forearm
+    billing_code: "73090"
+    name: Forearm X-ray
+    keywords: xray arm radius ulna
+
+  - service_id: xray-wrist
+    billing_code: "73100"
+    name: Wrist X-ray, two views
+    keywords: xray arm hand joint
+
+  - service_id: xray-wrist-full
+    billing_code: "73110"
+    name: Wrist X-ray, three or more views
+    keywords: xray arm hand joint
+
+  - service_id: xray-hand
+    billing_code: "73120"
+    name: Hand X-ray, two views
+    keywords: xray fingers
+
+  - service_id: xray-hand-full
+    billing_code: "73130"
+    name: Hand X-ray, three or more views
+    keywords: xray fingers
+
+  - service_id: xray-finger
+    billing_code: "73140"
+    name: Finger X-ray
+    keywords: xray hand thumb
+
+  - service_id: xray-knee-three-views
+    billing_code: "73562"
+    name: Knee X-ray, three views
+    keywords: xray leg joint
+
+  - service_id: xray-knee-four-views
+    billing_code: "73564"
+    name: Knee X-ray, four or more views
+    keywords: xray leg joint
+
+  - service_id: xray-knees-standing
+    billing_code: "73565"
+    name: X-ray of both knees, standing
+    keywords: xray leg joint arthritis weight bearing
+
+  - service_id: xray-lower-leg
+    billing_code: "73590"
+    name: Lower-leg X-ray
+    keywords: xray shin tibia fibula
+
+  - service_id: xray-ankle-two-views
+    billing_code: "73600"
+    name: Ankle X-ray, two views
+    keywords: xray foot leg joint
+
+  - service_id: xray-foot
+    billing_code: "73620"
+    name: Foot X-ray, two views
+    keywords: xray toes
+
+  - service_id: xray-foot-full
+    billing_code: "73630"
+    name: Foot X-ray, three or more views
+    keywords: xray toes
+
+  - service_id: xray-heel
+    billing_code: "73650"
+    name: Heel X-ray
+    keywords: xray foot calcaneus
+
+  - service_id: xray-toe
+    billing_code: "73660"
+    name: Toe X-ray
+    keywords: xray foot
+
+  - service_id: xray-abdomen-series
+    billing_code: "74022"
+    name: Abdomen X-ray series, with a chest view
+    keywords: xray belly stomach bowel blockage
 
 mammograms:
   - service_id: mammogram-screening
@@ -119,14 +264,14 @@ mammograms:
 ultrasound:
   - service_id: ultrasound-abdomen
     billing_code: "76700"
-    name: Abdominal ultrasound
+    name: Abdominal ultrasound, complete
     keywords: sonogram belly stomach liver gallbladder kidneys
     about: Uses sound waves to picture the organs in your abdomen, with no radiation. It usually takes about 30 minutes, and you may be asked not to eat beforehand.
     could_change: [*limited, *outside_network, *not_covered]
 
   - service_id: ultrasound-pelvis
     billing_code: "76856"
-    name: Pelvic ultrasound
+    name: Pelvic ultrasound, complete
     keywords: sonogram uterus ovaries bladder
     about: Uses sound waves through your lower belly to picture the organs in your pelvis, with no radiation. You may be asked to drink water beforehand so your bladder is full. It usually takes about 30 minutes.
     could_change: [*limited, "A transvaginal ultrasound done the same visit, which is billed as a separate scan", *outside_network, *not_covered]
@@ -147,10 +292,107 @@ ultrasound:
 
   - service_id: ultrasound-leg-veins
     billing_code: "93970"
-    name: Leg vein ultrasound
+    name: Leg vein ultrasound, both legs
     keywords: sonogram doppler duplex blood clot dvt veins
     about: Uses sound waves to check the veins in both legs for blood clots or problems with blood flow, with no radiation. It usually takes 30 to 60 minutes.
     could_change: ["Scanning only one leg, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ultrasound-vein-one-limb
+    billing_code: "93971"
+    name: Vein ultrasound, one arm or leg
+    keywords: sonogram doppler duplex blood clot dvt veins
+    about: Uses sound waves to check the veins in one arm or leg for blood clots or problems with blood flow, with no radiation. It usually takes 30 minutes.
+    could_change: ["Scanning both legs, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ultrasound-abdomen-limited
+    billing_code: "76705"
+    name: Abdominal ultrasound, limited
+    keywords: sonogram belly gallbladder liver one organ
+    about: Uses sound waves to picture one part of your abdomen, such as your gallbladder or liver, with no radiation. It usually takes 15 to 30 minutes, and you may be asked not to eat beforehand.
+    could_change: ["A complete scan of your abdomen instead, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ultrasound-pelvis-limited
+    billing_code: "76857"
+    name: Pelvic ultrasound, limited
+    keywords: sonogram uterus ovaries bladder
+    about: Uses sound waves through your lower belly to look at one part of your pelvis, or check on something seen before, with no radiation. It usually takes 15 to 30 minutes.
+    could_change: ["A complete scan of your pelvis instead, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ultrasound-kidneys
+    billing_code: "76770"
+    name: Kidney ultrasound
+    keywords: sonogram renal kidneys bladder retroperitoneal
+    about: Uses sound waves to picture your kidneys and the area around them at the back of your abdomen, with no radiation. It usually takes about 30 minutes.
+    could_change: [*limited, *outside_network, *not_covered]
+
+  - service_id: ultrasound-kidneys-limited
+    billing_code: "76775"
+    name: Kidney ultrasound, limited
+    keywords: sonogram renal kidney retroperitoneal follow-up
+    about: Uses sound waves to look at one kidney or one thing seen before at the back of your abdomen, with no radiation. It usually takes 15 to 30 minutes.
+
+  - service_id: ultrasound-bladder-after-urinating
+    billing_code: "51798"
+    name: Bladder ultrasound after urinating
+    keywords: bladder scan post void residual pvr urine
+    about: A quick ultrasound of your bladder right after you urinate, to measure how much urine is left. It takes a few minutes.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: ultrasound-scrotum
+    billing_code: "76870"
+    name: Scrotal ultrasound
+    keywords: sonogram testicles testicular scrotum
+    about: Uses sound waves to picture your testicles and the area around them, with no radiation. It usually takes 15 to 30 minutes.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: ultrasound-prostate
+    billing_code: "76872"
+    name: Prostate ultrasound, through the rectum
+    keywords: sonogram transrectal trus prostate
+    about: Uses a small probe placed in the rectum to picture your prostate up close, with no radiation. It usually takes 15 to 30 minutes.
+    could_change: ["A biopsy taken during the scan, which is billed as a separate procedure", *outside_network, *not_covered]
+
+  - service_id: ultrasound-breast-limited
+    billing_code: "76642"
+    name: Breast ultrasound, one area
+    keywords: sonogram breast lump
+    about: Uses sound waves to look at one area of a breast, such as a lump or something a mammogram found, with no radiation. It usually takes 15 to 30 minutes.
+    could_change: ["Scanning the whole breast, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ultrasound-limb-limited
+    billing_code: "76882"
+    name: Ultrasound of a joint or lump in an arm or leg
+    keywords: sonogram musculoskeletal tendon joint soft tissue lump
+    about: Uses sound waves to look at one joint, tendon or lump in an arm or leg, with no radiation. It usually takes 15 to 30 minutes.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: ultrasound-carotid
+    billing_code: "93880"
+    name: Carotid artery ultrasound
+    keywords: sonogram doppler duplex neck arteries stroke
+    about: Uses sound waves to check the arteries on both sides of your neck for narrowing, with no radiation. It usually takes 30 minutes.
+    could_change: ["Scanning only one side, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ankle-brachial-index
+    billing_code: "93922"
+    name: Leg artery blood flow test (ankle-brachial index)
+    keywords: abi doppler peripheral artery disease pad circulation legs
+    about: Compares the blood pressure at your ankles and arms, using cuffs and a small ultrasound probe, to check for narrowed arteries in your legs. It takes 15 to 30 minutes.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: echocardiogram
+    billing_code: "93306"
+    name: Echocardiogram (heart ultrasound)
+    keywords: echo heart cardiac tte doppler valves
+    about: Uses sound waves to picture your heart's chambers, valves and blood flow, with no radiation. It usually takes 45 to 60 minutes.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: echocardiogram-stress
+    billing_code: "93350"
+    name: Stress echocardiogram
+    keywords: echo heart cardiac stress exercise treadmill
+    about: Heart ultrasound pictures taken at rest and right after exercise, or after a medicine that makes your heart work harder. It usually takes about an hour. Wear comfortable shoes.
+    could_change: ["The exercise test itself, with its EKG monitoring, which is billed separately", *outside_network, *not_covered]
 
 pregnancy_ultrasounds:
   - service_id: ultrasound-pregnancy-first-trimester
@@ -245,6 +487,76 @@ ct:
     about: Combines X-rays from many angles into detailed pictures of the bones in your lower spine. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
     could_change: [*contrast, *outside_network, *not_covered]
 
+  - service_id: ct-sinuses
+    billing_code: "70486"
+    name: Sinus CT
+    keywords: cat scan face sinusitis maxillofacial
+    about: Combines X-rays from many angles into detailed pictures of your sinuses and the bones of your face. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, *outside_network, *not_covered]
+
+  - service_id: ct-neck-contrast
+    billing_code: "70491"
+    name: Neck CT with contrast
+    keywords: cat scan throat soft tissue lymph nodes dye iv
+    about: Combines X-rays from many angles into detailed pictures of your neck, with contrast dye given through an IV. The scan takes a few minutes, though the visit runs longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*before_and_after, *outside_network, *not_covered]
+
+  - service_id: ct-chest-angiogram
+    billing_code: "71275"
+    name: Chest CT angiogram
+    keywords: cta cat scan lungs blood clot pulmonary embolism arteries dye iv
+    about: A chest CT with contrast dye given through an IV, timed to picture the blood vessels in your chest, such as to check for a blood clot in the lungs. The scan takes a few minutes, though the visit runs longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: ct-abdomen
+    billing_code: "74150"
+    name: Abdomen CT
+    keywords: cat scan belly stomach liver kidneys
+    about: Combines X-rays from many angles into detailed pictures of your abdomen. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, "Adding your pelvis, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ct-abdomen-contrast
+    billing_code: "74160"
+    name: Abdomen CT with contrast
+    keywords: cat scan belly stomach liver kidneys dye iv
+    about: Combines X-rays from many angles into detailed pictures of your abdomen, with contrast dye given through an IV. You may also drink contrast beforehand, so the visit can run an hour or longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*before_and_after, "Adding your pelvis, which is billed as a different scan", *outside_network, *not_covered]
+
+  - service_id: ct-abdomen-before-after-contrast
+    billing_code: "74170"
+    name: Abdomen CT without and with contrast
+    keywords: cat scan belly stomach liver kidneys dye iv
+    about: Detailed X-ray pictures of your abdomen taken before and after contrast dye is given through an IV. The visit can run an hour or longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: ct-abdomen-pelvis-before-after-contrast
+    billing_code: "74178"
+    name: Abdomen and pelvis CT without and with contrast
+    keywords: cat scan belly stomach dye iv
+    about: Detailed X-ray pictures of your abdomen and pelvis taken before and after contrast dye is given through an IV. You may also drink contrast beforehand, so the visit can run an hour or longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: ct-pelvis
+    billing_code: "72192"
+    name: Pelvis CT
+    keywords: cat scan hips pelvic bladder
+    about: Combines X-rays from many angles into detailed pictures of your pelvis. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, *outside_network, *not_covered]
+
+  - service_id: ct-pelvis-contrast
+    billing_code: "72193"
+    name: Pelvis CT with contrast
+    keywords: cat scan hips pelvic bladder dye iv
+    about: Combines X-rays from many angles into detailed pictures of your pelvis, with contrast dye given through an IV. The scan takes a few minutes, though the visit runs longer. Tell them about kidney problems, a past reaction to contrast dye, or if you might be pregnant.
+    could_change: [*before_and_after, *outside_network, *not_covered]
+
+  - service_id: ct-leg
+    billing_code: "73700"
+    name: Leg CT
+    keywords: cat scan hip knee ankle foot bones fracture
+    about: Combines X-rays from many angles into detailed pictures of the bones in your hip, leg, knee, ankle or foot. The scan itself takes a few minutes, though the visit runs longer. Tell them if you might be pregnant.
+    could_change: [*contrast, *outside_network, *not_covered]
+
 mri:
   - service_id: mri-brain
     billing_code: "70551"
@@ -287,6 +599,90 @@ mri:
     keywords: joint scan arm rotator cuff
     about: Uses magnets and radio waves to picture the bones, muscles, tendons and ligaments in your shoulder, with no radiation. It usually takes 30 to 45 minutes. Tell them about any metal implants.
     could_change: [*contrast, *outside_network, *not_covered]
+
+  - service_id: mri-neck-contrast
+    billing_code: "72156"
+    name: Neck MRI with and without contrast
+    keywords: cervical spine scan dye iv
+    about: Uses magnets and radio waves to picture the bones, discs and nerves in your neck, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: mri-mid-back
+    billing_code: "72146"
+    name: Mid-back MRI
+    keywords: thoracic spine back scan
+    about: Uses magnets and radio waves to picture the bones, discs and nerves in your mid-back, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+
+  - service_id: mri-mid-back-contrast
+    billing_code: "72157"
+    name: Mid-back MRI with and without contrast
+    keywords: thoracic spine back scan dye iv
+    about: Uses magnets and radio waves to picture the bones, discs and nerves in your mid-back, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: mri-lower-back-contrast
+    billing_code: "72158"
+    name: Lower-back MRI with and without contrast
+    keywords: lumbar spine back scan dye iv
+    about: Uses magnets and radio waves to picture your lower spine, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: mri-abdomen
+    billing_code: "74181"
+    name: Abdomen MRI
+    keywords: belly liver kidneys pancreas scan
+    about: Uses magnets and radio waves to picture the organs in your abdomen, with no radiation. It usually takes 30 to 60 minutes, and you may be asked not to eat beforehand. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+
+  - service_id: mri-abdomen-contrast
+    billing_code: "74183"
+    name: Abdomen MRI with and without contrast
+    keywords: belly liver kidneys pancreas scan dye iv
+    about: Uses magnets and radio waves to picture the organs in your abdomen, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes, and you may be asked not to eat beforehand. Tell them about any metal implants or kidney problems.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: mri-pelvis
+    billing_code: "72195"
+    name: Pelvis MRI
+    keywords: hips pelvic uterus prostate scan
+    about: Uses magnets and radio waves to picture the bones and organs in your pelvis, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+
+  - service_id: mri-pelvis-contrast
+    billing_code: "72197"
+    name: Pelvis MRI with and without contrast
+    keywords: hips pelvic uterus prostate scan dye iv
+    about: Uses magnets and radio waves to picture the bones and organs in your pelvis, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: mri-leg
+    billing_code: "73718"
+    name: Leg MRI, not a joint
+    keywords: thigh calf shin foot scan muscle
+    about: Uses magnets and radio waves to picture the bones and muscles of your leg between the joints, with no radiation. It usually takes 30 to 60 minutes. Tell them about any metal implants.
+    could_change: [*contrast, *outside_network, *not_covered]
+
+  - service_id: mri-leg-joint-contrast
+    billing_code: "73722"
+    name: Hip, knee or ankle MRI with contrast
+    keywords: joint scan leg dye iv
+    about: Uses magnets and radio waves to picture a joint in your leg, with no radiation, after contrast dye is given through an IV or into the joint. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
+    could_change: [*before_and_after, *outside_network, *not_covered]
+
+  - service_id: mri-leg-joint-before-after-contrast
+    billing_code: "73723"
+    name: Hip, knee or ankle MRI with and without contrast
+    keywords: joint scan leg dye iv
+    about: Uses magnets and radio waves to picture a joint in your leg, with no radiation, before and after contrast dye is given through an IV. It usually takes 45 to 60 minutes. Tell them about any metal implants or kidney problems.
+    could_change: [*outside_network, *not_covered]
+
+  - service_id: mri-breasts
+    billing_code: "77047"
+    name: Breast MRI without contrast
+    keywords: breast implants scan
+    about: Uses magnets and radio waves to picture both breasts, with no radiation, often to check breast implants. It usually takes 30 to 45 minutes. Tell them about any metal implants.
+    could_change: ["Contrast dye, which makes it a different scan, the one usually used to look for cancer", *outside_network, *not_covered]
 
 office_visits:
   - service_id: visit-new-15

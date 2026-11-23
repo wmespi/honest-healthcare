@@ -78,8 +78,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 317, "families": 23, "places": 11770, "prices": 419826,
-                            "providers": 21376}
+    assert root["rows"] == {"plans": 118, "services": 382, "families": 23, "places": 11780, "prices": 487416,
+                            "providers": 21465}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -174,6 +174,13 @@ def test_an_allergy_skin_test_near_emory_is_priced_per_allergen_under_allergy_te
     assert {p["specialty"] for p in emory["providers"]} == {"Allergy & Immunology Physician"}
     assert [(s["benefit"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
         ("allergy", 40.0, True)]
+
+
+def test_an_echocardiogram_near_emory_is_the_whole_scan_at_a_cardiology_practice(client):
+    body = find_care(client, "echocardiogram")
+    emory = next(p for p in body["results"] if p["name"] == "THE EMORY CLINIC INC")
+    assert rates(emory) == [("all_in", 181.41, "plan")]
+    assert "Cardiovascular Disease Physician" in {p["specialty"] for p in emory["providers"]}
 
 
 def test_companies_billing_from_one_office_are_one_place(client):
