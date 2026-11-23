@@ -5,15 +5,19 @@ export const money = (amount) => `$${amount.toLocaleString('en-US', Number.isInt
 export const miles = (distance) => `${distance.toFixed(1)} mi`;
 
 // Words that stay in capitals: company endings, credentials, numerals, street
-// directions and scan names.
+// directions, scan names and the country.
 const CAPITALS = new Set([
-  'LLC', 'PLLC', 'LLP', 'PC', 'PA', 'MD', 'DO', 'NP', 'II', 'III', 'IV',
-  'NE', 'NW', 'SE', 'SW', 'MRI', 'CT', 'PET',
+  'LLC', 'PLLC', 'LLP', 'PC', 'PA', 'MD', 'DO', 'OD', 'DPM', 'DMD', 'DDS', 'NP', 'APRN', 'FNP',
+  'LCSW', 'LPC', 'LMFT', 'MSW', 'II', 'III', 'IV', 'NE', 'NW', 'SE', 'SW', 'MRI', 'CT', 'PET', 'USA',
 ]);
 
+// A capital starts the word and follows a hyphen, slash or bracket, and an
+// apostrophe or "Mc" when more letters follow: O'Neal and McQuaig, but Women's.
 const word = (w) => {
   if (w.length <= 1 || /\d/.test(w) || CAPITALS.has(w.replace(/[.,]/g, ''))) return w;
-  return w.toLowerCase().replace(/(^|[-'’/(])([a-z])/g, (_, before, letter) => before + letter.toUpperCase());
+  return w.toLowerCase()
+    .replace(/(^|[-/(])([a-z])/g, (_, before, letter) => before + letter.toUpperCase())
+    .replace(/(['’]|^Mc)([a-z])(?=[a-z])/g, (_, before, letter) => before + letter.toUpperCase());
 };
 
 // NPPES and Medicare spell names and addresses in capitals ("GRADY MEMORIAL
