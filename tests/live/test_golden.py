@@ -78,8 +78,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 314, "families": 22, "places": 11769, "prices": 418197,
-                            "providers": 21370}
+    assert root["rows"] == {"plans": 118, "services": 317, "families": 23, "places": 11770, "prices": 419826,
+                            "providers": 21376}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -92,7 +92,7 @@ def test_the_families_are_in_the_screens_order(client):
     catalog = client.get("/services").json()
     assert [f["family"] for f in catalog["families"]] == [
         "office_visits", "preventive_visits", "child_checkups", "urgent_care", "eye_exams", "mental_health",
-        "therapy", "speech_therapy", "lab_tests", "heart_lung_tests", "xrays", "mammograms", "ultrasound",
+        "therapy", "speech_therapy", "lab_tests", "heart_lung_tests", "allergy", "xrays", "mammograms", "ultrasound",
         "pregnancy_ultrasounds", "ct", "mri", "endoscopy", "eye_procedures", "bone_joint_procedures", "skin_procedures",
         "other_procedures", "stays"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
@@ -165,6 +165,15 @@ def test_an_ekg_near_emory_is_one_bill_under_the_plans_diagnostic_tests(client):
     assert "Cardiovascular Disease Physician" in {p["specialty"] for p in emory["providers"]}
     assert [(s["benefit"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
         ("diagnostic_imaging", 40.0, True)]
+
+
+def test_an_allergy_skin_test_near_emory_is_priced_per_allergen_under_allergy_testing(client):
+    body = find_care(client, "allergy-skin-test", radius_mi=10)
+    emory = next(p for p in body["results"] if p["name"] == "THE EMORY CLINIC INC")
+    assert rates(emory) == [("care", 3.41, "plan")]
+    assert {p["specialty"] for p in emory["providers"]} == {"Allergy & Immunology Physician"}
+    assert [(s["benefit"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
+        ("allergy", 40.0, True)]
 
 
 def test_companies_billing_from_one_office_are_one_place(client):
@@ -267,7 +276,7 @@ def test_blue_value_leaves_out_what_no_doctor_near_emory_shows_billing(client):
     # variants, and adult care Medicare is too old for and Medicaid seldom covers)
     # have no row.
     gaps = unpriced(client, SILVER)
-    assert len(gaps) == 55
+    assert len(gaps) == 56
     # Nor does its file price a hospital stay.
     assert {"stay-vaginal-delivery", "stay-c-section", "stay-knee-replacement", "stay-hip-replacement"} <= set(gaps)
     assert {"checkup-return-18-39", "counseling-family-with", "therapy-iontophoresis", "surgery-tonsils-adult",

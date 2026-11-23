@@ -107,6 +107,7 @@ benefits:
   mental_health: {name: "Mental/Behavioral Health Outpatient Services", label: "Outpatient mental health"}
   therapy: {name: "Rehabilitative Occupational and Rehabilitative Physical Therapy", label: "Physical and occupational therapy"}
   speech_therapy: {name: "Rehabilitative Speech Therapy", label: "Speech therapy"}
+  allergy: {name: "Allergy Testing", label: "Allergy testing"}
   lab: {name: "Laboratory Outpatient and Professional Services", label: "Lab tests"}
   outpatient_facility: {name: "Outpatient Facility Fee (e.g., Ambulatory Surgery Center)", label: "Outpatient facility fee"}
   outpatient_surgery: {name: "Outpatient Surgery Physician/Surgical Services", label: "Outpatient surgery, the doctor's fee"}
@@ -374,6 +375,29 @@ families:
         modifier: ""
         on_site: true
     elsewhere: [[test]]
+
+  # CMS's classification puts these codes in no family, so the family names them.
+  # Georgia's file has a benefit for allergy testing and none for allergy shots,
+  # so the shots fall under it too, and say a plan may count them otherwise.
+  - family: allergy
+    name: Allergy testing and shots
+    codes: ["95004", "95115", "95117"]
+    benefits: [allergy]
+    about: Testing to find what you’re allergic to, and shots that build up your tolerance over months or years, at an allergist’s or another doctor’s office.
+    could_change:
+      - An office visit billed the same day
+      - *not_covered
+    asks:
+      - What will I pay in all for each visit?
+      - Will the visit be billed separately?
+      - Is the doctor in my network?
+    bills:
+      - part: care
+        label: The test or shot
+        billing_class: professional
+        modifier: ""
+        on_site: true
+    elsewhere: [[care]]
 
   - family: xrays
     name: X-rays and bone density scans
