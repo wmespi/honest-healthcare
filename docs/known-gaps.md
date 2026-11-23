@@ -73,7 +73,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 
 ## Quality
 
-- **No public measure fits visits, checkups, urgent care, counseling, therapy, lab tests, X-rays, ultrasound or MRI**, so the screen says places aren't compared on quality there ([integration/measures.yaml](../integration/measures.yaml)).
+- **No public measure fits visits, checkups, urgent care, eye exams, counseling, therapy, lab tests, X-rays, ultrasound or MRI**, so the screen says places aren't compared on quality there ([integration/measures.yaml](../integration/measures.yaml)).
   CMS's lab certification file is keyed by address, not NPI, so labs' accreditation isn't shown.
 - **Measures are shown, not ranked**, since one rank across them would need a home-made score ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
 - **A clinician's procedure count is for Medicare patients only**, and CMS's file gives its release date, not the period it covers.
@@ -104,6 +104,9 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   A child's checkup has only Medicaid's, so a practice that sees few Medicaid children doesn't show for one.
 - **Blue Value prices most children's checkups only under Medicaid's screening modifier (EP).**
   Its largest rosters list the checkup codes with EP and no plain rate, and an exchange member's checkup isn't billed under Medicaid's program, so those practices don't show for one; `make coverage BY=service` counts what's left.
+- **An eye exam is priced as the health plan's, under its specialist share.**
+  A routine exam is often a vision benefit's, paid through a separate vision network whose rates aren't in the insurers' files.
+  Most plans don't cover an adult's routine exam, and the build stops on a benefit any plan doesn't cover, so the screen says this in what could change the bill instead of showing that share.
 - **Urgent care lists only the centers NPPES registers as urgent care.**
   It shows the rate for the urgent care place of service where a network's file has one, and the office rate where it doesn't.
   Oscar's urgent care centers bill under practices' NPIs, so its networks list none.

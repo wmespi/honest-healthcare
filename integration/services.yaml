@@ -1100,6 +1100,27 @@ urgent_care:
     name: Urgent care visit, returning patient, 40 to 54 minutes
     keywords: walk-in clinic sick complex
 
+eye_exams:
+  - service_id: eye-exam-new
+    billing_code: "92004"
+    name: Eye exam, new patient
+    keywords: eye doctor optometrist ophthalmologist vision dilated comprehensive
+
+  - service_id: eye-exam-return
+    billing_code: "92014"
+    name: Eye exam, returning patient
+    keywords: eye doctor optometrist ophthalmologist vision dilated comprehensive yearly
+
+  - service_id: eye-exam-new-short
+    billing_code: "92002"
+    name: Shorter eye exam, new patient
+    keywords: eye doctor optometrist ophthalmologist vision problem
+
+  - service_id: eye-exam-return-short
+    billing_code: "92012"
+    name: Shorter eye exam, returning patient
+    keywords: eye doctor optometrist ophthalmologist vision follow-up problem
+
 endoscopy:
   - service_id: scope-upper
     billing_code: "43235"

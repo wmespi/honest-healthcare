@@ -233,6 +233,25 @@ families:
     evidence_codes: []
     place_of_service: ["20", "11"]
 
+  # A plan's file prices an eye exam billed to the health plan, as an exam for an
+  # eye problem or a condition such as diabetes is: a specialist visit. A routine
+  # exam is often a vision benefit's, paid through a separate vision network.
+  - family: eye_exams
+    name: Eye exams
+    groups: ["Ophthalmological E&M"]
+    benefits: [specialist]
+    about: An eye doctor, an optometrist or an ophthalmologist, checks your vision and the health of your eyes. It usually takes 30 to 60 minutes, and if your eyes are dilated you may want someone to drive you home.
+    could_change:
+      - A routine exam, which a plan often covers under a vision benefit through a separate vision network, usually free for children and often not covered for adults
+      - The test for a glasses prescription, which is billed separately and which a health plan often doesn’t cover
+      - Tests such as scans or photos of your eyes, which are billed on top
+    asks:
+      - Will this be billed to my health plan or as a routine vision exam?
+      - Is the test for a glasses prescription billed separately, and what does it cost?
+      - Is the doctor in my health plan’s network, not only a vision network?
+    bills: *visit_bill
+    elsewhere: *visit_only
+
   - family: mental_health
     name: Mental health counseling
     groups: ["Psychotherapy - Nongroup", "Psychotherapy - Group"]
