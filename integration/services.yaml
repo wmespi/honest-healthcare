@@ -916,6 +916,44 @@ heart_lung_tests:
     keywords: spirometry lung function pulmonary asthma COPD PFT bronchodilator
     about: A breathing test, then the same test after you use an inhaler, to see how much it helps. It takes 30 to 45 minutes. Ask whether to skip your own inhaler first.
 
+allergy:
+  - service_id: allergy-skin-test
+    billing_code: "95004"
+    name: Allergy skin test, per allergen
+    keywords: allergist prick scratch panel hay fever pollen food
+    about: Tiny amounts of possible allergens are pricked into the skin of your arm or back, and the doctor checks for bumps after 15 to 20 minutes. Each allergen is billed on its own, and a visit often tests dozens, so the visit costs this price times the number tested. Ask whether to stop antihistamines first.
+    could_change:
+      - The number of allergens tested, since each is billed on its own
+      - An office visit billed the same day
+      - *not_covered
+    asks:
+      - How many allergens will you test, and what will I pay in all?
+      - Will the visit be billed separately?
+      - Is the doctor in my network?
+
+  - service_id: allergy-shot
+    billing_code: "95115"
+    name: Allergy shot, one injection
+    keywords: allergist immunotherapy injection hay fever pollen
+    about: A shot of the allergens you react to, given on a schedule for months or years to build up your tolerance. You wait about 30 minutes afterwards in case of a reaction.
+    could_change: &allergy_shot
+      - The allergy serum, which is billed by the dose on top of giving the shot
+      - Your plan counting shots under another benefit, such as an office visit, with a different share
+      - An office visit billed the same day
+      - *not_covered
+    asks: &ask_allergy_shot
+      - Is the serum billed on top of the shot, and what does it cost?
+      - What will I pay for each shot under my plan?
+      - Is the doctor in my network?
+
+  - service_id: allergy-shots
+    billing_code: "95117"
+    name: Allergy shots, two or more injections
+    keywords: allergist immunotherapy injection hay fever pollen
+    about: Two or more shots of the allergens you react to in one visit, given on a schedule for months or years to build up your tolerance. You wait about 30 minutes afterwards in case of a reaction.
+    could_change: *allergy_shot
+    asks: *ask_allergy_shot
+
 therapy:
   - service_id: therapy-hot-cold-pack
     billing_code: "97010"

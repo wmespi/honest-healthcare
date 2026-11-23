@@ -73,7 +73,7 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
 
 ## Quality
 
-- **No public measure fits visits, checkups, urgent care, eye exams, counseling, therapy, lab tests, heart and lung tests, X-rays, ultrasound or MRI**, so the screen says places aren't compared on quality there ([integration/measures.yaml](../integration/measures.yaml)).
+- **No public measure fits visits, checkups, urgent care, eye exams, counseling, therapy, lab tests, heart and lung tests, allergy care, X-rays, ultrasound or MRI**, so the screen says places aren't compared on quality there ([integration/measures.yaml](../integration/measures.yaml)).
   CMS's lab certification file is keyed by address, not NPI, so labs' accreditation isn't shown.
 - **Measures are shown, not ranked**, since one rank across them would need a home-made score ([#191](https://github.com/wmespi/honest-healthcare/issues/191)).
 - **A clinician's procedure count is for Medicare patients only**, and CMS's file gives its release date, not the period it covers.
@@ -114,8 +114,10 @@ Where the product is headed: [direction.md](direction.md) and epic [#191](https:
   It shows the rate for the urgent care place of service where a network's file has one, and the office rate where it doesn't.
   Oscar's urgent care centers bill under practices' NPIs, so its networks list none.
 - **Oscar's counseling is priced in Optum's behavioral-health files**, which no target names, so its networks price little counseling.
-- **Therapy is priced per code, and most codes are 15 minutes.**
-  A session bills several, and the screen doesn't add them up.
+- **A service billed by the unit is priced per unit**: most therapy codes are 15 minutes, and an allergy skin test is one allergen.
+  A session or visit bills several, and the screen doesn't add them up, though the headline calls the unit's price the most you'd pay.
+- **Allergy shots' share is the plan's for allergy testing.**
+  Georgia's file has a benefit for allergy testing and none for shots, and a plan may count them under another, such as an office visit.
 - **Counseling shows the rate with no modifier.**
   A rate a plan lists for a psychologist (`AH`), a clinical social worker (`AJ`) or a clinician by degree (`HO`, `HP`) alone is left out, so where a plan pays them less, a session with one costs less than shown.
 - **A lab test's price is the test alone.**
