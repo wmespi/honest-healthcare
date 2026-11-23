@@ -352,6 +352,29 @@ families:
     # apart from one run in a doctor's office.
     place_of_service: ["81", "11"]
 
+  # A test the clinic does and reads itself, billed all in. Georgia's file has no
+  # benefit for these, and a plan's summary puts them with its diagnostic tests.
+  - family: heart_lung_tests
+    name: Heart and lung tests
+    groups: ["Electrocardiogram", "Pulmonary Function Testing"]
+    benefits: [diagnostic_imaging]
+    about: A test of how your heart or lungs are working, done in a doctor’s office.
+    could_change:
+      - Your plan counting it as part of an office visit, which may have a different share
+      - The doctor’s visit the same day, which is billed on its own
+      - A hospital fee, if the clinic is owned by a hospital
+    asks:
+      - Is the test done and read here, or will anyone else send me a bill?
+      - Will the visit be billed separately from the test?
+      - Is this clinic owned by a hospital, and does it add a hospital fee?
+    bills:
+      - part: test
+        label: The test
+        billing_class: professional
+        modifier: ""
+        on_site: true
+    elsewhere: [[test]]
+
   - family: xrays
     name: X-rays and bone density scans
     groups: ["Standard X-ray"]
