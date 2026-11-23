@@ -891,6 +891,31 @@ lab_tests:
     name: Rapid strep throat test
     keywords: sore swab group
 
+heart_lung_tests:
+  - service_id: ekg
+    billing_code: "93000"
+    name: EKG (electrocardiogram)
+    keywords: ECG heart rhythm cardiogram cardiac
+    about: Small stickers on your chest record your heart’s rhythm for a few minutes. It takes about 10 minutes, with nothing to prepare.
+
+  - service_id: stress-test
+    billing_code: "93015"
+    name: Treadmill stress test
+    keywords: exercise heart cardiac treadmill EKG ECG
+    about: Records your heart while you walk on a treadmill that gets faster and steeper. It takes about an hour. Wear comfortable shoes, and ask whether to skip caffeine or any medicines first.
+
+  - service_id: spirometry
+    billing_code: "94010"
+    name: Breathing test (spirometry)
+    keywords: lung function pulmonary asthma COPD PFT
+    about: You breathe out as hard and fast as you can into a tube, a few times. It takes 15 to 30 minutes. Ask whether to skip your inhaler first.
+
+  - service_id: spirometry-inhaler
+    billing_code: "94060"
+    name: Breathing test before and after an inhaler
+    keywords: spirometry lung function pulmonary asthma COPD PFT bronchodilator
+    about: A breathing test, then the same test after you use an inhaler, to see how much it helps. It takes 30 to 45 minutes. Ask whether to skip your own inhaler first.
+
 therapy:
   - service_id: therapy-hot-cold-pack
     billing_code: "97010"

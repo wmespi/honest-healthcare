@@ -78,8 +78,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 310, "families": 21, "places": 11760, "prices": 408507,
-                            "providers": 21330}
+    assert root["rows"] == {"plans": 118, "services": 314, "families": 22, "places": 11769, "prices": 418197,
+                            "providers": 21370}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -92,8 +92,9 @@ def test_the_families_are_in_the_screens_order(client):
     catalog = client.get("/services").json()
     assert [f["family"] for f in catalog["families"]] == [
         "office_visits", "preventive_visits", "child_checkups", "urgent_care", "eye_exams", "mental_health",
-        "therapy", "speech_therapy", "lab_tests", "xrays", "mammograms", "ultrasound", "pregnancy_ultrasounds", "ct",
-        "mri", "endoscopy", "eye_procedures", "bone_joint_procedures", "skin_procedures", "other_procedures", "stays"]
+        "therapy", "speech_therapy", "lab_tests", "heart_lung_tests", "xrays", "mammograms", "ultrasound",
+        "pregnancy_ultrasounds", "ct", "mri", "endoscopy", "eye_procedures", "bone_joint_procedures", "skin_procedures",
+        "other_procedures", "stays"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
 
 
@@ -155,6 +156,15 @@ def test_an_eye_exam_near_emory_is_an_eye_doctors_specialist_visit(client):
     assert (cheapest["name"], rates(cheapest)) == ("GEORGIA OPHTHALMOLOGY ASSOC PC", [("visit", 99.76, "plan")])
     assert all(re.search("Ophthalm|Optometr", p["specialty"]) for p in cheapest["providers"])
     assert [(s["benefit"], s["copay"]) for s in body["cost_sharing"]] == [("specialist", 65.0)]
+
+
+def test_an_ekg_near_emory_is_one_bill_under_the_plans_diagnostic_tests(client):
+    body = find_care(client, "ekg")
+    emory = next(p for p in body["results"] if p["name"] == "THE EMORY CLINIC INC")
+    assert rates(emory) == [("test", 14.52, "plan")]
+    assert "Cardiovascular Disease Physician" in {p["specialty"] for p in emory["providers"]}
+    assert [(s["benefit"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
+        ("diagnostic_imaging", 40.0, True)]
 
 
 def test_companies_billing_from_one_office_are_one_place(client):
