@@ -16,6 +16,7 @@ below; a bare `pytest tests/live` with nothing listening skips all of them.
 hermetic and must never gate on which build steps happen to have been run.
 """
 import os
+import re
 
 import httpx2
 import pytest
@@ -77,8 +78,8 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 306, "families": 20, "places": 11648, "prices": 403433,
-                            "providers": 21138}
+    assert root["rows"] == {"plans": 118, "services": 310, "families": 21, "places": 11760, "prices": 408507,
+                            "providers": 21330}
 
 
 def test_each_insurer_goes_by_the_name_it_sells_under(client):
@@ -90,9 +91,9 @@ def test_each_insurer_goes_by_the_name_it_sells_under(client):
 def test_the_families_are_in_the_screens_order(client):
     catalog = client.get("/services").json()
     assert [f["family"] for f in catalog["families"]] == [
-        "office_visits", "preventive_visits", "child_checkups", "urgent_care", "mental_health", "therapy",
-        "speech_therapy", "lab_tests", "xrays", "mammograms", "ultrasound", "pregnancy_ultrasounds", "ct", "mri",
-        "endoscopy", "eye_procedures", "bone_joint_procedures", "skin_procedures", "other_procedures", "stays"]
+        "office_visits", "preventive_visits", "child_checkups", "urgent_care", "eye_exams", "mental_health",
+        "therapy", "speech_therapy", "lab_tests", "xrays", "mammograms", "ultrasound", "pregnancy_ultrasounds", "ct",
+        "mri", "endoscopy", "eye_procedures", "bone_joint_procedures", "skin_procedures", "other_procedures", "stays"]
     assert {s["family"] for s in catalog["services"]} == {f["family"] for f in catalog["families"]}
 
 
@@ -146,6 +147,14 @@ def test_speech_therapy_near_emory_falls_under_its_own_benefit(client):
     assert rates(rand) == [("therapy", 65.64, "plan")]
     assert [(s["benefit"], s["label"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
         ("speech_therapy", "Speech therapy", 40.0, True)]
+
+
+def test_an_eye_exam_near_emory_is_an_eye_doctors_specialist_visit(client):
+    body = find_care(client, "eye-exam-new")
+    cheapest = body["results"][0]
+    assert (cheapest["name"], rates(cheapest)) == ("GEORGIA OPHTHALMOLOGY ASSOC PC", [("visit", 99.76, "plan")])
+    assert all(re.search("Ophthalm|Optometr", p["specialty"]) for p in cheapest["providers"])
+    assert [(s["benefit"], s["copay"]) for s in body["cost_sharing"]] == [("specialist", 65.0)]
 
 
 def test_companies_billing_from_one_office_are_one_place(client):
