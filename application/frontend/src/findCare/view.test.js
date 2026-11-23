@@ -8,6 +8,11 @@ describe('find care wording', () => {
     expect(displayName('JEFF A TRAUB, MD, PC')).toBe('Jeff A Traub, MD, PC');
     expect(displayName('2501 N PATTERSON ST, SUITE 100')).toBe('2501 N Patterson St, Suite 100');
     expect(displayName("O'NEIL-SMITH IMAGING")).toBe("O'Neil-Smith Imaging");
+    expect(displayName("SAINT JOSEPH'S MERCY CARE SERVICES INC")).toBe("Saint Joseph's Mercy Care Services Inc");
+    expect(displayName("CHILDREN'S HEALTHCARE OF ATLANTA, INC.")).toBe("Children's Healthcare Of Atlanta, Inc.");
+    expect(displayName('JAMES L MCQUAIG JR OD & A BLAKE HUTTO OD')).toBe('James L McQuaig Jr OD & A Blake Hutto OD');
+    expect(displayName('ABIGAIL S. HOLBROOK, MSW, LCSW, LLC')).toBe('Abigail S. Holbrook, MSW, LCSW, LLC');
+    expect(displayName('USA VASCULAR CENTER OF DECATUR LLC')).toBe('USA Vascular Center Of Decatur LLC');
     expect(displayName('1365 CLIFTON RD NE')).toBe('1365 Clifton Rd NE');
     expect(displayName('Diagnostic Radiology Physician')).toBe('Diagnostic Radiology Physician');
   });

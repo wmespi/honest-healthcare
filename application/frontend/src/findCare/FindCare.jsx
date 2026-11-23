@@ -58,7 +58,8 @@ function RateExplainer({ plan }) {
 
 function ResultFilter({ text, onChange }) {
   return (
-    <div className="relative order-last w-full sm:order-none sm:w-auto sm:min-w-0 sm:max-w-56 sm:flex-1">
+    // Wide enough for its placeholder: next to a long note it wraps rather than shrinks.
+    <div className="relative order-last w-full sm:order-none sm:w-auto sm:min-w-52 sm:max-w-56 sm:flex-1">
       <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
       <input
         type="search"
@@ -66,7 +67,7 @@ function ResultFilter({ text, onChange }) {
         value={text}
         onChange={(event) => onChange(event.target.value)}
         placeholder="Find a place or provider"
-        className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700 [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-7 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700 [&::-webkit-search-cancel-button]:appearance-none"
       />
       {text && (
         <button
@@ -389,7 +390,7 @@ export default function FindCare() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="flex min-h-dvh w-screen flex-col bg-white text-slate-900 [color-scheme:light] lg:h-dvh">
+      <div className="flex min-h-dvh w-full flex-col bg-white text-slate-900 [color-scheme:light] lg:h-dvh">
         <header className="relative z-20 flex flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-slate-200 bg-white px-4 py-2.5 sm:px-6">
           <Brand />
           {hasSearch && (
