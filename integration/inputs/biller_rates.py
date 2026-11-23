@@ -161,12 +161,53 @@ def _rank(place_of_service):
 
 
 def covered(data_dir):
-    """SQL for the CTEs that end in `covered`: each kept rate with the biller and
-    each doctor (`npi`) on the rosters it covers whom Medicare or Medicaid shows billing the
-    service, or none, and `billed`, the doctors Medicare or Medicaid shows billing each
-    service. biller_doctors reads them too. A
-    rate under the file's shared labels is kept only where the network's own labels
-    have none for the biller, service and bill, and a placeholder doesn't count."""
+    """SQL for the CTEs that end in `covered`: each kept rate of a biller in
+    candidate_billers with that biller and each doctor (`npi`) on the rosters it
+    covers whom Medicare or Medicaid shows billing the service, or none, and the
+    CTEs of `rate_evidence` (`billed`, the doctors Medicare or Medicaid shows billing
+    each service). biller_doctors reads them too. A rate under the file's shared
+    labels is kept only where the network's own labels have none for the biller,
+    service and bill."""
+    return f"""{rate_evidence(data_dir)},
+        -- A rate's doctors are kept only where Medicare or Medicaid shows them billing the
+        -- service, the only ones biller_doctors and biller_rates read, and its
+        -- others are one row with no `npi`, so a large roster isn't carried
+        -- doctor by doctor.
+        real AS (
+            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, {roster_biller('p')} AS biller,
+                   CASE WHEN t.billed THEN p.npi END AS npi, k.own_label
+            {rate_rosters(data_dir, f"SEMI JOIN candidate_billers c ON c.network_id = k.network_id "
+                                    f"AND c.service_id = k.service_id AND c.biller = {roster_biller('p')}")}
+        ),
+        covered AS (
+            SELECT DISTINCT network_id, service_id, part, rate, biller, npi FROM real
+            QUALIFY {own_first("network_id", "service_id", "part", "biller")}
+        )"""
+
+
+def rate_rosters(data_dir, join=""):
+    """SQL from FROM to the end of WHERE, after the CTEs of `rate_evidence`: each kept
+    rate line (`k`) with each row (`p`) of the rosters it covers, `t` the row's NPI
+    in `candidates` if it is, and any `join` added, leaving out a center or
+    facility billing its own fee, a placeholder rate, at most $1 or 5% of the median
+    for that service and part on the network, and a doctor billing under a tax ID
+    who isn't a candidate."""
+    return f"""
+            FROM kept k
+            JOIN medians m USING (network_id, service_id, part)
+            JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
+            JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
+            LEFT JOIN candidates t ON t.npi = p.npi AND t.service_id = k.service_id
+            ANTI JOIN own_fee o ON o.service_id = k.service_id AND o.npi = TRY_CAST({roster_biller('p')} AS BIGINT)
+            {join}
+            WHERE k.rate > greatest(1, 0.05 * m.median) AND (p.tin_type = 'npi' OR t.npi IS NOT NULL)"""
+
+
+def rate_evidence(data_dir):
+    """SQL for the CTEs that end in `candidates`: the kept rate lines (`kept`),
+    their `medians`, the billers billing their own fee (`own_fee`), the doctors
+    Medicare or Medicaid shows billing each service (`billed`), and the NPIs that can
+    count for a service (`candidates`)."""
     return f"""
         lines AS (
             SELECT r.network_id, s.service_id, r.group_set_id, b.part, r.negotiated_rate AS rate, r.own_label,
@@ -248,25 +289,6 @@ def covered(data_dir):
                   JOIN centers t USING (family)
                   JOIN {NPPES.read(data_dir)} n ON n.taxonomy_code = t.taxonomy_code)
             GROUP BY npi, service_id
-        ),
-        -- A rate's doctors are kept only where Medicare or Medicaid shows them billing the
-        -- service, the only ones biller_doctors and biller_rates read, and its
-        -- others are one row with no `npi`, so a large roster isn't carried
-        -- doctor by doctor.
-        real AS (
-            SELECT DISTINCT k.network_id, k.service_id, k.part, k.rate, {roster_biller('p')} AS biller,
-                   CASE WHEN t.billed THEN p.npi END AS npi, k.own_label
-            FROM kept k
-            JOIN medians m USING (network_id, service_id, part)
-            JOIN {PAYER_RATE_GROUPS.read(data_dir)} g USING (network_id, group_set_id)
-            JOIN {PAYER_ROSTERS.read(data_dir)} p USING (network_id, provider_group_id)
-            LEFT JOIN candidates t ON t.npi = p.npi AND t.service_id = k.service_id
-            ANTI JOIN own_fee o ON o.service_id = k.service_id AND o.npi = TRY_CAST({roster_biller('p')} AS BIGINT)
-            WHERE k.rate > greatest(1, 0.05 * m.median) AND (p.tin_type = 'npi' OR t.npi IS NOT NULL)
-        ),
-        covered AS (
-            SELECT DISTINCT network_id, service_id, part, rate, biller, npi FROM real
-            QUALIFY {own_first("network_id", "service_id", "part", "biller")}
         )"""
 
 

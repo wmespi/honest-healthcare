@@ -56,6 +56,7 @@ Who prices a service where follows the rules on #135 ([reading groups versus pla
   A service keeps only its lines for the best place of service its family reads that any of them names on the network.
   A rate under the file's shared labels is used only where the network's own labels have none for the biller, service and bill.
   A biller appears if it has a doctor in `biller_doctors` for that service, or if its NPPES primary specialty code registers it as a center for the service's family.
+  Only those billers' rates are carried roster by roster ([`candidate_billers`](inputs/candidate_billers.py)), since a large roster's other billers never appear.
   It does the service where it is (`on_site`) if it's such a center or one of those doctors billed the service in an office, and otherwise it bills only the parts done elsewhere, such as a scan's reading.
   Medicaid doesn't say where, so its billing counts as in an office only for a family that bills a service one way (`elsewhere` lists one alternative, such as a visit or a pregnancy ultrasound billed all in), and not where Medicare shows the doctor billing that code only elsewhere; for any other scan or a procedure it can't say which part was billed, so it never does.
   A rate is for the bill that names each of its modifiers, not counting one in `BODY_SITES`, which only says where on the body, so a surgery a plan prices only on one side keeps its price.

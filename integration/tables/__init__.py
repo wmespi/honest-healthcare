@@ -17,6 +17,7 @@ from integration.inputs.addresses import Addresses
 from integration.inputs.biller_doctors import BillerDoctors
 from integration.inputs.biller_places import BillerPlaces
 from integration.inputs.biller_rates import BillerRates
+from integration.inputs.candidate_billers import CandidateBillers
 from integration.inputs.datasets import check_inputs
 from integration.inputs.families import (
     FAMILIES_PATH, Benefits, Centers, ExtraBillParts, Facilities, FamilyBills, FamilyList, Kinds,
@@ -60,6 +61,7 @@ def inputs(services_path=SERVICES_PATH, hospital_plans_path=HOSPITAL_PLANS_PATH,
         Measures(measures_path, families_path),
         MeasureFits(measures_path, families_path),
         HospitalPlans(hospital_plans_path),
+        CandidateBillers(),
         BillerDoctors(),
         BillerRates(),
         FacilityRates(),

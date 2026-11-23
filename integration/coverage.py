@@ -10,7 +10,8 @@ import shutil
 import tempfile
 
 from integration import tables
-from integration.inputs.biller_rates import EVIDENCE, covered
+from integration.inputs.biller_rates import EVIDENCE, rate_evidence, rate_rosters
+from integration.inputs.datasets import roster_biller
 from integration.inputs.families import FAMILIES_PATH
 from integration.inputs.hospital_plans import HOSPITAL_PLANS_PATH
 from integration.inputs.service_list import SERVICES_PATH
@@ -47,12 +48,17 @@ def report(con, data_dir, by_service=False):
     keys = "network_id, service_id" if by_service else "network_id"
     kinds = ", ".join(f"count(*) FILTER (WHERE strongest = {i}) AS {kind}" for i, kind in enumerate(EVIDENCE, 1))
     cur = con.execute(f"""
-        WITH {covered(data_dir)},
+        WITH {rate_evidence(data_dir)},
+        -- Every biller with a rate for a service, whatever its evidence.
+        priced AS (
+            SELECT DISTINCT k.network_id, k.service_id, {roster_biller('p')} AS biller
+            {rate_rosters(data_dir)}
+        ),
         pairs AS (
             SELECT c.network_id, c.service_id, c.biller, count(s.place_id) > 0 AS placed,
                    count(p.place_id) > 0 AS on_map,
                    min(list_position({list(EVIDENCE)!r}, r.evidence)) AS strongest
-            FROM (SELECT DISTINCT network_id, service_id, biller FROM covered) c
+            FROM priced c
             LEFT JOIN biller_rates r USING (network_id, service_id, biller)
             LEFT JOIN service_sites s USING (network_id, service_id, biller)
             LEFT JOIN places p USING (place_id)
