@@ -218,7 +218,7 @@ describe('find care', () => {
     expect(screen.getByText('Not on file')).toBeInTheDocument();
     expect(screen.getByText(/Nothing on file confirms the hospital itself is/)).toBeInTheDocument();
     expect(screen.getByText(/Medicare pays hospitals about \$243.77/)).toBeInTheDocument();
-    expect(screen.getByText('Emory Medical Care Foundation and Radiology Associates Of Dekalb PC bill the doctor’s fee here.'))
+    expect(screen.getByText('Emory Medical Care Foundation and Radiology Associates of Dekalb PC bill the doctor’s fee here.'))
       .toBeInTheDocument();
     expect(screen.getByText('Medicare hospital rating: 3 of 5 stars')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /\(404\) 616-1000/ })).toBeInTheDocument();

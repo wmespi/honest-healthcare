@@ -78,7 +78,7 @@ def test_the_build_holds(client):
     assert [(n["network_id"], n["prices_status"]) for n in root["networks"]] == [
         (n, "current") for n in [BLUE_VALUE, "49046-GAN001", "49046-GAN003", "49046-GAN008", *OSCAR, *AMBETTER,
                                  *ALLIANT]]
-    assert root["rows"] == {"plans": 118, "services": 382, "families": 23, "places": 11780, "prices": 487416,
+    assert root["rows"] == {"plans": 118, "services": 382, "families": 23, "places": 11661, "prices": 487260,
                             "providers": 21465}
 
 

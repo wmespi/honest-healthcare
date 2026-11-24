@@ -1,20 +1,37 @@
 import { describe, it, expect } from 'vitest';
-import { displayName, money } from './format';
+import { displayAddress, displayName, displayPerson, money } from './format';
 import { filterResults, pinStack, placeView, shareLines, shareText } from './view';
 
 describe('find care wording', () => {
-  it('spells names in capitals as words, keeping endings, credentials and directions', () => {
+  it('spells names in capitals as words, keeping endings, credentials and short names', () => {
     expect(displayName('EMORY PATIENT CENTERED PRIMARY CARE LLC')).toBe('Emory Patient Centered Primary Care LLC');
     expect(displayName('JEFF A TRAUB, MD, PC')).toBe('Jeff A Traub, MD, PC');
-    expect(displayName('2501 N PATTERSON ST, SUITE 100')).toBe('2501 N Patterson St, Suite 100');
     expect(displayName("O'NEIL-SMITH IMAGING")).toBe("O'Neil-Smith Imaging");
     expect(displayName("SAINT JOSEPH'S MERCY CARE SERVICES INC")).toBe("Saint Joseph's Mercy Care Services Inc");
-    expect(displayName("CHILDREN'S HEALTHCARE OF ATLANTA, INC.")).toBe("Children's Healthcare Of Atlanta, Inc.");
+    expect(displayName("CHILDREN'S HEALTHCARE OF ATLANTA, INC.")).toBe("Children's Healthcare of Atlanta, Inc.");
     expect(displayName('JAMES L MCQUAIG JR OD & A BLAKE HUTTO OD')).toBe('James L McQuaig Jr OD & A Blake Hutto OD');
     expect(displayName('ABIGAIL S. HOLBROOK, MSW, LCSW, LLC')).toBe('Abigail S. Holbrook, MSW, LCSW, LLC');
-    expect(displayName('USA VASCULAR CENTER OF DECATUR LLC')).toBe('USA Vascular Center Of Decatur LLC');
-    expect(displayName('1365 CLIFTON RD NE')).toBe('1365 Clifton Rd NE');
+    expect(displayName('USA VASCULAR CENTER OF DECATUR LLC')).toBe('USA Vascular Center of Decatur LLC');
+    expect(displayName('THE CENTER FOR PAIN AND SPINE AT EAST COBB')).toBe('The Center for Pain and Spine at East Cobb');
+    expect(displayName('ATLANTA ENT, SINUS AND ALLERGY')).toBe('Atlanta ENT, Sinus and Allergy');
+    expect(displayName('NSH GEORGIA LLC')).toBe('NSH Georgia LLC');
+    expect(displayName('SGMC HEALTH PT/OT')).toBe('SGMC Health PT/OT');
+    expect(displayName('PEACHTREE OB/GYN, P.C.')).toBe('Peachtree OB/GYN, P.C.');
+    expect(displayName("ST JOSEPH'S/CANDLER MEDICAL CTR")).toBe("St Joseph's/Candler Medical Ctr");
+    expect(displayName('DR JOHN SMITH PHD (FT GORDON)')).toBe('Dr John Smith PhD (Ft Gordon)');
     expect(displayName('Diagnostic Radiology Physician')).toBe('Diagnostic Radiology Physician');
+  });
+
+  it('spells addresses and clinicians by their own rules', () => {
+    expect(displayAddress('2501 N PATTERSON ST, SUITE 100')).toBe('2501 N Patterson St, Suite 100');
+    expect(displayAddress('1365 CLIFTON RD NE')).toBe('1365 Clifton Rd NE');
+    expect(displayAddress('40 OAK CT, STE 2')).toBe('40 Oak Ct, Ste 2');
+    expect(displayAddress('4000 US HWY 41 N, PO BOX 12')).toBe('4000 US Hwy 41 N, PO Box 12');
+    expect(displayAddress('1 W 12TH ST, 3RD FLOOR, SUITE#116, STE 615A')).toBe('1 W 12th St, 3rd Floor, Suite#116, Ste 615A');
+    expect(displayAddress('ST SIMONS ISLAND')).toBe('St Simons Island');
+    expect(displayAddress('MCDONOUGH')).toBe('McDonough');
+    expect(displayPerson('LI NG')).toBe('Li Ng');
+    expect(displayPerson('MARY OF THE WOODS, MD')).toBe('Mary Of The Woods, MD');
   });
 
   it('shows cents only when there are some', () => {

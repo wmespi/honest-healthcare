@@ -5,14 +5,24 @@ from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES
 from integration.table import Table
 
 # Company endings a practice's billing IDs spell differently, so "MIDTOWN IMAGING,
-# P.C." and "MIDTOWN IMAGING PC" are one practice.
-ENDINGS = ["LLC", "PLLC", "LLP", "PC", "PA", "INC", "LTD", "CORP", "CORPORATION", "CO", "THE"]
+# P.C." and "MIDTOWN IMAGING PC" are one practice, and "AND", which "&" spells.
+ENDINGS = ["LLC", "PLLC", "LLP", "PC", "PA", "INC", "LTD", "CORP", "CORPORATION", "CO", "THE", "AND"]
 
 
 def practice_name(name):
-    """SQL for a practice's name without its punctuation or company endings."""
+    """SQL for a practice's name without its punctuation or company endings, and
+    with two letters spelled apart as one word: "P C" is "PC" and "O D" is "OD"."""
     endings = ", ".join(f"'{e}'" for e in ENDINGS)
-    return f"array_to_string(list_filter({_words(name)}, w -> w NOT IN ({endings})), ' ')"
+    joined = f"regexp_replace(array_to_string({_words(name)}, ' '), '\\b([A-Z]) ([A-Z])\\b', '\\1\\2', 'g')"
+    return f"array_to_string(list_filter(string_split({joined}, ' '), w -> w NOT IN ({endings})), ' ')"
+
+
+def _without(line, name):
+    """SQL for an address line without the commas around it, or the biller's own
+    name where an NPPES record ends it with that ("STE 223 PACES FERRY MEDICAL
+    GROUP PC"). A name inside a line is the street's ("MERCER UNIVERSITY DR")."""
+    return (f"nullif(trim(CASE WHEN ends_with({line}, {name}) THEN left({line}, length({line}) - length({name})) "
+            f"ELSE {line} END, ' ,'), '')")
 
 
 def _phone(digits):
@@ -87,7 +97,8 @@ class BillerPlaces(Table):
                 SELECT DISTINCT ON (b.biller, a.building)
                        b.biller, b.biller_name, b.name, b.center, b.center_rank, b.generic, b.rated, b.org, l.main, a.building,
                        a.lat, a.lon,
-                       concat_ws(', ', l.address_line1, nullif(trim(l.address_line2), '')) AS address,
+                       concat_ws(', ', {_without("l.address_line1", "b.biller_name")},
+                                 {_without("l.address_line2", "b.biller_name")}) AS address,
                        l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone,
                        {suite("l.address_line1", "l.address_line2")} AS suite
                 FROM billers b

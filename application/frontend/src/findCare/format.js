@@ -4,26 +4,66 @@ export const money = (amount) => `$${amount.toLocaleString('en-US', Number.isInt
 
 export const miles = (distance) => `${distance.toFixed(1)} mi`;
 
-// Words that stay in capitals: company endings, credentials, numerals, street
-// directions, scan names and the country.
-const CAPITALS = new Set([
-  'LLC', 'PLLC', 'LLP', 'PC', 'PA', 'MD', 'DO', 'OD', 'DPM', 'DMD', 'DDS', 'NP', 'APRN', 'FNP',
-  'LCSW', 'LPC', 'LMFT', 'MSW', 'II', 'III', 'IV', 'NE', 'NW', 'SE', 'SW', 'MRI', 'CT', 'PET', 'USA',
-]);
-
-// A capital starts the word and follows a hyphen, slash or bracket, and an
-// apostrophe or "Mc" when more letters follow: O'Neal and McQuaig, but Women's.
-const word = (w) => {
-  if (w.length <= 1 || /\d/.test(w) || CAPITALS.has(w.replace(/[.,]/g, ''))) return w;
-  return w.toLowerCase()
-    .replace(/(^|[-/(])([a-z])/g, (_, before, letter) => before + letter.toUpperCase())
-    .replace(/(['’]|^Mc)([a-z])(?=[a-z])/g, (_, before, letter) => before + letter.toUpperCase());
-};
-
 // NPPES and Medicare spell names and addresses in capitals ("GRADY MEMORIAL
 // HOSPITAL"), so the screen spells them as words. Text with lower-case letters
 // is already spelled, and stays as it is.
-export function displayName(text) {
-  if (!text || /[a-z]/.test(text)) return text;
-  return text.split(' ').map(word).join(' ');
+
+// Capitals in any name or address: company endings, credentials and numerals.
+const CAPITALS = [
+  'LLC', 'PLLC', 'LLP', 'PC', 'PA', 'MD', 'DO', 'OD', 'DPM', 'DMD', 'DDS', 'NP', 'APRN', 'FNP',
+  'LCSW', 'LPC', 'LMFT', 'MSW', 'II', 'III', 'IV',
+];
+// Street directions, the state and the country.
+const PLACES = ['NE', 'NW', 'SE', 'SW', 'GA', 'US', 'USA'];
+
+// A practice or hospital: the scans and the short names Georgia's practices go
+// by. A word without a vowel is one of those too (SGMC, NSH), unless it's short
+// for a word (WORDS), and "of", "and" and the like stay small after the first word.
+const NAME = {
+  capitals: new Set([...CAPITALS, ...PLACES, 'MRI', 'CT', 'PET', 'ENT', 'OB', 'GYN', 'OBGYN', 'GI', 'EEG',
+    'ICU', 'ER', 'OT', 'VA', 'AU', 'AGA', 'AFC', 'AMC', 'ASC', 'ACS', 'ATL', 'ABC', 'DBA', 'HMA', 'MSO',
+    'UHS', 'UMG', 'CHOA', 'ESOP', 'OBHG']),
+  initials: true,
+  small: true,
+};
+const WORDS = new Set(['ST', 'DR', 'DRS', 'JR', 'SR', 'MR', 'MRS', 'MT', 'FT', 'LTD', 'CTR', 'GRP', 'SVC', 'SVCS', 'MGMT', 'HLTH']);
+const SMALL = new Set(['OF', 'AND', 'THE', 'FOR', 'IN', 'AT', 'TO', 'ON', 'BY', 'AN']);
+// A street address or a city, where "CT" is a court and "SR" a state route.
+const ADDRESS = { capitals: new Set([...CAPITALS, ...PLACES, 'PO', 'PMB', 'SR']) };
+// A clinician.
+const PERSON = { capitals: new Set(CAPITALS) };
+
+// A word, or a part of one between hyphens and slashes. A capital starts it and
+// follows a bracket or a comma, and an apostrophe or "Mc" when more letters
+// follow: O'Neal and McQuaig, but Women's.
+function part(text, rules) {
+  const letters = text.replace(/[^A-Z]/g, '');
+  if (letters === 'PHD') return text.replace('PHD', 'PhD');
+  if (rules.capitals.has(letters)) return text;
+  if (rules.initials && letters.length > 1 && !/[AEIOUY]/.test(letters) && !WORDS.has(letters)) return text;
+  return text.toLowerCase()
+    .replace(/(^|[(,])([a-z])/g, (_, before, letter) => before + letter.toUpperCase())
+    .replace(/(['’]|^Mc)([a-z])(?=[a-z])/g, (_, before, letter) => before + letter.toUpperCase());
 }
+
+// With a number in it, a word is an ordinal (12th), a suite (Suite105) or a
+// unit, whose letters (615A, B001) stay as they are.
+const numbered = (text) => text
+  .replace(/(\d)(ST|ND|RD|TH)\b/g, (_, digit, ending) => digit + ending.toLowerCase())
+  .replace(/[A-Z]{3,}/g, (run) => run[0] + run.slice(1).toLowerCase());
+
+function word(text, first, rules) {
+  if (/\d/.test(text)) return numbered(text);
+  if (text.length <= 1 || text.includes('&')) return text;
+  if (rules.small && !first && SMALL.has(text)) return text.toLowerCase();
+  return text.split(/([-/])/).map((p) => (p === '-' || p === '/' ? p : part(p, rules))).join('');
+}
+
+const spell = (rules) => (text) => {
+  if (!text || /[a-z]/.test(text)) return text;
+  return text.split(' ').map((w, i) => word(w, i === 0, rules)).join(' ');
+};
+
+export const displayName = spell(NAME);
+export const displayAddress = spell(ADDRESS);
+export const displayPerson = spell(PERSON);
