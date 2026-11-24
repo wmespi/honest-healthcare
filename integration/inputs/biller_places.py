@@ -5,14 +5,16 @@ from integration.inputs.datasets import DOCTORS_CLINICIANS, NPPES
 from integration.table import Table
 
 # Company endings a practice's billing IDs spell differently, so "MIDTOWN IMAGING,
-# P.C." and "MIDTOWN IMAGING PC" are one practice.
-ENDINGS = ["LLC", "PLLC", "LLP", "PC", "PA", "INC", "LTD", "CORP", "CORPORATION", "CO", "THE"]
+# P.C." and "MIDTOWN IMAGING PC" are one practice, and "AND", which "&" spells.
+ENDINGS = ["LLC", "PLLC", "LLP", "PC", "PA", "INC", "LTD", "CORP", "CORPORATION", "CO", "THE", "AND"]
 
 
 def practice_name(name):
-    """SQL for a practice's name without its punctuation or company endings."""
+    """SQL for a practice's name without its punctuation or company endings, and
+    with two letters spelled apart as one word: "P C" is "PC" and "O D" is "OD"."""
     endings = ", ".join(f"'{e}'" for e in ENDINGS)
-    return f"array_to_string(list_filter({_words(name)}, w -> w NOT IN ({endings})), ' ')"
+    joined = f"regexp_replace(array_to_string({_words(name)}, ' '), '\\b([A-Z]) ([A-Z])\\b', '\\1\\2', 'g')"
+    return f"array_to_string(list_filter(string_split({joined}, ' '), w -> w NOT IN ({endings})), ' ')"
 
 
 def _phone(digits):

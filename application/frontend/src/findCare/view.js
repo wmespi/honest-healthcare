@@ -1,6 +1,6 @@
 // What the screen shows for a /find-care answer (application/serving/contract.py), worked out
 // once here so the components only lay it out.
-import { displayName, money } from './format';
+import { displayAddress, displayName, displayPerson, money } from './format';
 
 const round2 = (amount) => Math.round(amount * 100) / 100;
 
@@ -13,8 +13,8 @@ export function placeView(place, { cheapestId, closestId, median, facilityRate }
     name: displayName(place.name),
     kind: place.kind,
     kindLabel: place.kind_name,
-    city: displayName(place.city),
-    address: displayName(place.address),
+    city: displayAddress(place.city),
+    address: displayAddress(place.address),
     phone: place.phone,
     stars: place.stars,
     lat: place.lat,
@@ -31,7 +31,7 @@ export function placeView(place, { cheapestId, closestId, median, facilityRate }
     termsOnly: place.max_rate === null && !missingPart && place.parts.some((part) => part.terms),
     severalRates: place.several_rates,
     billers: place.billers.map(displayName),
-    providers: place.providers.map((p) => ({ ...p, name: displayName(p.name), quality: p.quality ?? [] })),
+    providers: place.providers.map((p) => ({ ...p, name: displayPerson(p.name), quality: p.quality ?? [] })),
     quality: place.quality ?? [],
     facilityEstimate: place.kind === 'hospital' && facility?.max === null ? facilityRate : null,
     cashPrice: place.cash_price ?? null,
