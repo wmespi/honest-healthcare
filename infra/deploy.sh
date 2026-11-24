@@ -35,9 +35,6 @@ gcloud services enable artifactregistry.googleapis.com run.googleapis.com iap.go
 gcloud artifacts repositories describe "$REPO" --project "$PROJECT" --location "$REGION" >/dev/null 2>&1 ||
   gcloud artifacts repositories create "$REPO" --project "$PROJECT" --location "$REGION" \
     --repository-format docker --description "The application image, from make deploy"
-# Keep the last three images, which leaves room to roll back and stays in the free tier.
-gcloud artifacts repositories set-cleanup-policies "$REPO" --project "$PROJECT" --location "$REGION" \
-  --policy infra/cleanup-policy.json --no-dry-run >/dev/null
 gcloud iam service-accounts describe "$SMOKE_SA" --project "$PROJECT" >/dev/null 2>&1 ||
   gcloud iam service-accounts create deploy-smoke --project "$PROJECT" --display-name "make deploy's smoke check"
 gcloud iam service-accounts add-iam-policy-binding "$SMOKE_SA" --project "$PROJECT" \
@@ -73,4 +70,21 @@ fi
 token="$(gcloud auth print-identity-token --impersonate-service-account "$SMOKE_SA" --audiences "$client" \
   --include-email 2>/dev/null)"
 python3 infra/smoke.py "$url" --token "$token"
+
+# Once it passes. An earlier revision can't start without its image, so a roll back is a deploy (infra/deploy.md).
+step "Keep only this image, in the registry and on this machine"
+repo="${IMAGE%:*}"
+# The image is an index, and the images it lists are the registry's too.
+keep="$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' | python3 -c 'import json, sys
+m = json.load(sys.stdin)
+print("\n".join([m["digest"]] + [c["digest"] for c in m.get("manifests", [])]))')"
+# Tagged first, so an index goes before the images it lists.
+gcloud artifacts docker images list "$repo" --project "$PROJECT" --include-tags --format 'value(version,tags)' |
+  sort -k2 -r | while read -r digest _; do
+    grep -qx "$digest" <<<"$keep" || gcloud artifacts docker images delete "$repo@$digest" --delete-tags --quiet \
+      --project "$PROJECT"
+  done
+docker images "$repo" --filter dangling=false --format '{{.Repository}}:{{.Tag}}' | while read -r old; do
+  [ "$old" = "$IMAGE" ] || docker rmi "$old" >/dev/null
+done
 echo "Deployed $IMAGE to $url"
