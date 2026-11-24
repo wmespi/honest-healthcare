@@ -5,16 +5,17 @@
 The app runs as one Cloud Run service, `application` in `us-east1`, in the Google Cloud project `honest-healthcare`.
 Inside the project, things are named by their role and match the repo (the service and its image are both `application`, like `application/`), while anything seen beside other projects, such as a budget on the shared billing account, carries the app's name.
 Google's Identity-Aware Proxy (IAP) stands in front of it, its `run.app` address included, so nobody reaches it without signing in with a Google account the project lets in.
-The image holds the code and the find-care tables ([README.md](README.md)), so a deploy ships both and a rollback restores both.
+The image holds the code and the find-care tables ([README.md](README.md)), so a deploy ships both, and the service reads nothing on this machine.
 
 ## Deploy
 
 `make deploy` ships the committed code with the tables in `data/serving/` (`infra/deploy.sh`):
 
 1. It builds the image on this machine for Cloud Run (`linux/amd64`), tagged with the commit and when the tables were built.
-2. It pushes the image to the Artifact Registry repository `containers`, which keeps the last three (`infra/cleanup-policy.json`).
+2. It pushes the image to the Artifact Registry repository `containers`.
 3. It rolls it out at one instance at most, scaling to nothing when idle, with IAP on.
 4. It runs `infra/smoke.py` through IAP, signed in as the `deploy-smoke` service account.
+5. Once that passes, it deletes every other image of the app, in the registry and on this machine.
 
 The first run also does whatever setup is missing: the APIs, the repository and the `deploy-smoke` account, which is in IAP's policy and whose tokens the person deploying may make.
 A data refresh is `make refresh`, then `make deploy`.
@@ -34,12 +35,13 @@ A tester needs a Google account, on two lists:
 - One instance at most bounds what the service can spend in a month, and it costs nothing while idle.
 - A budget on the project's Cloud Run, `honest-healthcare-budget`, carries a **spend cap** of $10 a month: Google pauses the service when its estimated spend reaches it, until the next month or until the cap is lifted under Billing → Budgets & alerts.
   The cap reacts quickly to estimated costs, but not instantly.
-- The rest stays in free tiers: the image is built here rather than in Cloud Build, Artifact Registry keeps three images, and IAP is free.
+- The rest stays in free tiers: the image is built here rather than in Cloud Build, Artifact Registry holds one image, and IAP is free.
 
 ## Roll back
 
-`gcloud run revisions list --project honest-healthcare --region us-east1` lists the revisions, each with the commit it runs (its `commit` label).
-`gcloud run services update-traffic application --project honest-healthcare --region us-east1 --to-revisions <revision>=100` sends all traffic to one, and the next `make deploy` moves it to the new revision.
+An earlier revision can't start once its image is deleted, so a roll back is a deploy.
+`gcloud run revisions list --project honest-healthcare --region us-east1` lists the revisions, each with the commit it ran (its `commit` label).
+Check out that commit, then `make build` and `make deploy`, which ship its code with the tables it builds from what `data/ingestion/` holds now.
 
 ## One-time setup
 
