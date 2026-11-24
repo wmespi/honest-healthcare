@@ -221,6 +221,20 @@ def test_billers_at_different_suites_of_one_building_are_different_places(corpus
     assert [p[0] for p in places_at(corpus, "300 PEACHTREE")] == ["1000000084", "1000000085"]
 
 
+def test_an_address_line_drops_the_billers_own_name(corpus):
+    biller(corpus, 1000000096, "LAMBDA FAMILY CLINIC, INC", "950 PEACHTREE ST NE", "ATLANTA", "303032200",
+           address_line2="STE 5 LAMBDA FAMILY CLINIC, INC")
+    corpus.geocode("950 PEACHTREE ST NE", "ATLANTA", "303032200", "950 PEACHTREE ST NE, ATLANTA, GA, 30303",
+                   33.764, -84.392, address_line2="STE 5 LAMBDA FAMILY CLINIC, INC")
+    # A name that's part of the street stays.
+    biller(corpus, 1000000097, "MERCER UNIVERSITY", "1501 MERCER UNIVERSITY DR", "MACON", "312071234")
+    corpus.geocode("1501 MERCER UNIVERSITY DR", "MACON", "312071234", "1501 MERCER UNIVERSITY DR, MACON, GA, 31207",
+                   32.83, -83.65)
+    corpus.build()
+    assert sorted(p[4] for p in corpus.rows("places") if p[4].startswith(("950 PEACHTREE", "1501 MERCER"))) == [
+        "1501 MERCER UNIVERSITY DR", "950 PEACHTREE ST NE, STE 5"]
+
+
 def test_names_with_letters_spelled_apart_or_an_ampersand_match(corpus):
     # Different suites, so only the names join them.
     biller(corpus, 1000000094, "KAPPA BONE & JOINT P C", "900 PEACHTREE ST NE", "ATLANTA", "303032200",

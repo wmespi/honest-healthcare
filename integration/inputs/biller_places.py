@@ -17,6 +17,14 @@ def practice_name(name):
     return f"array_to_string(list_filter(string_split({joined}, ' '), w -> w NOT IN ({endings})), ' ')"
 
 
+def _without(line, name):
+    """SQL for an address line without the commas around it, or the biller's own
+    name where an NPPES record ends it with that ("STE 223 PACES FERRY MEDICAL
+    GROUP PC"). A name inside a line is the street's ("MERCER UNIVERSITY DR")."""
+    return (f"nullif(trim(CASE WHEN ends_with({line}, {name}) THEN left({line}, length({line}) - length({name})) "
+            f"ELSE {line} END, ' ,'), '')")
+
+
 def _phone(digits):
     """SQL for a 10-digit phone number the way hospitals' are written,
     "(706) 272-6105", and nothing for any other."""
@@ -89,7 +97,8 @@ class BillerPlaces(Table):
                 SELECT DISTINCT ON (b.biller, a.building)
                        b.biller, b.biller_name, b.name, b.center, b.center_rank, b.generic, b.rated, b.org, l.main, a.building,
                        a.lat, a.lon,
-                       concat_ws(', ', l.address_line1, nullif(trim(l.address_line2), '')) AS address,
+                       concat_ws(', ', {_without("l.address_line1", "b.biller_name")},
+                                 {_without("l.address_line2", "b.biller_name")}) AS address,
                        l.city, left(l.postal_code, 5) AS zip, {_phone("l.phone")} AS phone,
                        {suite("l.address_line1", "l.address_line2")} AS suite
                 FROM billers b

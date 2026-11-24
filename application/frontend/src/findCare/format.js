@@ -46,8 +46,15 @@ function part(text, rules) {
     .replace(/(['’]|^Mc)([a-z])(?=[a-z])/g, (_, before, letter) => before + letter.toUpperCase());
 }
 
+// With a number in it, a word is an ordinal (12th), a suite (Suite105) or a
+// unit, whose letters (615A, B001) stay as they are.
+const numbered = (text) => text
+  .replace(/(\d)(ST|ND|RD|TH)\b/g, (_, digit, ending) => digit + ending.toLowerCase())
+  .replace(/[A-Z]{3,}/g, (run) => run[0] + run.slice(1).toLowerCase());
+
 function word(text, first, rules) {
-  if (text.length <= 1 || /[\d&]/.test(text)) return text;
+  if (/\d/.test(text)) return numbered(text);
+  if (text.length <= 1 || text.includes('&')) return text;
   if (rules.small && !first && SMALL.has(text)) return text.toLowerCase();
   return text.split(/([-/])/).map((p) => (p === '-' || p === '/' ? p : part(p, rules))).join('');
 }

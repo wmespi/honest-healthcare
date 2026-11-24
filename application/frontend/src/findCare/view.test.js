@@ -27,6 +27,7 @@ describe('find care wording', () => {
     expect(displayAddress('1365 CLIFTON RD NE')).toBe('1365 Clifton Rd NE');
     expect(displayAddress('40 OAK CT, STE 2')).toBe('40 Oak Ct, Ste 2');
     expect(displayAddress('4000 US HWY 41 N, PO BOX 12')).toBe('4000 US Hwy 41 N, PO Box 12');
+    expect(displayAddress('1 W 12TH ST, 3RD FLOOR, SUITE#116, STE 615A')).toBe('1 W 12th St, 3rd Floor, Suite#116, Ste 615A');
     expect(displayAddress('ST SIMONS ISLAND')).toBe('St Simons Island');
     expect(displayAddress('MCDONOUGH')).toBe('McDonough');
     expect(displayPerson('LI NG')).toBe('Li Ng');
