@@ -11,7 +11,7 @@ from integration.inputs.families import FAMILIES_PATH, FromYaml, benefit_keys, m
 SERVICES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "services.yaml")
 SERVICE_FIELDS = {"service_id", "billing_code", "name", "keywords", "about", "could_change", "asks", "benefits",
-                  "preventive_note", "anesthesia", "pathology", "doctor", "code_type"}
+                  "per", "preventive_note", "anesthesia", "pathology", "doctor", "code_type"}
 # The code types a service's code is by default; `code_type` names another.
 CODE_TYPES = ["CPT", "HCPCS"]
 OTHER_CODE_TYPES = ("MS-DRG",)
@@ -74,7 +74,8 @@ class ServiceList(FromYaml):
     (families.members), and belongs to one service in that family, though it
     may be a service in each of two. Every service has a name, keywords and
     text about it, and at least one thing that could change the bill and one
-    question to ask, its own or its family's. `benefits` is the service's own,
+    question to ask, its own or its family's. `per`, what one price is for when
+    the service is billed by the unit, is empty where it names none. `benefits` is the service's own,
     for every one of its bills, and empty where it names none. `anesthesia` is a
     five-character code from 00100 to 01999, `pathology` and `doctor` five-character
     codes, each empty where the service has none (extra_bills). `code_types` says
@@ -88,7 +89,7 @@ class ServiceList(FromYaml):
     key = ["service_id"]
     columns = {"service_id": "VARCHAR", "billing_code": "VARCHAR", "family": "VARCHAR", "name": "VARCHAR",
                "keywords": "VARCHAR", "about": "VARCHAR", "could_change": "VARCHAR[]", "asks": "VARCHAR[]",
-               "preventive_note": "VARCHAR", "benefits": "VARCHAR[]", "anesthesia": "VARCHAR", "pathology": "VARCHAR",
+               "per": "VARCHAR", "preventive_note": "VARCHAR", "benefits": "VARCHAR[]", "anesthesia": "VARCHAR", "pathology": "VARCHAR",
                "doctor": "VARCHAR", "code_types": "VARCHAR[]"}
 
     def __init__(self, path=SERVICES_PATH, families_path=FAMILIES_PATH):
@@ -156,6 +157,7 @@ class ServiceList(FromYaml):
                 UNION ALL SELECT service_id, 'asks' FROM service_list
                     WHERE coalesce(len(asks), 0) = 0
                        OR len(list_filter(asks, x -> coalesce(trim(x), '') = '')) > 0
+                UNION ALL SELECT service_id, 'per' FROM service_list WHERE per IS NOT NULL AND trim(per) = ''
                 UNION ALL SELECT service_id, 'preventive_note' FROM service_list
                     WHERE preventive_note IS NOT NULL AND trim(preventive_note) = '')
             ORDER BY service_id, field

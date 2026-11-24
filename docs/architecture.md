@@ -136,6 +136,7 @@ erDiagram
         about str
         could_change str[]
         asks str[]
+        per str(optional)
         preventive_note str(optional)
         bills bill[]
         medicare_rate number(optional)

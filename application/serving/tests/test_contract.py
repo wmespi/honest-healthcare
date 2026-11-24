@@ -154,7 +154,7 @@ def test_fastapi_publishes_the_contract():
     @app.get("/services", response_model=Catalog)
     def services():
         return {"families": [{"family": "mammograms", "name": "Mammograms", "specialties": [], "measured": False}], "services": [{"service_id": "mammogram", "family": "mammograms", "name": "Screening mammogram", "keywords": "breast",
-                 "about": "A low-dose X-ray.", "could_change": [], "asks": [],
+                 "about": "A low-dose X-ray.", "could_change": [], "asks": [], "per": None,
                  "preventive_note": "Usually $0 in network.", "medicare_rate": 98.1,
                  "medicare_facility_rate": None}]}
 

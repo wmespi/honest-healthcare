@@ -15,6 +15,7 @@ from integration.inputs.service_list import read_services
     ("mri-brain", "70551", {"asks": []}, "mri-brain has an empty asks"),
     ("mri-brain", "70551", {"could_change": ["Contrast dye", " "]}, "mri-brain has an empty could_change"),
     ("mri-brain", "70551", {"about": ""}, "mri-brain has an empty about"),
+    ("mri-brain", "70551", {"per": " "}, "mri-brain has an empty per"),
     ("mri-brain", "70551", {"benefits": ["colour"]}, r"mri-brain names benefits \['colour'\]"),
     ("mri-brain", "99213", {}, r"mri-brain's billing_code 99213 is 'Office E&M - Established'"
                                 r".*which isn't in mri"),
@@ -55,3 +56,10 @@ def test_a_services_benefits_beat_its_bills_which_beat_its_familys(corpus):
         "facility": ["advanced_imaging"]}
     # The service's own, for every bill.
     assert set(map(tuple, bill_benefits(corpus, "mri-brain").values())) == {("preventive",)}
+
+
+def test_a_service_billed_by_the_unit_says_what_one_price_is_for(corpus):
+    corpus.service("mri-brain", "70551", per="15 minutes")
+    assert corpus.inputs().execute(
+        "SELECT service_id, per FROM service_list WHERE service_id IN ('mri-brain', 'mri-lower-back') "
+        "ORDER BY service_id").fetchall() == [("mri-brain", "15 minutes"), ("mri-lower-back", None)]

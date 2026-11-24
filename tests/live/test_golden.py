@@ -174,6 +174,8 @@ def test_an_allergy_skin_test_near_emory_is_priced_per_allergen_under_allergy_te
     assert {p["specialty"] for p in emory["providers"]} == {"Allergy & Immunology Physician"}
     assert [(s["benefit"], s["coinsurance"], s["after_deductible"]) for s in body["cost_sharing"]] == [
         ("allergy", 40.0, True)]
+    services = {s["service_id"]: s for s in client.get("/api/services").json()["services"]}
+    assert services["allergy-skin-test"]["per"] == "allergen"
 
 
 def test_an_echocardiogram_near_emory_is_the_whole_scan_at_a_cardiology_practice(client):

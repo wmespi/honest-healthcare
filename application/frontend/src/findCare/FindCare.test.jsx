@@ -290,6 +290,21 @@ describe('find care', () => {
       { serviceId: 'mri-lower-back', planId: SILVER, zip: '30322', radiusMi: 25, sort: 'distance' }));
   });
 
+  it('says what one price is for when the service is billed by the unit', async () => {
+    const perUnit = [{ ...SERVICES[0], per: '15 minutes' }, SERVICES[1]];
+    api.getServices.mockResolvedValue({ data: { families: FAMILIES, services: perUnit } });
+    const first = open(MRI);
+    expect(await screen.findByText(/is the most you’d pay at/)).toBeInTheDocument();
+    expect(headline()).toBe('$177.21 per 15 minutes is the most you’d pay at The Emory Clinic Inc');
+    first.unmount();
+    api.getFindCare.mockResolvedValue({ data: answer([], {
+      closest_outside: { ...EMORY, distance_mi: 34.2 }, wider_radius_mi: 50, closest_place_id: null,
+    }) });
+    open(`${MRI}&r=5`);
+    expect(await screen.findByText(/The closest is The Emory Clinic Inc, 34.2 mi away, where the most you’d pay is \$177.21 per 15 minutes\./))
+      .toBeInTheDocument();
+  });
+
   it('offers a wider search when nothing is nearby', async () => {
     const user = userEvent.setup();
     api.getFindCare.mockResolvedValue({ data: answer([], {
