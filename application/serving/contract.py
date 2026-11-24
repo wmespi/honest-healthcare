@@ -134,6 +134,9 @@ class Service(BaseModel):
     about: str
     could_change: list[str] = Field(description="What could make the bill differ from the price shown.")
     asks: list[str] = Field(description="Questions to ask before booking.")
+    per: Optional[str] = Field(
+        description="What one price is for when the service is billed by the unit, such as `15 minutes` or "
+                    "`allergen`: every price and rate for it is per one.")
     preventive_note: Optional[str] = Field(
         description="Shown first when the service is usually free as preventive care.")
     medicare_rate: Optional[float] = Field(description="What Medicare pays for the whole service in an office.")

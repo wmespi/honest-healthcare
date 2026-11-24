@@ -125,14 +125,15 @@ function NoFullPrice({ search, radiusMi, plan, preventive, onWiden }) {
   );
 }
 
-// The straight answer, before any table: the lowest ceiling nearby, and what it's for.
-function Answer({ search, radiusMi, plan, preventive }) {
+// The straight answer, before any table: the lowest ceiling nearby, and what it's for,
+// per unit when the service is billed by the unit.
+function Answer({ search, radiusMi, plan, preventive, per }) {
   const { cheapest, nearbyMedian, medicareRate, pricedCount } = search;
   return (
     <div className="px-4 pb-4 pt-5 sm:px-6">
       <p className="text-[13px] font-medium text-emerald-700">Cheapest within {radiusMi} miles</p>
       <h1 className="mt-1 text-balance text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px] sm:leading-9">
-        <span className="tabular-nums">{money(cheapest.maxRate)}</span> is the most you&rsquo;d pay at {cheapest.name}
+        <span className="tabular-nums">{money(cheapest.maxRate)}</span>{per && ` per ${per}`} is the most you&rsquo;d pay at {cheapest.name}
       </h1>
       <p className="mt-1.5 text-[15px] text-slate-600">
         {miles(cheapest.distanceMi)} away.
@@ -171,7 +172,7 @@ function NothingNearby({ emptyNote, closest, radiusMi, widerRadiusMi, service, p
       <h1 className="text-xl font-bold tracking-tight text-slate-900">Nothing within {radiusMi} miles</h1>
       <p className="mt-1 text-[15px] text-slate-600">
         The closest is {closest.name}, {miles(closest.distanceMi)} away,
-        {closest.maxRate === null ? ' but its full price isn’t on file.' : <> where the most you&rsquo;d pay is {money(closest.maxRate)}.</>}
+        {closest.maxRate === null ? ' but its full price isn’t on file.' : <> where the most you&rsquo;d pay is {money(closest.maxRate)}{service.per && ` per ${service.per}`}.</>}
       </p>
       {widerRadiusMi && <WidenButton radiusMi={widerRadiusMi} onWiden={onWiden} />}
     </div>
@@ -237,7 +238,7 @@ function Results({ search, service, plan, measured, specialties, specialty, sort
       {/* The kind of doctor comes before the answer it changes. */}
       {picker}
       {search.cheapest
-        ? <Answer search={search} radiusMi={radiusMi} plan={plan} preventive={preventive} />
+        ? <Answer search={search} radiusMi={radiusMi} plan={plan} preventive={preventive} per={service.per} />
         : <NoFullPrice search={search} radiusMi={radiusMi} plan={plan} preventive={preventive} onWiden={(r) => update({ r })} />}
       <AboutService service={service} plan={plan} />
       <ExtraBills bills={search.extraBills} />

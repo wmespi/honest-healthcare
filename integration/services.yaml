@@ -19,6 +19,9 @@
 #                    Each of these three replaces the family's when given.
 #   benefits         Optional: what the member's share for every bill of the
 #                    service falls under, in place of what its family says.
+#   per              Optional: what one price is for when the service is billed by
+#                    the unit ("15 minutes", "allergen"), so the screen says the
+#                    most you'd pay per one.
 #   preventive_note  Optional. Shown first when the service is usually free as
 #                    preventive care.
 #   anesthesia       Optional: the CPT code (00100 to 01999) of the anesthesia that
@@ -1215,6 +1218,7 @@ lab_tests:
   - service_id: lab-stool-culture
     billing_code: "87046"
     name: Stool bacteria culture, each type tested
+    per: type tested
     keywords: diarrhea salmonella poop
 
   - service_id: lab-culture-other
@@ -1225,6 +1229,7 @@ lab_tests:
   - service_id: lab-bacteria-id
     billing_code: "87077"
     name: Bacteria identification after a culture, each
+    per: type identified
     keywords: wound germ
 
   - service_id: lab-culture-screen
@@ -1240,6 +1245,7 @@ lab_tests:
   - service_id: lab-urine-bacteria-id
     billing_code: "87088"
     name: Urine bacteria identification, each type
+    per: type identified
     keywords: uti bladder infection
 
   - service_id: lab-fungus-culture
@@ -1316,6 +1322,7 @@ allergy:
   - service_id: allergy-skin-test
     billing_code: "95004"
     name: Allergy skin test, per allergen
+    per: allergen
     keywords: allergist prick scratch panel hay fever pollen food
     about: Tiny amounts of possible allergens are pricked into the skin of your arm or back, and the doctor checks for bumps after 15 to 20 minutes. Each allergen is billed on its own, and a visit often tests dozens, so the visit costs this price times the number tested. Ask whether to stop antihistamines first.
     could_change:
@@ -1379,56 +1386,67 @@ therapy:
   - service_id: therapy-estim-hands-on
     billing_code: "97032"
     name: Electric stimulation with a therapist, per 15 minutes
+    per: 15 minutes
     keywords: estim muscle pt
 
   - service_id: therapy-iontophoresis
     billing_code: "97033"
     name: Iontophoresis, medicine through the skin, per 15 minutes
+    per: 15 minutes
     keywords: iontophoresis medication pt
 
   - service_id: therapy-ultrasound
     billing_code: "97035"
     name: Therapy ultrasound (deep heat), per 15 minutes
+    per: 15 minutes
     keywords: sound waves tendon pt
 
   - service_id: therapy-exercise
     billing_code: "97110"
     name: Exercise therapy, per 15 minutes
+    per: 15 minutes
     keywords: strength stretching physical pt
 
   - service_id: therapy-balance-retraining
     billing_code: "97112"
     name: Balance and movement retraining, per 15 minutes
+    per: 15 minutes
     keywords: neuromuscular coordination pt
 
   - service_id: therapy-water-exercise
     billing_code: "97113"
     name: Water exercise therapy, per 15 minutes
+    per: 15 minutes
     keywords: pool aquatic pt
 
   - service_id: therapy-walking-training
     billing_code: "97116"
     name: Walking training, per 15 minutes
+    per: 15 minutes
     keywords: gait pt
 
   - service_id: therapy-massage
     billing_code: "97124"
     name: Massage therapy, per 15 minutes
+    per: 15 minutes
     keywords: muscle rub pt
 
   - service_id: therapy-hands-on
     billing_code: "97140"
     name: Hands-on joint and muscle therapy, per 15 minutes
+    per: 15 minutes
     keywords: manual mobilization pt
 
   - service_id: therapy-activities
     billing_code: "97530"
     name: Activity-based therapy, per 15 minutes
+    per: 15 minutes
     keywords: occupational ot daily tasks
 
   - service_id: therapy-self-care
     billing_code: "97535"
     name: Self-care skills training, per 15 minutes
+    per: 15 minutes
     keywords: occupational ot daily living
 
 speech_therapy:
@@ -1496,6 +1514,7 @@ mental_health:
   - service_id: counseling-crisis-extra
     billing_code: "90840"
     name: Crisis talk therapy, each added 30 minutes
+    per: added 30 minutes
     keywords: emergency counseling urgent mental
 
   - service_id: counseling-family-without
@@ -1873,6 +1892,7 @@ skin_procedures:
   - service_id: skin-freeze-more
     billing_code: "17003"
     name: Freezing a precancerous skin spot, each of the second to 14th
+    per: added spot
     keywords: actinic keratosis liquid nitrogen
 
   - service_id: skin-wart-up-to-14
@@ -1950,6 +1970,7 @@ skin_procedures:
     billing_code: "11103"
     pathology: "88305"
     name: Skin biopsy, each additional spot, shaved
+    per: added spot
     keywords: mole lesion
 
   - service_id: skin-growth-small-trunk

@@ -8,7 +8,8 @@ from integration.table import Table
 
 class Services(Table):
     """Every service in integration/services.yaml with a row in prices, with its
-    `family` and its text. `bills` is each bill a patient could get for it, in
+    `family` and its text, and `per`, what one price is for when it's billed by
+    the unit ("15 minutes"), empty for any other. `bills` is each bill a patient could get for it, in
     its family's order (integration/families.yaml): its `part`, the `label` the
     screen shows, its `billing_class` (`institutional` for a facility's own fee,
     else `professional`), the `benefits` the member's share for it falls under
@@ -27,7 +28,7 @@ class Services(Table):
     key = ["service_id"]
     columns = {"service_id": "VARCHAR", "billing_code": "VARCHAR", "family": "VARCHAR", "name": "VARCHAR",
                "keywords": "VARCHAR", "about": "VARCHAR", "could_change": "VARCHAR[]", "asks": "VARCHAR[]",
-               "preventive_note": "VARCHAR",
+               "per": "VARCHAR", "preventive_note": "VARCHAR",
                "bills": "STRUCT(part VARCHAR, \"label\" VARCHAR, billing_class VARCHAR, benefits VARCHAR[], "
                         "missing_note VARCHAR, missing_explain VARCHAR, missing_explain_hospital VARCHAR, "
                         "missing_note_practice VARCHAR, missing_explain_practice VARCHAR)[]",
@@ -61,7 +62,7 @@ class Services(Table):
                 GROUP BY service_id
             )
             SELECT s.service_id, s.billing_code, s.family, s.name, s.keywords, s.about, s.could_change, s.asks,
-                   s.preventive_note, b.bills,
+                   s.per, s.preventive_note, b.bills,
                    coalesce(e.extra_bills, []::STRUCT(part VARCHAR, "label" VARCHAR, note VARCHAR, missing VARCHAR, code VARCHAR)[]) AS extra_bills,
                    CASE WHEN s.family NOT IN {OWN_FEE_FAMILIES} THEN o.medicare_rate END AS medicare_rate,
                    f.payment_rate AS medicare_facility_rate

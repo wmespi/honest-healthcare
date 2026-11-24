@@ -73,6 +73,7 @@ def test_find_care_services_carry_what_the_screen_says(api):
     assert by_id["mri-lower-back"]["medicare_rate"] == 180.0 and by_id["mri-lower-back"]["medicare_facility_rate"] == 243.77
     assert by_id["mri-lower-back"]["family"] == "mri"
     assert by_id["mammogram-screening"]["preventive_note"] == "Usually $0 in network as preventive care."
+    assert by_id["mri-lower-back"]["per"] is None
 
 
 def test_the_catalog_lists_families_in_their_order(api):

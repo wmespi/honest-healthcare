@@ -64,7 +64,7 @@ def get_services():
     return {"families": _rows(conn.execute(f"SELECT family, name, specialties, len(measures) > 0 AS measured FROM {FAMILIES_SRC} "
                 f"ORDER BY position, family")),
             "services": _rows(conn.execute(f"""
-                SELECT service_id, family, name, keywords, about, could_change, asks, preventive_note,
+                SELECT service_id, family, name, keywords, about, could_change, asks, per, preventive_note,
                        medicare_rate, medicare_facility_rate
                 FROM {SERVICES_SRC} ORDER BY name, service_id
             """))}
